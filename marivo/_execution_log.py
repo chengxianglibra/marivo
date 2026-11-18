@@ -55,13 +55,10 @@ _CONTEXT: ContextVar[ExecutionContext | None] = ContextVar("marivo_execution_log
 
 def snapshot(project_root: Path | None = None) -> ExecutionContext:
     current = _CONTEXT.get()
-    root = (
-        project_root.resolve()
-        if project_root is not None
-        else current.root
-        if current is not None
-        else resolve_project_root()
-    )
+    if current is not None and (project_root is None or project_root == current.root):
+        root = current.root
+    else:
+        root = project_root.resolve() if project_root is not None else resolve_project_root()
     return ExecutionContext(root, dict(current.fields) if current and current.root == root else {})
 
 

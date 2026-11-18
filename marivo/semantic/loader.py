@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from ibis.common.deferred import Deferred
 
 from marivo._authoring.loading import (
+    _authored_file_spec,
+    _authored_imports,
     _exception_chain_key,
     _execution_diagnostic,
     _new_module_prefix,
@@ -53,6 +55,7 @@ from marivo.semantic._compiled_state import (
 )
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
+from marivo.semantic._model_source import _ModelSources
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import (
     ErrorKind,
@@ -102,6 +105,8 @@ class LoaderContext:
     declarations: list[Deferred] = field(default_factory=list)
     declaration_contexts: dict[int, InputContext] = field(default_factory=dict)
     project_root: Path | None = None
+    _model_package: str | None = field(default=None, repr=False, compare=False)
+    _sources: _ModelSources = field(default_factory=_ModelSources, repr=False, compare=False)
 
 
 _LOADER_CTX: ContextVar[LoaderContext | None] = ContextVar(
@@ -283,7 +288,9 @@ def _ensure_package(name: str, path: Path) -> None:
     sys.modules[name] = package
 
 
-def _entity_constructor_decorator_error(filepath: Path, exc: Exception) -> SemanticLoadError | None:
+def _entity_constructor_decorator_error(
+    filepath: Path, exc: Exception, sources: _ModelSources
+) -> SemanticLoadError | None:
     """Classify only an executed @ms.entity(...) application that returned Ref."""
     if type(exc) is not TypeError or str(exc) != "'Ref' object is not callable":
         return None
@@ -304,15 +311,14 @@ def _entity_constructor_decorator_error(filepath: Path, exc: Exception) -> Seman
     if semantic_module is None:
         return None
     entity_constructor = getattr(semantic_module, "entity", None)
-    try:
-        tree = ast.parse(filepath.read_text(encoding="utf-8"), filename=str(filepath))
-    except (OSError, SyntaxError, UnicodeError):
+    source = sources.get(str(filepath))
+    if source is None:
         return None
 
     module_aliases: set[str] = set()
     direct_aliases: set[str] = set()
     bare_module = False
-    for statement in tree.body:
+    for statement in source.tree.body:
         if isinstance(statement, ast.Import):
             for alias in statement.names:
                 if alias.name == "marivo.semantic":
@@ -334,7 +340,7 @@ def _entity_constructor_decorator_error(filepath: Path, exc: Exception) -> Seman
                     if alias.name == "entity"
                 )
 
-    for node in ast.walk(tree):
+    for node in ast.walk(source.tree):
         if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             continue
         for decorator in node.decorator_list:
@@ -391,7 +397,7 @@ def _execute_file(
     """
     token = _LOADER_CTX.set(ctx)
     try:
-        spec = importlib_util.spec_from_file_location(module_name, filepath)
+        spec = _authored_file_spec(module_name, filepath, ctx._sources.capture)
         if spec is None or spec.loader is None:
             raise ImportError(f"Could not create module spec for {filepath}")
         module = importlib_util.module_from_spec(spec)
@@ -417,7 +423,9 @@ def _execute_file(
             errors.append(_wrap_datasource_error(exc))
         else:
             diagnostic = _execution_diagnostic(exc, filepath)
-            entity_decorator_error = _entity_constructor_decorator_error(filepath, exc)
+            entity_decorator_error = _entity_constructor_decorator_error(
+                filepath, exc, ctx._sources
+            )
             error = entity_decorator_error or SemanticLoadError(
                 kind=ErrorKind.ORGANIZATION_ERROR,
                 message=str(exc),
@@ -434,10 +442,10 @@ def _execute_file(
 
 def _load_model_dir(
     model_dir: Path,
-    root: Path,
     errors: list[SemanticError],
     *,
     module_prefix: str,
+    sources: _ModelSources,
     project_root: Path | None = None,
     datasource_irs: tuple[DatasourceIR, ...] = (),
 ) -> LoaderContext | None:
@@ -463,14 +471,16 @@ def _load_model_dir(
         )
         return None
 
+    model_package = f"{module_prefix}.{model_name}"
     ctx = LoaderContext(
         model_name=model_name,
         file_path=str(model_file),
         current_model_file=str(model_file),
         datasource_irs=datasource_irs,
         project_root=project_root,
+        _model_package=model_package,
+        _sources=sources,
     )
-    model_package = f"{module_prefix}.{model_name}"
     _ensure_package(model_package, model_dir)
     _execute_file(
         model_file,
@@ -979,19 +989,21 @@ def load_project(
         for root_spec, module_prefix in zip(root_specs, module_prefixes, strict=True)
     }
 
-    for model_dir in model_dirs:
-        semantic_root = model_dir.parent
-        module_prefix = prefix_by_semantic_root[semantic_root]
-        ctx = _load_model_dir(
-            model_dir,
-            semantic_root,
-            errors,
-            module_prefix=module_prefix,
-            project_root=project_root or root.parent.parent,
-            datasource_irs=tuple(datasource_irs),
-        )
-        if ctx is not None:
-            all_contexts.append(ctx)
+    sources = _ModelSources()
+    with _authored_imports(module_prefixes, sources.capture):
+        for model_dir in model_dirs:
+            semantic_root = model_dir.parent
+            module_prefix = prefix_by_semantic_root[semantic_root]
+            ctx = _load_model_dir(
+                model_dir,
+                errors,
+                module_prefix=module_prefix,
+                sources=sources,
+                project_root=project_root or root.parent.parent,
+                datasource_irs=tuple(datasource_irs),
+            )
+            if ctx is not None:
+                all_contexts.append(ctx)
 
     registry, expression_sidecar, assembly_errors = _build_registry(
         all_contexts,

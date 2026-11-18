@@ -12,7 +12,9 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass, replace
 from datetime import date
 from difflib import SequenceMatcher
+from functools import cached_property
 from pathlib import Path
+from threading import Lock
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
@@ -169,6 +171,8 @@ from marivo.semantic.preview_scope import (
 CalendarDate = date
 
 if TYPE_CHECKING:
+    from _thread import LockType
+
     from ibis.backends import BaseBackend
 
     from marivo._authoring.model import AuthoringRepair
@@ -1275,7 +1279,7 @@ def _normalize_semantic_input(
             location=location,
             message=f"received semantic kind {exact_ref.kind.value}; select an allowed named object.",
         )
-    if exact_ref not in index._refs:
+    if exact_ref not in index:
         _raise_invalid_semantic_input(
             catalog=catalog,
             value=value,
@@ -1483,6 +1487,7 @@ class _CatalogIndex:
         registry: Registry,
     ) -> None:
         self.values = CatalogValues(catalog._state)
+        self._dependencies = catalog._state.dependencies
         build_index = _CatalogBuildIndex(registry)
         datasource_irs = project._datasource_irs or tuple(registry.datasources.values())
         entries: tuple[_SemanticObject[SemanticKindTag], ...] = (
@@ -1535,6 +1540,20 @@ class _CatalogIndex:
     def entry(self, ref: Ref[SemanticKindTag]) -> _SemanticObject[SemanticKindTag] | None:
         return self._public_entries.get(ref)
 
+    def entries(self) -> Iterable[SemanticObject]:
+        return self._public_entries.values()
+
+    def __contains__(self, ref: Ref[SemanticKindTag]) -> bool:
+        return ref in self._public_entries
+
+    @cached_property
+    def dependents(self) -> Mapping[Ref[SemanticKindTag], tuple[Ref[SemanticKindTag], ...]]:
+        reverse: dict[Ref[SemanticKindTag], list[Ref[SemanticKindTag]]] = {}
+        for ref, dependencies in self._dependencies.items():
+            for dependency in dependencies:
+                reverse.setdefault(dependency, []).append(ref)
+        return MappingProxyType({ref: tuple(items) for ref, items in reverse.items()})
+
     def members(
         self,
         kinds: tuple[SemanticKind, ...],
@@ -1571,6 +1590,7 @@ class SemanticCatalog(RenderableResult):
     __slots__ = (
         "_definitions",
         "_documents",
+        "_documents_lock",
         "_excluded_refs",
         "_index",
         "_load_errors",
@@ -1586,7 +1606,8 @@ class SemanticCatalog(RenderableResult):
     _reg: Registry
     _index: _CatalogIndex
     _search_config: SearchConfig
-    _documents: tuple[SearchDocument, ...]
+    _documents: tuple[SearchDocument, ...] | None
+    _documents_lock: LockType
     _definitions: dict[Ref[SemanticKindTag], EntryDefinition]
     _scope: CatalogScope
     _load_errors: tuple[SemanticError, ...]
@@ -1601,6 +1622,8 @@ class SemanticCatalog(RenderableResult):
         object.__setattr__(self, "_load_errors", project.errors())
         object.__setattr__(self, "_excluded_refs", project._excluded_refs)
         object.__setattr__(self, "_definitions", {})
+        object.__setattr__(self, "_documents", None)
+        object.__setattr__(self, "_documents_lock", Lock())
         object.__setattr__(self, "_index", _CatalogIndex(self, project, self._reg))
         from marivo.config import AUTHORED_DIR, load_semantic_layer_paths
 
@@ -1624,7 +1647,6 @@ class SemanticCatalog(RenderableResult):
                 excluded_count=len(self._excluded_refs),
             ),
         )
-        object.__setattr__(self, "_documents", self._search_documents())
 
     def __setattr__(self, name: str, value: object) -> NoReturn:
         del name, value
@@ -1848,10 +1870,18 @@ class SemanticCatalog(RenderableResult):
         # Definition facts belong to this immutable scope and reuse their projection.
         definition = self._definitions.get(ref)
         if definition is None:
-            definition = self._definitions[ref] = definition_for(self, ref)
+            definition = self._definitions.setdefault(ref, definition_for(self, ref))
         return definition
 
     def _search_documents(self) -> tuple[SearchDocument, ...]:
+        with self._documents_lock:
+            documents = self._documents
+            if documents is None:
+                documents = self._build_search_documents()
+                object.__setattr__(self, "_documents", documents)
+            return documents
+
+    def _build_search_documents(self) -> tuple[SearchDocument, ...]:
         from marivo.semantic._catalog_definition import context_for
         from marivo.semantic._metric_time_disclosure import metric_time_binding_text
 
@@ -1888,7 +1918,7 @@ class SemanticCatalog(RenderableResult):
                     (("expression", definition.expression), ("unit", definition.unit or ""))
                 )
             for dependency in self._state.dependencies.get(ref, ()):
-                if dependency in self._index._refs:
+                if dependency in self._index:
                     inherited = context_for(self, dependency)
                     fields.append(
                         (
@@ -2085,7 +2115,7 @@ class SemanticCatalog(RenderableResult):
                 hint="Use one exact semantic kind, such as metric or dimension.",
             )
         result = search_documents(
-            self._documents,
+            self._search_documents(),
             workspace_dir=self.workspace_dir,
             snapshot=self.definition_fingerprint,
             query=query,
@@ -2139,7 +2169,7 @@ class SemanticCatalog(RenderableResult):
         if relation == "dependencies":
             selected.update(self._entry_dependencies(ref))
         elif relation == "dependents":
-            selected.update(item for item, reads in dependencies.items() if ref in reads)
+            selected.update(self._index.dependents.get(ref, ()))
         else:
             owners = (
                 {ref.path}
@@ -2208,11 +2238,9 @@ class SemanticCatalog(RenderableResult):
                     if item.datasource == ref.path
                 )
         loaded = tuple(
-            sorted(
-                (item for item in selected if item in self._index._refs), key=lambda item: item.key
-            )
+            sorted((item for item in selected if item in self._index), key=lambda item: item.key)
         )
-        outside = tuple(sorted(item.key for item in selected if item not in self._index._refs))
+        outside = tuple(sorted(item.key for item in selected if item not in self._index))
         token = f"{entry.id}:{relation}"
         try:
             offset = _decode_related_cursor(
@@ -2249,7 +2277,7 @@ class SemanticCatalog(RenderableResult):
         """Validate exact internal identity in this compiled scope."""
         exact_ref = ref
         index = self._require_index()
-        if exact_ref in index._refs:
+        if exact_ref in index:
             return
 
         candidates = tuple(item.key for item in index._refs if item.kind is exact_ref.kind)[
@@ -2405,7 +2433,7 @@ class SemanticCatalog(RenderableResult):
             dependency
             for item in physical
             for dependency in self._entry_dependencies(item)
-            if dependency not in self._index._refs
+            if dependency not in self._index
         }
         report = self._project._readiness(
             refs=(*physical, *sorted(outside, key=lambda item: item.key))
@@ -2417,9 +2445,7 @@ class SemanticCatalog(RenderableResult):
             if current in checked:
                 continue
             checked.add(current)
-            pending.extend(
-                self._entry_dependencies(current) if current in self._index._refs else ()
-            )
+            pending.extend(self._entry_dependencies(current) if current in self._index else ())
             if current.kind in {SemanticKind.DOMAIN, SemanticKind.DATASOURCE}:
                 pending.extend(
                     item for item, scopes in self._index._scopes.items() if current in scopes
@@ -3253,11 +3279,12 @@ def load(
             the current directory. The local ``models/`` root is always
             loaded; external roots can be added with
             ``marivo.toml [semantic].layer_paths``.
-        domains: None loads all domain directories. A name or sequence selects
-            only those directories, without automatic dependency expansion.
+        domains: None or an empty sequence loads all domain directories.
+            A name or nonempty sequence selects only those directories,
+            without automatic dependency expansion.
             Include every domain required by the selected declarations.
-            Filtered Relationship references may warn; unresolved required
-            Metric dependencies fail loading.
+            Filtered Relationship references may warn. Fields require their
+            owning Entity, and Metrics require their dependencies in scope.
         allow_partial: Browse the validated subset after datasource declaration
             execution failures. Search pages disclose incomplete scope, and
             catalog.load_errors and catalog.excluded_refs explain omissions.
@@ -3279,8 +3306,8 @@ def load(
         separate from this project-level static validation event.
         Configured layer paths must point at authored ``models/`` roots that
         contain both ``datasources/`` and ``semantic/``.
-        Model declarations and relative imports use fresh namespaces for each
-        declaration load, without modifying sys.path. Model-to-model absolute
+        Model declarations and relative imports use current source in fresh
+        namespaces for each load, without modifying sys.path. Model-to-model absolute
         imports are unsupported. Strict loads retain modules until process exit.
         Existing semantic snapshots are unchanged by later loads.
         Restart Python after package upgrades or changes to ordinary imported

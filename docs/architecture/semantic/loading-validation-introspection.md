@@ -23,10 +23,12 @@ workspace_dir is an exact workspace root. If omitted, root resolution uses
 MARIVO_PROJECT_ROOT, the nearest ancestor manifest, then cwd. Local models and
 configured external model roots form one load scope. Duplicate identities fail
 with both declaration locations; later roots do not override earlier ones.
-`domains=None` loads all domain directories. An explicit domain name or sequence
-selects only those directories, without automatic dependency expansion. Include
-every domain required by the selected declarations. Filtered Relationship
-references may warn; unresolved required Metric dependencies fail loading.
+`domains=None` or an empty sequence loads all domain directories. A domain name
+or nonempty sequence selects those directories without automatic dependency
+expansion. Include every domain required by the selected declarations.
+Filtered Relationship references may warn. A Dimension or TimeDimension
+requires its owning Entity in the selected scope. Unresolved required Metric
+dependencies also fail loading.
 
 `ms.load(allow_partial=True)` can publish a validated Catalog subset when
 datasource declaration files fail to execute. It drops declarations produced by
@@ -53,12 +55,13 @@ kind and ownership. Resolved source reductions capture their explicit or
 inherited contribution field or the absence of one. This definition binding
 requires no business-data reads.
 
-Compilation owns an incremental definition graph and resolution caches for one
-load. Physical definitions are assembled once; validated declarations append
-their facts and dependencies in publication order. Physical resolution can be
-reused within that load, while derived identities are refreshed as declarations
-are published. Failed loads discard this private state. Final publication copies
-and freezes the completed graph; caches never carry definitions across loads.
+Compilation owns an incremental definition graph, source trees and resolution
+caches for one load. Declaration capture, Entity checks and load diagnostics
+can share the parsed tree for a model file. Physical definitions are assembled
+once. Validated declarations append their facts and dependencies in publication
+order. Physical resolution can be reused within that load. Derived identities
+are refreshed as declarations are published. Failed loads discard this private
+state. Final publication copies and freezes the completed graph.
 
 Each load assigns a fresh synthetic Python package to each semantic and datasource
 root. Concurrent loads never share model module names, and a reload never purges
@@ -76,7 +79,7 @@ dependencies use `ms.ref.*`; Python imports do not expand the selected domain sc
 Loading never changes `sys.path`. Absolute model imports such as
 `from datasources import warehouse` are unsupported, even if the caller's environment
 happens to resolve them. Standard-library and installed dependencies keep normal
-absolute imports. No import interception or execution sandbox is introduced.
+absolute imports. Execution uses the caller's Python process and permissions.
 
 Load diagnostics lead with the authored file and line when available. Python
 errors retain their original traceback on `error.traceback`. The semantic check
@@ -86,7 +89,9 @@ JSON output.
 With `--readiness`, load errors report a blocked status with the load diagnostics
 once. Readiness checks run after a successful load.
 
-A new load re-executes model files and their relative imports in its own namespace.
+A new load executes model files and their relative imports from current Python
+source in its own namespace, bypassing authored bytecode caches. Semantic
+expression compilation uses the same source bytes as module execution.
 Ordinary imported dependencies retain Python module caching; restart Python after
 package upgrades or changes to those dependencies when import state could be stale.
 
@@ -105,6 +110,10 @@ snapshots, but there is one discovery/lookup contract. Its canonical Help owners
 `semantic.semantic_catalog.search`, `semantic.semantic_catalog.get` and
 `semantic.readiness`. `analysis.inputs.catalog` explains acquisition and links
 to these native owners; it does not register parallel Catalog methods.
+
+Loading builds the exact identity index. Definition details are projected from
+the captured graph on demand. The first search prepares its documents from
+that same graph, and later searches on the same Catalog reuse them.
 
 Use `catalog.search(query, kind=..., domain=..., entity=..., limit=10)` to discover
 business objects. Omit `query` or pass `""` to list all objects in the loaded

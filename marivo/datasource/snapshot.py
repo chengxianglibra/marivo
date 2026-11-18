@@ -14,13 +14,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias, cast
 from urllib.parse import urlparse
 
-import pandas as pd
-
 from marivo._symbolic import DatasourceSymbol, symbol_factory
 from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
-from marivo.datasource.adapters import SourceSession
 from marivo.datasource.authoring import _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
@@ -43,6 +40,9 @@ from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
+    import pandas as pd
+
+    from marivo.datasource.adapters import SourceSession
     from marivo.datasource.inspection import SourceInspection
 
 
@@ -622,6 +622,8 @@ def acquire_snapshot(
     )
     created_at = lookup.now
     selected_data_types = {column.name: column.type.lower() for column in selected_schema}
+
+    import pandas as pd
 
     def persisted_value(value: object, column: str) -> JsonScalar:
         normalized = normalize_preview_cell(value)

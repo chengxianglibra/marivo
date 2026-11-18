@@ -14,7 +14,6 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
-import pyarrow as pa
 from ibis.backends import BaseBackend
 
 from marivo.datasource.ir import (
@@ -324,6 +323,8 @@ def _arrow_table(
     rows: list[dict[str, object]],
     source: JsonSourceIR,
 ) -> ir.Table:
+    import pyarrow as pa
+
     table = pa.Table.from_pylist(rows)
     if source.columns:
         for output, _path in source.columns:

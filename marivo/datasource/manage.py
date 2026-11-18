@@ -11,9 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
-import pandas as pd
-from pandas.api.types import is_object_dtype
-
 from marivo import _execution_log
 from marivo._authoring.model import AuthoringRepair
 from marivo._data_render import _DataCard, _DataResult
@@ -54,6 +51,8 @@ from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from marivo.semantic.catalog import Datasource
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
@@ -281,6 +280,9 @@ class RawSqlResult(_DataResult):
         The conversion does not use backend type labels to coerce values,
         execute a new query, or preserve Marivo metadata on the DataFrame.
         """
+        import pandas as pd
+        from pandas.api.types import is_object_dtype
+
         df = pd.DataFrame(builtins.list(self.rows), columns=builtins.list(self.columns))
         for column in df.columns:
             if is_object_dtype(df[column].dtype):

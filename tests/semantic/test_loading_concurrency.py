@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import py_compile
 import sys
+import textwrap
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import ContextVar
@@ -314,6 +317,8 @@ def test_relative_imports_preserve_sys_path_during_success_and_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, surface: str, fails: bool
 ) -> None:
     saved_path = sys.path.copy()
+    saved_meta_path = sys.meta_path.copy()
+    saved_cache_settings = sys.pycache_prefix, sys.dont_write_bytecode
     module_name = "_loading_probe_" + uuid4().hex
     module = ModuleType(module_name)
 
@@ -330,7 +335,14 @@ def test_relative_imports_preserve_sys_path_during_success_and_failure(
         (directory / "_domain.py").write_text(
             "import marivo.semantic as ms\nms.domain(name='demo', owner='Tester')\n"
         )
-    (directory / "_settings.py").write_text("NAME = 'warehouse'\n")
+    settings = directory / "_settings.py"
+    settings.write_text("NAME = 'stale_src'\n")
+    cache_path = py_compile.compile(str(settings), doraise=True)
+    assert cache_path is not None
+    cached = Path(cache_path).read_bytes()
+    stamp = settings.stat()
+    settings.write_text("NAME = 'warehouse'\n")
+    os.utime(settings, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
     (directory / "a.py").write_text(
         f"from {module_name} import check_path\ncheck_path()\n"
         "from ._settings import NAME\n"
@@ -348,10 +360,12 @@ def test_relative_imports_preserve_sys_path_during_success_and_failure(
             with pytest.raises(DatasourceLoadError) as caught_datasource:
                 md.load(workspace_dir=tmp_path).list()
             assert caught_datasource.value.exception_type == "ValueError"
+            assert caught_datasource.value.message == "warehouse"
         else:
             with pytest.raises(SemanticLoadFailed) as caught_semantic:
                 ms.load(workspace_dir=tmp_path)
             assert caught_semantic.value.errors[0].exception_type == "ValueError"
+            assert caught_semantic.value.errors[0].message == "warehouse"
     elif surface == "datasource":
         assert [item.name for item in md.load(workspace_dir=tmp_path).list()] == [
             "default",
@@ -363,6 +377,69 @@ def test_relative_imports_preserve_sys_path_during_success_and_failure(
             == "entity:demo.warehouse"
         )
     assert sys.path == saved_path
+    assert sys.meta_path == saved_meta_path
+    assert (sys.pycache_prefix, sys.dont_write_bytecode) == saved_cache_settings
+    assert Path(cache_path).read_bytes() == cached
+
+
+@pytest.mark.parametrize("nested", [False, True], ids=["top-level", "nested"])
+def test_concurrent_loads_compile_the_source_each_load_executes(
+    semantic_project_factory: _SemanticProjectFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    nested: bool,
+) -> None:
+    first_started, release_first = Event(), Event()
+    module = ModuleType("_loading_probe_" + uuid4().hex)
+
+    def wait_after_reading_source(factor: int) -> None:
+        if factor == 2:
+            first_started.set()
+            assert release_first.wait(10)
+
+    monkeypatch.setattr(
+        module, "wait_after_reading_source", wait_after_reading_source, raising=False
+    )
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    definition = "@ms.metric()\ndef cost():\n    return amount.sum() * FACTOR * 3\n"
+    if nested:
+        definition = (
+            "def declare():\n" + textwrap.indent(definition, "    ") + "    return cost\n"
+            "cost = declare()\n"
+        )
+    source = (
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        f"from {module.__name__} import wait_after_reading_source\n"
+        "FACTOR = 2\nwait_after_reading_source(FACTOR)\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
+        "source=md.table('orders'))\n"
+        "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
+        "additivity=ms.additive_all())\n" + definition
+    )
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Tester')\n",
+            "sales/orders.py": source,
+        },
+        load=False,
+    )
+    model = project.workspace_dir / "models/semantic/sales/orders.py"
+    saved_meta_path = sys.meta_path.copy()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(ms.load, workspace_dir=project.workspace_dir)
+        try:
+            assert first_started.wait(10)
+            model.write_text(source.replace("FACTOR = 2", "FACTOR = 4").replace("* 3", "* 15"))
+            second = pool.submit(ms.load, workspace_dir=project.workspace_dir)
+            after = second.result(timeout=10).get("metric:sales.cost")
+        finally:
+            release_first.set()
+        before = first.result(timeout=10).get("metric:sales.cost")
+
+    assert before.kind == "metric"
+    assert after.kind == "metric"
+    assert before.definition.formula == "((amount.sum(time=None) * 2) * 3)"
+    assert after.definition.formula == "((amount.sum(time=None) * 4) * 15)"
+    assert sys.meta_path == saved_meta_path
 
 
 def test_reload_refreshes_relative_helpers_and_preserves_captured_analysis(
@@ -379,10 +456,11 @@ def test_reload_refreshes_relative_helpers_and_preserves_captured_analysis(
                 f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(database)!r})\n"
             ),
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Tester')\n",
-            "sales/_factor.py": "FACTOR = 2\n",
+            "sales/helpers/__init__.py": "from ._factor import FACTOR\n",
+            "sales/helpers/_factor.py": "FACTOR = 2\n",
             "sales/fields.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "from ._factor import FACTOR\n"
+                "from .helpers import FACTOR\n"
                 "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
                 "@ms.measure()\ndef adjusted():\n    return amount * FACTOR\n"
@@ -395,6 +473,9 @@ def test_reload_refreshes_relative_helpers_and_preserves_captured_analysis(
         load=False,
     )
     root = project.workspace_dir
+    factor = root / "models/semantic/sales/helpers/_factor.py"
+    py_compile.compile(str(factor), doraise=True)
+    stamp = factor.stat()
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(root))
     session = mv.session.get_or_create("original", timezone="UTC")
     original = session.catalog
@@ -408,8 +489,8 @@ def test_reload_refreshes_relative_helpers_and_preserves_captured_analysis(
         for name, module in sys.modules.copy().items()
         if name.startswith(("_marivo_semantic_", "_marivo_datasource_"))
     }
-    # Different source size invalidates Python bytecode without clock-dependent waits.
-    (root / "models/semantic/sales/_factor.py").write_text("FACTOR = 100\n")
+    factor.write_text("FACTOR = 8\n")
+    os.utime(factor, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
     current = ms.load(workspace_dir=root)
     assert current.definition_fingerprint != original.definition_fingerprint
     assert all(sys.modules[name] is module for name, module in retained.items())
@@ -418,4 +499,4 @@ def test_reload_refreshes_relative_helpers_and_preserves_captured_analysis(
     newer = mv.session.get_or_create("newer", timezone="UTC")
     new_metric = newer.catalog.get("metric:sales.cost")
     assert new_metric.kind == "metric"
-    assert newer.observe({"cost": new_metric}).compute().to_pandas()["cost"].tolist() == [1000]
+    assert newer.observe({"cost": new_metric}).compute().to_pandas()["cost"].tolist() == [80]

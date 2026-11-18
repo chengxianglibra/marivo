@@ -2,21 +2,86 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import sys
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from importlib import util as importlib_util
+from importlib.abc import MetaPathFinder
+from importlib.machinery import ModuleSpec, PathFinder, SourceFileLoader
 from pathlib import Path
+from threading import Lock
 from traceback import TracebackException
+from types import CodeType, ModuleType
 from typing import Literal
 from uuid import uuid4
 
 _SOURCE_LOADING_FILE: ContextVar[Path | None] = ContextVar("_SOURCE_LOADING_FILE", default=None)
+_IMPORT_FINDERS_LOCK = Lock()
+_SourceCapture = Callable[[str, bytes], None]
 
 
 def _new_module_prefix(kind: Literal["datasource", "semantic"]) -> str:
     """Own an independent import namespace, retained until process exit."""
     return f"_marivo_{kind}_{uuid4().hex}"
+
+
+class _AuthoredSourceLoader(SourceFileLoader):
+    def __init__(self, name: str, path: str, capture: _SourceCapture | None) -> None:
+        super().__init__(name, path)
+        self._capture = capture
+
+    def get_code(self, fullname: str) -> CodeType:
+        # Keep the load-local cache out of the loader retained by sys.modules.
+        capture, self._capture = self._capture, None
+        path = self.get_filename(fullname)
+        source = self.get_data(path)
+        if capture is not None:
+            capture(path, source)
+        return self.source_to_code(source, path)
+
+
+def _authored_file_spec(
+    name: str, path: Path, capture: _SourceCapture | None = None
+) -> ModuleSpec | None:
+    return _use_authored_source(importlib_util.spec_from_file_location(name, path), capture)
+
+
+def _use_authored_source(
+    spec: ModuleSpec | None, capture: _SourceCapture | None
+) -> ModuleSpec | None:
+    if spec is not None and isinstance(spec.loader, SourceFileLoader):
+        spec.loader = _AuthoredSourceLoader(spec.name, spec.loader.path, capture)
+    return spec
+
+
+class _AuthoredSourceFinder(MetaPathFinder):
+    def __init__(self, prefixes: Sequence[str], capture: _SourceCapture | None) -> None:
+        self._prefixes = tuple(f"{prefix}." for prefix in prefixes)
+        self._capture = capture
+
+    def find_spec(
+        self, fullname: str, path: Sequence[str] | None, target: ModuleType | None = None
+    ) -> ModuleSpec | None:
+        if not fullname.startswith(self._prefixes):
+            return None
+        return _use_authored_source(PathFinder.find_spec(fullname, path, target), self._capture)
+
+
+@contextmanager
+def _authored_imports(
+    prefixes: Sequence[str], capture: _SourceCapture | None = None
+) -> Iterator[None]:
+    finder = _AuthoredSourceFinder(prefixes, capture)
+    # Publish a new list so concurrent imports can finish iterating theirs.
+    with _IMPORT_FINDERS_LOCK:
+        sys.meta_path = [finder, *sys.meta_path]
+    try:
+        yield
+    finally:
+        with _IMPORT_FINDERS_LOCK:
+            sys.meta_path = [entry for entry in sys.meta_path if entry is not finder]
 
 
 def _exception_chain_key(exc: BaseException | None) -> tuple[tuple[str, str, str, int], ...]:

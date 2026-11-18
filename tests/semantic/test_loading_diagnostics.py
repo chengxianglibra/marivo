@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import py_compile
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -279,6 +280,7 @@ def test_relative_import_reload_does_not_reuse_deleted_source(tmp_path: Path) ->
         "datasources/local.py",
         "import marivo.datasource as md\ndef declare():\n    return md.duckdb(name='local')\n",
     )
+    py_compile.compile(str(local), doraise=True)
     first = load_project(tmp_path / "models" / "semantic")
     duplicate = next(error for error in first.errors if error.kind == "duplicate_name")
     assert isinstance(duplicate.__cause__, DatasourceDuplicateError)
@@ -308,6 +310,7 @@ def test_orphan_bytecode_is_ignored_and_real_duplicates_still_fail(tmp_path: Pat
         tmp_path, "datasources/a.py", "import marivo.datasource as md\nmd.duckdb(name='local')\n"
     )
     local = _write(tmp_path, "datasources/local.py", a.read_text())
+    py_compile.compile(str(local), doraise=True)
     first = load_datasources(a.parent)
     duplicate = first.errors[0]
     assert isinstance(duplicate, DatasourceDuplicateError)

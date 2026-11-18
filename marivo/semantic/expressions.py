@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, is_dataclass
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace as dataclass_replace
+from functools import cached_property
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, TypeVar, cast, overload
 
 from ibis.common.deferred import Deferred
@@ -687,6 +688,13 @@ class _Resolver:
             return self.exact(ref_factory.time_dimension(path))
         return self.exact(ref_factory.dimension(path))
 
+    @cached_property
+    def _dimension_paths_by_entity(self) -> dict[str, list[str]]:
+        paths: dict[str, list[str]] = {}
+        for path, dimension in sorted(self._registry.dimensions.items()):
+            paths.setdefault(dimension.entity, []).append(path)
+        return paths
+
     def facts(self, target: Ref[SemanticKindTag]) -> DefinitionFacts:
         """Declared metadata and physical binding facts; never part of a computation."""
         definition = self._state.definitions[target]
@@ -769,8 +777,7 @@ class _Resolver:
             permission=self.permission(path),
             coordinates=tuple(
                 self.coordinate(path)
-                for path, field in sorted(self._registry.dimensions.items())
-                if field.entity == measure.entity
+                for path in self._dimension_paths_by_entity.get(measure.entity, ())
             ),
             _facts=self.facts(ref_factory.measure(path)),
             _versioned=self._registry.entities[measure.entity].versioning is not None,

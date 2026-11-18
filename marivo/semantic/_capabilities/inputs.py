@@ -187,7 +187,7 @@ _PARAMETERS: dict[str, tuple[str, str, tuple[LiveHelpTarget, ...]]] = {
     ),
     "domains": (
         "Text",
-        "None loads all domains; an explicit name or sequence must include every required dependency domain.",
+        "None or an empty sequence loads all domains. Include every required dependency domain when selecting a scope.",
         (),
     ),
     "allow_partial": (

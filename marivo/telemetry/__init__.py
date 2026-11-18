@@ -760,10 +760,10 @@ class _Operation:
     enabled: bool = False
 
     def __enter__(self) -> _Operation:
-        # Scope owns one fresh snapshot, including canonical root resolution.
-        # Read the inherited parent before installing this operation's fields.
+        # Nested operations inherit this scope's canonical project root.
         self._log_scope = _execution_log.scope(self.root)
         context = self._log_scope.__enter__()
+        self.root = context.root
         fields: dict[str, _execution_log.LogValue] = {
             "operation_id": self.operation_id,
             "parent_operation_id": context.fields.get("operation_id"),
@@ -967,9 +967,9 @@ def tracked_capability(
                     root=root,
                     attributes=_session_attributes(arguments, include_question=False),
                     mode=mode,
-                ):
+                ) as operation:
                     token = (
-                        _LOAD_POLICY.set((root, mode))
+                        _LOAD_POLICY.set((operation.root, mode))
                         if surface == "semantic" and capability_id == "load"
                         else None
                     )

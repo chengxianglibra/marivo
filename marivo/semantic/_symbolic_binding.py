@@ -38,6 +38,7 @@ from marivo._definition.expressions import PredicateExpression
 from marivo._definition.graph import walk
 from marivo._definition.types import (
     DefinitionGraphError,
+    ExactRef,
     FieldRead,
     PathParameter,
     RelationshipStepParameter,
@@ -86,11 +87,18 @@ class _PublicationResolver(_Resolver):
         super().__init__(graph)
         self._physical = frozenset(graph.definitions)
         self._physical_values: dict[Ref[SemanticKindTag], ResolvedValue] = {}
+        self._derived_versions: set[Ref[SemanticKindTag]] = set()
 
     def advance(self) -> None:
-        self._versions = {
-            ref: value for ref, value in self._versions.items() if ref in self._physical
-        }
+        for ref in self._derived_versions:
+            del self._versions[ref]
+        self._derived_versions.clear()
+
+    def exact(self, target: Ref[SemanticKindTag]) -> ExactRef:
+        value = super().exact(target)
+        if target not in self._physical:
+            self._derived_versions.add(target)
+        return value
 
     def value(self, target: Ref[SemanticKindTag]) -> ResolvedValue:
         if target not in self._physical:
@@ -369,8 +377,6 @@ def publish_declarations(
         context = context_by_id[id(value)]
         input_context = context.declaration_contexts.get(id(resolver_of(value)))
         if input_context is not None:
-            from marivo.semantic._consumption import validate_context
-
             try:
                 if input_context.owner is not None:
                     raise SemanticExpressionError(
@@ -380,7 +386,9 @@ def publish_declarations(
                         received=declaration.name,
                         action="Keep this declaration local to its owning Session.",
                     )
-                if context.project_root is not None:
+                if context.project_root is not None and input_context.project_root is not None:
+                    from marivo.semantic._consumption import validate_context
+
                     validate_context(input_context, project_root=context.project_root)
             except SemanticExpressionError as error:
                 errors.append(error)

@@ -9,10 +9,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import ibis.expr.types as ir
-import pandas as pd
 from ibis.backends import BaseBackend
 
 from marivo import _execution_log
@@ -20,7 +19,6 @@ from marivo._authoring.model import AuthoringRepair
 from marivo.datasource import backends, store
 from marivo.datasource import credentials as cr
 from marivo.datasource._lifetime import BackendLease
-from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.authoring import _storage_name
 from marivo.datasource.errors import (
     DatasourceConnectionError,
@@ -36,8 +34,13 @@ from marivo.datasource.ir import (
     QueryParamScalar,
     QueryParamScalarList,
 )
-from marivo.datasource.json_source import JsonResponseCache
 from marivo.introspection.live.model import LiveHelpTarget
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.json_source import JsonResponseCache
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
 _ResultT = TypeVar("_ResultT")
@@ -383,6 +386,8 @@ class DatasourceConnectionService:
         key = (datasource_name, binding_scope)
         session = self._source_sessions.get(key)
         if session is None:
+            from marivo.datasource.adapters import SourceSession, provider_for
+
             backend = self.session_backend(
                 datasource_name, require_existing_file=binding_scope is not None
             )
@@ -425,6 +430,8 @@ class DatasourceConnectionService:
         max_rows: int,
     ) -> pd.DataFrame:
         """Collect a bounded derived expression through its bound source session."""
+        import pandas as pd
+
         session = self._source_sessions.get((_storage_name(name), None))
         if session is None:
             raise RuntimeError("source expression has no session binding")

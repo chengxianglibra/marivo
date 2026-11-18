@@ -2695,11 +2695,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "load",
             "marivo.semantic.catalog.load",
-            "Load the read-only semantic catalog.\n  workspace_dir is an exact project root; when omitted: MARIVO_PROJECT_ROOT > nearest ancestor manifest > current directory.\n  Always loads the local models/ root; marivo.toml [semantic].layer_paths adds external models/ roots containing datasources/ and semantic/.\n  domains=None loads all domains; a name or sequence selects only those domain directories, without automatic dependency expansion. Include every required domain. Filtered Relationship references may warn; unresolved required Metric dependencies fail loading.",
+            "Load the read-only semantic catalog.\n  workspace_dir is an exact project root; when omitted: MARIVO_PROJECT_ROOT > nearest ancestor manifest > current directory.\n  Always loads the local models/ root; marivo.toml [semantic].layer_paths adds external models/ roots containing datasources/ and semantic/.\n  domains=None or an empty sequence loads all domains. A name or nonempty sequence selects only those domain directories without automatic dependency expansion. Include every required domain. Filtered Relationship references may warn. Fields require their owning Entity, and Metrics require their dependencies in scope.",
             output="SemanticCatalog",
             effects=_LOCAL,
             preconditions=(
-                "Each declaration load uses fresh namespaces for relative model imports, without modifying sys.path. Strict loads retain modules until process exit. Model absolute imports are unsupported.",
+                "Each declaration load uses current source in fresh namespaces for relative model imports, without modifying sys.path. Strict loads retain modules until process exit. Model absolute imports are unsupported.",
                 "Restart Python after package upgrades or ordinary dependency changes; ordinary imports retain Python module caching.",
                 "Strict by default. allow_partial=True permits discovery of the validated subset after datasource file execution failures. Inspect page.scope.complete, catalog.load_errors and catalog.excluded_refs. Readiness, validation and preview require a successful strict load.",
                 "Execution failures report the declaration location and keep the original traceback on the error.",

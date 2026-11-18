@@ -82,7 +82,7 @@ class SemanticProject:
                 workspace_dir = resolve_project_root()
             self._workspace_dir = Path(workspace_dir).resolve()
             self._semantic_root = self._workspace_dir / SEMANTIC_DIR
-        self._status: str = "unloaded"  # unloaded | ready | errored
+        self._status: str = "unloaded"  # unloaded | ready | partial | errored
         self._errors: tuple[SemanticError, ...] = ()
         self._warnings: tuple[StructuredWarning, ...] = ()
         self._registry: Registry | None = None

@@ -15,11 +15,11 @@ from time import monotonic
 from typing import Literal, TypedDict, cast
 from uuid import uuid4
 
-from marivo.server.catalog_projection import SUMMARY_FIELDS
 from marivo.server.frames import directory, scope_cursor, unscoped_cursor
 from marivo.server.wire import HELP, JsonObject, JsonValue, Limits, ServiceError, stale_cursor
 
 Relation = Literal["dependencies", "dependents"]
+_SUMMARY_FIELDS = ("id", "kind", "path", "name", "domain", "business_definition")
 
 
 class _EntryRequired(TypedDict):
@@ -108,7 +108,7 @@ class CatalogSnapshot:
             offset = position
         end = offset + limit
         items: list[JsonValue] = [
-            {name: entry["detail"][name] for name in SUMMARY_FIELDS}
+            {name: entry["detail"][name] for name in _SUMMARY_FIELDS}
             for entry in matches[offset:end]
         ]
         return directory(items, limit, scope_cursor(end, *scope) if end < len(matches) else None)

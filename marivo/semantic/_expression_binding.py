@@ -14,7 +14,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from types import MappingProxyType, ModuleType
+from types import FunctionType, MappingProxyType, ModuleType
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, cast
 
 import ibis
@@ -358,10 +358,34 @@ def _find_function_node(tree: ast.Module, fn_name: str) -> ast.FunctionDef:
     )
 
 
-def _load_function_ast(fn: Callable[..., object]) -> tuple[ast.Module, ast.FunctionDef]:
+def _load_function_ast(fn: Callable[..., object]) -> tuple[ast.FunctionDef, int]:
+    from marivo.semantic.loader import _LOADER_CTX
+
+    ctx = _LOADER_CTX.get()
     try:
-        source = textwrap.dedent(inspect.getsource(fn))
-        tree = ast.parse(source)
+        source = None
+        if ctx is not None and ctx._model_package is not None:
+            original = fn
+            if not isinstance(fn, FunctionType) or "__wrapped__" in fn.__dict__:
+                original = inspect.unwrap(fn)
+                if inspect.ismethod(original):
+                    original = original.__func__
+            if (
+                isinstance(original, FunctionType)
+                and isinstance(module_name := original.__globals__.get("__name__"), str)
+                and module_name.startswith(f"{ctx._model_package}.")
+            ):
+                code = original.__code__
+                model_source = ctx._sources.captured(code.co_filename)
+                if model_source is not None:
+                    if original is fn:
+                        function = model_source.functions.get((code.co_firstlineno, fn.__name__))
+                        if function is not None:
+                            return function, code.co_firstlineno - 1
+                    source = model_source.function_source(code.co_firstlineno)
+        if source is None:
+            source = inspect.getsource(fn)
+        tree = ast.parse(textwrap.dedent(source))
     except (OSError, TypeError, IndentationError, SyntaxError) as exc:
         raise SemanticLoadError(
             kind=ErrorKind.COMPILE_ERROR,
@@ -369,7 +393,7 @@ def _load_function_ast(fn: Callable[..., object]) -> tuple[ast.Module, ast.Funct
             expected="inspectable Python source for the decorated function",
             received=type(exc).__name__,
         ) from exc
-    return tree, _find_function_node(tree, fn.__name__)
+    return _find_function_node(tree, fn.__name__), 0
 
 
 def _resolved_symbols(fn: Callable[..., object]) -> dict[str, object]:
@@ -384,11 +408,16 @@ class _DeclarationExpressionBuilder:
     """Construct closed expression graphs without invoking the authored function."""
 
     def __init__(
-        self, symbols: dict[str, object], name: str, stage: Literal["measure", "metric"]
+        self,
+        symbols: dict[str, object],
+        name: str,
+        stage: Literal["measure", "metric"],
+        line_offset: int,
     ) -> None:
         self.symbols = symbols
         self.name = name
         self.stage = stage
+        self._line_offset = line_offset
         self.input_contexts: list[InputContext] = []
 
     def fail(
@@ -406,7 +435,10 @@ class _DeclarationExpressionBuilder:
             expected=expected,
             received=received,
             action="Use constructed semantic dependencies and their stage-specific operations; move helper calls outside the declaration.",
-            location_label=f"line {getattr(node, 'lineno', 0)}, column {getattr(node, 'col_offset', 0)}",
+            location_label=(
+                f"line {getattr(node, 'lineno', self._line_offset) - self._line_offset}, "
+                f"column {getattr(node, 'col_offset', 0)}"
+            ),
         )
 
     def dependency(self, value: object, node: ast.Name) -> object:
@@ -761,7 +793,7 @@ def _construct_declaration_expression(
     fn: Callable[..., object], *, stage: Literal["measure", "metric"]
 ) -> tuple[object, InputContext]:
     try:
-        _, function = _load_function_ast(fn)
+        function, line_offset = _load_function_ast(fn)
     except SemanticLoadError as error:
         raise SemanticExpressionError(
             kind=ErrorKind.INVALID_COMPONENT_BODY,
@@ -771,8 +803,8 @@ def _construct_declaration_expression(
             action="Define the declaration in a Python source file and decorate it again.",
         ) from error
     symbols = _resolved_symbols(fn)
-    validate_declaration_body_ast(function, symbols=frozenset(symbols))
-    builder = _DeclarationExpressionBuilder(symbols, fn.__name__, stage)
+    validate_declaration_body_ast(function, symbols=frozenset(symbols), line_offset=line_offset)
+    builder = _DeclarationExpressionBuilder(symbols, fn.__name__, stage, line_offset)
     for stmt in function.body:
         if isinstance(stmt, ast.Assign):
             target = stmt.targets[0]
@@ -1549,12 +1581,12 @@ def compile_expression_body(
             received=owning.kind.value,
         )
     body_kind = resolved_kind
+    function, line_offset = _load_function_ast(fn)
     if body_kind == "entity_table":
-        _, function = _load_function_ast(fn)
         parameters = (*function.args.posonlyargs, *function.args.args)
         parameter_positions = {parameter.arg: index for index, parameter in enumerate(parameters)}
         symbols = _resolved_symbols(fn)
-        validate_entity_table_body_ast(fn)
+        validate_entity_table_body_ast(function, name=fn.__name__, line_offset=line_offset)
         _validate_entity_table_no_execution(function, owning_key=owning.key)
         symbol_tokens = _validate_entity_table_closed_symbols(
             function,
@@ -1583,18 +1615,16 @@ def compile_expression_body(
             parameter_count=1,
             bindings=(),
             source_syntax=ast.unparse(function),
-            _function_ast=copy.deepcopy(function),
+            _function_ast=function,
             source_columns=_entity_table_source_columns(
                 function,
                 parameter_positions=parameter_positions,
             ),
         )
 
-    try:
-        _, function = _load_function_ast(fn)
-    except SemanticLoadError:
-        raise
-    validate_metric_body_ast(fn, "base", body_kind=body_kind, _function=function)
+    validate_metric_body_ast(
+        fn, "base", body_kind=body_kind, _function=function, _line_offset=line_offset
+    )
     if function.args.vararg is not None or function.args.kwarg is not None:
         raise SemanticLoadError(
             kind=ErrorKind.COMPILE_ERROR,

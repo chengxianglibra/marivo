@@ -1585,6 +1585,12 @@ def test_disabled_load_preserves_execution_context_and_resets_after_failure(
             '[project]\nname="disabled"\n[telemetry]\nenabled="off"\n'
         )
 
+    alias = telemetry_project / "alias"
+    alias.symlink_to(telemetry_project, target_is_directory=True)
+    other = telemetry_project / "other"
+    other.mkdir()
+    monkeypatch.chdir(telemetry_project)
+
     @telemetry.tracked_capability(
         surface="datasource", capability_id="raw_sql", capability_kind="boundary"
     )
@@ -1597,10 +1603,11 @@ def test_disabled_load_preserves_execution_context_and_resets_after_failure(
         surface="semantic", capability_id="load", capability_kind="callable"
     )
     def load(*, workspace_dir: Path) -> None:
+        monkeypatch.chdir(other)
         child()
 
     with pytest.raises(ValueError):
-        load(workspace_dir=telemetry_project)
+        load(workspace_dir=Path("alias"))
     records = execution_records(telemetry_project)
     assert records and all(record["operation_id"] for record in records)
     assert all(record["parent_operation_id"] for record in records)

@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from importlib import util as importlib_util
 from pathlib import Path
 
-from marivo._authoring.loading import _execution_diagnostic, _new_module_prefix, _source_loading
+from marivo._authoring.loading import (
+    _authored_file_spec,
+    _authored_imports,
+    _execution_diagnostic,
+    _new_module_prefix,
+    _source_loading,
+)
 from marivo.config import AUTHORED_DIR, DATASOURCES_DIR, PROJECT_MANIFEST
 from marivo.datasource._builtin import require_user_datasource_name
 from marivo.datasource.authoring import _DATASOURCE_CTX, DatasourceLoaderContext
@@ -47,13 +53,13 @@ def _execute_file(
 ) -> bool:
     token = _DATASOURCE_CTX.set(ctx)
     try:
-        spec = importlib_util.spec_from_file_location(module_name, filepath)
+        spec = _authored_file_spec(module_name, filepath)
         if spec is None or spec.loader is None:
             raise ImportError(f"Could not create module spec for {filepath}")
         module = importlib_util.module_from_spec(spec)
         module.__package__ = package_name
         sys.modules[module_name] = module
-        with _source_loading(filepath):
+        with _source_loading(filepath), _authored_imports((package_name,)):
             spec.loader.exec_module(module)
     except Exception as exc:
         diagnostic = _execution_diagnostic(exc, filepath)

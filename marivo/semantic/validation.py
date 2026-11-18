@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Literal, TypeAlias, cast
 from zoneinfo import ZoneInfo
 
 import ibis.expr.types as ir
-import pandas as pd
 
 from marivo._authoring.model import AuthoringRepair
 from marivo._authoring.render import _repair_summary
@@ -62,6 +61,8 @@ from marivo.semantic.errors import ErrorKind, SemanticError, SemanticRuntimeErro
 from marivo.semantic.preview_scope import PreviewScope, _normalize_scopes
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from marivo.semantic.catalog import (
         Dimension,
         Measure,
@@ -1155,6 +1156,8 @@ def _freshness_observation(
     *,
     declared_timezone: str | None,
 ) -> tuple[datetime | None, str | None]:
+    import pandas as pd
+
     if value is None or value is pd.NaT or value is pd.NA:
         return None, "no_non_null_values"
     if isinstance(value, pd.Timestamp):

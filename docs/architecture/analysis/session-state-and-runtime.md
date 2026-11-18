@@ -428,6 +428,7 @@ submissions before driver calls, completion outcomes and returned row counts.
 Governed source records retain compiled Ibis SQL and its purpose/source identity.
 Generated-only SQL, third-party bootstrap SQL and Store persistence SQL are outside
 coverage. Operation/project context propagates into connectivity workers.
+Inherited operation context carries the canonical project root.
 Source evaluation runs before publication admission. Publication Run identity
 belongs to the Store, and local pandas stages do not write execution-log records.
 

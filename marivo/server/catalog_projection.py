@@ -7,8 +7,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
 
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic import load
@@ -23,7 +22,9 @@ from marivo.semantic.catalog_entries import (
     _json_value,
 )
 from marivo.semantic.errors import ErrorKind, SemanticLoadFailed
-from marivo.server.wire import JsonObject, JsonValue
+
+if TYPE_CHECKING:
+    from marivo.server.wire import JsonObject, JsonValue
 
 DEFINITION_FIELDS: dict[type[object], str] = {
     DatasourceDefinition: "context backend_type wall_clock_timezone entities",
@@ -33,7 +34,6 @@ DEFINITION_FIELDS: dict[type[object], str] = {
     MetricDefinition: "context roots formula explanation reductions conditions time_bindings unit null_rules dependencies dependency_context facts",
     RelationshipDefinition: "context from_entity to_entity keys cardinality dependencies",
 }
-SUMMARY_FIELDS = ("id", "kind", "path", "name", "domain", "business_definition")
 
 # These fields are intentionally available only through the authenticated
 # datasource-properties endpoint, never through the ordinary Catalog detail.
@@ -156,37 +156,29 @@ def _catalog(root: Path, output: BinaryIO, maximum: int) -> None:
         output.write(chunk)
 
     write('{"entries":[')
-    cursor = None
-    first = True
-    while True:
-        page = catalog.search(limit=100, cursor=cursor)
-        for entry in page.items:
-            detail = _detail(entry, root)
-            related: JsonObject = {}
-            outside: list[JsonValue] = []
-            for relation in ("dependencies", "dependents"):
-                ids: list[JsonValue] = []
-                after = None
-                while True:
-                    links = entry.related(relation, limit=100, cursor=after)
-                    ids.extend(item.id for item in links.items)
-                    after = links.next_cursor
-                    if after is None:
-                        if relation == "dependencies":
-                            outside.extend(links.outside_scope)
-                        break
-                related[relation] = ids
-            if not first:
-                write(",")
-            first = False
-            projected: JsonObject = {"detail": detail, "related": related, "outside_scope": outside}
-            if isinstance(entry.definition, DatasourceDefinition):
-                projected["datasource_properties"] = _datasource_properties(entry.definition)
-            for part in encoder.iterencode(projected):
-                write(part)
-        cursor = page.next_cursor
-        if cursor is None:
-            break
+    for index, entry in enumerate(catalog._index.entries()):
+        detail = _detail(entry, root)
+        related: JsonObject = {}
+        outside: list[JsonValue] = []
+        for relation in ("dependencies", "dependents"):
+            ids: list[JsonValue] = []
+            after = None
+            while True:
+                links = entry.related(relation, limit=100, cursor=after)
+                ids.extend(item.id for item in links.items)
+                after = links.next_cursor
+                if after is None:
+                    if relation == "dependencies":
+                        outside.extend(links.outside_scope)
+                    break
+            related[relation] = ids
+        if index:
+            write(",")
+        projected: JsonObject = {"detail": detail, "related": related, "outside_scope": outside}
+        if isinstance(entry.definition, DatasourceDefinition):
+            projected["datasource_properties"] = _datasource_properties(entry.definition)
+        for part in encoder.iterencode(projected):
+            write(part)
     write("]}")
 
 
@@ -199,12 +191,6 @@ if __name__ == "__main__":
     with os.fdopen(os.dup(1), "wb") as protocol, open(os.devnull, "wb") as discard:
         os.dup2(discard.fileno(), 1)
         try:
-            # A fresh interpreter still trusts timestamp/size-valid .pyc files.
-            # Use an empty cache namespace for model and helper imports without
-            # deleting or rewriting the project's existing bytecode caches.
-            with TemporaryDirectory(prefix="marivo-catalog-") as cache:
-                sys.pycache_prefix = cache
-                sys.dont_write_bytecode = True
-                _catalog(Path(sys.argv[1]), protocol, int(sys.argv[2]))
+            _catalog(Path(sys.argv[1]), protocol, int(sys.argv[2]))
         except _CatalogTooLargeError:
             sys.exit(3)

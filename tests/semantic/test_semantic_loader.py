@@ -14,6 +14,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import py_compile
 import textwrap
 from collections.abc import Iterator
 from pathlib import Path
@@ -188,6 +189,9 @@ def test_reload_ignores_removed_domain_cache(
     assert project._registry is not None
     assert set(project._registry.domains) == {"sales", "finance"}
     removed_dir = project.semantic_root / "sales"
+    source_files = tuple(removed_dir.rglob("*.py"))
+    for source in source_files:
+        py_compile.compile(str(source), doraise=True)
     cache_dirs = tuple(removed_dir.rglob("__pycache__"))
     assert {path.relative_to(removed_dir).as_posix() for path in cache_dirs} == {
         "__pycache__",
@@ -195,7 +199,7 @@ def test_reload_ignores_removed_domain_cache(
     }
     cache_files = tuple(path for cache_dir in cache_dirs for path in cache_dir.iterdir())
     assert cache_files
-    for source_file in removed_dir.rglob("*.py"):
+    for source_file in source_files:
         source_file.unlink()
     (removed_dir / "helpers" / "empty").mkdir()
     original_iterdir = Path.iterdir
@@ -1418,6 +1422,34 @@ def test_load_models_cross_model_ref_produces_warning(
     assert project._registry is not None
     filtered_warnings = [w for w in result.warnings if w.kind == "filtered_domain_ref"]
     assert any("finance" in w.message for w in filtered_warnings)
+
+
+def test_load_rejects_a_filtered_join_key_for_loaded_endpoints(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "finance/_domain.py": _FINANCE_DOMAIN_PY,
+            "sales/orders.py": textwrap.dedent("""\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                source = ms.ref.datasource("warehouse")
+                orders = ms.entity(name="orders", datasource=source, source=md.table("orders"))
+                customers = ms.entity(name="customers", datasource=source, source=md.table("customers"))
+                customer_id = ms.dimension_column(name="customer_id", entity=orders, column="customer_id")
+                ms.relationship(
+                    name="customer", from_entity=orders, to_entity=customers,
+                    keys=[ms.join_on(customer_id, ms.ref.dimension("finance.customers.id"))],
+                )
+            """),
+        },
+        load=False,
+    )
+    result = project.load(domains=["sales"])
+    assert result.status == "errored"
+    assert tuple(error.kind for error in result.errors) == (ErrorKind.INVALID_RELATIONSHIP_MAPPING,)
 
 
 def test_load_without_models_loads_all(semantic_project_factory: _SemanticProjectFactory) -> None:

@@ -93,7 +93,7 @@ class Registry:
     _frozen: bool = field(default=False, init=False, repr=False)
 
     def freeze(self) -> None:
-        """Freeze every registry map after successful whole-graph validation."""
+        """Prevent reassignment of Registry attributes after whole-graph validation."""
         if self._frozen:
             return
         object.__setattr__(self, "_frozen", True)
@@ -774,11 +774,13 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         body_label: str = "Metric body",
         symbols: frozenset[str] | None = None,
         pure_declaration: bool = False,
+        line_offset: int = 0,
     ) -> None:
         self.fn_name = fn_name
         self.body_label = body_label
         self._symbols = symbols
         self._pure_declaration = pure_declaration
+        self._line_offset = line_offset
         self.errors: list[SemanticError] = []
         self._param_names: set[str] = set()
         self._parent_map: dict[ast.AST, ast.AST] = {}
@@ -916,6 +918,8 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             self.visit(stmt)
 
     def _local_error(self, node: ast.AST, expected: str, received: str) -> None:
+        line = getattr(node, "lineno", self._line_offset) - self._line_offset
+        column = getattr(node, "col_offset", 0)
         if self._pure_declaration:
             self.errors.append(
                 SemanticExpressionError(
@@ -925,7 +929,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                     expected=expected,
                     received=received,
                     action="Use fresh local names in definition order and finish with one expression return.",
-                    location_label=f"line {getattr(node, 'lineno', 0)}, column {getattr(node, 'col_offset', 0)}",
+                    location_label=f"line {line}, column {column}",
                 )
             )
             return
@@ -933,7 +937,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             SemanticLoadError(
                 kind=ErrorKind.INVALID_COMPONENT_BODY,
                 message=f"{self.body_label} of {self.fn_name!r} has an invalid local expression at "
-                f"line {getattr(node, 'lineno', 0)}, column {getattr(node, 'col_offset', 0)}.",
+                f"line {line}, column {column}.",
                 refs=(self.fn_name,),
                 expected=expected,
                 received=received,
@@ -1057,6 +1061,7 @@ def validate_declaration_body_ast(
     function: ast.FunctionDef,
     *,
     symbols: frozenset[str],
+    line_offset: int = 0,
 ) -> None:
     """Apply shared statement/local-binding rules to a pure expression declaration."""
     validator = _BaseMetricASTValidator(
@@ -1064,6 +1069,7 @@ def validate_declaration_body_ast(
         body_label="Expression declaration",
         symbols=symbols,
         pure_declaration=True,
+        line_offset=line_offset,
     )
     validator.visit(function)
     if validator.errors:
@@ -1108,10 +1114,11 @@ def validate_metric_body_ast(
     *,
     body_kind: Literal["dimension", "time_dimension", "measure", "metric"] = "metric",
     _function: ast.FunctionDef | None = None,
+    _line_offset: int = 0,
 ) -> str:
     """Layer 2: AST whitelist validation for base metric bodies.
 
-    Returns the normalized body AST hash for the compiled expression sidecar.
+    Returns the body AST hash excluding a leading docstring.
 
     Raises SemanticLoadError on validation failures.
     """
@@ -1153,7 +1160,9 @@ def validate_metric_body_ast(
     if any(isinstance(stmt, ast.Assign) for stmt in func_node.body):
         closure = inspect.getclosurevars(fn)
         symbols = frozenset((*fn.__globals__, *closure.nonlocals, *vars(builtins)))
-    base_validator = _BaseMetricASTValidator(fn.__name__, body_label=body_label, symbols=symbols)
+    base_validator = _BaseMetricASTValidator(
+        fn.__name__, body_label=body_label, symbols=symbols, line_offset=_line_offset
+    )
     base_validator.visit(func_node)
     if base_validator.errors:
         raise base_validator.errors[0]
@@ -1161,42 +1170,24 @@ def validate_metric_body_ast(
     return body_hash
 
 
-def validate_entity_table_body_ast(fn: Callable[..., Any]) -> str:
+def validate_entity_table_body_ast(
+    func_node: ast.FunctionDef, *, name: str, line_offset: int
+) -> None:
     """Layer 2: AST validation for one Entity Table-expression body.
 
     The decorated function must take exactly one positional parameter and
     contain one optional docstring plus one ``return`` of an Ibis expression
     built from that parameter, supported Ibis expression symbols, and inline
     literals. Assignments, helper/nested functions, lambdas, control flow,
-    SQL/execution escape hatches, and ``ms.bind`` are rejected. Returns the
-    body AST hash for the compiled-expression sidecar.
+    SQL/execution escape hatches, and ``ms.bind`` are rejected.
 
     Raises SemanticLoadError on validation failures.
     """
-    try:
-        source = textwrap.dedent(inspect.getsource(fn))
-        tree = ast.parse(source)
-    except (OSError, TypeError, IndentationError, SyntaxError) as exc:
+    if func_node.name != name:
         raise SemanticLoadError(
             kind=ErrorKind.COMPILE_ERROR,
-            message=f"Entity body {fn.__name__!r} source could not be inspected.",
-            refs=(fn.__name__,),
-            expected="inspectable Python source for the decorated function",
-            received=type(exc).__name__,
-        ) from exc
-    func_node = next(
-        (
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == fn.__name__
-        ),
-        None,
-    )
-    if func_node is None:
-        raise SemanticLoadError(
-            kind=ErrorKind.COMPILE_ERROR,
-            message=f"Entity body {fn.__name__!r} has no function definition.",
-            refs=(fn.__name__,),
+            message=f"Entity body {name!r} has no function definition.",
+            refs=(name,),
             expected="one function with one return",
             received="missing function",
         )
@@ -1217,15 +1208,17 @@ def validate_entity_table_body_ast(fn: Callable[..., Any]) -> str:
         raise SemanticLoadError(
             kind=ErrorKind.COMPILE_ERROR,
             message=(
-                f"Entity body {fn.__name__!r} must take exactly one positional "
+                f"Entity body {name!r} must take exactly one positional "
                 f"Table parameter: {'; '.join(shape_errors)}."
             ),
-            refs=(fn.__name__,),
+            refs=(name,),
             expected="def <name>(raw): return <one Ibis Table expression>",
             received="; ".join(shape_errors),
         )
 
-    base_validator = _BaseMetricASTValidator(fn.__name__, body_label="Entity body")
+    base_validator = _BaseMetricASTValidator(
+        name, body_label="Entity body", line_offset=line_offset
+    )
     base_validator.visit(func_node)
     if base_validator.errors:
         raise base_validator.errors[0]
@@ -1239,11 +1232,11 @@ def validate_entity_table_body_ast(fn: Callable[..., Any]) -> str:
             raise SemanticLoadError(
                 kind=ErrorKind.INVALID_COMPONENT_BODY,
                 message=(
-                    f"Entity body {fn.__name__!r} contains an assignment expression "
+                    f"Entity body {name!r} contains an assignment expression "
                     f"({ast.unparse(node)}), which is not allowed. Inline the value or "
                     "restructure as one expression."
                 ),
-                refs=(fn.__name__,),
+                refs=(name,),
                 expected="one return expression without name binding",
                 received=ast.unparse(node),
                 constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
@@ -1252,16 +1245,15 @@ def validate_entity_table_body_ast(fn: Callable[..., Any]) -> str:
             raise SemanticLoadError(
                 kind=ErrorKind.INVALID_COMPONENT_BODY,
                 message=(
-                    f"Entity body {fn.__name__!r} contains a {type(node).__name__}, which "
+                    f"Entity body {name!r} contains a {type(node).__name__}, which "
                     "is not allowed. Build the expression with Ibis methods over the "
                     "injected parameter instead of iterating Python collections."
                 ),
-                refs=(fn.__name__,),
+                refs=(name,),
                 expected="one return expression without iteration",
                 received=ast.unparse(node),
                 constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
             )
-    return _body_hash_without_docstring(func_node)
 
 
 _AGGREGATE_METHODS = {"sum", "mean", "avg", "count", "nunique", "max", "min"}
@@ -1711,10 +1703,9 @@ def assembly_validate(
 
     Returns (errors, warnings).  Does not raise.
 
-    When *loaded_models* is provided, cross-object references to objects
-    in models that were intentionally not loaded produce
-    ``filtered_domain_ref`` warnings instead of errors, so the registry
-    remains usable.
+    When *loaded_models* is provided, references that can remain outside the
+    selected scope produce ``filtered_domain_ref`` warnings. Each Dimension
+    requires its owning Entity in the loaded registry.
     """
     errors: list[SemanticError] = []
     warnings: list[StructuredWarning] = []
@@ -1778,22 +1769,28 @@ def assembly_validate(
 
     for f_id, f_ir in registry.dimensions.items():
         if f_ir.entity not in registry.entities:
+            action = "Declare the owning Entity, or correct the Entity reference, then reload."
             if _is_filtered_domain_ref(f_ir.entity, loaded_models):
-                warnings.append(_filtered_domain_ref_warning(f_id, f_ir.entity, "Dimension"))
-            else:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.MISSING_ENTITY_REF,
-                        message=f"Dimension {f_id!r} references unknown entity {f_ir.entity!r}.",
-                        refs=(f_id, f_ir.entity),
-                        details={
-                            "missing_ref": f_ir.entity,
-                            "did_you_mean": did_you_mean(
-                                f_ir.entity, sorted(registry.entities.keys())
-                            ),
-                        },
-                    )
+                domain = f_ir.entity.split(".", 1)[0]
+                action = (
+                    f"Include {domain!r} in domains if it declares this Entity, "
+                    "or correct the Entity reference, then reload."
                 )
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.MISSING_ENTITY_REF,
+                    message=f"Dimension {f_id!r} references unknown entity {f_ir.entity!r}.",
+                    refs=(f_id, f_ir.entity),
+                    location=f_ir.location,
+                    expected="the owning Entity in the loaded domain scope",
+                    received=f_ir.entity,
+                    repair=repair(kind="reauthor", canonical_id="load", action=action),
+                    details={
+                        "missing_ref": f_ir.entity,
+                        "did_you_mean": did_you_mean(f_ir.entity, sorted(registry.entities)),
+                    },
+                )
+            )
 
     errors.extend(_validate_measure_refs(registry))
     errors.extend(_validate_dsl_declarations(registry))
@@ -1801,6 +1798,7 @@ def assembly_validate(
     if sidecar is not None:
         errors.extend(_validate_expression_bindings(registry, sidecar))
     for r_id, r_ir in registry.relationships.items():
+        error_count = len(errors)
         if r_ir.from_entity not in registry.entities:
             if _is_filtered_domain_ref(r_ir.from_entity, loaded_models):
                 warnings.append(
@@ -1866,12 +1864,9 @@ def assembly_validate(
                     )
 
         if (
-            r_ir.from_entity in registry.entities
+            len(errors) == error_count
+            and r_ir.from_entity in registry.entities
             and r_ir.to_entity in registry.entities
-            and all(
-                key.from_key in registry.dimensions and key.to_key in registry.dimensions
-                for key in r_ir.keys
-            )
         ):
             try:
                 normalize_target_relationship(registry, r_id)

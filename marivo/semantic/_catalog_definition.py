@@ -79,7 +79,7 @@ def dependency_context(
             context_for(catalog, item).guardrails,
         )
         for item in catalog._state.dependencies.get(ref, ())
-        if item in catalog._index._refs
+        if item in catalog._index
     )
 
 

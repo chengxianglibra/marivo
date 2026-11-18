@@ -6,11 +6,8 @@ Internal module: public symbols are re-exported from
 
 from __future__ import annotations
 
-import ast
-import hashlib
 from collections.abc import Callable
-from pathlib import Path
-from typing import Literal, overload
+from typing import TYPE_CHECKING, Literal, overload
 
 import ibis.expr.types as ibis_ir
 from ibis.common.deferred import Deferred
@@ -95,53 +92,24 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.typing import AiContextValue
 
-_PARSED_SOURCES: dict[str, ast.AST] = {}
+if TYPE_CHECKING:
+    from marivo.semantic.ir import SourceLocation
+    from marivo.semantic.loader import LoaderContext
 
 
-def _parsed_source(path: Path) -> ast.AST | None:
-    """Parse one model file, reusing an identical text already seen in-process."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return None
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    cached = _PARSED_SOURCES.get(digest)
-    if cached is not None:
-        return cached
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return None
-    _PARSED_SOURCES[digest] = tree
-    return tree
-
-
-def _reject_named_entity_decorator() -> None:
+def _reject_named_entity_decorator(ctx: LoaderContext, location: SourceLocation) -> None:
     """Reject direct-constructor decorator syntax before Deferred can absorb it."""
-    from pathlib import Path
-
-    location = _caller_location()
-    tree = _parsed_source(Path(location.file))
-    if tree is None:
-        return
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-        for decorator in node.decorator_list:
-            if (
-                isinstance(decorator, ast.Call)
-                and any(keyword.arg == "name" for keyword in decorator.keywords)
-                and decorator.lineno <= location.line <= (decorator.end_lineno or decorator.lineno)
-            ):
-                _raise(
-                    ErrorKind.ENTITY_CONSTRUCTOR_AS_DECORATOR,
-                    "ms.entity(name=...) returns a native Entity symbol and cannot decorate a definition.",
-                    cls=SemanticDecoratorError,
-                    location=location,
-                    expected="name = ms.entity(...) without a decorated function body, or @ms.entity(...) without name=",
-                    received="@ms.entity(name=...) applied to a definition",
-                    constraint_id=ConstraintId.ENTITY_CONSTRUCTOR_ASSIGNMENT,
-                )
+    source = ctx._sources.get(location.file)
+    if source is not None and location.line in source.named_decorator_lines:
+        _raise(
+            ErrorKind.ENTITY_CONSTRUCTOR_AS_DECORATOR,
+            "ms.entity(name=...) returns a native Entity symbol and cannot decorate a definition.",
+            cls=SemanticDecoratorError,
+            location=location,
+            expected="name = ms.entity(...) without a decorated function body, or @ms.entity(...) without name=",
+            received="@ms.entity(name=...) applied to a definition",
+            constraint_id=ConstraintId.ENTITY_CONSTRUCTOR_ASSIGNMENT,
+        )
 
 
 def _register_entity_ir(
@@ -156,6 +124,7 @@ def _register_entity_ir(
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None,
     default_time: str | None,
     ai_context: AiContextValue | None,
+    location: SourceLocation,
     expression_body: ExpressionBody | None = None,
 ) -> EntitySymbol:
     """Validate one Entity declaration and push its IR into the loader context."""
@@ -172,7 +141,6 @@ def _register_entity_ir(
 
     ds_ref = _resolve_datasource_ref(datasource)
     ai_ctx = _build_ai_context(ai_context)
-    location = _caller_location()
 
     ir = EntityIR(
         semantic_id=semantic_id,
@@ -333,7 +301,8 @@ def entity(
             )
         time_path = time_ref.path
     if name is not None:
-        _reject_named_entity_decorator()
+        location = _caller_location()
+        _reject_named_entity_decorator(ctx, location)
         semantic_id = f"{resolved_domain}.{name}"
         return _register_entity_ir(
             semantic_id=semantic_id,
@@ -346,6 +315,7 @@ def entity(
             versioning=versioning,
             default_time=time_path,
             ai_context=ai_context,
+            location=location,
         )
 
     def decorator(fn: Callable[[ibis_ir.Table], ibis_ir.Table]) -> EntitySymbol:
@@ -362,6 +332,7 @@ def entity(
             versioning=versioning,
             default_time=time_path,
             ai_context=ai_context,
+            location=_caller_location(),
             expression_body=compile_expression_body(
                 fn,
                 owning_ref=ref_factory.entity(semantic_id),
