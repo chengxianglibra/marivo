@@ -1,0 +1,31 @@
+---
+slug: docs/v0.6/release-notes/0.6.10
+title: Marivo 0.6.10
+description: Release notes for Marivo 0.6.10.
+---
+
+Released on November 18, 2026. Marivo 0.6.10 speeds up cold semantic loads and
+Trino schema binding. It has no public API changes.
+
+## Highlights
+
+- Loading a project builds exact Catalog indexes once up front and defers
+  definition and search projections until they are requested. Parsed model
+  source, resolved references, and canonical project roots are reused within
+  their existing scopes instead of being rebuilt for each definition.
+- Trino column metadata keeps its ordinal order without a distributed sort:
+  schema binding fetches column ordinals and restores their order locally.
+
+## Fixed
+
+- Module execution and semantic compilation now read the current authored
+  source, and multiline string literals keep their established behavior.
+- A filtered load now reports a field whose owning Entity is missing instead of
+  failing without naming it.
+
+## Internal
+
+- Documented the execution log boundary for schema reads and added the Trino
+  schema read to the SQL ownership audit.
+- Local CI now defaults to `make check-fast`; the full `make check` gate remains
+  required before pushing.
