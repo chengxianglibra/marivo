@@ -59,17 +59,18 @@ Use repository entrypoints or explicit `.venv/bin/...` paths, never bare `python
 | Focused tests | `make test TESTS='tests/test_file.py'` |
 | Focused typing | `make typecheck TYPECHECK_TARGETS='marivo/path'` |
 | Focused lint | `make lint LINT_TARGETS='marivo/path tests/test_file.py'` |
-| Local iteration | `make check-fast` |
-| Broad final gate | `make check` |
+| Routine local CI during development | `make check-fast` |
+| Full pre-push gate | `make check` |
 | Relevant Runtime tests | `make runtime-test TESTS='tests/test_file.py'` |
 | Release acceptance | `make release-check` |
 
 - Modified Python modules must pass typing. Public parameters and returns require
   concrete types, not `Any`; implicit `Any`, broad casts and type ignores require
   strict local justification. Test current contracts, not retired compatibility shapes.
-- Start with focused checks; run `make test` for shared behavior changes. For docs-only
-  edits, validate affected content, links and diffs. Incremental `make check-fast` does
-  not replace the broad gate or explicit tests for subprocess, SQL or data changes.
+- Use `make check-fast` as the default local CI check during day-to-day development.
+  Start with focused checks and run `make test` for shared behavior changes. Run
+  explicit tests for subprocess, SQL or data changes. For docs-only edits, validate
+  affected content, links and diffs.
 - Pass `make check` without narrowing variables before pushing. Its default suite
   excludes Runtime and release tests; run relevant Runtime tests separately.
 - Reserve full release acceptance for release work. Do not start MinIO for ordinary
