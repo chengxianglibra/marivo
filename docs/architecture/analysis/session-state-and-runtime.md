@@ -423,11 +423,13 @@ analysis programs, date parameters, report versions, text and refresh execution.
 ## Execution diagnostics and usage telemetry
 
 Execution diagnostics are always-on project-local JSONL in
-`.marivo/logs/execution-YYYY-MM-DD.NNN.jsonl`. They record actual Marivo-owned SQL
-submissions before driver calls, completion outcomes and returned row counts.
+`.marivo/logs/execution-YYYY-MM-DD.NNN.jsonl`. They record governed source reads,
+connectivity probes, registered provider statements and terminal SQL, including
+submission before driver calls, completion outcomes and returned row counts.
 Governed source records retain compiled Ibis SQL and its purpose/source identity.
-Generated-only SQL, third-party bootstrap SQL and Store persistence SQL are outside
-coverage. Operation/project context propagates into connectivity workers.
+Generated-only SQL, unregistered backend setup and schema reads, and Store
+persistence SQL are outside coverage. Operation/project context propagates into
+connectivity workers.
 Inherited operation context carries the canonical project root.
 Source evaluation runs before publication admission. Publication Run identity
 belongs to the Store, and local pandas stages do not write execution-log records.
@@ -436,10 +438,10 @@ Each newly emitted record has `schema_version: 2` and a sink-owned `runtime`
 object: `marivo_version`, `python_version`, `python_executable`, `package_path`
 and `process_id`. Version, executable and package path share the facts used by
 the current environment fingerprint. Identity is captured lazily and cached per
-PID; a child process refreshes it. Every event carries the complete identity,
-including query and local-stage events, so reading a tail or rotated segment
-does not require locating a startup event. Caller context cannot override runtime
-or schema version. Identity capture remains inside logging failure isolation.
+PID, and a child process refreshes it. Every record carries the complete identity,
+so reading a tail or rotated segment does not require locating a startup event.
+Caller context cannot override runtime or schema version. Identity capture remains
+inside logging failure isolation.
 
 These fields identify the declared software version, interpreter, package path
 and process, not the package's content hash, a data snapshot or build attestation.

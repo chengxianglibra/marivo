@@ -178,6 +178,22 @@ def _manifest() -> Manifest:
         compile_owner,
     )
     add("datasource/adapters", ("SourceSession.collect_bounded",), ("self.compile",), compile_owner)
+    trino_metadata = Owner(
+        "ibis_metadata_preparation",
+        "The Trino table binding reads only the named table's column metadata and restores ordinal order before constructing the Ibis schema.",
+    )
+    add(
+        "datasource/engines/trino",
+        ("<module>",),
+        ("sqlglot", "sqlglot.expressions"),
+        trino_metadata,
+    )
+    add(
+        "datasource/engines/trino",
+        ("_get_table_schema",),
+        ("backend.raw_sql", "sge.table_().sql"),
+        trino_metadata,
+    )
     mysql_metadata = Owner(
         "ibis_metadata_preparation",
         "The private PyMySQL backend reuses the Ibis MySQL compiler and quotes the named physical table for DESCRIBE; UTC initialization is fixed reader setup.",

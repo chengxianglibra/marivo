@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import replace
+from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 from ibis.backends.sql.datatypes import TrinoType
+from ibis.common.exceptions import TableNotFound
+from sqlglot import expressions as sge
 
 from marivo.datasource.capabilities import (
     ProviderStatement,
@@ -60,14 +63,51 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     if "session_properties" in kwargs and isinstance(kwargs["session_properties"], dict):
         connect_kwargs["session_properties"] = dict(kwargs["session_properties"])
     backend: BaseBackend = ibis.trino.connect(**connect_kwargs)
-    _configure_partition_schema_lookup(backend)
+    _configure_schema_lookup(backend)
     return backend
 
 
-def _configure_partition_schema_lookup(backend: BaseBackend) -> None:
-    """Resolve qualified partition metadata tables that the column catalog omits."""
-    original = getattr(backend, "get_schema", None)
-    if not callable(original):
+def _get_table_schema(
+    backend: BaseBackend,
+    table_name: str,
+    *,
+    catalog: str | None,
+    database: str | None,
+) -> sch.Schema:
+    """Read one table's physical columns and restore ordinal order locally."""
+    query = (
+        sge.select(
+            sge.column("column_name"),
+            sge.column("data_type"),
+            sge.column("is_nullable").eq(sge.convert("YES")).as_("nullable"),
+            sge.column("ordinal_position"),
+        )
+        .from_(sge.table_("columns", db="information_schema", catalog=catalog))
+        .where(
+            sge.column("table_name").eq(sge.convert(table_name)),
+            sge.column("table_schema").eq(sge.convert(database or backend.current_database)),
+        )
+    )
+    with closing(backend.raw_sql(query)) as cursor:
+        # Trino returns lists. The fixed projection determines each tuple's field types.
+        rows = cast(
+            "list[tuple[str, str, bool | None, int]]",
+            [tuple(row) for row in cursor.fetchall()],
+        )
+    if not rows:
+        raise TableNotFound(sge.table_(table_name, db=database, catalog=catalog).sql(backend.name))
+    type_mapper: type[TrinoType] = backend.compiler.type_mapper
+    return sch.Schema(
+        {
+            name: type_mapper.from_string(data_type, nullable=nullable)
+            for name, data_type, nullable, _ in sorted(rows, key=itemgetter(3))
+        }
+    )
+
+
+def _configure_schema_lookup(backend: BaseBackend) -> None:
+    """Bind ordinary tables and qualified partition metadata tables."""
+    if not callable(getattr(backend, "get_schema", None)):
         return
 
     def get_schema(
@@ -77,8 +117,7 @@ def _configure_partition_schema_lookup(backend: BaseBackend) -> None:
         database: str | None = None,
     ) -> sch.Schema:
         if catalog is None or database is None or not table_name.endswith("$partitions"):
-            # Ibis' backend methods are untyped, but get_schema returns an Ibis Schema.
-            return cast("sch.Schema", original(table_name, catalog=catalog, database=database))
+            return _get_table_schema(backend, table_name, catalog=catalog, database=database)
         rows = _trino_rows(
             backend,
             "trino.show_columns",

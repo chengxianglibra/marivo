@@ -336,6 +336,9 @@ Borrowed source sessions leave disconnection to the connection owner. Cleanup
 continues across resource failures and records disconnection only after
 confirmed release; it does not actively cancel remote queries.
 
+Trino table binding fetches column ordinals with types and nullability and restores
+column order locally before constructing the Ibis schema.
+
 `SourceSession.execute` resubmits the same issued read at most twice when its
 engine profile classifies the raw native failure as transient, waiting a jittered
 1s and then 4s upper bound. ClickHouse classifies structured server codes

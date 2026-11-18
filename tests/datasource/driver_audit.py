@@ -172,7 +172,7 @@ def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) 
                     str(local.get("reason", "")),
                     expected,
                 )
-    # A closed set of installed Ibis producers owns their native metadata and
+    # A closed set of Ibis and adapter producers owns their native metadata and
     # preparation SQL. Generic raw_sql/execute frames alone grant no authority.
     for frame in stack:
         path = frame.f_code.co_filename.replace("\\", "/")
@@ -186,6 +186,8 @@ def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) 
             "_post_connect",
         }:
             return Origin("ibis_metadata_preparation", "PyMySQL backend:" + name, name)
+        if path.endswith("/marivo/datasource/engines/trino.py") and name == "_get_table_schema":
+            return Origin("ibis_metadata_preparation", "Trino backend:" + name, name)
         if "/clickhouse_connect/driver/" in path and name == "_init_common_settings":
             return Origin(
                 "native_driver_setup",

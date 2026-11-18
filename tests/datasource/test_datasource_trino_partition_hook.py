@@ -1,7 +1,8 @@
-"""Trino partition metadata projection stays an Ibis expression."""
+"""Trino table schema binding and partition metadata reads."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from itertools import islice
 from pathlib import Path
 from typing import Literal
@@ -9,9 +10,10 @@ from typing import Literal
 import ibis
 import pytest
 from ibis.backends.trino import Backend
+from ibis.expr import datatypes as dt
 
 import marivo.datasource as md
-from marivo.datasource.engines.trino import _partition_projection
+from marivo.datasource.engines.trino import _partition_projection, connect
 from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
 
@@ -19,18 +21,51 @@ from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableM
 class _Cursor:
     _query = None
 
-    def __init__(self, columns: tuple[str, ...], rows: list[tuple[str, ...]]) -> None:
+    def __init__(self, columns: tuple[str, ...], rows: Sequence[Sequence[object]]) -> None:
         self.description = tuple((name,) for name in columns)
         self.rows = iter(rows)
 
-    def fetchall(self) -> list[tuple[str, ...]]:
+    def fetchall(self) -> list[Sequence[object]]:
         return list(self.rows)
 
-    def fetchmany(self, size: int) -> list[tuple[str, ...]]:
+    def fetchmany(self, size: int) -> list[Sequence[object]]:
         return list(islice(self.rows, size))
 
     def close(self) -> None:
         pass
+
+
+def test_trino_table_binding_orders_unsorted_column_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    statements: list[str] = []
+
+    def raw_sql(_backend: Backend, query: object) -> _Cursor:
+        statements.append(str(query))
+        return _Cursor(
+            ("column_name", "data_type", "nullable", "ordinal_position"),
+            [
+                ["settled", "boolean", True, 12],
+                ["trade_id", "bigint", False, 1],
+                ["price", "decimal(12,2)", True, 2],
+            ],
+        )
+
+    monkeypatch.setattr(Backend, "raw_sql", raw_sql)
+    backend = connect("warehouse", {"host": "trino.invalid", "catalog": "hive", "user": "reader"})
+    try:
+        table = backend.table("trades", database=("hive", "iceberg"))
+        assert table.columns == ("trade_id", "price", "settled")
+        assert dict(table.schema().items()) == {
+            "trade_id": dt.Int64(nullable=False),
+            "price": dt.Decimal(12, 2),
+            "settled": dt.Boolean(),
+        }
+    finally:
+        backend.disconnect()
+    (sql,) = statements
+    assert "ordinal_position" in sql
+    assert "ORDER BY" not in sql.upper()
 
 
 @pytest.mark.parametrize("failure", [None, "schema", "values", "connection"])
