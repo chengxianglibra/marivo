@@ -107,19 +107,21 @@ not business freshness.
 
 ## Start and connect
 
-Install `marivo[api]`. Generate a token once with `secrets.token_urlsafe(32)`,
-store it in deployment credentials, and set `MARIVO_API_TOKEN` in the service
-environment. The host owns connection management and user authorization.
+Install `marivo[api]` for the service and its vector search runtime. Generate a
+token once with `secrets.token_urlsafe(32)`, store it in deployment credentials,
+and set `MARIVO_API_TOKEN` in the service environment. The host owns connection
+management and user authorization.
 
 ```sh
 marivo serve --project-root /srv/sales-project --port 0
 ```
 
-The default listener is `127.0.0.1:8765`. Port 0 selects an available port.
-The foreground process emits one JSON readiness line with host, port, protocol,
-pid, marivo_version and api_version 2. Logs go to stderr. SIGTERM/SIGINT stop it;
-fixed files remain available after restart. Token rotation uses configuration
-and restart, without changing fixed references.
+Marivo prepares the Granite model files before starting the listener. The
+default listener is `127.0.0.1:8765`. Port 0 selects an available port. The
+foreground process emits one JSON readiness line with host, port, protocol, pid,
+marivo_version and api_version 2. Logs go to stderr. SIGTERM/SIGINT stop it;
+fixed files remain available after restart. Token rotation uses configuration and
+restart, without changing fixed references.
 
 For remote HTTPS browser access, configure a trusted certificate and matching key,
 or use a protected HTTPS proxy. Configure exact browser Origins; repeat the flag
@@ -175,20 +177,38 @@ a zero-column single row uses `rows: [[]]`.
 
 ## Read current semantic definitions
 
-The service keeps one current Catalog snapshot, separate from saved results.
-The first semantic request loads the bound project's models in a fresh interpreter,
-without connecting to business sources. `GET /v2/info` reports `catalog.loaded`
+The service loads the bound project's semantic definitions in a fresh interpreter
+without connecting to business sources. It prewarms the Catalog snapshot and
+vector index asynchronously at startup. `GET /v2/info` reports `catalog.loaded`
 and `catalog.loaded_at` without triggering a load.
 
 Omit `query` to browse in canonical ID order. To search, send a URL-encoded UTF-8
 `query` containing at most 512 decoded printable characters and at least one
-non-whitespace character. Leading and trailing spaces are trimmed. Both modes
-accept optional `kind` and `domain` filters. Search applies the filters to the
-whole current snapshot before ranking by lexical matches on IDs, paths, names,
-business definitions and authored aliases. Pagination covers a lexical candidate
-window of 30, plus any exact ID or path matches outside it. Exact matches come
-first. Search uses captured metadata in memory and requires no retrieval models,
-project ranking cache or datasource reads.
+non-whitespace character. Leading and trailing spaces are trimmed. Browsing and
+search accept optional `kind` and `domain` filters. Search applies them to the current
+snapshot before vector ranking its IDs, paths, names, business definitions and aliases.
+Search returns up to 30 vector candidates with cosine similarity at or above 0.80.
+Exact ID or path matches within the filters come first, including outside that
+window. Search uses captured metadata in memory without datasource reads.
+
+By default, `marivo serve` verifies IBM's pinned Granite 97M multilingual R2 INT8
+ONNX model and tokenizer against their SHA-256 checksums and downloads missing
+or invalid files. Projects and restarts share the model cache. The root defaults
+to `~/.cache/marivo/models`, or `$XDG_CACHE_HOME/marivo/models` when set. Set
+`MARIVO_VECTOR_MODEL_CACHE_DIR` to use a different root.
+
+For offline provisioning, use `--experimental-granite-model /path/to/model.onnx`
+with a local Granite INT8 export and a sibling `tokenizer.json`. The local option
+accepts `.onnx` and `.ort` files. Marivo exits before listener readiness if runtime
+dependencies are missing or it cannot prepare the managed files.
+
+Check `catalog.search` in `/v2/info` for state and `index_build_ms`. Reload matches
+canonical object IDs in the fresh Catalog. It encodes new or changed search text,
+reuses unchanged vectors, and drops removed objects. A failed reload preserves the
+previous snapshot. `--experimental-granite-cache-dir /path/to/cache` persists row
+fingerprints and vectors. On restart with a compatible cache, Marivo reuses matching
+rows, encodes new or changed text, and drops removed rows. If every current row is
+reusable, the first text search initializes the encoder.
 
 Browse and search return the same object summaries and pagination fields. Pass
 `next_cursor` as `cursor` with the same query, filters and limit. A cursor from a

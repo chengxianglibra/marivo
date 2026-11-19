@@ -11,7 +11,7 @@ import sqlite3
 import ssl
 import subprocess
 import sys
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date, timedelta
@@ -32,7 +32,7 @@ from tests.analysis.materialization.terminal_recovery_worker import method_resul
 
 _TOKEN = "test-admin-token"
 _ORIGIN = "https://analysis.example.test"
-_CLI = [sys.executable, "-m", "marivo"]
+_MANAGED_MODEL_DIR = ".test-granite"
 
 
 # Independent JSON client. Tests validate decoded fields against the published
@@ -53,16 +53,39 @@ class Request(Protocol):
     ) -> Reply: ...
 
 
+def _serve_command(root: Path, *args: str, setup: str = "") -> list[str]:
+    model = root / _MANAGED_MODEL_DIR / "model.onnx"
+    script = "\n".join(
+        (
+            f"managed_model_path = {str(model)!r}",
+            _GRANITE_SETUP,
+            setup,
+            'runpy.run_module("marivo", run_name="__main__")',
+        )
+    )
+    return [
+        sys.executable,
+        "-c",
+        script,
+        "serve",
+        "--project-root",
+        str(root),
+        "--port",
+        "0",
+        *args,
+    ]
+
+
 @contextmanager
 def server(
     root: Path,
     *args: str,
     token: str = _TOKEN,
     context: ssl.SSLContext | None = None,
-    command: Sequence[str] = _CLI,
+    setup: str = "",
 ) -> Iterator[Request]:
     process = subprocess.Popen(
-        [*command, "serve", "--project-root", str(root), "--port", "0", *args],
+        _serve_command(root, *args, setup=setup),
         env={**os.environ, "MARIVO_API_TOKEN": token},
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -189,8 +212,8 @@ def test_complete_reports_restart_and_budget(tmp_path: Path) -> None:
         assert report["schema"]["values"]["event_time"]["nullable"] is False
         assert report["data"]["rows"][2][2] == "1677-09-21T00:12:43.145224192+00:00"
         assert report["periods"] == []
-        assert _ok(request("/v2/info"))["catalog"] == {"loaded": False, "loaded_at": None}
         spec = _ok(request("/v2/openapi.json"))
+        _schema(spec, "Info", _ok(request("/v2/info")))
         assert set(spec["paths"]) == {
             "/v2/info",
             "/v2/openapi.json",
@@ -350,17 +373,150 @@ def _models(root: Path, text: str, *, bad: bool = False, slow: bool = False) -> 
     )
 
 
-def test_object_search_filters_before_the_lexical_candidate_window(tmp_path: Path) -> None:
+# Keep model preparation and encoding offline while exercising the real CLI, Catalog and ranking.
+_GRANITE_SETUP = """
+import runpy
+from pathlib import Path
+import numpy as np
+from marivo.server import command, granite_model, granite_search
+
+find_spec = command.find_spec
+command.find_spec = lambda name: object() if name in ("onnxruntime", "tokenizers") else find_spec(name)
+
+def prepare_managed_model():
+    model = Path(managed_model_path)
+    model.parent.mkdir(exist_ok=True)
+    model.write_bytes(b"managed model")
+    model.with_name("tokenizer.json").write_text("{}", encoding="utf-8")
+    return model
+
+granite_model.prepare_granite_model = prepare_managed_model
+
+class Encoder:
+    def __init__(self, path, *, asset_fingerprint=None):
+        self.failure = path.with_name("fail-index")
+
+    def encode(self, texts):
+        result = np.zeros((len(texts), 384), dtype=np.float32)
+        for row, text in enumerate(texts):
+            if text.startswith("id: ") and self.failure.exists():
+                raise ValueError("index build failure witness")
+            if text.startswith("id: metric:sales.total\\n"):
+                result[row, 0] = 0.9
+                result[row, 1] = 0.19 ** 0.5
+            elif text == "money received" or text.startswith("id: dimension:sales.events.category_"):
+                result[row, 0] = 1
+            elif text in ("sales.total", "metric:sales.total") or text.startswith("id: metric:sales.all_amount\\n"):
+                result[row, 3] = 1
+            elif "private-source-token" in text:
+                result[row, 5] = 1
+            elif text == "after" or (
+                text.startswith("id: measure:sales.events.amount\\n")
+                and "\\nbusiness_definition: after" in text
+            ):
+                result[row, 6] = 1
+            else:
+                result[row, 4 if text.startswith("id: ") else 2] = 1
+        return result
+
+granite_search.GraniteEncoder = Encoder
+granite_search.version = lambda name: "test-runtime"
+"""
+
+
+def _ready_search(request: Request) -> Document:
+    deadline = monotonic() + 20
+    info = _ok(request("/v2/info"))
+    while info["catalog"]["search"]["state"] == "building" and monotonic() < deadline:
+        sleep(0.05)
+        info = _ok(request("/v2/info"))
+    catalog: object = info["catalog"]
+    assert isinstance(catalog, dict)
+    search = catalog["search"]
+    assert search["state"] == "ready"
+    assert search["mode"] == "vector"
+    assert search["index_build_ms"] >= 0
+    _schema(_ok(request("/v2/openapi.json")), "Info", info)
+    return catalog
+
+
+def _search_ids(request: Request, query: str, kind: str = "metric") -> list[str]:
+    url = "/v2/semantic/objects?" + urlencode({"query": query, "kind": kind})
+    return [item["id"] for item in _ok(request(url))["items"]]
+
+
+def test_managed_vector_search_prewarms_http_catalog(tmp_path: Path) -> None:
+    _models(tmp_path, "Event amount")
+    cache = tmp_path / "matrix-cache"
+    with server(tmp_path, "--experimental-granite-cache-dir", str(cache)) as request:
+        _ready_search(request)
+        assert _search_ids(request, "money received") == ["metric:sales.total"]
+        assert len(list(cache.glob("*.npz"))) == 1
+    assert (tmp_path / _MANAGED_MODEL_DIR / "model.onnx").is_file()
+
+
+def test_granite_search_is_vector_only_and_paginates_one_snapshot(tmp_path: Path) -> None:
+    _models(tmp_path, "before")
+    with server(tmp_path) as request:
+        _ready_search(request)
+        assert _search_ids(request, "All event revenue") == []
+        assert _search_ids(request, "money received") == ["metric:sales.total"]
+        assert _search_ids(request, "money received", "entity") == []
+        assert _search_ids(request, "private-source-token", "entity") == []
+        assert _search_ids(request, "metric:sales.total") == [
+            "metric:sales.total",
+            "metric:sales.all_amount",
+        ]
+
+        objects = "/v2/semantic/objects"
+        search = {"query": "sales.total", "kind": "metric", "domain": "sales", "limit": 1}
+        search_url = objects + "?" + urlencode(search)
+        ranked = _ok(request(search_url))
+        _schema(_ok(request("/v2/openapi.json")), "ObjectDirectory", ranked)
+        # The exact path outranks an object with a strictly higher vector score.
+        assert [item["id"] for item in ranked["items"]] == ["metric:sales.total"]
+        assert ranked["has_more"] is True
+        continuation_params = {**search, "cursor": ranked["next_cursor"]}
+        next_ranked = _ok(request(objects + "?" + urlencode(continuation_params)))
+        assert [item["id"] for item in next_ranked["items"]] == ["metric:sales.all_amount"]
+        assert next_ranked["has_more"] is False and next_ranked["next_cursor"] is None
+        trimmed = {**continuation_params, "query": " sales.total "}
+        assert _ok(request(objects + "?" + urlencode(trimmed))) == next_ranked
+        for changed in (
+            {**continuation_params, "query": "sales total"},
+            {**continuation_params, "limit": 2},
+            {key: value for key, value in continuation_params.items() if key != "kind"},
+            {key: value for key, value in continuation_params.items() if key != "domain"},
+        ):
+            _error(request(objects + "?" + urlencode(changed)), 409, "invalid_cursor")
+
+        longest_query = "\uff58" * 512
+        assert _ok(request(objects + "?" + urlencode({"query": longest_query})))["items"] == []
+        for query in ("", "  ", longest_query + "x"):
+            error = _error(
+                request(objects + "?" + urlencode({"query": query})), 400, "invalid_parameter"
+            )
+            assert error["location"] == "query"
+
+        assert _search_ids(request, "after", "measure") == []
+        _models(tmp_path, "after")
+        _ok(request("/v2/semantic/reload", method="POST"))
+        assert _search_ids(request, "after", "measure") == ["measure:sales.events.amount"]
+        _error(request(objects + "?" + urlencode(continuation_params)), 409, "invalid_cursor")
+        assert _ok(request(search_url))["items"] == ranked["items"]
+        assert not (tmp_path / ".marivo/semantic/search").exists()
+
+
+def test_object_search_filters_before_the_vector_candidate_window(tmp_path: Path) -> None:
     _models(tmp_path, "Event amount")
     model = tmp_path / "models/semantic/sales/events.py"
     with model.open("a", encoding="utf-8") as stream:
         for index in range(31):
             stream.write(
-                f"ms.dimension_column(name='category_{index}', entity=events, column='amount', "
-                "ai_context=ms.ai_context(aliases=['Settled proceeds']))\n"
+                f"ms.dimension_column(name='category_{index}', entity=events, column='amount')\n"
             )
 
-    url = "/v2/semantic/objects?query=Settled+proceeds&limit=100"
+    url = "/v2/semantic/objects?query=money+received&limit=100"
     with server(tmp_path) as request:
         page = _ok(request(url))
         assert len(page["items"]) == 30
@@ -368,6 +524,160 @@ def test_object_search_filters_before_the_lexical_candidate_window(tmp_path: Pat
         assert page["next_cursor"] is None
         filtered = _ok(request(url + "&kind=metric"))
         assert [item["id"] for item in filtered["items"]] == ["metric:sales.total"]
+        assert _ok(request(url + "&domain=missing"))["items"] == []
+
+
+def _record_document_encodings(trace: Path) -> str:
+    return f"""
+import json
+
+original_encode = Encoder.encode
+
+def record_documents(self, texts):
+    documents = [text for text in texts if text.startswith("id: ")]
+    if documents:
+        with Path({str(trace)!r}).open("a", encoding="utf-8") as stream:
+            stream.writelines(json.dumps(document) + "\\n" for document in documents)
+    return original_encode(self, texts)
+
+Encoder.encode = record_documents
+"""
+
+
+def test_granite_reload_encodes_only_new_or_changed_documents(tmp_path: Path) -> None:
+    _models(tmp_path, "before")
+    model = tmp_path / "models/semantic/sales/events.py"
+    trace = tmp_path / "encoded-documents.jsonl"
+    with server(tmp_path, setup=_record_document_encodings(trace)) as request:
+        _ready_search(request)
+        assert _search_ids(request, "after", "measure") == []
+        trace.write_text("", encoding="utf-8")
+
+        with model.open("a", encoding="utf-8") as stream:
+            stream.write("# The search text stays the same.\n")
+        _ok(request("/v2/semantic/reload", method="POST"))
+        assert trace.read_text(encoding="utf-8") == ""
+
+        _models(tmp_path, "after")
+        with model.open("a", encoding="utf-8") as stream:
+            stream.write(
+                "ms.dimension_column(name='category_new', entity=events, column='amount')\n"
+            )
+        _ok(request("/v2/semantic/reload", method="POST"))
+        assert sorted(
+            json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()
+        ) == [
+            "id: dimension:sales.events.category_new\npath: sales.events.category_new\nname: category_new",
+            "id: measure:sales.events.amount\npath: sales.events.amount\nname: amount\nbusiness_definition: after",
+        ]
+        assert _search_ids(request, "money received", "dimension") == [
+            "dimension:sales.events.category_new"
+        ]
+        assert _search_ids(request, "money received") == ["metric:sales.total"]
+        assert _search_ids(request, "after", "measure") == ["measure:sales.events.amount"]
+
+        trace.write_text("", encoding="utf-8")
+        _models(tmp_path, "after")
+        _ok(request("/v2/semantic/reload", method="POST"))
+        assert trace.read_text(encoding="utf-8") == ""
+        assert _search_ids(request, "money received", "dimension") == []
+        assert _search_ids(request, "money received") == ["metric:sales.total"]
+        assert _search_ids(request, "after", "measure") == ["measure:sales.events.amount"]
+
+
+def test_failed_granite_rebuild_retains_vector_search(tmp_path: Path) -> None:
+    _models(tmp_path, "Event amount")
+    with server(tmp_path) as request:
+        catalog = _ready_search(request)
+        assert _search_ids(request, "money received") == ["metric:sales.total"]
+        search = {"query": "sales.total", "kind": "metric", "limit": 1}
+        objects = "/v2/semantic/objects?"
+        first = _ok(request(objects + urlencode(search)))
+        _models(tmp_path, "after")
+        fail_index = tmp_path / _MANAGED_MODEL_DIR / "fail-index"
+        fail_index.touch()
+        failure = _error(request("/v2/semantic/reload", method="POST"), 422, "catalog_load_failed")
+        assert failure["location"] == "catalog.search"
+        assert _ok(request("/v2/info"))["catalog"] == catalog
+        assert _search_ids(request, "money received") == ["metric:sales.total"]
+        assert _search_ids(request, "after", "measure") == []
+        continued = _ok(request(objects + urlencode({**search, "cursor": first["next_cursor"]})))
+        assert [item["id"] for item in continued["items"]] == ["metric:sales.all_amount"]
+        fail_index.unlink()
+        _ok(request("/v2/semantic/reload", method="POST"))
+        assert _search_ids(request, "after", "measure") == ["measure:sales.events.amount"]
+
+
+def test_granite_cache_reuses_document_vectors_across_service_processes(tmp_path: Path) -> None:
+    _models(tmp_path, "before")
+    events = tmp_path / "models/semantic/sales/events.py"
+    with events.open("a", encoding="utf-8") as stream:
+        stream.write(
+            "ms.dimension_column(name='category_legacy', entity=events, column='amount')\n"
+        )
+    model = tmp_path / "model.onnx"
+    model.write_bytes(b"model fingerprint witness")
+    model.with_name("tokenizer.json").write_text("{}", encoding="utf-8")
+    args = (
+        "--experimental-granite-model",
+        str(model),
+        "--experimental-granite-cache-dir",
+        str(tmp_path / "index-cache"),
+    )
+    trace = tmp_path / "encoded-documents.jsonl"
+    setup = _record_document_encodings(trace)
+    with server(tmp_path, *args, setup=setup) as request:
+        _ready_search(request)
+        assert _search_ids(request, "money received", "dimension") == [
+            "dimension:sales.events.category_legacy"
+        ]
+        assert _search_ids(request, "money received") == ["metric:sales.total"]
+        assert _search_ids(request, "after", "measure") == []
+
+    # Replace the old dimension and update the measure while the service is stopped.
+    _models(tmp_path, "after")
+    with events.open("a", encoding="utf-8") as stream:
+        stream.write(
+            "ms.dimension_column(name='category_revenue', entity=events, column='amount')\n"
+        )
+    trace.write_text("", encoding="utf-8")
+    with server(tmp_path, *args, setup=setup) as request:
+        _ready_search(request)
+        assert sorted(
+            json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()
+        ) == [
+            "id: dimension:sales.events.category_revenue\n"
+            "path: sales.events.category_revenue\nname: category_revenue",
+            "id: measure:sales.events.amount\npath: sales.events.amount\n"
+            "name: amount\nbusiness_definition: after",
+        ]
+        assert _search_ids(request, "money received", "dimension") == [
+            "dimension:sales.events.category_revenue"
+        ]
+        _error(
+            request("/v2/semantic/objects/dimension%3Asales.events.category_legacy"),
+            404,
+            "not_found",
+        )
+        assert _search_ids(request, "after", "measure") == ["measure:sales.events.amount"]
+        assert _search_ids(request, "money received") == ["metric:sales.total"]
+
+    # The restarted service can query vectors persisted by the preceding process.
+    trace.write_text("", encoding="utf-8")
+    (tmp_path / "fail-index").touch()
+    with server(tmp_path, *args, setup=setup) as request:
+        _ready_search(request)
+        assert trace.read_text(encoding="utf-8") == ""
+        assert _search_ids(request, "money received") == ["metric:sales.total"]
+        assert _search_ids(request, "money received", "dimension") == [
+            "dimension:sales.events.category_revenue"
+        ]
+        assert _search_ids(request, "after", "measure") == ["measure:sales.events.amount"]
+        _models(tmp_path, "Updated event amount")
+        failure = _error(request("/v2/semantic/reload", method="POST"), 422, "catalog_load_failed")
+        assert failure["location"] == "catalog.search"
+        assert _search_ids(request, "money received") == ["metric:sales.total"]
+    assert not (tmp_path / _MANAGED_MODEL_DIR).exists()
 
 
 def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> None:
@@ -375,10 +685,16 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
     _models(tmp_path, "before", bad=True)
     with server(tmp_path, "--max-response-mib", "1") as request:
         report = _ok(request(_path(ids)))
+        _error(request("/v2/semantic/objects?query=Settled+proceeds"), 422, "catalog_load_failed")
         _error(request("/v2/semantic/objects"), 422, "catalog_load_failed")
-        assert _ok(request("/v2/info"))["catalog"]["loaded"] is False
+        assert _ok(request("/v2/info"))["catalog"] == {
+            "loaded": False,
+            "loaded_at": None,
+            "search": {"mode": "vector", "state": "failed", "index_build_ms": None},
+        }
         assert _ok(request(_path(ids))) == report
         _models(tmp_path, "before")
+        _ok(request("/v2/semantic/reload", method="POST"))
         spec = _ok(request("/v2/openapi.json"))
         objects = "/v2/semantic/objects"
         (query_parameter,) = [
@@ -426,44 +742,6 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
             409,
             "invalid_cursor",
         )
-
-        search = {"query": "sales.total", "kind": "metric", "domain": "sales", "limit": 1}
-        search_url = objects + "?" + urlencode(search)
-        ranked = _ok(request(search_url))
-        _schema(spec, "ObjectDirectory", ranked)
-        # The exact path outranks the same text authored as another object's alias.
-        assert [item["id"] for item in ranked["items"]] == ["metric:sales.total"]
-        assert ranked["has_more"] is True
-        continuation_params = {**search, "cursor": ranked["next_cursor"]}
-        next_ranked = _ok(request(objects + "?" + urlencode(continuation_params)))
-        assert [item["id"] for item in next_ranked["items"]] == ["metric:sales.all_amount"]
-        assert next_ranked["has_more"] is False and next_ranked["next_cursor"] is None
-        trimmed = {**continuation_params, "query": " sales.total "}
-        assert _ok(request(objects + "?" + urlencode(trimmed))) == next_ranked
-        for changed in (
-            {**continuation_params, "query": "sales total"},
-            {**continuation_params, "limit": 2},
-            {key: value for key, value in continuation_params.items() if key != "kind"},
-            {key: value for key, value in continuation_params.items() if key != "domain"},
-        ):
-            _error(request(objects + "?" + urlencode(changed)), 409, "invalid_cursor")
-
-        for query, filters, expected in (
-            ("Settled proceeds", {}, ["metric:sales.total"]),
-            ("All event revenue", {}, ["metric:sales.all_amount"]),
-            ("metric:sales.total", {"kind": "entity"}, []),
-            ("Settled proceeds", {"domain": "missing"}, []),
-            ("private-source-token", {"kind": "entity"}, []),
-        ):
-            page = _ok(request(objects + "?" + urlencode({"query": query, **filters})))
-            assert [item["id"] for item in page["items"]] == expected
-        longest_query = "\uff58" * 512
-        assert _ok(request(objects + "?" + urlencode({"query": longest_query})))["items"] == []
-        for query in ("", "  ", longest_query + "x"):
-            error = _error(
-                request(objects + "?" + urlencode({"query": query})), 400, "invalid_parameter"
-            )
-            assert error["location"] == "query"
 
         endpoint = "/v2/semantic/objects/measure%3Asales.events.amount"
         detail = _ok(request(endpoint))
@@ -527,13 +805,6 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
         assert reload["object_count"] == 8
         assert _ok(request(endpoint))["business_definition"] == "after"
         _error(request(continuation), 409, "invalid_cursor")
-        _error(request(objects + "?" + urlencode(continuation_params)), 409, "invalid_cursor")
-        ranked_after_reload = _ok(request(search_url))
-        assert ranked_after_reload["items"] == ranked["items"]
-        continuation_params["cursor"] = ranked_after_reload["next_cursor"]
-        assert _ok(request(objects + "?query=before&kind=measure"))["items"] == []
-        after_search = _ok(request(objects + "?query=after&kind=measure"))
-        assert [item["id"] for item in after_search["items"]] == ["measure:sales.events.amount"]
         properties_endpoint = "/v2/semantic/objects/datasource%3Awarehouse/datasource-properties"
         properties_before_failure = _ok(request(properties_endpoint))
         _models(tmp_path, "x" * (1024 * 1024))
@@ -544,14 +815,7 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
         _error(request("/v2/semantic/reload", method="POST"), 422, "catalog_load_failed")
         assert _ok(request("/v2/info"))["catalog"]["loaded_at"] == reload["loaded_at"]
         assert _ok(request(endpoint))["business_definition"] == "after"
-        assert _ok(request(objects + "?" + urlencode(continuation_params))) == next_ranked
-        assert _ok(request(objects + "?query=after&kind=measure")) == after_search
         assert _ok(request(_path(ids))) == report
-        assert not (tmp_path / ".marivo/semantic/search").exists()
-
-        _models(tmp_path, "after")
-        _ok(request("/v2/semantic/reload", method="POST"))
-        _error(request(objects + "?" + urlencode(continuation_params)), 409, "invalid_cursor")
 
 
 def test_datasource_properties_are_authenticated_snapshot_reads(tmp_path: Path) -> None:
@@ -613,20 +877,37 @@ def test_reload_rejects_active_load_then_reads_new_model(
     _models(tmp_path, "before")
     events = tmp_path / "models/semantic/sales/events.py"
     ready, release = tmp_path / "ready", tmp_path / "release"
-    with events.open("a") as model:
-        model.write(
-            "\nfrom pathlib import Path\nimport time\n"
-            f"Path({str(ready)!r}).touch()\n"
-            f"while not Path({str(release)!r}).exists():\n    time.sleep(0.01)\n"
-        )
+
+    def block_catalog_load() -> None:
+        with events.open("a") as model:
+            model.write(
+                "\nfrom pathlib import Path\nimport time\n"
+                f"Path({str(ready)!r}).touch()\n"
+                f"while not Path({str(release)!r}).exists():\n    time.sleep(0.01)\n"
+            )
+
+    if initial_method == "GET":
+        block_catalog_load()
     with server(tmp_path) as request, ThreadPoolExecutor(max_workers=1) as pool:
-        initial_path = "/v2/semantic/objects" if initial_method == "GET" else "/v2/semantic/reload"
+        if initial_method == "GET":
+            initial_path = "/v2/semantic/objects"
+        else:
+            _ready_search(request)
+            block_catalog_load()
+            initial_path = "/v2/semantic/reload"
         pending = pool.submit(request, initial_path, method=initial_method)
         try:
             deadline = monotonic() + 20
             while not ready.exists():
                 assert monotonic() < deadline, "Catalog worker did not reach the model barrier"
                 sleep(0.01)
+            if initial_method == "GET":
+                info = _ok(request("/v2/info"))
+                assert info["catalog"] == {
+                    "loaded": False,
+                    "loaded_at": None,
+                    "search": {"mode": "vector", "state": "building", "index_build_ms": None},
+                }
             _models(tmp_path, "after")
             reply = request("/v2/semantic/reload", method="POST")
             _error(reply, 409, "catalog_load_in_progress")
@@ -767,32 +1048,52 @@ def test_tls_cors_and_cli_validation(tmp_path: Path) -> None:
         _error(failure, 401, "unauthorized")
         assert failure[1]["access-control-allow-origin"] == _ORIGIN
         assert failure[1]["vary"] == "Origin"
-        assert _ok(request("/v2/info"))["catalog"] == {"loaded": False, "loaded_at": None}
 
     no_token = {k: v for k, v in os.environ.items() if k != "MARIVO_API_TOKEN"}
-    for opts, env in (
-        ([], no_token),
-        (["--ssl-certfile", str(cert)], {**os.environ, "MARIVO_API_TOKEN": _TOKEN}),
+    authorized = {**os.environ, "MARIVO_API_TOKEN": _TOKEN}
+    for opts, env, error in (
+        ([], no_token, "MARIVO_API_TOKEN"),
+        (["--ssl-certfile", str(cert)], authorized, "--ssl-keyfile"),
         (
             ["--ssl-certfile", str(key), "--ssl-keyfile", str(key)],
-            {**os.environ, "MARIVO_API_TOKEN": _TOKEN},
+            authorized,
+            "PEM",
         ),
-        (["--max-response-mib", "0"], no_token),
-        (["--read-timeout-seconds", "-1"], no_token),
+        (["--max-response-mib", "0"], no_token, "--max-response-mib"),
+        (["--read-timeout-seconds", "-1"], no_token, "--read-timeout-seconds"),
+        (["--experimental-search-mode", "lexical"], authorized, "--experimental-search-mode"),
+        (["--vector-search"], authorized, "--vector-search"),
         (
             ["--allow-origin", "https://example.test/path"],
-            {**os.environ, "MARIVO_API_TOKEN": _TOKEN},
+            authorized,
+            "--allow-origin",
         ),
     ):
         failed = subprocess.run(
-            [*_CLI, "serve", "--project-root", str(tmp_path), "--port", "0", *opts],
+            _serve_command(tmp_path, *opts),
             env=env,
             capture_output=True,
             text=True,
             timeout=15,
         )
-        assert failed.returncode != 0 and failed.stdout == ""
+        assert failed.returncode != 0 and failed.stdout == "", failed.stderr
         assert _TOKEN not in failed.stderr
+        assert error in failed.stderr.splitlines()[-1], failed.stderr
+
+
+@pytest.mark.parametrize("runtime", ["onnxruntime", "tokenizers"])
+def test_cli_checks_vector_runtime_before_preparing_model(tmp_path: Path, runtime: str) -> None:
+    setup = f"command.find_spec = lambda name: None if name == {runtime!r} else object()"
+    failed = subprocess.run(
+        _serve_command(tmp_path, setup=setup),
+        env={**os.environ, "MARIVO_API_TOKEN": _TOKEN},
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert failed.returncode != 0 and failed.stdout == "", failed.stderr
+    assert "marivo[api]" in failed.stderr
+    assert not (tmp_path / _MANAGED_MODEL_DIR).exists()
 
 
 def test_read_timeout_covers_complete_report_and_catalog(tmp_path: Path) -> None:
@@ -801,18 +1102,14 @@ def test_read_timeout_covers_complete_report_and_catalog(tmp_path: Path) -> None
     script = """
 from time import sleep
 from marivo.analysis.materialization.graph_reading import FrameReader
-from marivo.cli import main
 
 original = FrameReader.range
 def delayed(self, *args, **kwargs):
     sleep(3)
     return original(self, *args, **kwargs)
 FrameReader.range = delayed
-main()
 """
-    with server(
-        tmp_path, "--read-timeout-seconds", "1", command=[sys.executable, "-c", script]
-    ) as request:
+    with server(tmp_path, "--read-timeout-seconds", "1", setup=script) as request:
         _error(request(_path(ids)), 503, "read_timeout")
         _error(request("/v2/semantic/objects"), 503, "read_timeout")
         _error(
@@ -820,7 +1117,11 @@ main()
             503,
             "read_timeout",
         )
-        assert _ok(request("/v2/info"))["catalog"] == {"loaded": False, "loaded_at": None}
+        assert _ok(request("/v2/info"))["catalog"] == {
+            "loaded": False,
+            "loaded_at": None,
+            "search": {"mode": "vector", "state": "failed", "index_build_ms": None},
+        }
         assert len(_ok(request("/v2/sessions"))["items"]) == 1
 
 

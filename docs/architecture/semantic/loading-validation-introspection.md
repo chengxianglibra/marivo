@@ -223,9 +223,11 @@ business datasource is read by load, search, get, show or related navigation.
 
 Catalog acquisition and browsing use the explicit Python operations above.
 The [project read service](../analysis/read-service.md#read-current-semantic-definitions)
-also exposes a current Catalog snapshot for HTTP object browsing, lexical search,
-definition detail and dependency navigation. Its explicit reload atomically replaces
-that snapshot after a successful isolated load. Failures retain the previous snapshot.
+also exposes a current Catalog snapshot for HTTP object browsing, search, definition
+detail and dependency navigation. Its Granite vector search has an HTTP
+configuration independent of Python Catalog search. Explicit
+reload atomically replaces the snapshot after a successful isolated load.
+Failures retain the previous snapshot.
 Saved AnalysisFrame and plain DataFrame reads remain independent of the current Catalog.
 
 ## Validation boundaries

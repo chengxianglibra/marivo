@@ -108,19 +108,21 @@ reads have no pagination or HTTP JSON limits. Commit time does not prove freshne
 
 ## Start and connect
 
-Install `marivo[api]`. Generate a token once with `secrets.token_urlsafe(32)`,
-store it in deployment credentials, and set `MARIVO_API_TOKEN` in the service
-environment. The host owns connection management and user authorization.
+Install `marivo[api]` for the service, including `onnxruntime` and `tokenizers`.
+Generate a token once with `secrets.token_urlsafe(32)`, store it in deployment
+credentials, and set `MARIVO_API_TOKEN` in the service environment. The host owns
+connection management and user authorization.
 
 ```sh
 marivo serve --project-root /srv/sales-project --port 0
 ```
 
-The default listener is `127.0.0.1:8765`. Port 0 selects an available port.
-The foreground process emits one JSON readiness line with host, port, protocol,
-pid, marivo_version and api_version 2. Logs go to stderr. SIGTERM/SIGINT stop it;
-fixed files remain available after restart. Token rotation uses configuration
-and restart, without changing fixed references.
+Marivo prepares the Granite model files before starting the listener. The
+default listener is `127.0.0.1:8765`. Port 0 selects an available port. The
+foreground process emits one JSON readiness line with host, port, protocol, pid,
+marivo_version and api_version 2. Logs go to stderr. SIGTERM/SIGINT stop it;
+fixed files remain available after restart. Token rotation uses configuration and
+restart, without changing fixed references.
 
 For remote HTTPS browser access, configure a trusted certificate and matching key,
 or use a protected HTTPS proxy. Configure exact browser Origins; repeat the flag
@@ -176,20 +178,58 @@ a zero-column single row uses `rows: [[]]`.
 
 ## Read current semantic definitions
 
-The service keeps one current Catalog snapshot, separate from saved results.
-The first semantic request loads the bound project's models in a fresh interpreter,
-without connecting to business sources. `GET /v2/info` reports `catalog.loaded`
+The service loads the bound project's semantic definitions in a fresh interpreter
+without connecting to business sources. It prewarms the Catalog snapshot and
+vector index asynchronously at startup. `GET /v2/info` reports `catalog.loaded`
 and `catalog.loaded_at` without triggering a load.
 
 Omit `query` to browse in canonical ID order. To search, send a URL-encoded UTF-8
 `query` containing at most 512 decoded printable characters and at least one
-non-whitespace character. Leading and trailing spaces are trimmed. Both modes
-accept optional `kind` and `domain` filters. Search applies the filters to the
-whole current snapshot before ranking by lexical matches on IDs, paths, names,
-business definitions and authored aliases. Pagination covers a lexical candidate
-window of 30, plus any exact ID or path matches outside it. Exact matches come
-first. Search uses captured metadata in memory and requires no retrieval models,
-project ranking cache or datasource reads.
+non-whitespace character. Leading and trailing spaces are trimmed. Browsing and
+search accept optional `kind` and `domain` filters. Search applies them to the whole
+current snapshot before vector ranking. Granite encodes captured IDs, paths,
+names, business definitions and authored aliases without reading datasources.
+Search returns up to 30 vector candidates at or above the cosine cutoff of 0.80, plus
+any exact canonical ID or path matches within the filters. Exact matches come first.
+
+By default, `marivo serve` verifies the portable INT8 ONNX model and
+`tokenizer.json` against pinned SHA-256 checksums at each startup. It downloads
+missing or invalid files from IBM's Granite Embedding 97M Multilingual R2
+repository. Projects and restarts share the same model cache.
+[Pinned IBM model revision](https://huggingface.co/ibm-granite/granite-embedding-97m-multilingual-r2/tree/835ad14087e140460703cf0fae09f97d469d65c2)
+
+The cache root defaults to `~/.cache/marivo/models`, or
+`$XDG_CACHE_HOME/marivo/models` when that variable is set. Set
+`MARIVO_VECTOR_MODEL_CACHE_DIR` to override it.
+
+For offline provisioning, use `--experimental-granite-model /path/to/model.onnx`
+to supply a local Granite INT8 export with a sibling `tokenizer.json`. The local
+option accepts `.onnx` and `.ort` files. Marivo exits before listener readiness
+if runtime dependencies are missing or it cannot prepare the managed files.
+
+The service prewarms a 384-dimensional in-memory vector index and uses at most
+256 tokens per model input. `GET /v2/info` includes `catalog.search` with
+`mode: "vector"`, `state` (`building`, `ready`, or `failed`), and `index_build_ms`
+(index preparation after document projection, including any model loading and
+encoding, or null before index readiness).
+Catalog requests share the initial build. `POST /v2/semantic/reload` loads a fresh
+Catalog and compares search text with the previous ready snapshot using SHA-256.
+The exact encoder input includes the canonical `kind:path` ID, path, name,
+business definition and aliases. Reload encodes new or changed search text,
+reuses vectors for unchanged text, and drops vectors for removed IDs. Each input
+is encoded independently so its vector is stable when other documents change.
+Reload publishes objects and the updated index together. An initial build failure
+can be retried by reload, and a failed reload retains the previous ready snapshot.
+
+To reuse Granite vectors on restart, pass `--experimental-granite-cache-dir /path/to/cache`.
+This cache is separate from the model file cache. Use a trusted local directory and
+a self-contained model export. Each archive is scoped to the absolute project root,
+both model files and the encoding recipe. It stores row fingerprints and float32 vectors.
+Startup reuses rows with matching fingerprints, encodes new or changed text, and drops
+rows for removed IDs. A successful update atomically replaces the archive. A missing,
+incompatible or invalid archive requires a full build. If all current rows can be reused,
+the service can defer native model initialization to the first text search.
+Restart the service when replacing model files.
 
 Browse and search return the same object summaries and pagination fields. Pass
 `next_cursor` as `cursor` with the same query, filters and limit. A cursor from a

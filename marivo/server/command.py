@@ -8,6 +8,7 @@ import os
 import re
 import socket
 import ssl
+from importlib.util import find_spec
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -70,6 +71,8 @@ def serve(
     certfile: str | None,
     keyfile: str | None,
     limits: Limits,
+    granite_model: Path | None = None,
+    granite_cache_dir: Path | None = None,
 ) -> None:
     token = os.environ.get("MARIVO_API_TOKEN", "")
     if re.fullmatch(r"[A-Za-z0-9._~+/=-]+", token) is None:
@@ -81,11 +84,22 @@ def serve(
     root = resolve_project_root() if project_root is None else project_root.resolve()
     if not root.is_dir():
         raise ValueError("--project-root must be an existing directory.")
+    if granite_model is not None and granite_model.suffix not in (".onnx", ".ort"):
+        raise ValueError("--experimental-granite-model requires an ONNX or ORT model file.")
+    allowed_origins = frozenset(map(_origin, origins))
+    if find_spec("onnxruntime") is None or find_spec("tokenizers") is None:
+        raise ValueError("Install the API runtime with pip install 'marivo[api]'.")
+    if granite_model is None:
+        from marivo.server.granite_model import prepare_granite_model
+
+        granite_model = prepare_granite_model()
     app = ReadApplication(
         root,
         token.encode("ascii"),
-        frozenset(map(_origin, origins)),
+        allowed_origins,
         limits,
+        granite_model=granite_model,
+        granite_cache_dir=granite_cache_dir,
     )
     config = uvicorn.Config(
         app,

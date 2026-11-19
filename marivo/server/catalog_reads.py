@@ -11,16 +11,21 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Event
 from time import monotonic
-from typing import Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, TypedDict, cast
 from uuid import uuid4
 
-from marivo.semantic.catalog_search import LexicalSearchConfig, SearchDocument, rank_documents
+from marivo.semantic.catalog_search import SearchDocument
 from marivo.server.frames import directory, scope_cursor, unscoped_cursor
 from marivo.server.wire import HELP, JsonObject, JsonValue, Limits, ServiceError, stale_cursor
 
+if TYPE_CHECKING:
+    from marivo.server.granite_search import GraniteEncoder, GraniteIndex
+
 Relation = Literal["dependencies", "dependents"]
 _SUMMARY_FIELDS = ("id", "kind", "path", "name", "domain", "business_definition")
+_CANDIDATE_WINDOW = 30
 
 
 class _EntryRequired(TypedDict):
@@ -85,7 +90,8 @@ class CatalogSnapshot:
     loaded_at: str
     entries: dict[str, Entry]
     documents: tuple[SearchDocument, ...]
-    root: Path
+    vector_index: GraniteIndex
+    index_build_ms: float
 
     def objects(
         self,
@@ -98,23 +104,17 @@ class CatalogSnapshot:
     ) -> JsonObject:
         scope = (self.key, "objects", kind, domain, limit, query)
         offset = _page_offset(cursor, scope)
-        documents = tuple(
-            document
-            for document in self.documents
+        selected = tuple(
+            (row, document)
+            for row, document in enumerate(self.documents)
             if (kind is None or document.kind == kind)
             and (domain is None or document.domain == domain)
         )
         if query is None:
-            matches = [self.entries[document.id] for document in documents]
+            matches = [self.entries[document.id] for _, document in selected]
         else:
-            hits = rank_documents(
-                documents,
-                query,
-                workspace_dir=self.root,
-                snapshot=self.key,
-                config=LexicalSearchConfig(),
-            )
-            matches = [self.entries[hit.id] for hit in hits]
+            identities = self.vector_index.rank(query, selected, _CANDIDATE_WINDOW)
+            matches = [self.entries[identity] for identity in identities]
         kinds = sorted({document.kind for document in self.documents})
         domains = sorted(
             {document.domain for document in self.documents if document.domain is not None}
@@ -166,11 +166,51 @@ class CatalogSnapshot:
 
 
 class CatalogReads:
-    def __init__(self, root: Path, limits: Limits) -> None:
+    def __init__(
+        self,
+        root: Path,
+        limits: Limits,
+        *,
+        granite_model: Path,
+        granite_cache_dir: Path | None = None,
+    ) -> None:
         self.root = root
         self.limits = limits
         self.current: CatalogSnapshot | None = None
         self._task: asyncio.Task[CatalogSnapshot] | None = None
+        self._granite_model = granite_model
+        self._granite_cache_dir = granite_cache_dir
+        self._encoder: GraniteEncoder | None = None
+        self._encoder_fingerprint: str | None = None
+        self._closed = Event()
+
+    def prewarm(self) -> None:
+        if self._task is None:
+            self._start_load()
+
+    def status(self) -> JsonObject:
+        current = self.current
+        if current is not None:
+            state = "ready"
+        elif self._task is not None and self._task.done():
+            state = "failed"
+        else:
+            state = "building"
+        return {
+            "loaded": current is not None,
+            "loaded_at": current.loaded_at if current else None,
+            "search": {
+                "mode": "vector",
+                "state": state,
+                "index_build_ms": current.index_build_ms if current else None,
+            },
+        }
+
+    def _start_load(self) -> asyncio.Task[CatalogSnapshot]:
+        task = asyncio.create_task(self._load())
+        task.add_done_callback(_observe_failure)
+        self._task = task
+        return task
 
     async def get(self, *, reload: bool = False) -> CatalogSnapshot:
         if self.current is not None and not reload:
@@ -183,12 +223,13 @@ class CatalogReads:
                 "Wait for the active load to finish, then request reload again.",
                 HELP,
             )
-        if self._task is None or self._task.done():
-            self._task = asyncio.create_task(self._load())
-            self._task.add_done_callback(_observe_failure)
-        return await asyncio.shield(self._task)
+        task = self._task
+        if task is None or reload:
+            task = self._start_load()
+        return await asyncio.shield(task)
 
     async def close(self) -> None:
+        self._closed.set()
         if self._task is not None and not self._task.done():
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -210,17 +251,78 @@ class CatalogReads:
         # The isolated worker is the same installed code and emits this closed
         # protocol after safe projection. No HTTP input is decoded as a snapshot.
         entries = cast("list[Entry]", payload["entries"])
+        documents = tuple(_search_document(entry["detail"]) for entry in entries)
+        build_started = monotonic()
+        vector_index = await asyncio.to_thread(
+            self._build_vector_index, self._granite_model, documents, deadline
+        )
+        index_build_ms = (monotonic() - build_started) * 1_000
         snapshot = CatalogSnapshot(
             uuid4().hex,
             datetime.now(timezone.utc).isoformat(),
             {str(entry["detail"]["id"]): entry for entry in entries},
-            tuple(_search_document(entry["detail"]) for entry in entries),
-            self.root,
+            documents,
+            vector_index=vector_index,
+            index_build_ms=index_build_ms,
         )
         if monotonic() >= deadline:
             raise self.limits.timed_out("catalog")
         self.current = snapshot
         return snapshot
+
+    def _build_vector_index(
+        self, model: Path, documents: tuple[SearchDocument, ...], deadline: float
+    ) -> GraniteIndex:
+        from marivo.server.granite_search import GraniteEncoder, GraniteIndex
+
+        def check_budget() -> None:
+            if self._closed.is_set() or monotonic() >= deadline:
+                raise self.limits.timed_out("catalog.search")
+
+        try:
+            check_budget()
+            cache = None
+            fingerprint = None
+            if self._granite_cache_dir is not None:
+                from marivo.server.granite_cache import GraniteCache, fingerprint_model
+
+                fingerprint = fingerprint_model(model, check_budget=check_budget)
+                if (
+                    self._encoder_fingerprint is not None
+                    and self._encoder_fingerprint != fingerprint
+                ):
+                    raise ValueError("Granite model assets changed. Restart the read service.")
+                cache = (GraniteCache(self._granite_cache_dir, self.root), fingerprint)
+            encoder = self._encoder
+            if encoder is None:
+                encoder = (
+                    GraniteEncoder(model, asset_fingerprint=fingerprint)
+                    if fingerprint is not None
+                    else GraniteEncoder(model)
+                )
+            current = self.current
+            index = GraniteIndex.build(
+                encoder,
+                documents,
+                check_budget,
+                cache=cache,
+                previous=current.vector_index if current is not None else None,
+            )
+            self._encoder = encoder
+            self._encoder_fingerprint = fingerprint
+            return index
+        except ServiceError:
+            raise
+        except Exception as exc:
+            logging.getLogger("uvicorn.error").exception("Granite index build failed")
+            raise ServiceError(
+                "catalog_load_failed",
+                "Could not build the experimental Granite search index.",
+                "catalog.search",
+                "Check the service logs, local Granite INT8 model and tokenizer, and optional "
+                "ONNX Runtime and tokenizers dependencies, then retry reload.",
+                HELP,
+            ) from exc
 
     async def _run_worker(self) -> JsonObject:
         env = dict(os.environ)

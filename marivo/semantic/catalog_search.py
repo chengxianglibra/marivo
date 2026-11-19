@@ -20,11 +20,14 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from marivo._compat import tomllib
 from marivo.config import PROJECT_MANIFEST
 from marivo.semantic.errors import CatalogSearchError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 _RANKING_VERSION = "catalog-search-v2"
 _PROJECTION_VERSION = "catalog-search-document-v1"
@@ -405,6 +408,16 @@ def _retrieval(config: SearchConfig, query: str) -> Retrieval:
     )
 
 
+def exact_identity_matches(documents: Iterable[SearchDocument], query: str) -> set[str]:
+    """Resolve exact canonical IDs or paths within the selected search scope."""
+    normalized = _normalized(query)
+    return {
+        document.id
+        for document in documents
+        if normalized in {_normalized(document.id), _normalized(document.path)}
+    }
+
+
 def rank_documents(
     documents: tuple[SearchDocument, ...],
     query: str,
@@ -418,11 +431,7 @@ def rank_documents(
         return tuple(SearchHit(document.id, 0.0, (), ()) for document in documents)
     lexical = _lexical(documents, query, config.candidate_window)
     lexical_scores = dict(lexical)
-    exact = {
-        document.id
-        for document in documents
-        if _normalized(query) in {_normalized(document.id), _normalized(document.path)}
-    }
+    exact = exact_identity_matches(documents, query)
     vectors: tuple[tuple[str, float], ...] = ()
     all_vector_scores: dict[str, float] = {}
     rerank_scores: dict[str, float] = {}

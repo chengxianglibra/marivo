@@ -62,9 +62,10 @@ ROUTES = (
         "Browse or search current semantic objects",
         ("query", "kind", "domain", *_PAGE),
         description=(
-            "Omit query to browse in canonical ID order. Search filters by kind and domain "
-            "before ranking by lexical relevance. It pages over up to 30 lexical candidates "
-            "plus any exact ID or path matches outside that window. Exact matches come first. "
+            "Omit query to browse in canonical ID order. Text search uses Granite vectors. "
+            "Apply kind and domain filters before ranking up to 30 vector candidates at or above "
+            "0.80 cosine similarity. Exact ID or path matches within the filters come first, "
+            "including outside the candidate window. "
             "Continue with the same query, filters and limit until next_cursor is null."
         ),
     ),
@@ -94,9 +95,9 @@ ROUTES = (
         "Reload the semantic Catalog",
         method="POST",
         description=(
-            "Send an empty body. Start a new Catalog load; an active load returns "
-            "409 catalog_load_in_progress. The service owns the load, which continues "
-            "after a client disconnect until its deadline. Reload does not change saved results."
+            "Send an empty body to load the Catalog and update vectors for new or changed search "
+            "text. An active load returns 409 catalog_load_in_progress. The service owns the load, "
+            "which continues after a client disconnect until its deadline. Saved results remain fixed."
         ),
     ),
     Route("sessions", "/v2/sessions", "SessionDirectory", "List saved Sessions", _PAGE),
@@ -440,7 +441,21 @@ def _schemas() -> dict[str, JsonObject]:
             api_version={"type": "integer", "const": API_VERSION},
             marivo_version=STRING,
             store_id=nullable(STRING),
-            catalog=record(loaded=BOOL, loaded_at=nullable(DATETIME)),
+            catalog=record(
+                loaded=BOOL,
+                loaded_at=nullable(DATETIME),
+                search=record(
+                    mode={"type": "string", "const": "vector"},
+                    state={"enum": ["building", "ready", "failed"]},
+                    index_build_ms=nullable(
+                        {
+                            "type": "number",
+                            "minimum": 0,
+                            "description": "Index preparation after the Catalog document projection.",
+                        }
+                    ),
+                ),
+            ),
         ),
         "Reload": record(loaded_at=DATETIME, object_count=INT),
         "SessionSummary": record(session_id=STRING, **session_fields),
@@ -491,8 +506,9 @@ QUERY_SCHEMAS: dict[str, JsonObject] = {
         "maxLength": MAX_SEARCH_QUERY_LENGTH,
         "pattern": r"\S",
         "description": (
-            "Printable text matched against IDs, paths, names, business definitions and aliases. "
-            "Leading and trailing spaces are trimmed."
+            "Printable text for vector search over IDs, paths, names, business definitions "
+            "and aliases. Requires a configured Granite model. Leading and trailing spaces "
+            "are trimmed."
         ),
     },
     "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},

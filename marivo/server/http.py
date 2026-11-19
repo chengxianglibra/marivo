@@ -215,10 +215,18 @@ class ReadApplication:
         token: bytes,
         origins: frozenset[bytes],
         limits: Limits,
+        *,
+        granite_model: Path,
+        granite_cache_dir: Path | None = None,
     ) -> None:
         self.root = root
         self.frames = FrameReads(root)
-        self.catalog = CatalogReads(root, limits)
+        self.catalog = CatalogReads(
+            root,
+            limits,
+            granite_model=granite_model,
+            granite_cache_dir=granite_cache_dir,
+        )
         self.token = token
         self.origins = origins
         self.limits = limits
@@ -235,6 +243,7 @@ class ReadApplication:
     ) -> None:
         if scope["type"] == "lifespan":
             await receive()
+            self.catalog.prewarm()
             await send({"type": "lifespan.startup.complete"})
             await receive()
             for event in self.active_workers:
@@ -439,7 +448,7 @@ class ReadApplication:
         if name == "openapi":
             return await self._worker(budget, lambda: budget.encode(self.spec))
         if name == "info":
-            current = self.catalog.current
+            catalog_status = self.catalog.status()
             return await self._worker(
                 budget,
                 lambda: budget.encode(
@@ -447,10 +456,7 @@ class ReadApplication:
                         "api_version": API_VERSION,
                         "marivo_version": __version__,
                         "store_id": self.frames.store_id(),
-                        "catalog": {
-                            "loaded": current is not None,
-                            "loaded_at": current.loaded_at if current else None,
-                        },
+                        "catalog": catalog_status,
                     }
                 ),
             )

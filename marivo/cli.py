@@ -231,6 +231,16 @@ def main(argv: list[str] | None = None) -> None:
     serve_parser.add_argument("--ssl-certfile", help="TLS PEM certificate chain")
     serve_parser.add_argument("--ssl-keyfile", help="TLS PEM private key")
     serve_parser.add_argument(
+        "--experimental-granite-model",
+        type=Path,
+        help="Use a local Granite INT8 model for offline provisioning",
+    )
+    serve_parser.add_argument(
+        "--experimental-granite-cache-dir",
+        type=Path,
+        help="Persist Granite document vectors for incremental updates across restarts",
+    )
+    serve_parser.add_argument(
         "--allow-origin", action="append", default=[], help="Allow one exact browser Origin"
     )
     serve_parser.add_argument(
@@ -247,6 +257,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     serve_parser.epilog = (
         "Set MARIVO_API_TOKEN in the environment for result and semantic reads. "
+        "The default vector search model is prepared at startup. "
         "See marivo help analysis.results.service.http."
     )
 
@@ -323,6 +334,8 @@ def main(argv: list[str] | None = None) -> None:
                 certfile=args.ssl_certfile,
                 keyfile=args.ssl_keyfile,
                 limits=Limits(args.max_response_mib, args.read_timeout_seconds),
+                granite_model=args.experimental_granite_model,
+                granite_cache_dir=args.experimental_granite_cache_dir,
             )
         except ValueError as error:
             serve_parser.error(str(error))

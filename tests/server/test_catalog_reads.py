@@ -6,11 +6,13 @@ import asyncio
 import logging
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import create_autospec
 
 import pytest
 
 from marivo.datasource.ir import AiContextIR
 from marivo.semantic.catalog_entries import DatasourceDefinition
+from marivo.server import granite_search
 from marivo.server.catalog_projection import _datasource_properties
 from marivo.server.catalog_reads import CatalogReads
 from marivo.server.wire import JsonObject, Limits, ServiceError
@@ -51,8 +53,12 @@ def test_datasource_projection_filters_unapproved_or_unsafe_shapes() -> None:
 def test_disconnected_reader_does_not_cancel_shared_catalog_load(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(
+        granite_search, "GraniteEncoder", create_autospec(granite_search.GraniteEncoder)
+    )
+
     async def scenario() -> None:
-        catalog = CatalogReads(tmp_path, Limits())
+        catalog = CatalogReads(tmp_path, Limits(), granite_model=tmp_path / "model.onnx")
         started, release = asyncio.Event(), asyncio.Event()
         calls = 0
 
@@ -106,7 +112,7 @@ def test_catalog_worker_crash_keeps_traceback_out_of_http_error(
     )
 
     async def scenario() -> None:
-        catalog = CatalogReads(tmp_path, Limits())
+        catalog = CatalogReads(tmp_path, Limits(), granite_model=tmp_path / "model.onnx")
         try:
             with pytest.raises(ServiceError) as failure:
                 await catalog.get()
