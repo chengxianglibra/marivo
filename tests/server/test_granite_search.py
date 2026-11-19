@@ -28,7 +28,7 @@ class _PeerDependentSession:
         hidden = np.zeros((*ids.shape, 384), dtype=np.float32)
         # Share a data-dependent value across the whole feed as INT8 kernels do.
         hidden[:, 0, 0] = ids[:, 0]
-        hidden[:, 0, 1] = ids.max()
+        hidden[:, 0, 1] = np.max(ids, axis=None)
         hidden[:, 0, 2] = 1.0
         return [hidden]
 
