@@ -15,5 +15,15 @@ def test_pull_request_runs_cancel_only_their_own_superseded_attempt() -> None:
     assert concurrency["group"] == (
         "ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}"
     )
+    versions = ["3.10", "3.12", "3.13", "3.14"]
     check = workflow["jobs"]["check"]
-    assert check["strategy"]["matrix"]["python-version"] == ["3.10", "3.12", "3.13", "3.14"]
+    assert check["name"] == "check (${{ matrix.python-version }})"
+    assert check["strategy"]["matrix"]["python-version"] == versions
+    assert check["needs"] == ["typecheck", "tests"]
+    assert check["if"] == "always() && !cancelled()"
+    tests = workflow["jobs"]["tests"]
+    assert tests["name"] == "tests (${{ matrix.python-version }} shard ${{ matrix.shard }})"
+    assert tests["strategy"]["fail-fast"] == "false"
+    assert tests["strategy"]["matrix"]["python-version"] == versions
+    assert tests["strategy"]["matrix"]["shard"] == ["1", "2", "3", "4"]
+    assert workflow["jobs"]["typecheck"]["strategy"]["matrix"]["python-version"] == versions
