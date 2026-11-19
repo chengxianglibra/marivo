@@ -15,12 +15,22 @@ import numpy.typing as npt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from typing import IO
 
 _DIMENSIONS = 384
 _DTYPE = np.dtype(np.float32)
 _MATRIX_MEMBER = "matrix.npy"
 _ROW_KEYS_MEMBER = "row-keys.sha256"
 _ROW_KEY_BYTES = hashlib.sha256().digest_size
+
+# NumPy 2.2 exposes these operations at runtime but leaves their stubs untyped.
+_read_magic: Callable[[IO[bytes]], tuple[int, int]] = np.lib.format.read_magic
+_read_header: Callable[[IO[bytes]], tuple[tuple[int, ...], bool, np.dtype[np.generic]]] = (
+    np.lib.format.read_array_header_1_0
+)
+_write_array: Callable[[IO[bytes], npt.NDArray[np.float32], tuple[int, int], bool], None] = (
+    np.lib.format.write_array
+)
 
 
 def fingerprint_model(model_path: Path, *, check_budget: Callable[[], None] | None = None) -> str:
@@ -84,9 +94,9 @@ class GraniteCache:
                 rows = row_keys_member.file_size // _ROW_KEY_BYTES
                 expected_bytes = rows * _DIMENSIONS * _DTYPE.itemsize
                 with cache.open(matrix_member) as stream:
-                    if np.lib.format.read_magic(stream) != (1, 0):
+                    if _read_magic(stream) != (1, 0):
                         return None
-                    shape, fortran_order, dtype = np.lib.format.read_array_header_1_0(stream)
+                    shape, fortran_order, dtype = _read_header(stream)
                     if (
                         shape != (rows, _DIMENSIONS)
                         or fortran_order
@@ -132,9 +142,7 @@ class GraniteCache:
                 with ZipFile(file, "w") as cache:
                     cache.writestr(_ROW_KEYS_MEMBER, b"".join(row_keys))
                     with cache.open(_MATRIX_MEMBER, "w") as stream:
-                        np.lib.format.write_array(
-                            stream, matrix, version=(1, 0), allow_pickle=False
-                        )
+                        _write_array(stream, matrix, (1, 0), False)
                 file.flush()
                 os.fsync(file.fileno())
             os.replace(temporary, self.directory / f"{key}.npz")
