@@ -14,6 +14,8 @@ import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+import yaml
+
 
 def discover_test_files(root: Path) -> set[str]:
     """Return repo-relative modules the default pytest file patterns collect."""
@@ -59,9 +61,15 @@ def unassigned_files(discovered: set[str], shards: Mapping[int, Sequence[str]]) 
     return sorted(discovered - assigned)
 
 
-def validate_map(root: Path, shards: Mapping[int, Sequence[str]]) -> list[str]:
+def validate_map(
+    root: Path, shards: Mapping[int, Sequence[str]], *, expected_shards: set[int]
+) -> list[str]:
     discovered = discover_test_files(root)
     errors: list[str] = []
+    if shards.keys() != expected_shards:
+        errors.append(
+            f"shard map IDs {sorted(shards)} do not match CI matrix IDs {sorted(expected_shards)}"
+        )
     seen: dict[str, int] = {}
     for shard, files in sorted(shards.items()):
         for path in files:
@@ -103,7 +111,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     map_path = args.map or (root / "scripts" / "ci_shards.json")
     shards = load_shards(map_path)
     if args.check:
-        errors = validate_map(root, shards)
+        workflow_path = root / ".github" / "workflows" / "ci.yml"
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        expected_shards = set(workflow["jobs"]["tests"]["strategy"]["matrix"]["shard"])
+        errors = validate_map(root, shards, expected_shards=expected_shards)
         if errors:
             print("CI shard map is stale:", file=sys.stderr)
             for error in errors:

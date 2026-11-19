@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+
+import pytest
 
 from scripts.ci_require_checks import JobView, gate_errors
 from scripts.ci_shard_files import (
     discover_test_files,
     files_for_shard,
     load_shards,
+    main,
     pack_files,
     validate_map,
 )
@@ -92,16 +96,28 @@ def test_shard_one_runs_modules_missing_from_the_map(tmp_path: Path) -> None:
         "tests/test_new.py",
     ]
     assert files_for_shard(tmp_path, shards, 2) == []
-    assert validate_map(tmp_path, shards) == [
+    assert validate_map(tmp_path, shards, expected_shards={1, 2}) == [
         "1 test modules are not in the shard map: tests/test_new.py"
     ]
 
 
 def test_committed_shard_map_matches_collected_test_modules() -> None:
-    shards = load_shards(PROJECT_ROOT / "scripts" / "ci_shards.json")
-    assert validate_map(PROJECT_ROOT, shards) == []
+    assert main(["--root", str(PROJECT_ROOT), "--check"]) == 0
     assert discover_test_files(PROJECT_ROOT)
-    assert set(shards) == {1, 2, 3, 4}
+
+
+def test_check_rejects_a_module_assigned_only_to_an_unscheduled_shard(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shards = load_shards(PROJECT_ROOT / "scripts" / "ci_shards.json")
+    shards[5] = [shards[1].pop()]
+    map_path = tmp_path / "shards.json"
+    map_path.write_text(json.dumps({"shards": shards}), encoding="utf-8")
+
+    assert main(["--root", str(PROJECT_ROOT), "--map", str(map_path), "--check"]) == 1
+    assert "shard map IDs [1, 2, 3, 4, 5] do not match CI matrix IDs [1, 2, 3, 4]" in (
+        capsys.readouterr().err
+    )
 
 
 def test_validate_map_rejects_duplicates_and_unknown_paths(tmp_path: Path) -> None:
@@ -110,6 +126,7 @@ def test_validate_map_rejects_duplicates_and_unknown_paths(tmp_path: Path) -> No
     errors = validate_map(
         tmp_path,
         {1: ["tests/test_one.py", "tests/missing.py"], 2: ["tests/test_one.py"]},
+        expected_shards={1, 2},
     )
     assert any("assigned to shards" in error for error in errors)
     assert any("would not collect" in error for error in errors)
