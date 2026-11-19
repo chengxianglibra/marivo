@@ -15,6 +15,7 @@ from time import monotonic
 from typing import Literal, TypedDict, cast
 from uuid import uuid4
 
+from marivo.semantic.catalog_search import LexicalSearchConfig, SearchDocument, rank_documents
 from marivo.server.frames import directory, scope_cursor, unscoped_cursor
 from marivo.server.wire import HELP, JsonObject, JsonValue, Limits, ServiceError, stale_cursor
 
@@ -32,6 +33,33 @@ class Entry(_EntryRequired, total=False):
     datasource_properties: JsonObject
 
 
+def _search_document(detail: JsonObject) -> SearchDocument:
+    # Only fields already disclosed by the HTTP detail can contribute to ranking.
+    definition = detail["definition"]
+    assert isinstance(definition, dict)
+    context = definition["context"]
+    assert isinstance(context, dict)
+    aliases = context["aliases"]
+    assert isinstance(aliases, list)
+    domain = detail["domain"]
+    business_definition = detail["business_definition"]
+    return SearchDocument(
+        id=str(detail["id"]),
+        kind=str(detail["kind"]),
+        path=str(detail["path"]),
+        name=str(detail["name"]),
+        domain=domain if isinstance(domain, str) else None,
+        entity=None,
+        fields=(
+            (
+                "business_definition",
+                business_definition if isinstance(business_definition, str) else "",
+            ),
+            *(("alias", alias) for alias in aliases if isinstance(alias, str)),
+        ),
+    )
+
+
 def not_found() -> ServiceError:
     return ServiceError(
         "not_found",
@@ -42,32 +70,57 @@ def not_found() -> ServiceError:
     )
 
 
+def _page_offset(cursor: str | None, scope: tuple[object, ...]) -> int:
+    if cursor is None:
+        return 0
+    offset = unscoped_cursor(cursor, *scope)
+    if type(offset) is not int or offset < 1:
+        raise stale_cursor()
+    return offset
+
+
 @dataclass(frozen=True)
 class CatalogSnapshot:
     key: str
     loaded_at: str
     entries: dict[str, Entry]
+    documents: tuple[SearchDocument, ...]
+    root: Path
 
     def objects(
-        self, kind: str | None, domain: str | None, limit: int, cursor: str | None
+        self,
+        kind: str | None,
+        domain: str | None,
+        limit: int,
+        cursor: str | None,
+        *,
+        query: str | None,
     ) -> JsonObject:
-        matches = [
-            entry
-            for entry in self.entries.values()
-            if (kind is None or entry["detail"]["kind"] == kind)
-            and (domain is None or entry["detail"]["domain"] == domain)
-        ]
-        scope = (self.key, "objects", kind, domain, limit)
-        kinds = sorted({str(entry["detail"]["kind"]) for entry in self.entries.values()})
+        scope = (self.key, "objects", kind, domain, limit, query)
+        offset = _page_offset(cursor, scope)
+        documents = tuple(
+            document
+            for document in self.documents
+            if (kind is None or document.kind == kind)
+            and (domain is None or document.domain == domain)
+        )
+        if query is None:
+            matches = [self.entries[document.id] for document in documents]
+        else:
+            hits = rank_documents(
+                documents,
+                query,
+                workspace_dir=self.root,
+                snapshot=self.key,
+                config=LexicalSearchConfig(),
+            )
+            matches = [self.entries[hit.id] for hit in hits]
+        kinds = sorted({document.kind for document in self.documents})
         domains = sorted(
-            {
-                value
-                for entry in self.entries.values()
-                if isinstance(value := entry["detail"]["domain"], str)
-            }
+            {document.domain for document in self.documents if document.domain is not None}
         )
         return {
-            **self._page(matches, limit, cursor, scope),
+            **self._page(matches, limit, offset, scope),
             "kinds": list(kinds),
             "domains": list(domains),
         }
@@ -90,22 +143,20 @@ class CatalogSnapshot:
         entry = self.entries.get(identity)
         if entry is None:
             raise not_found()
+        scope = (self.key, identity, relation, limit)
+        offset = _page_offset(cursor, scope)
         matches = [self.entries[key] for key in entry["related"][relation]]
         return {
-            **self._page(matches, limit, cursor, (self.key, identity, relation, limit)),
+            **self._page(matches, limit, offset, scope),
             "outside_scope": list(entry["outside_scope"]) if relation == "dependencies" else [],
         }
 
     @staticmethod
     def _page(
-        matches: list[Entry], limit: int, cursor: str | None, scope: tuple[object, ...]
+        matches: list[Entry], limit: int, offset: int, scope: tuple[object, ...]
     ) -> JsonObject:
-        offset = 0
-        if cursor is not None:
-            position = unscoped_cursor(cursor, *scope)
-            if type(position) is not int or not 0 < position < len(matches):
-                raise stale_cursor()
-            offset = position
+        if offset and offset >= len(matches):
+            raise stale_cursor()
         end = offset + limit
         items: list[JsonValue] = [
             {name: entry["detail"][name] for name in _SUMMARY_FIELDS}
@@ -163,6 +214,8 @@ class CatalogReads:
             uuid4().hex,
             datetime.now(timezone.utc).isoformat(),
             {str(entry["detail"]["id"]): entry for entry in entries},
+            tuple(_search_document(entry["detail"]) for entry in entries),
+            self.root,
         )
         if monotonic() >= deadline:
             raise self.limits.timed_out("catalog")

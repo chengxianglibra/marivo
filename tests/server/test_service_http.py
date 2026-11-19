@@ -342,10 +342,32 @@ def _models(root: Path, text: str, *, bad: bool = False, slow: bool = False) -> 
             + "created = ms.time_dimension_column(name='created', entity=events, column='created')\n"
             + "amount = ms.measure_column(name='amount', entity=events, column='amount', "
             + f"additivity=ms.additive_all(), unit='USD', ai_context=ms.ai_context(business_definition={text!r}))\n"
-            + "@ms.metric()\ndef total():\n    return amount.sum()\n"
-            + "@ms.metric()\ndef all_amount():\n    return amount.sum(time=None)\n"
+            + "@ms.metric(ai_context=ms.ai_context(business_definition='Settled proceeds'))\n"
+            + "def total():\n    return amount.sum()\n"
+            + "@ms.metric(ai_context=ms.ai_context(aliases=['All event revenue', 'sales.total']))\n"
+            + "def all_amount():\n    return amount.sum(time=None)\n"
         )
     )
+
+
+def test_object_search_filters_before_the_lexical_candidate_window(tmp_path: Path) -> None:
+    _models(tmp_path, "Event amount")
+    model = tmp_path / "models/semantic/sales/events.py"
+    with model.open("a", encoding="utf-8") as stream:
+        for index in range(31):
+            stream.write(
+                f"ms.dimension_column(name='category_{index}', entity=events, column='amount', "
+                "ai_context=ms.ai_context(aliases=['Settled proceeds']))\n"
+            )
+
+    url = "/v2/semantic/objects?query=Settled+proceeds&limit=100"
+    with server(tmp_path) as request:
+        page = _ok(request(url))
+        assert len(page["items"]) == 30
+        assert {item["kind"] for item in page["items"]} == {"dimension"}
+        assert page["next_cursor"] is None
+        filtered = _ok(request(url + "&kind=metric"))
+        assert [item["id"] for item in filtered["items"]] == ["metric:sales.total"]
 
 
 def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> None:
@@ -358,6 +380,15 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
         assert _ok(request(_path(ids))) == report
         _models(tmp_path, "before")
         spec = _ok(request("/v2/openapi.json"))
+        objects = "/v2/semantic/objects"
+        (query_parameter,) = [
+            parameter
+            for parameter in spec["paths"][objects]["get"]["parameters"]
+            if parameter["name"] == "query"
+        ]
+        assert query_parameter["in"] == "query" and query_parameter["required"] is False
+        assert query_parameter["schema"]["type"] == "string"
+        assert query_parameter["schema"]["maxLength"] == 512
         schemas = spec["components"]["schemas"]
         assert "MetricContributionClockBinding" in schemas
         assert "MetricNoContributionClockBinding" in schemas
@@ -395,6 +426,45 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
             409,
             "invalid_cursor",
         )
+
+        search = {"query": "sales.total", "kind": "metric", "domain": "sales", "limit": 1}
+        search_url = objects + "?" + urlencode(search)
+        ranked = _ok(request(search_url))
+        _schema(spec, "ObjectDirectory", ranked)
+        # The exact path outranks the same text authored as another object's alias.
+        assert [item["id"] for item in ranked["items"]] == ["metric:sales.total"]
+        assert ranked["has_more"] is True
+        continuation_params = {**search, "cursor": ranked["next_cursor"]}
+        next_ranked = _ok(request(objects + "?" + urlencode(continuation_params)))
+        assert [item["id"] for item in next_ranked["items"]] == ["metric:sales.all_amount"]
+        assert next_ranked["has_more"] is False and next_ranked["next_cursor"] is None
+        trimmed = {**continuation_params, "query": " sales.total "}
+        assert _ok(request(objects + "?" + urlencode(trimmed))) == next_ranked
+        for changed in (
+            {**continuation_params, "query": "sales total"},
+            {**continuation_params, "limit": 2},
+            {key: value for key, value in continuation_params.items() if key != "kind"},
+            {key: value for key, value in continuation_params.items() if key != "domain"},
+        ):
+            _error(request(objects + "?" + urlencode(changed)), 409, "invalid_cursor")
+
+        for query, filters, expected in (
+            ("Settled proceeds", {}, ["metric:sales.total"]),
+            ("All event revenue", {}, ["metric:sales.all_amount"]),
+            ("metric:sales.total", {"kind": "entity"}, []),
+            ("Settled proceeds", {"domain": "missing"}, []),
+            ("private-source-token", {"kind": "entity"}, []),
+        ):
+            page = _ok(request(objects + "?" + urlencode({"query": query, **filters})))
+            assert [item["id"] for item in page["items"]] == expected
+        longest_query = "\uff58" * 512
+        assert _ok(request(objects + "?" + urlencode({"query": longest_query})))["items"] == []
+        for query in ("", "  ", longest_query + "x"):
+            error = _error(
+                request(objects + "?" + urlencode({"query": query})), 400, "invalid_parameter"
+            )
+            assert error["location"] == "query"
+
         endpoint = "/v2/semantic/objects/measure%3Asales.events.amount"
         detail = _ok(request(endpoint))
         _schema(spec, "SemanticObject", detail)
@@ -457,6 +527,13 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
         assert reload["object_count"] == 8
         assert _ok(request(endpoint))["business_definition"] == "after"
         _error(request(continuation), 409, "invalid_cursor")
+        _error(request(objects + "?" + urlencode(continuation_params)), 409, "invalid_cursor")
+        ranked_after_reload = _ok(request(search_url))
+        assert ranked_after_reload["items"] == ranked["items"]
+        continuation_params["cursor"] = ranked_after_reload["next_cursor"]
+        assert _ok(request(objects + "?query=before&kind=measure"))["items"] == []
+        after_search = _ok(request(objects + "?query=after&kind=measure"))
+        assert [item["id"] for item in after_search["items"]] == ["measure:sales.events.amount"]
         properties_endpoint = "/v2/semantic/objects/datasource%3Awarehouse/datasource-properties"
         properties_before_failure = _ok(request(properties_endpoint))
         _models(tmp_path, "x" * (1024 * 1024))
@@ -467,7 +544,14 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
         _error(request("/v2/semantic/reload", method="POST"), 422, "catalog_load_failed")
         assert _ok(request("/v2/info"))["catalog"]["loaded_at"] == reload["loaded_at"]
         assert _ok(request(endpoint))["business_definition"] == "after"
+        assert _ok(request(objects + "?" + urlencode(continuation_params))) == next_ranked
+        assert _ok(request(objects + "?query=after&kind=measure")) == after_search
         assert _ok(request(_path(ids))) == report
+        assert not (tmp_path / ".marivo/semantic/search").exists()
+
+        _models(tmp_path, "after")
+        _ok(request("/v2/semantic/reload", method="POST"))
+        _error(request(objects + "?" + urlencode(continuation_params)), 409, "invalid_cursor")
 
 
 def test_datasource_properties_are_authenticated_snapshot_reads(tmp_path: Path) -> None:

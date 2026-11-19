@@ -28,7 +28,7 @@ from marivo.server import dataframes
 from marivo.server.catalog_reads import CatalogReads
 from marivo.server.dataframes import dataframe_id
 from marivo.server.frames import FrameReads
-from marivo.server.protocol import KINDS, ROUTES, Route, openapi
+from marivo.server.protocol import KINDS, MAX_SEARCH_QUERY_LENGTH, ROUTES, Route, openapi
 from marivo.server.wire import (
     API_VERSION,
     HELP,
@@ -83,6 +83,15 @@ def _query(route: Route, raw: bytes) -> dict[str, str]:
                 "Use each declared parameter at most once with a valid value.",
             )
         values[name] = value
+    if "query" in values:
+        search = values["query"].strip()
+        if not search or len(values["query"]) > MAX_SEARCH_QUERY_LENGTH:
+            raise bad_request(
+                "query",
+                f"Search text must be non-blank and at most {MAX_SEARCH_QUERY_LENGTH} characters.",
+                "Enter a search term within the limit or omit query to browse objects.",
+            )
+        values["query"] = search
     if "kind" in values and values["kind"] not in KINDS:
         raise bad_request(
             "kind", "Unknown semantic kind.", "Choose a kind from the object directory."
@@ -454,7 +463,9 @@ class ReadApplication:
 
         def semantic_read() -> bytes:
             if name == "objects":
-                result = snapshot.objects(query.get("kind"), query.get("domain"), limit, cursor)
+                result = snapshot.objects(
+                    query.get("kind"), query.get("domain"), limit, cursor, query=query.get("query")
+                )
             elif name == "related":
                 relation: Literal["dependencies", "dependents"] = (
                     "dependencies" if query["relation"] == "dependencies" else "dependents"

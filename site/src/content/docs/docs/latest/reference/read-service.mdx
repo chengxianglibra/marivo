@@ -142,7 +142,7 @@ Origins receive CORS headers on errors too. Server-to-server requests need no Or
 | --- | --- |
 | `GET /v2/info` | API/Marivo versions, current Store identity or null, Catalog load status |
 | `GET /v2/openapi.json` | OpenAPI 3.1 request, response and error schemas |
-| `GET /v2/semantic/objects` | Current semantic summaries; optional kind/domain filters |
+| `GET /v2/semantic/objects` | Browse or search current semantic summaries with optional kind/domain filters |
 | `GET /v2/semantic/objects/{id}` | Captured semantic definition and safe provenance |
 | `GET /v2/semantic/objects/{id}/related` | Dependencies or dependents; required relation parameter |
 | `GET /v2/semantic/objects/{id}/datasource-properties` | Approved datasource configuration from the current Catalog snapshot |
@@ -178,12 +178,29 @@ a zero-column single row uses `rows: [[]]`.
 The service keeps one current Catalog snapshot, separate from saved results.
 The first semantic request loads the bound project's models in a fresh interpreter,
 without connecting to business sources. `GET /v2/info` reports `catalog.loaded`
-and `catalog.loaded_at` without triggering a load. Browse with optional `kind` and
-`domain` filters and follow `next_cursor` with the same filters and limit:
+and `catalog.loaded_at` without triggering a load.
+
+Omit `query` to browse in canonical ID order. To search, send a URL-encoded UTF-8
+`query` containing at most 512 decoded printable characters and at least one
+non-whitespace character. Leading and trailing spaces are trimmed. Both modes
+accept optional `kind` and `domain` filters. Search applies the filters to the
+whole current snapshot before ranking by lexical matches on IDs, paths, names,
+business definitions and authored aliases. Pagination covers a lexical candidate
+window of 30, plus any exact ID or path matches outside it. Exact matches come
+first. Search uses captured metadata in memory and requires no retrieval models,
+project ranking cache or datasource reads.
+
+Browse and search return the same object summaries and pagination fields. Pass
+`next_cursor` as `cursor` with the same query, filters and limit. A cursor from a
+different selection or snapshot returns `409 invalid_cursor`. Start a new request
+without a cursor to use the current selection and snapshot.
 
 ```sh
 curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
   'http://127.0.0.1:8765/v2/semantic/objects?kind=metric&domain=sales&limit=20'
+curl -G -H "Authorization: Bearer $MARIVO_API_TOKEN" \
+  --data-urlencode 'query=net revenue' --data 'kind=metric' \
+  'http://127.0.0.1:8765/v2/semantic/objects'
 curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
   'http://127.0.0.1:8765/v2/semantic/objects/metric%3Asales.revenue'
 curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \

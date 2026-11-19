@@ -405,7 +405,7 @@ def _retrieval(config: SearchConfig, query: str) -> Retrieval:
     )
 
 
-def _rank(
+def rank_documents(
     documents: tuple[SearchDocument, ...],
     query: str,
     *,
@@ -413,6 +413,7 @@ def _rank(
     snapshot: str,
     config: SearchConfig,
 ) -> tuple[SearchHit, ...]:
+    """Rank selected documents without reading or writing the result cache."""
     if not query:
         return tuple(SearchHit(document.id, 0.0, (), ()) for document in documents)
     lexical = _lexical(documents, query, config.candidate_window)
@@ -644,7 +645,7 @@ def search_documents(
                     received=str(ranking_path),
                     action=f"Remove the invalid derived file {ranking_path} and restart without cursor. Definitions are unaffected.",
                 )
-            hits = _rank(
+            hits = rank_documents(
                 filtered, query, workspace_dir=workspace_dir, snapshot=snapshot, config=config
             )
             _atomic_json(

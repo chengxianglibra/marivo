@@ -32,6 +32,7 @@ from marivo.server.frame_projection import _FIELDS
 from marivo.server.wire import API_VERSION, STATUS, JsonObject, JsonValue
 
 KINDS = tuple(kind.value for kind in SemanticKind)
+MAX_SEARCH_QUERY_LENGTH = 512
 
 
 @dataclass(frozen=True)
@@ -58,8 +59,14 @@ ROUTES = (
         "objects",
         "/v2/semantic/objects",
         "ObjectDirectory",
-        "List current semantic objects",
-        ("kind", "domain", *_PAGE),
+        "Browse or search current semantic objects",
+        ("query", "kind", "domain", *_PAGE),
+        description=(
+            "Omit query to browse in canonical ID order. Search filters by kind and domain "
+            "before ranking by lexical relevance. It pages over up to 30 lexical candidates "
+            "plus any exact ID or path matches outside that window. Exact matches come first. "
+            "Continue with the same query, filters and limit until next_cursor is null."
+        ),
     ),
     Route(
         "object",
@@ -478,6 +485,16 @@ def _schemas() -> dict[str, JsonObject]:
 
 
 QUERY_SCHEMAS: dict[str, JsonObject] = {
+    "query": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": MAX_SEARCH_QUERY_LENGTH,
+        "pattern": r"\S",
+        "description": (
+            "Printable text matched against IDs, paths, names, business definitions and aliases. "
+            "Leading and trailing spaces are trimmed."
+        ),
+    },
     "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
     "cursor": {"type": "string", "minLength": 1, "maxLength": 16384},
     "kind": {"enum": list(KINDS)},

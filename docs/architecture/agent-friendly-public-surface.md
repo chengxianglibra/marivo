@@ -90,7 +90,7 @@ values, projects identity, and counts. The page routes version, Path, identity
 role and fixed Frame questions to their exact owners.
 The project HTTP service also exposes bounded service reference pages under
 `analysis.results.service`. The HTTP reference owns connection, fixed-result
-reads, current Catalog browsing and explicit Catalog reload facts; OpenAPI owns
+reads, current Catalog browsing and search, and explicit Catalog reload facts. OpenAPI owns
 the machine-readable wire schema.
 
 Authoring offers direct project loading, Catalog reuse, connection setup,

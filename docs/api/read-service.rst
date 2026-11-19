@@ -36,13 +36,24 @@ values and never execute producers, load the Catalog or query sources. Tables
 retain physical schema and data; Frames additionally retain semantic metadata.
 The plugin owns reports, text and refresh execution.
 
-Read current semantic definitions with ``GET /v2/semantic/objects`` (optional
-``kind``/``domain`` filters and ``limit``/``cursor`` pagination),
-``GET /v2/semantic/objects/{id}`` and
-``GET /v2/semantic/objects/{id}/related?relation=dependencies`` (or ``dependents``).
+Browse current semantic summaries with ``GET /v2/semantic/objects``. Add an optional
+URL-encoded UTF-8 ``query`` for lexical search over IDs, paths, names, business
+definitions and authored aliases. Use at most 512 decoded printable characters with
+at least one non-whitespace character. The optional ``kind`` and ``domain`` filters
+apply before ranking. Search pages cover a lexical candidate window of 30 plus any
+exact ID or path matches outside it. Exact matches come first. Browse and search
+use the same summary response. Pass ``next_cursor`` as ``cursor`` with the same
+query, filters and ``limit`` (1 through 100, default 20). A cursor from another
+selection or snapshot returns ``409 invalid_cursor``.
+
+Read details with ``GET /v2/semantic/objects/{id}`` and navigate links with
+``GET /v2/semantic/objects/{id}/related?relation=dependencies`` or ``dependents``.
 Use canonical ``kind:path`` identities, URL-encoded in paths. Details retain business
 context, formulas, units, time bindings and project-relative provenance while
 omitting connection fields and file/HTTP source locations.
+For an exact ``datasource:<name>`` identity,
+``GET /v2/semantic/objects/{id}/datasource-properties`` exposes approved literal
+settings to callers with the project token.
 
 The first semantic request loads a Catalog in a fresh interpreter without querying
 business sources. ``GET /v2/info`` reports its load status. Send an empty body to

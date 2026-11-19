@@ -130,7 +130,7 @@ rejected with a concrete reauthoring action.
 Named objects and stage roles
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``get`` and ``search`` return the same ten named object kinds. ``SemanticObject``
+``get`` and ``search`` return the same eight named object kinds. ``SemanticObject``
 is their closed type union. Objects expose canonical ``id`` and captured
 ``definition``/``provenance`` metadata; use them directly after narrowing ``kind``.
 ``get(id)`` accepts a canonical string, while reusing an existing object needs
