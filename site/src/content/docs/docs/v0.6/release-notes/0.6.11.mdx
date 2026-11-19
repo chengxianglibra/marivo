@@ -1,0 +1,17 @@
+---
+slug: docs/v0.6/release-notes/0.6.11
+title: Marivo 0.6.11
+description: Release notes for Marivo 0.6.11.
+---
+
+Released on November 19, 2026. Marivo 0.6.11 adds semantic object search to the project read service.
+
+## Highlights
+
+- Browse and search semantic objects over HTTP, filter by kind or domain, and inspect definitions, relationships, and datasource properties.
+- Search uses a multilingual Granite vector index alongside exact ID and path matches. Reload reuses unchanged vectors and publishes the new Catalog and index together.
+- An optional project-scoped vector cache reuses unchanged vectors across restarts. The service prepares its pinned model at startup; a local model can also be supplied for offline provisioning.
+
+## Changed
+
+- Install `marivo[api]` for the read service and its vector search dependencies. See the [read service guide](/docs/v0.6/reference/read-service/) for startup, model provisioning, and search details.
