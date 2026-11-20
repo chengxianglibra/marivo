@@ -44,6 +44,7 @@ from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
+    finish_nullable_sum,
     force_cast,
     lower_metric_formula,
     native_mean,
@@ -542,10 +543,7 @@ class SampleLowerer:
         elif node.reducer == "mean":
             reduced = native_mean(value)
         elif node.reducer == "sum":
-            total = value.sum()
-            reduced = (table.count() == 0).ifelse(
-                ibis.literal(0).cast(total.type()), (value.count() == 0).ifelse(_null(total), total)
-            )
+            reduced = finish_nullable_sum(value.sum(), table.count(), value.count())
             zero = True
         elif node.reducer in ("count", "count_distinct"):
             reduced = value.count() if node.reducer == "count" else value.nunique()

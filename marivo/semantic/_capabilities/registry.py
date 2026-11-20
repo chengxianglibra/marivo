@@ -2407,12 +2407,15 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 )
             elif method == "sum":
                 summary += (
-                    "sum requires business permission; empty input returns zero and nonempty all-NA input returns null. "
-                    "Integer SUM uses native int64 accumulation; Decimal SUM returns Decimal(38,input_scale). "
-                    "Native errors/wrapping differ by kernel; no protective integer widening. "
-                    "MySQL retains native widened SUM until safe Decimal transport. "
-                    "Native NaN/Infinity are retained in completed and saved Frames."
+                    "Sum requires business permission. Empty input returns zero. With nulls='ignore', "
+                    "nonempty all-NA input returns NULL. SQL SUM uses the backend's native accumulator. "
+                    "Native errors and wrapping follow the selected kernel. Completed and saved Frames "
+                    "retain native NaN and Infinity."
                 )
+                if prefix == "MetricSamples":
+                    summary += " Local integer sample SUM uses Arrow's int64 accumulator."
+                else:
+                    summary += " The source SUM expression declares int64 for signed integer input and Decimal(38,input_scale) for Decimal input."
             elif method == "mean":
                 summary += (
                     "Mean skips NULLs and returns NA without valid inputs; it retains the declared mean type. "
