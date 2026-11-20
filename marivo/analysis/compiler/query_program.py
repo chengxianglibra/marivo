@@ -6,11 +6,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
 
 from marivo._definition.correspondence import ComparisonAxis
-from marivo._definition.query import PairStatistic, QueryOperation, ReduceValues, ValueBinary
+from marivo._definition.query import QueryOperation, ValueBinary
 from marivo._definition.relations import PopulationDependency, PopulationProgram
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
-from marivo.analysis.core.model import reject
 
 if TYPE_CHECKING:
     from marivo.analysis.core.data_schema import DataSchema
@@ -52,29 +51,19 @@ class DurationBinary:
 
 @dataclass(frozen=True, slots=True)
 class ResultProgram:
+    """A local query operation over prepared inputs. Frame statistics use FrameProgram."""
+
     operation: QueryOperation
     columns: tuple[DataColumn, ...]
     keys: tuple[str, ...]
     axes: tuple[ComparisonAxis, ...]
     key_groups: tuple[tuple[str, ...], ...]
     output_groups: tuple[tuple[str, ...], ...]
-    statistic_types: tuple[DataType, ...] = ()
     population_inputs: tuple[PopulationDependency, ...] = ()
     population_layouts: tuple[tuple[tuple[str, ...], ...], ...] = ()
     input_layout: ComparisonEndpoint | None = None
     output_layout: ComparisonEndpoint | None = None
     duration_operations: tuple[DurationBinary, ...] = ()
-
-    def __post_init__(self) -> None:
-        if isinstance(self.operation, ReduceValues):
-            for _, statistic in self.operation.values:
-                if isinstance(statistic, PairStatistic):
-                    reject(
-                        "ordinary Frame execution for paired statistics",
-                        "a paired statistic in a legacy ResultProgram",
-                        "Construct paired statistics through AnalysisFrame.correlate or reduce.",
-                        statistic.location,
-                    )
 
 
 @dataclass(frozen=True, slots=True)

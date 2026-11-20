@@ -15,13 +15,10 @@ from marivo._definition.query import (
     FilterValues,
     KeyImage,
     LiteralValues,
-    PairStatistic,
     PopulationValues,
     PresenceSlot,
     ReadFields,
-    ReduceValues,
     SelectValues,
-    Statistic,
     TopValues,
     ValueExpression,
     ValueLiteral,
@@ -32,12 +29,10 @@ from marivo._definition.query import (
 )
 from marivo.analysis.compiler.graph_plan import LocalCompute, local_result
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
-from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
-from marivo.analysis.core.data_validation import stage_arrow_type, typed_null_mask
+from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.core.data_validation import typed_null_mask
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.frame_evaluation import FrameEvaluation, expression_key
-from marivo.analysis.methods.numeric_state import finish_division, sum_values
-from marivo.analysis.methods.physical import DecimalType, DurationType
 from marivo.semantic._numeric_lowering import numeric_failure
 
 _ORDERED_COMPARISONS = {"lt": "less", "le": "less_equal", "gt": "greater", "ge": "greater_equal"}
@@ -428,102 +423,6 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
             .reset_index(drop=True)
             .copy()
         )
-    if isinstance(operation, ReduceValues):
-        statistics: list[tuple[str, Statistic]] = []
-        for name, statistic in operation.values:
-            if isinstance(statistic, PairStatistic):
-                reject(
-                    "paired statistics evaluated by the local Frame route",
-                    statistic.method,
-                    "Keep paired statistics on their owning AnalysisFrame.",
-                    statistic.location,
-                )
-            statistics.append((name, statistic))
-        evaluated = {
-            name: expression_series(statistic.value, frame, program)
-            for name, statistic in statistics
-            if statistic.value is not None
-        }
-        selected = tuple(
-            key for position in operation.positions for key in program.key_groups[position]
-        )
-        groups = (
-            (((), frame),)
-            if not selected
-            else tuple(frame.groupby(list(selected), dropna=False, sort=True, observed=True))
-        )
-        rows = []
-        for key, subset in groups:
-            key_tuple = key if isinstance(key, tuple) else (key,)
-            row: dict[str, object] = dict(zip(stage.keys, key_tuple, strict=True))
-            for index, (name, statistic) in enumerate(statistics):
-                if statistic.method == "row_count":
-                    value: object = len(subset)
-                else:
-                    series = evaluated[name].iloc[subset.index]
-                    active_series = series.loc[~typed_null_mask(series)]
-                    active = active_series.tolist()
-                    column = stage.columns[len(stage.keys) + index]
-                    try:
-                        input_type = program.statistic_types[index]
-                        if subset.empty and statistic.method == "sum":
-                            value = (
-                                sum_values((), stage_arrow_type(input_type))
-                                if not isinstance(input_type, DurationDataType)
-                                else 0
-                            )
-                        elif isinstance(input_type, DurationDataType):
-                            ticks = tuple(
-                                int(tick)
-                                for tick in pa.array(
-                                    active_series,
-                                    type=pa.duration(input_type.unit),
-                                    from_pandas=True,
-                                )
-                                .cast(pa.int64())
-                                .to_pylist()
-                            )
-                            value = (
-                                finish_division(
-                                    sum(ticks),
-                                    1 if statistic.method == "sum" else len(ticks),
-                                    DurationType(input_type.unit),
-                                )
-                                if ticks
-                                else None
-                            )
-                        else:
-                            total = sum_values(active, stage_arrow_type(input_type))
-                            value = (
-                                total
-                                if active and statistic.method == "sum"
-                                else finish_division(
-                                    total,
-                                    len(active),
-                                    DecimalType(column.dtype.precision, column.dtype.scale),
-                                )
-                                if active and isinstance(column.dtype, DecimalDataType)
-                                else total / len(active)
-                                if active
-                                else None
-                            )
-                    except (ValueError, OverflowError) as error:
-                        numeric_failure("a native value statistic", str(error))
-                row[f"value.{index}"] = value
-            rows.append(row)
-        result = pd.DataFrame(
-            rows, columns=[column.slot_id for column in stage.columns], dtype=object
-        )
-        for column in stage.columns[len(stage.keys) :]:
-            if isinstance(column.dtype, DurationDataType):
-                result[column.slot_id] = pd.Series(
-                    pd.arrays.ArrowExtensionArray(
-                        pa.array(result[column.slot_id], type=pa.int64(), from_pandas=True).cast(
-                            pa.duration(column.dtype.unit)
-                        )
-                    )
-                )
-        return result
     reject(
         "a planned result kernel",
         type(operation).__name__,

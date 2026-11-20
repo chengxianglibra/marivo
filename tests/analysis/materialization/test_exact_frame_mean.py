@@ -1,5 +1,6 @@
-"""Current-row means keep exact wide intermediates until output conversion."""
+"""Current-row statistics keep their native numeric carriers through completion."""
 
+from datetime import timedelta
 from decimal import Decimal
 from fractions import Fraction
 
@@ -96,26 +97,60 @@ def test_decimal_mean_uses_native_rounding_and_storage_boundary(
         assert total.compute().to_pandas()["sum"].tolist() == [expected_sum]
 
 
-def test_wide_mean_pending_completed_and_persisted_are_identical(
+def test_reduction_preserves_numeric_carriers_on_pending_fixed_and_reopened_inputs(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    pending = _values(case, (2**62, 2**62))
+    ticks = 2**53 + 1
+    literal = case.session.values(
+        by=(catalog_value(case.catalog, "sales.customer.customer_id", kind="field"),),
+        columns={"x": None, "exact": "CNY", "elapsed": None},
+        rows=tuple(
+            (
+                (key,),
+                {"x": 2**63 - 1, "exact": Decimal(exact), "elapsed": timedelta(microseconds=1)},
+            )
+            for key, exact in (("1", "999.98"), ("2", "999.99"))
+        ),
+    )
+    pending = literal.select(
+        {"x": literal["x"], "exact": literal["exact"], "elapsed": literal["elapsed"] * ticks}
+    )
     memory = pending.compute()
     stored = memory.persist()
     reopened = case.session.persisted_frame(stored.artifact_id)
     assert isinstance(memory._backing, MemoryFrameBacking)
     published_runs = terminal_runs(case.session)
-    expected = _mean(pending).to_pandas()
-    for frame in (memory, stored, reopened):
-        result = _mean(frame)
-        pd.testing.assert_frame_equal(result.to_pandas(), expected)
+
+    def reduced(frame: AnalysisFrame) -> AnalysisFrame:
+        return frame.reduce(
+            {
+                "integer_mean": frame["x"].mean(),
+                "integer_sum": frame["x"].sum(),
+                "decimal_mean": frame["exact"].mean(),
+                "duration_mean": frame["elapsed"].mean(),
+                "duration_sum": frame["elapsed"].sum(),
+            }
+        ).compute()
+
+    for frame in (pending, memory, stored, reopened):
+        result = reduced(frame)
+        values = result.to_pandas()
+        assert values["integer_mean"].tolist() == [float(2**63 - 1)]
+        assert values["integer_sum"].tolist() == [-2]
+        assert values["decimal_mean"].tolist() == [Decimal("999.99")]
+        duration_mean = pa.array(values["duration_mean"])
+        duration_sum = pa.array(values["duration_sum"])
+        assert duration_mean.type == duration_sum.type == pa.duration("us")
+        assert duration_mean.cast(pa.int64()).to_pylist() == [ticks]
+        assert duration_sum.cast(pa.int64()).to_pylist() == [2 * ticks]
         assert isinstance(result._backing, MemoryFrameBacking)
         assert result._backing.metadata.source_reads == memory._backing.metadata.source_reads
     assert terminal_runs(case.session) == published_runs
-    saved_mean = _mean(memory).persist()
+    result = reduced(memory)
+    saved_reduction = result.persist()
     pd.testing.assert_frame_equal(
-        case.session.persisted_frame(saved_mean.artifact_id).to_pandas(), expected
+        case.session.persisted_frame(saved_reduction.artifact_id).to_pandas(), result.to_pandas()
     )
     assert len(terminal_runs(case.session)) == len(published_runs) + 1
 
@@ -151,10 +186,22 @@ def test_grouped_mean_masks_na_independently_and_keeps_empty_policy(
     assert exported["y"].tolist() == [2.0, 4.0]
     assert exported["rows"].tolist() == [3, 1]
     assert result.presence_names == ()
-    for frame in (nullable.where(nullable["x"].is_null()), nullable.top(0, by=nullable["y"])):
-        scalar = _mean(frame).to_pandas()
-        assert len(scalar) == 1 and pd.isna(scalar["mean"].iloc[0])
+    all_null = nullable.where(nullable["x"].is_null())
     empty = nullable.top(0, by=nullable["y"])
+    for frame, expected_count in ((all_null, 2), (empty, 0)):
+        scalar = (
+            frame.reduce(
+                {"mean": frame["x"].mean(), "sum": frame["x"].sum(), "rows": mv.row_count()}
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert len(scalar) == 1 and pd.isna(scalar["mean"].iloc[0])
+        assert scalar["rows"].tolist() == [expected_count]
+        if expected_count:
+            assert pd.isna(scalar["sum"].iloc[0])
+        else:
+            assert scalar["sum"].tolist() == [0]
     grouped = empty.reduce({"mean": empty["x"].mean()}, by=(empty.axes[0],)).compute()
     assert grouped.to_pandas().empty
 
