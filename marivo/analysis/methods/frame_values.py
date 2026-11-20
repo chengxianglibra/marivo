@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -12,11 +13,14 @@ from marivo._definition.query import (
     ReduceValues,
     SelectValues,
     TopValues,
+    ValueBinary,
+    ValueExpression,
     ValuePartition,
     ValueSlot,
 )
 from marivo.analysis.compiler.query_program import FrameProgram
 from marivo.analysis.core.data_types import (
+    DataColumn,
     DataType,
     DurationDataType,
     ScalarDataType,
@@ -26,7 +30,11 @@ from marivo.analysis.core.frame_fix import FixFrameValues, validate_fixed_key
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.frame_correlation import correlation
-from marivo.analysis.methods.frame_evaluation import FrameEvaluation, expression_key
+from marivo.analysis.methods.frame_evaluation import (
+    FrameEvaluation,
+    FrameGroupIndex,
+    expression_key,
+)
 from marivo.analysis.methods.numeric_state import (
     Number,
     finish_division,
@@ -47,17 +55,69 @@ def _pair_values(
     )
 
 
-def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
+def evaluate_frame(
+    program: FrameProgram,
+    inputs: tuple[pd.DataFrame, ...],
+    *,
+    second_filter_columns: tuple[str, ...] | None = None,
+) -> pd.DataFrame:
     """Evaluate a Frame operation with a fresh current-input memo."""
-    return _evaluate_frame(program, inputs[0].reset_index(drop=True), FrameEvaluation())
+    source = inputs[0].reset_index(drop=True)
+    evaluation = FrameEvaluation()
+    if second_filter_columns is not None:
+        operation = program.operation
+        assert isinstance(operation, FilterValues)
+        predicate = operation.predicate
+        assert isinstance(predicate, ValueBinary) and predicate.operation == "and"
+        first = _true_mask(predicate.left, source, program, evaluation).to_numpy(dtype=bool)
+        if first.all():
+            mask = _true_mask(predicate.right, source, program, evaluation)
+            return source.loc[mask].reset_index(drop=True).copy()
+        positions = np.flatnonzero(first)
+        if not positions.size:
+            return source.iloc[:0].copy()
+        # The qualified second predicate only needs its own columns from
+        # surviving rows. Materialize the complete Frame once, at the end.
+        operands = source.loc[:, list(second_filter_columns)].take(positions)
+        second = _true_mask(predicate.right, operands, program, evaluation).to_numpy(dtype=bool)
+        return source.take(positions[second]).reset_index(drop=True).copy()
+    return _evaluate_frame(program, source, evaluation)
+
+
+def _true_mask(
+    predicate: ValueExpression,
+    source: pd.DataFrame,
+    program: FrameProgram,
+    evaluation: FrameEvaluation,
+) -> pd.Series:
+    return (
+        expression_series(predicate, source, program, evaluation=evaluation)
+        .astype("boolean")
+        .fillna(False)
+    )
+
+
+def _group_index(source: pd.DataFrame, columns: tuple[DataColumn, ...]) -> FrameGroupIndex:
+    if not columns:
+        return FrameGroupIndex(np.zeros(len(source), dtype=np.intp), (range(len(source)),), [])
+    row_to_group = np.empty(len(source), dtype=np.intp)
+    group_ids: dict[FrozenKey, int] = {}
+    members: list[list[int]] = []
+    representatives: list[int] = []
+    for position, key in enumerate(frozen_key_rows(source, columns)):
+        group = group_ids.setdefault(key, len(members))
+        if group == len(members):
+            members.append([])
+            representatives.append(position)
+        members[group].append(position)
+        row_to_group[position] = group
+    return FrameGroupIndex(row_to_group, tuple(members), representatives)
 
 
 def _evaluate_frame(
     program: FrameProgram,
     source: pd.DataFrame,
     evaluation: FrameEvaluation,
-    *,
-    ordered: bool = True,
 ) -> pd.DataFrame:
     """Evaluate one unary Frame program; binary execution owns attachment handling."""
     operation = program.operation
@@ -92,11 +152,7 @@ def _evaluate_frame(
     if isinstance(operation, FilterValues):
         from marivo.analysis.core.frame_expression import expressions
 
-        mask = (
-            expression_series(expressions(operation)[0], source, program, evaluation=evaluation)
-            .astype("boolean")
-            .fillna(False)
-        )
+        mask = _true_mask(expressions(operation)[0], source, program, evaluation)
         return source.loc[mask].reset_index(drop=True).copy()
     if isinstance(operation, TopValues):
         score = expression_series(operation.score, source, program, evaluation=evaluation)
@@ -109,6 +165,24 @@ def _evaluate_frame(
             "__frame_score", ascending=not operation.descending, kind="stable", na_position="last"
         )
         return ranked.head(operation.n).loc[:, list(source.columns)].reset_index(drop=True).copy()
+    assert isinstance(operation, ReduceValues)
+    result, groups = _reduce(program, source, evaluation)
+    for key in output.key_fields:
+        result[key] = (
+            source[key].take(groups.representatives).reset_index(drop=True).copy(deep=True)
+        )
+    result = result.loc[:, [column.slot_id for column in output.columns]]
+    for key in reversed(output.key_fields):
+        result = result.sort_values(key, na_position="first", kind="stable")
+    return result.reset_index(drop=True)
+
+
+def _reduce(
+    program: FrameProgram, source: pd.DataFrame, evaluation: FrameEvaluation
+) -> tuple[pd.DataFrame, FrameGroupIndex]:
+    """Reduce values in group-number order after completing their dependencies."""
+    operation = program.operation
+    output = program.output_schema
     assert isinstance(operation, ReduceValues)
     evaluated: dict[str, pd.Series] = {}
     paired: dict[str, tuple[tuple[Number | None, ...], tuple[Number | None, ...]]] = {}
@@ -145,21 +219,17 @@ def _evaluate_frame(
             evaluated[name] = expression_series(
                 statistic.value, source, program, evaluation=evaluation
             )
-    selected = tuple(
-        key for position in operation.positions for key in program.key_groups[position]
-    )
-    grouped: dict[FrozenKey, list[int]] = {}
-    if selected:
-        columns = {column.slot_id: column for column in program.input_schema.columns}
-        for position, frozen_key in enumerate(
-            frozen_key_rows(source, tuple(columns[key] for key in selected))
-        ):
-            grouped.setdefault(frozen_key, []).append(position)
-        groups = tuple(grouped.values())
-    else:
-        groups = (list(range(len(source))),)
+    group_key = tuple(sorted(operation.positions))
+    if group_key not in evaluation.group_indices:
+        columns = tuple(
+            column
+            for position in group_key
+            for column in program.input_schema.axes[position].columns
+        )
+        evaluation.group_indices[group_key] = _group_index(source, columns)
+    groups = evaluation.group_indices[group_key]
     rows: list[dict[str, object]] = []
-    for positions in groups:
+    for positions in groups.members:
         row: dict[str, object] = {}
         active_pairs: dict[
             tuple[str, str, tuple[DataType, ...]], tuple[list[Number], list[Number]]
@@ -203,7 +273,6 @@ def _evaluate_frame(
                 value = len(positions)
             else:
                 series = evaluated[name].take(positions)
-                active = series.loc[~typed_null_mask(series)]
                 (dtype,) = program.statistic_types[index]
                 try:
                     if not positions and statistic.method == "sum":
@@ -213,6 +282,7 @@ def _evaluate_frame(
                             else 0
                         )
                     elif isinstance(dtype, DurationDataType):
+                        active = series.loc[~typed_null_mask(series)]
                         ticks = tuple(
                             int(tick)
                             for tick in (
@@ -230,7 +300,15 @@ def _evaluate_frame(
                             if ticks
                             else None
                         )
+                    elif statistic.method == "sum" and isinstance(series.dtype, pd.ArrowDtype):
+                        array = pa.array(series, from_pandas=False)
+                        if pa.types.is_floating(array.type) and array.null_count:
+                            # Arrow's bitmap and dense float sums can round differently.
+                            active = series.loc[~typed_null_mask(series)]
+                            array = pa.array(active, from_pandas=False)
+                        value = pc.sum(array, skip_nulls=True, min_count=1).as_py()
                     else:
+                        active = series.loc[~typed_null_mask(series)]
                         array = pa.array(active, from_pandas=False)
                         value = (
                             (
@@ -246,11 +324,6 @@ def _evaluate_frame(
             row[column.slot_id] = value
         rows.append(row)
     result = pd.DataFrame(rows, columns=[column.slot_id for column in output.values], dtype=object)
-    if selected:
-        first_positions = [positions[0] for positions in groups]
-        for key in selected:
-            result[key] = source[key].take(first_positions).reset_index(drop=True).copy(deep=True)
-    result = result.loc[:, [column.slot_id for column in output.columns]]
     for column in output.values:
         if isinstance(column.dtype, DurationDataType):
             result[column.slot_id] = pd.Series(
@@ -262,10 +335,7 @@ def _evaluate_frame(
             )
         elif column.dtype == ScalarDataType("float64"):
             result[column.slot_id] = finish_float64(result[column.slot_id], "Frame.reduce")
-    if ordered:
-        for key in reversed(output.key_fields):
-            result = result.sort_values(key, na_position="first", kind="stable")
-    return result.reset_index(drop=True)
+    return result, groups
 
 
 def partition_series(
@@ -274,26 +344,13 @@ def partition_series(
     program: FrameProgram,
     evaluation: FrameEvaluation,
 ) -> pd.Series:
-    """Reuse reduction semantics and attach totals by complete, null-safe keys."""
+    """Broadcast reduced values by their group numbers in original row order."""
     from marivo.analysis.compiler.frame_plan import frame_program
 
     reduction = frame_program(
         program.input_schema,
         ReduceValues((("partition", expression.statistic),), expression.positions),
     )
-    # Empty inputs retain their empty row domain, including scalar partitions.
-    # Evaluate first so strict child obligations remain owned by the reducer.
-    reduced = _evaluate_frame(reduction, source, evaluation, ordered=False)
+    reduced, groups = _reduce(reduction, source, evaluation)
     column = reduction.output_schema.values[0]
-    if not len(source):
-        return reduced[column.slot_id].iloc[:0].reset_index(drop=True)
-    keys = tuple(
-        column
-        for position in expression.positions
-        for column in program.input_schema.axes[position].columns
-    )
-    if not keys:
-        return reduced[column.slot_id].take([0] * len(source)).reset_index(drop=True)
-    by_key = {key: position for position, key in enumerate(frozen_key_rows(reduced, keys))}
-    positions = [by_key[key] for key in frozen_key_rows(source, keys)]
-    return reduced[column.slot_id].take(positions).reset_index(drop=True)
+    return reduced[column.slot_id].take(groups.row_to_group).reset_index(drop=True)

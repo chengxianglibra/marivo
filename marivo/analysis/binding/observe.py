@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Literal
 
-from marivo._definition.correspondence import coordinate_matches
+from marivo._definition.correspondence import coordinate_matches, interval_key_pairs
 from marivo._definition.expressions import (
     BuiltinSampleCoordinate,
     ContributionFilter,
@@ -28,16 +28,25 @@ from marivo._definition.graph import DefinitionNode, children, walk
 from marivo._definition.observations import (
     CalendarGrouping,
     SampleAxis,
+    SampleAxisMatch,
+    SampleAxisMatches,
+    SampleIntervalRanges,
     SampleLayer,
 )
 from marivo._definition.observations import ContributionBinding as ContributionBinding
 from marivo._definition.observations import ObservationBinding as ObservationBinding
 from marivo._definition.observations import ObservationPeriod as ObservationPeriod
 from marivo._definition.population_builders import axis as field_axis
+from marivo._definition.population_builders import membership_anchor
 from marivo._definition.relations import (
     MembershipBinding,
     PopulationDependency,
+    PopulationProduct,
+    PopulationProgram,
+    PopulationProject,
     SampleDomain,
+    population_keys,
+    sample_population,
 )
 from marivo._definition.types import (
     AxisBinding,
@@ -50,7 +59,7 @@ from marivo._definition.types import (
     field_read_key,
     fixed_attribute_time,
 )
-from marivo._temporal import Grain
+from marivo._temporal import Grain, InstantAnchor
 from marivo.analysis.binding.calendar_samples import validate_sample_parent
 from marivo.analysis.binding.coordinates import (
     CoordinateBinding,
@@ -63,6 +72,104 @@ from marivo.analysis.core.model import reject
 from marivo.analysis.observation.relationship_binding import RelationshipResolver
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.expressions import _Resolver
+
+
+def _membership_roles(
+    layer: SampleLayer, axis: AxisBinding
+) -> frozenset[
+    tuple[
+        tuple[str, ...],
+        InstantAnchor | None,
+        tuple[InstantAnchor | None, ...],
+        InstantAnchor | None,
+    ]
+]:
+    return frozenset(
+        (
+            tuple(step.ref.ref.key for step in path.relationships),
+            path.source_at,
+            path.step_ats,
+            membership_anchor(binding.fields, path),
+        )
+        for binding in layer.memberships
+        if any(coordinate_matches(field_axis(field), axis) for field in binding.fields)
+        for path in binding.paths
+    )
+
+
+def _shared_sample_axes(
+    parents: tuple[SampleLayer, ...], sample_layer: SampleLayer
+) -> SampleAxisMatches:
+    parents_with_layers = tuple((axis, layer) for layer in parents for axis in layer.axes)
+    return tuple(
+        SampleAxisMatch(
+            outer,
+            inner,
+            interval_key_pairs(parent, sample)
+            if isinstance(parent, IntervalCoordinate) and isinstance(sample, IntervalCoordinate)
+            else None,
+        )
+        for outer, (parent, parent_layer) in enumerate(parents_with_layers)
+        for inner, sample in enumerate(sample_layer.axes, start=len(parents_with_layers))
+        if _sample_axis_matches(parent, sample, parent_layer, sample_layer)
+    )
+
+
+def _sample_axis_matches(
+    parent: SampleAxis, sample: SampleAxis, parent_layer: SampleLayer, sample_layer: SampleLayer
+) -> bool:
+    if isinstance(parent, BuiltinSampleCoordinate) or isinstance(sample, BuiltinSampleCoordinate):
+        return False
+    if isinstance(parent, AxisBinding) and isinstance(sample, AxisBinding):
+        return (
+            coordinate_matches(parent, sample)
+            and parent.versioned == sample.versioned
+            and _membership_roles(parent_layer, parent) == _membership_roles(sample_layer, sample)
+        )
+    return coordinate_matches(parent, sample)
+
+
+def _selected_interval_ordinals(population: PopulationDependency | None) -> tuple[int, ...] | None:
+    if population is None:
+        return None
+    for index, axis in enumerate(population.axes):
+        if isinstance(axis, IntervalCoordinate):
+            return _interval_ordinal_support(population, index)
+    return None
+
+
+def _interval_ordinal_support(
+    population: PopulationDependency, index: int
+) -> tuple[int, ...] | None:
+    """Recognize captured possible keys without enumerating independent source factors."""
+    if isinstance(population, PopulationProgram):
+        node = population.root
+        if isinstance(node, PopulationProduct):
+            support = None
+            offset = 0
+            for factor in node.factors:
+                end = offset + len(factor.axes)
+                if offset <= index < end:
+                    support = _interval_ordinal_support(factor, index - offset)
+                elif population_keys(factor) == ():
+                    return ()
+                offset = end
+            return support
+        if isinstance(node, PopulationProject):
+            support = _interval_ordinal_support(node.operand, node.positions[index])
+            rebased = dict(node.interval_keys).get(index)
+            if support is not None and rebased is not None:
+                return tuple(sorted({rebased[key] for key in support}))
+            return support
+    rows = population_keys(population)
+    if rows is None:
+        return None
+    ordinals = set()
+    for row in rows:
+        ordinal = row[index]
+        assert type(ordinal) is int
+        ordinals.add(ordinal)
+    return tuple(sorted(ordinals))
 
 
 def _row_fields(node: DefinitionNode) -> tuple[RowField, ...]:
@@ -136,12 +243,18 @@ def bind_observation(
     axes = tuple(
         field
         if isinstance(field, (CalendarCoordinate, IntervalCoordinate))
+        else field_axis(field)
+        if isinstance(field, FieldRead)
         else AxisBinding(
             field.entity,
-            field.field if isinstance(field, FieldRead) else None,
+            None,
             field.path,
-            "field" if isinstance(field, FieldRead) else "identity",
+            "identity",
             field.at,
+            source_at=field.source_at,
+            step_ats=field.step_ats,
+            path_root=field.path_root,
+            path_facts=field.path_facts,
         )
         for field in by
     )
@@ -156,6 +269,8 @@ def bind_observation(
     )
     contributions: list[ContributionBinding] = []
     calendar_samples: list[tuple[tuple[int, ...], BuiltinSampleCoordinate]] = []
+    sample_matches: list[tuple[tuple[int, ...], SampleAxisMatches]] = []
+    output_layer = SampleLayer(axes, memberships)
     count_populations: dict[PopulationDependency, PopulationDependency] = {}
     resolver = _Resolver(state) if state is not None else None
     paths = RelationshipResolver.build(state.registry) if state is not None else None
@@ -225,6 +340,14 @@ def bind_observation(
             inner_memberships = (
                 sample_domain.memberships if isinstance(sample_domain, SampleDomain) else ()
             )
+            explicit_population = sample_population(sample_domain)
+            sample_layer = SampleLayer(
+                inner_axes, inner_memberships, _selected_interval_ordinals(explicit_population)
+            )
+            if explicit_population is not None:
+                matches = _shared_sample_axes((output_layer, *sample_layers), sample_layer)
+                if matches:
+                    sample_matches.append((occurrence, matches))
             contribution_count = len(contributions)
             for edge in children(node):
                 if edge.role in ("operand", "value", "weight"):
@@ -233,13 +356,7 @@ def bind_observation(
                         (*occurrence, edge.index),
                         filters,
                         (*sample_axes, *inner_axes),
-                        (
-                            *sample_layers,
-                            SampleLayer(
-                                inner_axes,
-                                inner_memberships,
-                            ),
-                        ),
+                        (*sample_layers, sample_layer),
                     )
             if (
                 isinstance(sample_domain, (Grain, FieldCalendarSample))
@@ -293,9 +410,7 @@ def bind_observation(
             root = resolver.entity_ref(root_ref.path)
             contribution_period = period
             coordinate_calendar_axes = tuple(
-                axis
-                for axis in (*axes, *sample_axes)
-                if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+                axis for axis in axes if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
             )
             if (
                 contribution_period is None
@@ -459,6 +574,8 @@ def bind_observation(
             )
             coordinate_calendars: list[tuple[str, CalendarGrouping]] = []
             sample_calendar_reads: list[tuple[str, FieldRead]] = []
+            sample_time_slots: list[str] = []
+            sample_interval_ranges: list[tuple[str, SampleIntervalRanges]] = []
             parent_calendars: list[
                 tuple[FieldRead, CalendarCoordinate | BuiltinSampleCoordinate]
             ] = []
@@ -468,7 +585,15 @@ def bind_observation(
             coordinate_slots: list[str] = []
             from marivo._definition.types import coordinate_read_keys
 
-            for axis in (*axes, *sample_axes):
+            bound_axes = (
+                *((axis, None) for axis in axes),
+                *(
+                    (axis, layer.interval_ordinals)
+                    for layer in sample_layers
+                    for axis in layer.axes
+                ),
+            )
+            for axis_index, (axis, ordinals) in enumerate(bound_axes):
                 if isinstance(axis, BuiltinSampleCoordinate):
                     slot = f"key.{physical_slot}"
                     if isinstance(axis.sample, FieldCalendarSample):
@@ -497,6 +622,16 @@ def bind_observation(
                     slot = f"key.{physical_slot}"
                     if contribution_time_read is not None:
                         coordinate_calendars.append((slot, axis))
+                        if axis_index >= len(axes):
+                            sample_time_slots.append(slot)
+                            if isinstance(axis, IntervalCoordinate):
+                                selected = range(len(axis.bounds)) if ordinals is None else ordinals
+                                sample_interval_ranges.append(
+                                    (
+                                        slot,
+                                        tuple((index, *axis.bounds[index]) for index in selected),
+                                    )
+                                )
                     if isinstance(axis, CalendarCoordinate) and contribution_time_read is not None:
                         parent_calendars.append((contribution_time_read, axis))
                     physical_slot += 1
@@ -577,6 +712,8 @@ def bind_observation(
                     calendars=tuple(coordinate_calendars),
                     coordinate_slots=tuple(coordinate_slots),
                     sample_calendar_reads=tuple(sample_calendar_reads),
+                    sample_time_slots=tuple(sample_time_slots),
+                    sample_interval_ranges=tuple(sample_interval_ranges),
                     population_reads=tuple(population_reads.items()),
                 )
             )
@@ -692,4 +829,5 @@ def bind_observation(
         tuple(calendar_samples),
         pending_interval,
         empty_interval,
+        tuple(sample_matches),
     )

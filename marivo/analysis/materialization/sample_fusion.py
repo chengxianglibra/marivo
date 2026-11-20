@@ -27,9 +27,10 @@ from marivo._definition.relations import (
     PopulationDependency,
     SourceIdentities,
     condition_populations,
+    population_keys,
     sample_population,
 )
-from marivo._definition.types import AxisBinding
+from marivo._definition.types import AxisBinding, IntervalCoordinate
 from marivo._temporal import Grain
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.graph_plan import (
@@ -192,7 +193,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                         {column.slot_id: ibis_type(column.dtype) for column in fields},
                         name="__sample_literal",
                     )
-                    frame = pd.DataFrame.from_records(rows, columns=list(names))
+                    frame = pd.DataFrame(rows, columns=list(names), dtype=object)
                     return instantiate(
                         table,
                         "__sample_literal",
@@ -205,7 +206,13 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                 def population(
                     definition: PopulationDependency, names: tuple[str, ...]
                 ) -> ir.Table:
-                    if isinstance(definition, LiteralPopulation):
+                    finite = (
+                        population_keys(definition)
+                        if isinstance(definition, LiteralPopulation)
+                        or any(isinstance(axis, IntervalCoordinate) for axis in definition.axes)
+                        else None
+                    )
+                    if finite is not None:
                         rows = tuple(
                             tuple(
                                 component
@@ -218,7 +225,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                                     else (value,)
                                 )
                             )
-                            for row in definition.keys
+                            for row in finite
                         )
                         return literal(names, rows)
                     binding = next(
@@ -390,6 +397,10 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                         error.received or "sample relation is unavailable",
                     )
                 )
+            # A local explicit parent may supply keys with no source rows.
+            # Its child must finish against that completed domain.
+            if sample_population(node.samples) is not None:
+                return
             remaining = tuple(
                 group for group in selected[0].key_groups if not all(key in keys for key in group)
             )

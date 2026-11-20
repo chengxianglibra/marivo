@@ -10,10 +10,16 @@ from typing import TYPE_CHECKING, NoReturn
 import pandas as pd
 import pyarrow as pa
 
+from marivo._definition.observations import sample_key_matches
 from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.observation import FormulaProgram
-from marivo.analysis.core.calendar_keys import require_window_endpoints, time_key_series
+from marivo.analysis.core.calendar_keys import (
+    match_time_keys,
+    require_window_endpoints,
+    time_key_series,
+)
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
+from marivo.analysis.core.data_validation import distinct_key_rows
 from marivo.analysis.core.unique_keys import UniqueKeys
 
 if TYPE_CHECKING:
@@ -82,10 +88,15 @@ def query_combine(
         inputs,
         stage.keys,
         stage.columns[len(stage.keys) :],
-        forced_domain=report_domain,
+        forced_domain=report_domain
+        if sample_domains is None or program.output_population is not None
+        else None,
         sample_domains=sample_domains,
         attribute=attribute,
         unique_keys=unique_keys,
+        report_candidates=report_domain
+        if sample_domains is not None and program.output_population is None
+        else None,
     )
     for name, expected, received in checks:
         violation = frame[name].astype("boolean").fillna(False)
@@ -104,12 +115,13 @@ def _combine_program(
     attribute: AttributeFormulaContext | None = None,
     unique_keys: tuple[UniqueKeys, ...] = (),
     sample_domains: Mapping[tuple[int, ...], pd.DataFrame] | None = None,
+    report_candidates: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, tuple[tuple[str, str, str], ...]]:
     """Keep sample checks as data until the enclosing formula demands them."""
 
     import ibis
 
-    from marivo._definition.correspondence import coordinate_position
+    from marivo._definition.correspondence import coordinate_matches
     from marivo._definition.expressions import (
         BuiltinSampleCoordinate,
         DeclaredMetricRef,
@@ -197,7 +209,7 @@ def _combine_program(
             if all(key in selected for key in keys):
                 domain_parts.append(selected.loc[:, keys])
         domain = (
-            pd.concat(domain_parts, ignore_index=True).drop_duplicates()
+            distinct_key_rows(pd.concat(domain_parts, ignore_index=True), key_slots)
             if domain_parts
             else pd.DataFrame(columns=keys)
         )
@@ -217,9 +229,13 @@ def _combine_program(
                 domain = domain.iloc[:0].copy()
     if forced_domain is not None:
         domain = (
-            forced_domain.loc[:, keys].drop_duplicates().reset_index(drop=True)
+            distinct_key_rows(forced_domain.loc[:, keys], key_slots)
             if keys
             else pd.DataFrame(index=pd.RangeIndex(len(forced_domain)))
+        )
+    if report_candidates is not None and keys:
+        domain = distinct_key_rows(
+            pd.concat([domain, report_candidates.loc[:, keys]], ignore_index=True), key_slots
         )
 
     def population_domain(definition: PopulationDependency, slots: tuple[str, ...]) -> pd.DataFrame:
@@ -266,39 +282,59 @@ def _combine_program(
         allowed = population_domain(program.parent_scope, program.parent_slots)
         if not program.parent_slots:
             return rows if len(allowed) else rows.iloc[:0].copy()
-        return rows.merge(allowed.drop_duplicates(), on=list(program.parent_slots), how="inner")
+        return rows.merge(
+            distinct_key_rows(allowed, program.parent_slots),
+            on=list(program.parent_slots),
+            how="inner",
+        )
 
     def count_coordinates(count: MemberInput, members: pd.DataFrame) -> pd.DataFrame:
-        classified = dict(count.axis_mapping)
         mapping: list[tuple[str, str]] = []
         time_domains: list[tuple[str, CalendarCoordinate | IntervalCoordinate]] = []
+        time_matches: list[
+            tuple[
+                str,
+                CalendarCoordinate | IntervalCoordinate,
+                CalendarCoordinate | IntervalCoordinate,
+            ]
+        ] = []
         actual_sample_slots: list[str] = []
         offset = 0
         for axis in program.axes:
             if isinstance(axis, BuiltinSampleCoordinate):
                 actual_sample_slots.append(key_slots[offset])
                 offset += 1
-            elif (
-                isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-                and axis not in classified
-            ):
-                time_domains.append(
-                    (
-                        key_slots[offset],
-                        axis,
-                    )
-                )
+                continue
+            match = next(
+                (
+                    (candidate, group)
+                    for candidate, group in count.axis_mapping
+                    if coordinate_matches(candidate, axis)
+                ),
+                None,
+            )
+            if match is None:
+                assert isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+                time_domains.append((key_slots[offset], axis))
                 offset += 1
-            else:
-                source_keys = count.axis_mapping[coordinate_position(count.population.axes, axis)][
-                    1
-                ]
-                mapping.extend(
-                    zip(source_keys, key_slots[offset : offset + len(source_keys)], strict=True)
-                )
-                offset += len(source_keys)
+                continue
+            member_axis, source_keys = match
+            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+                assert isinstance(member_axis, (CalendarCoordinate, IntervalCoordinate))
+                time_matches.append((key_slots[offset], member_axis, axis))
+            mapping.extend(
+                zip(source_keys, key_slots[offset : offset + len(source_keys)], strict=True)
+            )
+            offset += len(source_keys)
         selected = members.loc[:, [source for source, _ in mapping]].copy()
         selected.columns = [target for _, target in mapping]
+        for slot, member_axis, axis in time_matches:
+            selected[slot] = match_time_keys(selected[slot], member_axis, axis)
+            if axis is program.calendar and isinstance(axis, IntervalCoordinate):
+                # A report can select one interval from a larger captured directory.
+                selected = selected.loc[selected[slot].eq(axis.report_key)]
+            elif member_axis != axis:
+                selected = selected.dropna(subset=[slot])
         if time_domains:
             # Independent counts broadcast only over established complete keys.
             # The calendar directory describes positions, not represented rows.
@@ -310,18 +346,8 @@ def _combine_program(
                 if shared
                 else support.merge(selected, how="cross")
             )
-        offset = 0
-        for axis in program.axes:
-            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
-                slot = key_slots[offset]
+            for slot, axis in time_domains:
                 selected[slot] = selected[slot].astype(time_key_series(axis).dtype)
-                offset += 1
-            elif isinstance(axis, BuiltinSampleCoordinate):
-                offset += 1
-            else:
-                offset += len(
-                    count.axis_mapping[coordinate_position(count.population.axes, axis)][1]
-                )
         if actual_sample_slots:
             ordinary_slots = [slot for slot in keys if slot not in actual_sample_slots]
             actual = domain.loc[:, keys]
@@ -333,20 +359,22 @@ def _combine_program(
         return selected
 
     count_data = {}
+    # Only an inferred report domain can gain keys from member counts.
+    count_provides_domain = (
+        bool(keys) and forced_domain is None and program.output_population is None
+    )
     for count in program.counts:
         member_data = population_domain(count.population, count.keys)
         count_data[count.definition] = (count, member_data)
-        member_coordinates = count_coordinates(count, member_data)
-        if keys and forced_domain is None:
-            member_coordinates = member_coordinates.loc[:, keys].drop_duplicates()
+        if count_provides_domain:
+            member_coordinates = count_coordinates(count, member_data)
+            member_coordinates = distinct_key_rows(member_coordinates.loc[:, keys], key_slots)
             if not member_coordinates.empty:
                 if domain.empty:
                     domain = member_coordinates.reset_index(drop=True)
                 else:
-                    domain = (
-                        pd.concat([domain, member_coordinates], ignore_index=True)
-                        .drop_duplicates()
-                        .reset_index(drop=True)
+                    domain = distinct_key_rows(
+                        pd.concat([domain, member_coordinates], ignore_index=True), key_slots
                     )
 
     if sample_domains and keys and forced_domain is None:
@@ -356,19 +384,15 @@ def _combine_program(
             if all(key in value for key in keys)
         ]
         if parents:
-            domain = (
-                pd.concat([domain, *parents], ignore_index=True)
-                .drop_duplicates()
-                .reset_index(drop=True)
-            )
+            domain = distinct_key_rows(pd.concat([domain, *parents], ignore_index=True), key_slots)
     domain = parent_scoped(domain)
     if program.output_population is not None:
-        complete_domain = parent_scoped(population_domain(program.output_population, key_slots))
+        complete_domain = distinct_key_rows(
+            parent_scoped(population_domain(program.output_population, key_slots)), key_slots
+        )
         if program.values and not program.population_checked:
             if keys:
-                missing = domain.merge(
-                    complete_domain.drop_duplicates(), on=keys, how="left", indicator=True
-                )
+                missing = domain.merge(complete_domain, on=keys, how="left", indicator=True)
                 missing = missing.loc[missing["_merge"] == "left_only", keys]
             else:
                 missing = domain if not len(complete_domain) else domain.iloc[:0]
@@ -382,11 +406,12 @@ def _combine_program(
                     stage="population_coverage",
                     help_target="session.observe",
                 )
-        domain = complete_domain.drop_duplicates().reset_index(drop=True)
+        domain = complete_domain
 
     if program.window_endpoints and program.calendar_key in domain:
         require_window_endpoints(domain[program.calendar_key], program.window_endpoints)
     declarations = dict(program.declared)
+    sample_matches = dict(program.sample_matches)
     type_values = {
         binding.occurrence: NumericValue(ibis.literal(None).cast(ibis_type(binding.column.dtype)))
         for binding in bindings
@@ -511,14 +536,41 @@ def _combine_program(
                     for path, coordinate in program.calendar_samples
                     if path[: len(prefix)] == prefix
                 ),
+                sample_matches=tuple(
+                    ((index, *path[len(prefix) :]), matches)
+                    for index in range(len(operands))
+                    for prefix in ((*occurrence, index),)
+                    for path, matches in program.sample_matches
+                    if path[: len(prefix)] == prefix
+                ),
+                key_groups=(*program.key_groups, *sample_groups),
             )
             complete_domain = None
             sample_population_definition = sample_population(node.samples)
             if sample_population_definition is not None:
                 sample_domain = population_domain(sample_population_definition, sample_keys)
-                complete_domain = (
-                    domain.merge(sample_domain, how="cross") if keys else sample_domain
+                matches = sample_key_matches(
+                    child_program.key_groups, sample_matches.get(occurrence, ())
                 )
+                if matches:
+                    outer_slots = [match.outer for match in matches]
+                    inner_slots = []
+                    for position, match in enumerate(matches):
+                        if match.interval_keys is None:
+                            inner_slots.append(match.inner)
+                            continue
+                        mapped_slot = f"__sample_interval_{position}"
+                        sample_domain[mapped_slot] = sample_domain[match.inner].map(
+                            {inner: outer for outer, inner in match.interval_keys}
+                        )
+                        inner_slots.append(mapped_slot)
+                    complete_domain = domain.merge(
+                        sample_domain, left_on=outer_slots, right_on=inner_slots
+                    ).loc[:, list(complete_keys)]
+                else:
+                    complete_domain = (
+                        domain.merge(sample_domain, how="cross") if keys else sample_domain
+                    )
             if sample_domains is not None and occurrence in sample_domains:
                 complete_domain = sample_domains[occurrence].loc[:, list(complete_keys)]
             child_domains = {

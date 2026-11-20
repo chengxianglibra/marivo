@@ -95,3 +95,15 @@ def coordinate_position(axes: tuple[ComparisonAxis, ...], axis: ComparisonAxis) 
     return next(
         index for index, candidate in enumerate(axes) if coordinate_matches(candidate, axis)
     )
+
+
+def interval_key_pairs(
+    target: IntervalCoordinate, source: IntervalCoordinate
+) -> tuple[tuple[int, int], ...] | None:
+    """Return matching (target, source) ordinals, or None for a shared directory."""
+    if target.bounds == source.bounds:
+        return None
+    targets = {bounds: index for index, bounds in enumerate(target.bounds)}
+    return tuple(
+        (targets[bounds], index) for index, bounds in enumerate(source.bounds) if bounds in targets
+    )

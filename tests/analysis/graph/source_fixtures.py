@@ -45,6 +45,8 @@ def author_source_project(
     parse = (
         "None"
         if time_parse in {"date", "native_resolved"}
+        else "ms.timestamp()"
+        if time_parse == "native" and backend == "clickhouse"
         else f"ms.timestamp(timezone={read_timezone!r})"
         if time_parse == "native"
         else "ms.strptime('%Y-%m-%d %H:%M:%S', timezone='UTC')"

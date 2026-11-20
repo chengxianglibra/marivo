@@ -186,6 +186,17 @@ def _source_sum(value: ir.Value) -> ir.Value:
     )
 
 
+def finish_nullable_sum(
+    total: ir.Value, contribution_count: ir.IntegerScalar, valid_count: ir.IntegerScalar
+) -> ir.Value:
+    """Complete a native SUM using counts over the same contribution group."""
+    dtype = total.type()
+    return (contribution_count == 0).ifelse(
+        ibis.literal(0).cast(dtype),
+        (valid_count == 0).ifelse(ibis.null().cast(dtype.copy(nullable=True)), total),
+    )
+
+
 def native_mean(value: ir.Value) -> ir.Value:
     """Keep native AVG while completing an empty input as a typed NULL."""
     if not value.type().nullable:
@@ -246,16 +257,8 @@ def lower_source_reduction(
     elif node.reducer == "count_distinct":
         result = value.nunique()
     elif node.reducer == "sum":
-        result = _source_sum(value)
-        # An absent contribution is additive zero; existing unknown values are not.
-        result = (table.count() == 0).ifelse(
-            ibis.literal(0).cast(result.type()),
-            (value.count() == 0).ifelse(
-                ibis.null().cast(result.type().copy(nullable=True)), result
-            ),
-        )
         return NumericValue(
-            result,
+            finish_nullable_sum(_source_sum(value), table.count(), value.count()),
             tuple(_aggregate_check(c) for c in checks),
         )
     elif node.reducer == "approx_nunique":

@@ -2349,7 +2349,10 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 summary += (
                     "per accepts a Dimension, TimeField, native field Grouping or membership, a nonempty tuple of these, "
                     "or a complete Population; finish with a sample reducer. Field samples use observed "
-                    "keys; Population binds every compatible tuple, including empty samples. "
+                    "joint keys. Population samples match every shared axis by complete key; "
+                    "axes must have compatible roles, paths and time bindings. Interval keys match exact bounds. Without shared axes, "
+                    "each parent key uses all Population tuples. Compatible samples with no facts "
+                    "use the child Metric's empty value. No compatible samples leave an empty fold. "
                     "Place correlated mv.membership(...) rules directly in samples, or use (P, rule, ...). "
                     "Membership fields expand in order; explicit non-first fields locate interleaved axes. "
                     "Reject repeated first fields, overlapping rules and reordered member fields. "
@@ -2404,12 +2407,15 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 )
             elif method == "sum":
                 summary += (
-                    "sum requires business permission; empty input returns zero and nonempty all-NA input returns null. "
-                    "Integer SUM uses native int64 accumulation; Decimal SUM returns Decimal(38,input_scale). "
-                    "Native errors/wrapping differ by kernel; no protective integer widening. "
-                    "MySQL retains native widened SUM until safe Decimal transport. "
-                    "Native NaN/Infinity are retained in completed and saved Frames."
+                    "Sum requires business permission. Empty input returns zero. With nulls='ignore', "
+                    "nonempty all-NA input returns NULL. SQL SUM uses the backend's native accumulator. "
+                    "Native errors and wrapping follow the selected kernel. Completed and saved Frames "
+                    "retain native NaN and Infinity."
                 )
+                if prefix == "MetricSamples":
+                    summary += " Local integer sample SUM uses Arrow's int64 accumulator."
+                else:
+                    summary += " The source SUM expression declares int64 for signed integer input and Decimal(38,input_scale) for Decimal input."
             elif method == "mean":
                 summary += (
                     "Mean skips NULLs and returns NA without valid inputs; it retains the declared mean type. "
@@ -2565,7 +2571,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 _parameter_input("dependency", "InstantAnchor", "anchor"),
             ),
             preconditions=("The consuming operation must read the target version row.",),
-            example="order_customer.at(session.instant('2026-01-01'))",
+            example="relationship.at(session.instant('2026-01-01'))",
             public_entrypoint="relationship.at",
             see_also=(
                 LiveHelpTarget(surface="analysis", canonical_id="path.define"),
@@ -3211,19 +3217,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 mutations=("project_state",),
                 flags=("may_call_model", "may_write_search_cache"),
             ),
-            example=(
-                "print(catalog.search())  # All loaded kinds, first page\n"
-                "print(catalog.search(kind='entity', domain='sales'))  # Datasource bindings\n"
-                "print(catalog.search(kind='dimension', entity='sales.orders'))\n"
-                "page = catalog.search(kind='metric', limit=100)\n"
-                "while True:\n"
-                "    for metric in page.items:\n"
-                "        print(metric.id, metric.name)\n"
-                "    if page.next_cursor is None:\n"
-                "        break\n"
-                "    page = catalog.search(kind='metric', limit=100, cursor=page.next_cursor)\n"
-                "print(catalog.search('accepted revenue', kind='metric', limit=5))"
-            ),
+            example="page = catalog.search(kind='metric')\nprint(page)",
             public_entrypoint="catalog.search",
         ),
     )

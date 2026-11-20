@@ -100,6 +100,25 @@ and exclusive end. A report Population can contain one interval or be empty.
 If source or Frame keys determine the selected interval, Marivo checks the
 actual output domain before reading dependent Metrics.
 
+### Explicit Metric samples
+
+`Metric.per(P)` selects sample tuples separately for each output and enclosing
+sample key. Shared axes match by role, path, and time binding, using all
+components of each key. With no shared axes, each parent key uses the whole
+Population. Interval keys match by their exact start and end. A fact can
+contribute to each selected interval that includes it.
+
+```python
+regions = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
+regional_mean = session.observe(
+    {"average": revenue.per(regions).mean()}, by=(region,), where=august
+).compute()
+assert regional_mean.to_pandas()["average"].tolist() == [200, 600]
+```
+
+The east row uses only its east sample, and the west row uses only its west
+sample. A compatible sample without orders contributes a zero revenue sum.
+A row with no compatible sample remains in the output with a missing mean.
 
 ### Cartesian product: `mv.product`
 

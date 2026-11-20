@@ -1,0 +1,26 @@
+---
+slug: docs/latest/release-notes/0.6.12
+title: Marivo 0.6.12
+description: Release notes for Marivo 0.6.12.
+---
+
+Released on November 20, 2026. Marivo 0.6.12 improves analysis correctness and execution performance.
+
+## Highlights
+
+- Explicit Metric samples now match complete shared coordinates at each output and nested sample level, including exact interval boundaries. Output rows remain present when no compatible sample exists. See [Population](/docs/latest/analysis/population/#explicit-metric-samples).
+- Frame execution reuses grouping and row indices, vectorizes integer comparisons and reductions, and combines eligible adjacent filters to reduce repeated work.
+
+## Fixed
+
+- Population counts and sampled reductions match represented calendar and interval coordinates, and required output coverage is checked against fact coordinates.
+- MySQL-family integer sums are converted to their bound integer types with range validation.
+- Corrected the live Help examples for semantic search and relationship binding.
+
+## Documentation
+
+- Reworked the analysis algebra guide around output keys, contribution occurrences, missing values, and conditions for valid rewrites.
+
+## Internal
+
+- Consolidated opt-in datasource Runtime fixtures on the shared Podman environment.

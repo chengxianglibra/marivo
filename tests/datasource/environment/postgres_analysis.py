@@ -37,6 +37,23 @@ def connection(*, admin: bool = False) -> psycopg.Connection[tuple[object, ...]]
     )
 
 
+def setup_catalog() -> None:
+    """Provision Trino's JDBC database and role on the shared test server."""
+    with connection(admin=True) as admin:
+        admin.execute("SELECT pg_advisory_lock(%s)", (0x6D617269766F,))
+        if admin.execute("SELECT 1 FROM pg_roles WHERE rolname = 'iceberg'").fetchone() is None:
+            admin.execute(
+                sql.SQL("CREATE ROLE iceberg LOGIN PASSWORD {}").format(sql.Literal(password()))
+            )
+        if admin.execute("SELECT 1 FROM pg_database WHERE datname = 'iceberg'").fetchone() is None:
+            admin.execute("CREATE DATABASE iceberg OWNER iceberg")
+        admin.execute("REVOKE ALL ON DATABASE iceberg FROM PUBLIC")
+        with psycopg.connect(
+            host=HOST, port=PORT, dbname="iceberg", user="iceberg", password=password()
+        ) as catalog:
+            catalog.execute(Path(__file__).with_name("jdbc-init.sql").read_text())
+
+
 def setup() -> dict[str, object]:
     """Provision restrictive reader grants and verify disposable admin-owned fixture access."""
     fixture = sql.Identifier("smoke_" + uuid4().hex)

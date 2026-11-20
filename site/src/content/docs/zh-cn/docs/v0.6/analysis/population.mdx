@@ -93,6 +93,24 @@ classified_customers = retained.classify(by=(report_region,))
 来源谓词包含时间坐标时，按贡献时钟和普通坐标联合匹配。区间包含起点、排除终点。
 含区间轴的 Population 用作报告域时，最多可有一个实际区间。若区间由来源或 Frame 键决定，Marivo 会先求值并检查输出域，再读取依赖它的 Metric。空域产生空报告。
 
+<a id="explicit-metric-samples"></a>
+
+### 显式 Metric 样本
+
+`Metric.per(P)` 按每个输出键和外层样本键选择样本元组。共享轴需要有相容的角色、路径和时间绑定，
+并匹配对应键的所有分量。没有共享轴时，每个外层键都使用整份 Population。
+区间键按精确的起止时间匹配。同一事实可以贡献给每个包含它的已选区间。
+
+```python
+regions = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
+regional_mean = session.observe(
+    {"average": revenue.per(regions).mean()}, by=(region,), where=august
+).compute()
+assert regional_mean.to_pandas()["average"].tolist() == [200, 600]
+```
+
+east 行只使用 east 样本，west 行只使用 west 样本。没有订单的匹配样本仍以收入合计零参与。
+没有相容样本的行仍保留在输出中，均值为缺失值。
 
 ### 笛卡尔积：`mv.product`
 

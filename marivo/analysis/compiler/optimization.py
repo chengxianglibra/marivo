@@ -22,10 +22,8 @@ from marivo._definition.query import (
     FilterValues,
     KeyImage,
     LiteralValues,
-    PairStatistic,
     PresenceSlot,
     ReadFields,
-    ReduceValues,
     SelectValues,
     TopValues,
     ValueBinary,
@@ -87,7 +85,7 @@ class RequiredSlots:
 
 @dataclass(frozen=True, slots=True)
 class FusionGroup:
-    law: Literal["L1", "L8", "source_block"]
+    law: Literal["L1", "source_block"]
     members: tuple[str, ...]
     output: str
 
@@ -189,20 +187,6 @@ def _input_columns(stage: LocalCompute, wanted: set[str]) -> set[str]:
         return wanted | set(program.keys)
     if isinstance(operation, TopValues):
         return wanted | _expressions(operation.score, program)
-    if isinstance(operation, ReduceValues):
-        return set().union(
-            *(
-                _expressions(expression, program)
-                for _, statistic in operation.values
-                for expression in (
-                    (statistic.left, statistic.right)
-                    if isinstance(statistic, PairStatistic)
-                    else (statistic.value,)
-                    if statistic.value is not None
-                    else ()
-                )
-            )
-        ) | {slot for index in operation.positions for slot in program.key_groups[index]}
     if isinstance(operation, KeyImage):
         return set(program.keys)
     if isinstance(operation, ReadFields):
@@ -361,15 +345,6 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
                 )
             else:
                 decisions.append(RuleDecision("L1", "refused", pair, ": ".join(issue)))
-        elif isinstance(first, ReduceValues) and isinstance(second, ReduceValues):
-            decisions.append(
-                RuleDecision(
-                    "L8",
-                    "refused",
-                    pair,
-                    "Complete intermediate masks, numeric bounds and original finish checks have no fixed-state proof permitting elimination.",
-                )
-            )
     retained = tuple(
         stages[stage.stage_id] for stage in plan.stages if stage.stage_id not in removed
     )

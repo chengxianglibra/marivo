@@ -7,11 +7,15 @@ from pathlib import Path
 
 import ibis
 import pandas as pd
+import pyarrow as pa
 import pytest
+import sqlglot
+from sqlglot import expressions as sge
 
 import marivo.analysis as mv
 from marivo.analysis.compiler.native_formula import align_native_inputs
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -53,6 +57,76 @@ def test_domain_alignment_preserves_null_keys_without_full_outer_join() -> None:
         assert "UNION" in sql and "LEFT OUTER JOIN" in sql
     finally:
         connection.disconnect()
+
+
+def test_domain_alignment_keeps_complete_keys_and_each_branch_presence() -> None:
+    connection = ibis.duckdb.connect()
+    try:
+        connection.raw_sql(
+            "CREATE TABLE first_values (label VARCHAR COLLATE NOCASE, bucket SMALLINT NOT NULL, "
+            "w BIGINT); "
+            "INSERT INTO first_values VALUES ('A', 1, 10), (NULL, 1, NULL); "
+            "CREATE TABLE second_values (label VARCHAR COLLATE NOCASE, bucket BIGINT, x BIGINT); "
+            "INSERT INTO second_values VALUES "
+            "('B', 2, 20), (NULL, 1, 30), ('A ', 1, 40), ('B', NULL, 80); "
+            "CREATE TABLE third_values (label VARCHAR COLLATE NOCASE, bucket BIGINT, y BIGINT); "
+            f"INSERT INTO third_values VALUES ('a', 1, 50), ('A', 1, 60), ('B', {2**40}, 70), "
+            "('B', NULL, 90); "
+            "CREATE TABLE empty_values (label VARCHAR COLLATE NOCASE, bucket INTEGER, z BIGINT)"
+        )
+        aligned = align_native_inputs(
+            tuple(
+                connection.table(name)
+                for name in ("first_values", "second_values", "third_values", "empty_values")
+            ),
+            ("label", "bucket"),
+            ("w", "x", "y", "z"),
+            provider="duckdb",
+            alignment="domain",
+        )
+        result = connection.to_pyarrow(aligned)
+        assert result.schema.types == [pa.string()] + [pa.int64()] * 5
+        rows = result.to_pylist()
+        assert len(rows) == 7
+        assert {
+            (row["label"], row["bucket"]): (row["w"], row["x"], row["y"], row["z"]) for row in rows
+        } == {
+            ("A", 1): (10, 0, 60, 0),
+            ("B", 2): (0, 20, 0, 0),
+            (None, 1): (None, 30, 0, 0),
+            ("A ", 1): (0, 40, 0, 0),
+            ("a", 1): (0, 0, 50, 0),
+            ("B", 2**40): (0, 0, 70, 0),
+            ("B", None): (0, 80, 90, 0),
+        }
+    finally:
+        connection.disconnect()
+
+
+@pytest.mark.parametrize("backend", ("trino", "clickhouse"))
+@pytest.mark.parametrize(
+    ("key_type", "deduplication"), (("int64", "distinct"), ("string", "group"))
+)
+def test_domain_alignment_deduplicates_the_union_of_four_key_branches(
+    backend: str,
+    key_type: str,
+    deduplication: str,
+) -> None:
+    tables = tuple(
+        ibis.table({"key": key_type, f"value_{index}": "int64"}, name=f"reduced_{index}")
+        for index in range(4)
+    )
+    aligned = align_native_inputs(tables, ("key",), (), provider=backend, alignment="domain")
+    sql = sqlglot.parse_one(ibis.to_sql(aligned, dialect=backend), read=backend)
+    unions = list(sql.find_all(sge.Union))
+    assert len(unions) == 3
+    assert all(union.args.get("distinct") is False for union in unions)
+    deduplications = [
+        select for select in sql.find_all(sge.Select) if select.args.get(deduplication)
+    ]
+    assert len(deduplications) == 1
+    assert len(list(deduplications[0].find_all(sge.Union))) == 3
+    assert [join.side for join in sql.find_all(sge.Join)] == ["LEFT"] * 4
 
 
 @contextmanager
@@ -238,15 +312,18 @@ def test_native_recipe_and_formula_checks_survive_empty_parent_selection(
             other = 0 if boundary == "formula_overflow" else 80
             assert sorted(fine.compute().to_pandas()["value"].tolist()) == [expected, other, other]
             assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
+        elif boundary == "formula_overflow" and backend == "mysql":
+            for query in (fine, fine.top(0, by=fine["value"])):
+                with pytest.raises(MaterializationError) as failure:
+                    query.compute()
+                assert failure.value.stage == "numeric_value"
+                received = failure.value.received
+                assert received is not None and "int64" in received and "overflow" in received
         elif boundary == "formula_overflow":
-            if backend == "mysql":
-                assert fine.compute().to_pandas()["value"].max() == 2**63 + 78
-                assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
-            else:
-                with pytest.raises(AnalysisError):
-                    fine.compute()
-                with pytest.raises(AnalysisError):
-                    fine.top(0, by=fine["value"]).compute()
+            with pytest.raises(AnalysisError):
+                fine.compute()
+            with pytest.raises(AnalysisError):
+                fine.top(0, by=fine["value"]).compute()
         else:
             with pytest.raises(AnalysisError):
                 fine.top(0, by=fine["value"]).compute()

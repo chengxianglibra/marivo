@@ -22,7 +22,6 @@ from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.semantic._source_timezone import DeclaredSourceTimezone
 from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse, TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
-from tests.analysis.temporal.test_calendar_native_keys import _maria
 from tests.datasource.source_cases import SourceData, source_case, source_params
 
 
@@ -188,7 +187,7 @@ def test_clickhouse_date32_historical_range_uses_date32_cutoffs() -> None:
     ).replace('FROM "events"', "FROM (SELECT toDate32('1960-01-02') AS point)")
     assert "toDate32('1960-01-02')" in sql
     assert "toDate32('1960-01-03')" in sql
-    with connection(port=18323) as client:
+    with connection() as client:
         assert client.query(sql).result_rows == [(date(1960, 1, 2),)]
 
 
@@ -307,7 +306,6 @@ def test_native_shanghai_ranges_match_independent_membership_and_original_predic
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _maria(profile, monkeypatch)
     points: list[str | int | None]
     parse: TimestampParse | DateParse | StrptimeParse
     if physical == "timestamp":

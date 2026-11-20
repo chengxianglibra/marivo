@@ -16,7 +16,6 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
-from tests.analysis.temporal.test_calendar_native_keys import _maria
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.shared_fixtures import catalog_value, frozen_coordinates
 from tests.support.source_trace import SourceTrace
@@ -45,7 +44,6 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    _maria(profile, monkeypatch)
     rows: list[dict[str, object]] = [
         {"id": 1, "point": date(2026, 10, 28), "amount": 10, "category": "A"},
         {"id": 2, "point": date(2026, 10, 28), "amount": 30, "category": "A"},

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 from typing import Literal
 
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 from marivo._definition.query import (
@@ -34,19 +37,22 @@ from marivo.analysis.core.artifact_data import (
 )
 from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.data_validation import normalize_complete_frame
-from marivo.analysis.core.frame_data import CompletedFrameData
+from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
 from marivo.analysis.core.frame_expression import (
     FixedFrameInput,
     FrameOperation,
     FrameOperationKind,
 )
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.frozen_calendar import calendar_directory_schema
+from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import run_frame_plan
 
 
-def _data() -> CompletedFrameData:
+def _data(rows: pd.DataFrame | None = None) -> CompletedFrameData:
     schema = DataSchema(
         (
             DataAxis(
@@ -61,7 +67,9 @@ def _data() -> CompletedFrameData:
     )
     return CompletedFrameData(
         schema,
-        pd.DataFrame(
+        rows
+        if rows is not None
+        else pd.DataFrame(
             {
                 "key": ["C", "A", "B", None],
                 "a": pd.Series([10, 10, None, 5], dtype="int64[pyarrow]"),
@@ -154,6 +162,83 @@ def test_select_where_keep_input_sequence_and_null_masks() -> None:
     _, selected = _run(data, FilterValues(ValueBinary("ge", ValueSlot(1), ValueLiteral(20))))
     assert _keys(selected) == ["A", "B", None]
     assert _keys(data.copy_rows()) == ["C", "A", "B", None]
+
+
+def test_fixed_ordered_integer_comparisons_keep_exact_values_and_keys(tmp_path: Path) -> None:
+    minimum, maximum = -(2**63), 2**63 - 1
+    large = 2**53 + 3
+    keys = ["z", "a", "m", "b", None, "d", "s", "c"]
+    data = _data(
+        pd.DataFrame(
+            {
+                "key": keys,
+                "a": [maximum, minimum, large + 1, large, -7, 0, None, 4],
+                "b": [maximum, minimum, large, large + 1, -8, None, 0, 4],
+            },
+            dtype=object,
+        )
+    )
+    runtime = DatasetRuntime.create(tmp_path, "ordered-integers", timezone="UTC")
+    metadata = FrameResultMetadata(
+        "ordered-integer-input",
+        EvaluationRecord(datetime(2026, 10, 20, tzinfo=timezone.utc), (), ()),
+    )
+    frame = AnalysisFrame._from_memory(runtime.local, CompletedFrameResult(data, metadata))
+    a, b = frame["a"], frame["b"]
+    comparisons = {
+        "less": a < b,
+        "less_equal": a <= b,
+        "greater": a > b,
+        "greater_equal": a >= b,
+        "column_first": a > large,
+        "literal_first": large + 1 <= a,
+        "above_minimum": a > minimum,
+        "below_maximum": a < maximum,
+        "past_minimum": a > minimum - 1,
+        "past_maximum": a < maximum + 1,
+        "fraction": a > Decimal("9007199254740995.5"),
+        "boolean": (a > 0) < True,
+    }
+    selected = frame.select(comparisons).compute().to_pandas()
+    assert pa.array(selected["place"]).to_pylist() == keys
+    for name, expected in {
+        "less": [False, False, False, True, False, None, None, False],
+        "less_equal": [True, True, False, True, False, None, None, True],
+        "greater": [False, False, True, False, True, None, None, False],
+        "greater_equal": [True, True, True, False, True, None, None, True],
+        "column_first": [True, False, True, False, False, False, None, False],
+        "literal_first": [True, False, True, False, False, False, None, False],
+        "above_minimum": [True, False, True, True, True, True, None, True],
+        "below_maximum": [False, True, True, True, True, True, None, True],
+        "past_minimum": [True, True, True, True, True, True, None, True],
+        "past_maximum": [True, True, True, True, True, True, None, True],
+        "fraction": [True, False, True, False, False, False, None, False],
+        "boolean": [False, True, False, False, True, True, None, False],
+    }.items():
+        values = pa.array(selected[name])
+        assert values.type == pa.bool_()
+        assert values.to_pylist() == expected
+    for name, expected_keys in {
+        "greater_equal": ["z", "a", "m", None, "c"],
+        "column_first": ["z", "m"],
+        "literal_first": ["z", "m"],
+    }.items():
+        filtered = frame.where(comparisons[name]).compute().to_pandas()
+        assert pa.array(filtered["place"]).to_pylist() == expected_keys
+
+
+def test_bound_ordered_comparison_supports_scalar_left_and_empty_int64() -> None:
+    data = _data()
+    predicate = ValueBinary("lt", ValueLiteral(10), ValueSlot(1))
+    operation = SelectValues((("larger", predicate),))
+    _, selected = _run(data, operation)
+    assert pa.array(selected["value.0"]).to_pylist() == [None, True, True, True]
+
+    empty = _data(data.copy_rows().iloc[:0].copy())
+    _, selected = _run(empty, operation)
+    values = pa.array(selected["value.0"])
+    assert values.type == pa.bool_()
+    assert values.to_pylist() == []
 
 
 @pytest.mark.parametrize(
@@ -439,8 +524,6 @@ def test_complete_float_validation_preserves_na() -> None:
 
 @pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf")])
 def test_arrow_valid_nonfinite_is_not_a_missing_value(invalid: float) -> None:
-    import pyarrow as pa
-
     schema, rows = _float_rows()
     rows["b"] = pd.Series(
         pd.arrays.ArrowExtensionArray(pa.array([invalid], type=pa.float64(), from_pandas=False))

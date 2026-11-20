@@ -14,9 +14,7 @@ import pyarrow.compute as pc
 from marivo._definition.query import (
     CoordinateSlot,
     ReadFields,
-    ReduceValues,
     SelectValues,
-    Statistic,
     ValueExpression,
     ValueSlot,
     ValueUnary,
@@ -479,34 +477,6 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
         columns = tuple(
             replace(column, dtype=selected[column.slot_id])
             if column.slot_id in selected and not isinstance(column.dtype, DurationDataType)
-            else column
-            for column in columns
-        )
-    elif isinstance(operation, ReduceValues):
-        input_types: list[DataType] = []
-        for _, statistic in operation.values:
-            assert isinstance(statistic, Statistic)  # Enforced by ResultProgram.__post_init__.
-            input_types.append(
-                dtype(statistic.value) if statistic.value is not None else ScalarDataType("int64")
-            )
-        statistic_types = tuple(input_types)
-        program = replace(program, statistic_types=statistic_types)
-        output_types = {
-            f"value.{index}": ScalarDataType("float64")
-            if statistic.method == "mean" and input_type == ScalarDataType("int64")
-            else DecimalDataType(
-                38, input_type.scale if isinstance(input_type, DecimalDataType) else 0
-            )
-            if statistic.method == "sum"
-            and (input_type == ScalarDataType("int64") or isinstance(input_type, DecimalDataType))
-            else input_type
-            for index, ((_, statistic), input_type) in enumerate(
-                zip(operation.values, statistic_types, strict=True)
-            )
-        }
-        columns = tuple(
-            replace(column, dtype=output_types[column.slot_id])
-            if column.slot_id in output_types
             else column
             for column in columns
         )

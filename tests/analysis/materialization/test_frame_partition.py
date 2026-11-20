@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 
 import marivo.analysis as mv
@@ -16,6 +19,7 @@ from marivo.analysis.core.data_types import (
     DecimalDataType,
     DurationDataType,
     ScalarDataType,
+    TimestampDataType,
 )
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
 from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
@@ -94,6 +98,7 @@ def test_over_uses_complete_null_safe_large_integer_keys(local: LocalFrameServic
     keys = (
         DataColumn("entity.a", "a", ScalarDataType("int64"), True),
         DataColumn("entity.b", "b", ScalarDataType("string"), True),
+        DataColumn("entity.stamp", "stamp", TimestampDataType("ns", "UTC"), False),
     )
     sample = DataColumn("sample", "sample", ScalarDataType("int64"), False)
     schema = DataSchema(
@@ -103,18 +108,74 @@ def test_over_uses_complete_null_safe_large_integer_keys(local: LocalFrameServic
     )
     rows = pd.DataFrame(
         {
-            "entity.a": [large, large + 1, None, large, None, large],
-            "entity.b": ["a", "a", "a", "b", "a", "a"],
-            "sample": [5, 4, 3, 2, 1, 0],
-            "x": [1, 2, 3, 4, 5, 6],
+            "entity.a": [large, large + 1, None, large, None, large, large],
+            "entity.b": ["a", "a", "a", "b", "a", "a", "a"],
+            "entity.stamp": pd.to_datetime([1, 1, 1, 1, 1, 1, 2], unit="ns", utc=True),
+            "sample": [6, 5, 4, 3, 2, 1, 0],
+            "x": [1, 2, 3, 4, 5, 6, 11],
         },
         dtype=object,
     )
     frame = _memory(local, schema, rows)
-    result = frame.select({"total": frame.over(frame["x"].sum(), by=(frame.axes[0],))})
+    by = (frame.axes[0],)
+    result = frame.select(
+        {"total": frame.over(frame["x"].sum(), by=by), "count": frame.over(mv.row_count(), by=by)}
+    )
     output = result.compute().to_pandas()
-    assert output["sample"].tolist() == [5, 4, 3, 2, 1, 0]
-    assert output["total"].tolist() == [7, 2, 8, 4, 8, 7]
+    assert output["sample"].tolist() == [6, 5, 4, 3, 2, 1, 0]
+    assert output["total"].tolist() == [7, 2, 8, 4, 8, 7, 11]
+    assert output["count"].tolist() == [2, 1, 2, 1, 2, 2, 1]
+
+
+def test_over_same_groups_use_independent_samples(local: LocalFrameServices) -> None:
+    group = DataColumn("group", "group", INT64, True)
+    sample = DataColumn("sample", "sample", INT64, False)
+    schema = DataSchema(
+        (DataAxis("group", (group,), name="group"), DataAxis("sample", (sample,), name="sample")),
+        (DataColumn("x", "x", INT64, True), DataColumn("y", "y", INT64, True)),
+        value_paths=(("x",), ("y",)),
+    )
+    y = {1: 100, 2: 60, 5: 300}
+    frame = _memory(
+        local,
+        schema,
+        pd.DataFrame(
+            {
+                "group": [i % 4 or None for i in range(48)],
+                "sample": range(48),
+                "x": [i if i % 7 else None for i in range(48)],
+                "y": [y.get(i) for i in range(48)],
+            },
+            dtype=object,
+        ),
+    )
+    group_axis, sample_axis = frame.axes
+    by = (group_axis,)
+    x_total = frame.over(frame["x"].sum(), by=by)
+    output = (
+        frame.select(
+            {
+                "total": x_total,
+                "mean": frame.over(frame["x"].mean(), by=by),
+                "mean_y": frame.over(frame["y"].mean(), by=by),
+                "count": frame.over(mv.row_count(), by=by),
+                "repeated_total": frame.over(x_total.sum(), by=by),
+                "singleton_count": frame.over(mv.row_count(), by=(sample_axis,)),
+            }
+        )
+        .compute()
+        .to_pandas()
+    )
+    sums = [236, 255, 232, 258]
+    means = [236 / 10, 255 / 11, 232 / 10, 258 / 10]
+    assert output["sample"].tolist() == list(range(48))
+    assert output["total"].tolist() == sums * 12
+    assert output["mean"].tolist() == pytest.approx(means * 12)
+    assert output["mean_y"].isna().tolist() == [True, False, False, True] * 12
+    assert output["mean_y"].dropna().tolist() == [200, 60] * 12
+    assert output["count"].tolist() == [12] * 48
+    assert output["repeated_total"].tolist() == [total * 12 for total in sums] * 12
+    assert output["singleton_count"].tolist() == [1] * 48
 
 
 @pytest.mark.parametrize("carrier", ("memory", "pending", "stored"))
@@ -162,11 +223,22 @@ def test_share_filter_stage_and_signed_zero_total(local: LocalFrameServices) -> 
 
 def test_empty_partition_does_not_create_rows(local: LocalFrameServices) -> None:
     frame = _frame(local, ())
+    total = frame["x"].sum()
     output = frame.select(
-        {"count": frame.over(mv.row_count()), "share": frame["x"].share(along=frame.axes)}
+        {
+            "count": frame.over(mv.row_count()),
+            "share": frame["x"].share(along=frame.axes),
+            "total": frame.over(total),
+        }
     ).compute()
     assert output.to_pandas().empty
     assert len(output.axes) == 1
+    reduced = frame.reduce({"total": total}).compute()
+    values = pa.array(reduced.to_pandas()["total"])
+    assert values.type == pa.int64()
+    assert values.to_pylist() == [0]
+    assert isinstance(reduced._schema, DataSchema)
+    assert reduced._schema.values[0].unit == "USD"
 
 
 def test_partition_division_masks_zeros_before_reduction(local: LocalFrameServices) -> None:
@@ -286,13 +358,65 @@ def test_over_keeps_interval_and_paired_current_axis_facts(
     assert result.to_pandas()["rows"].tolist() == [1]
 
 
-def test_over_preserves_native_integer_sum_type(local: LocalFrameServices) -> None:
-    frame = _frame(local, (2**63 - 1, 1))
+def test_reduce_and_over_preserve_native_integer_sum_type(local: LocalFrameServices) -> None:
+    frame = _frame(local, (2**63 - 1, None, 1))
     result = frame.select({"total": frame.over(frame["x"].sum())}).compute()
     assert isinstance(result._schema, DataSchema)
     assert result._schema.values[0].dtype == ScalarDataType("int64")
     assert result._schema.values[0].unit == "USD"
-    assert result.to_pandas()["total"].tolist() == [-(2**63), -(2**63)]
+    assert pa.array(result.to_pandas()["total"]).to_pylist() == [-(2**63)] * 3
+    reduced = frame.reduce({"total": frame["x"].sum()}).compute()
+    values = pa.array(reduced.to_pandas()["total"])
+    assert values.type == pa.int64()
+    assert values.to_pylist() == [-(2**63)]
+
+
+def test_nullable_float_sum_keeps_dense_arrow_rounding_and_validity(
+    local: LocalFrameServices,
+) -> None:
+    group = DataColumn("group", "group", INT64, False)
+    sample = DataColumn("sample", "sample", INT64, False)
+    schema = DataSchema(
+        (DataAxis("group", (group,), name="group"), DataAxis("sample", (sample,), name="sample")),
+        (DataColumn("x", "x", ScalarDataType("float64"), True, "USD"),),
+        value_paths=(("x",),),
+    )
+    rows = pd.DataFrame(
+        {
+            "group": [2, 1, 3, 2, 4, 3, 2, 2, 4, 4],
+            "sample": range(10),
+            "x": pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array([1.0, None, float("nan"), None, 3.0, None, -1e17, 1e17, 0.0, -1.0])
+                )
+            ),
+        }
+    )
+    frame = _memory(local, schema, rows)
+    total = frame["x"].sum()
+    by = (frame.axes[0],)
+    cancellation = pc.sum(pa.array([1.0, -1e17, 1e17])).as_py()
+    nan = float("nan")
+
+    reduced = frame.reduce({"total": total}, by=by).compute()
+    broadcast = frame.select({"total": frame.over(total, by=by)}).compute()
+    for result, expected in (
+        (reduced, [None, cancellation, nan, 2.0]),
+        (
+            broadcast,
+            [cancellation, None, nan, cancellation, 2.0, nan, cancellation, cancellation, 2.0, 2.0],
+        ),
+    ):
+        values = pa.array(result.to_pandas()["total"])
+        assert isinstance(result._schema, DataSchema)
+        assert result._schema.values[0].unit == "USD"
+        assert values.type == pa.float64()
+        assert values.is_valid().to_pylist() == [value is not None for value in expected]
+        for actual, value in zip(values.to_pylist(), expected, strict=True):
+            if value is not None and math.isnan(value):
+                assert math.isnan(actual)
+            else:
+                assert actual == value
 
 
 def test_share_along_subset_uses_complement_partitions_and_normalizes_axis_order(
@@ -460,10 +584,11 @@ def test_partition_evaluation_reuses_typed_results_without_sorting() -> None:
         assert result[program.output_schema.values[0].slot_id].tolist() == [40, 20, 40, 40]
         assert result[program.output_schema.values[1].slot_id].tolist() == [0.25, 1, 0.75, 1]
         changed = source.copy()
-        changed["x"] = [1, 2, 3, 4]
+        changed["group"] = pd.Series([2, 2, None, 1], dtype=object)
+        changed["x"] = [1, 2, 30, 40]
         again = frame_values.evaluate_frame(program, (changed,))
         assert partition.call_count == 2
-        assert again[program.output_schema.values[0].slot_id].tolist() == [4, 2, 4, 4]
+        assert again[program.output_schema.values[0].slot_id].tolist() == [3, 3, 30, 40]
     reduced = frame_values.evaluate_frame(
         frame_program(schema, ReduceValues((("sum", Statistic("sum", ValueSlot(0))),), (0,))),
         (source,),

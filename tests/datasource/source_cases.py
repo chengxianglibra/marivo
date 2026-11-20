@@ -61,6 +61,11 @@ FLAGS = {
     "clickhouse": "MARIVO_CLICKHOUSE_ANALYSIS_TEST",
 }
 
+MYSQL_RUNTIME_PROFILES = [
+    pytest.param("innodb-table", id="mysql", marks=pytest.mark.runtime),
+    pytest.param("mariadb", id="mariadb", marks=pytest.mark.runtime),
+]
+
 
 def source_params(
     cases: Iterable[str | tuple[object, ...]], *, backend_index: int = 0
@@ -157,7 +162,11 @@ def source_case(
     data: SourceData | None = None,
 ) -> Iterator[Case]:
     if backend in FLAGS:
-        flag = "MARIVO_CLICKHOUSE_CLUSTER_TEST" if profile == "distributed" else FLAGS[backend]
+        flag = (
+            "MARIVO_MARIADB_ANALYSIS_TEST"
+            if backend == "mysql" and profile == "mariadb"
+            else FLAGS[backend]
+        )
         if os.environ.get(flag) != "1":
             pytest.skip(f"Explicit ready service required: {flag}=1")
     name = "source_profile_" + uuid4().hex
@@ -301,9 +310,10 @@ def source_case(
     if backend == "mysql":
         from tests.datasource.environment import mysql_analysis as mysql
 
-        environment = mysql.setup()
+        port = mysql.MARIADB_PORT if profile == "mariadb" else mysql.PORT
+        environment = mysql.setup(port=port)
         monkeypatch.setenv("MARIVO_SOURCE_PROFILE_PASSWORD", mysql.password())
-        with mysql.connection(admin=True) as admin, admin.cursor() as cursor:
+        with mysql.connection(admin=True, port=port) as admin, admin.cursor() as cursor:
             try:
                 cursor.execute(f"CREATE TABLE {name} ({columns}) ENGINE=InnoDB")
                 cursor.execute(f"INSERT INTO {name} VALUES {values}")
@@ -312,7 +322,7 @@ def source_case(
                     backend,
                     {
                         "host": mysql.HOST,
-                        "port": mysql.PORT,
+                        "port": port,
                         "database": mysql.DATABASE,
                         "user": mysql.READER,
                     },
@@ -360,51 +370,47 @@ def source_case(
     from tests.datasource.environment import clickhouse_analysis as ch
     from tests.datasource.environment.credentials import password
 
-    cluster = profile == "distributed"
-    environment = ch.setup_cluster() if cluster else ch.setup()
-    ports = (
-        ch.CLUSTER_HTTP_PORTS
-        if cluster
-        else (int(os.environ.get("MARIVO_CLICKHOUSE_TEST_PORT", "18123")),)
-    )
-    database = "qualification_cluster" if cluster else "qualification"
+    distributed = profile == "distributed"
+    environment = ch.setup()
+    database = "qualification"
     monkeypatch.setenv("MARIVO_SOURCE_PROFILE_PASSWORD", password())
-    try:
-        for index, port in enumerate(ports):
-            with ch.connection(admin=True, port=port) as admin:
-                admin.command(
-                    f"CREATE TABLE {database}.{name} ({ch_columns}) ENGINE=MergeTree ORDER BY tuple()"
-                )
-                admin.insert(
-                    f"{database}.{name}",
-                    [list(row.values()) for row in rows[index :: len(ports)]],
-                    column_names=list(rows[0]),
-                )
-                if cluster:
-                    admin.command(
-                        f"CREATE TABLE {database}.{name}_distributed AS {database}.{name} ENGINE=Distributed({ch.CLUSTER}, {database}, {name}, rand())"
-                    )
-        ds = datasource(
-            backend,
-            {
-                "host": "127.0.0.1",
-                "port": ports[0],
-                "database": database,
-                "user": "analysis_reader",
-            },
-            {"password": "MARIVO_SOURCE_PROFILE_PASSWORD"},
-        )
-        with provider_for(backend).open(ds) as session:
-            yield Case(
-                session,
-                TableSourceIR(name + ("_distributed" if cluster else ""), database=database),
-                environment,
+    with ch.connection(admin=True) as admin:
+        try:
+            admin.command(
+                f"CREATE TABLE {database}.{name} ({ch_columns}) ENGINE=MergeTree ORDER BY tuple()"
             )
-    finally:
-        for port in ports:
-            with ch.connection(admin=True, port=port) as admin:
+            admin.insert(
+                f"{database}.{name}",
+                [list(row.values()) for row in rows],
+                column_names=list(rows[0]),
+            )
+            if distributed:
+                admin.command(
+                    f"CREATE TABLE {database}.{name}_distributed AS {database}.{name} "
+                    f"ENGINE=Distributed({ch.CLUSTER}, {database}, {name}, rand())"
+                )
+            ds = datasource(
+                backend,
+                {
+                    "host": "127.0.0.1",
+                    "port": ch.port(),
+                    "database": database,
+                    "user": "analysis_reader",
+                },
+                {"password": "MARIVO_SOURCE_PROFILE_PASSWORD"},
+            )
+            with provider_for(backend).open(ds) as session:
+                yield Case(
+                    session,
+                    TableSourceIR(
+                        name + ("_distributed" if distributed else ""), database=database
+                    ),
+                    environment,
+                )
+        finally:
+            if distributed:
                 admin.command(f"DROP TABLE IF EXISTS {database}.{name}_distributed")
-                admin.command(f"DROP TABLE IF EXISTS {database}.{name}")
+            admin.command(f"DROP TABLE IF EXISTS {database}.{name}")
 
 
 def receipt(name: str, value: dict[str, object]) -> None:

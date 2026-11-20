@@ -933,7 +933,7 @@ def test_trino_four_day_mean_transport_and_cost(
     from tests.datasource.environment.trino_analysis import connection
 
     if os.environ.get("MARIVO_TRINO_ANALYSIS_TEST") != "1":
-        pytest.skip("Enable the ready Colima Trino Runtime service")
+        pytest.skip("Set MARIVO_TRINO_ANALYSIS_TEST=1 after starting the trino profile")
     with mean_session("trino", "iceberg", tmp_path, monkeypatch, semantic_project_factory) as (
         session,
         case,

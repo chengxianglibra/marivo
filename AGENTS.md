@@ -5,34 +5,27 @@ consumed primarily by agents through a write-run-read loop. This file owns stabl
 repository-wide decisions; API details and procedures belong in the linked docs.
 `CLAUDE.md` must remain a relative symlink to this file.
 
-## Working Rules
+## Repository Conventions
 
-- Make the smallest change that satisfies the request; avoid speculative abstractions
-  and unnecessary defensive implementation or acceptance work.
-- Inspect the working tree, preserve unrelated changes, and match surrounding style.
-  Reviews are read-only unless edits are authorized.
-- Resolve routine choices independently; disclose material assumptions and ask only
-  when unresolved ambiguity makes the change risky.
-- Use existing code conventions when documentation drifts, and report discrepancies.
-  Establish the intended current contract before changing behavior; proposals and
-  plans alone do not prove implementation.
 - Keep code, comments, tests, fixtures, generated code and user-facing strings in
   English. Localized documentation may use its target language.
-- Editing this file or packaged `marivo-semantic` / `marivo-analysis` skills requires
-  explicit user authorization. A request to edit the named file grants it; general
-  implementation or documentation work does not authorize packaged-skill edits.
+- Editing this file or the packaged `marivo-semantic` and `marivo-analysis` skills
+  requires explicit user authorization.
+- Use [marivo-review](.agents/skills/marivo-review/SKILL.md) for the project review
+  contract, including formal reviews in the team development workflow.
 
 ## Contract Navigation
 
-Read the routes relevant to the change, following focused references as needed.
-Use `marivo.help("datasource.<target>")`, `marivo.help("semantic.<target>")` or
-`marivo.help("analysis.<target>")` for current public syntax.
+Use [architecture navigation](docs/architecture/README.md) for owning contracts
+and `marivo.help("<module>.<target>")` for the current installed syntax. The public
+modules are `datasource` (`md`), `semantic` (`ms`), `analysis` (`mv`) and
+`ontology` (`mo`).
 
 | Scope | Owning documentation |
 | --- | --- |
 | Datasource declarations, discovery and credentials | [Datasource](docs/architecture/datasource/README.md) |
-| Semantic design and expressions | [Overview](docs/architecture/semantic/overview.md), [object model](docs/architecture/semantic/semantic-object-model.md), [expressions](docs/architecture/semantic/expressions.md) |
-| Authoring, loading and validation | [Authoring](docs/architecture/semantic/authoring-workflow.md), [loading and validation](docs/architecture/semantic/loading-validation-introspection.md) |
+| Semantic design and authoring | [Semantic overview](docs/architecture/semantic/overview.md), [authoring](docs/architecture/semantic/authoring-workflow.md) |
+| Ontology declarations and lookup | `marivo.help("ontology")`, [exports](marivo/ontology/__init__.py) |
 | Analysis and time | [Analysis](docs/architecture/analysis/README.md), [temporal semantics](docs/architecture/temporal-semantics.md) |
 | Help, result display and errors | [Agent-facing public surface](docs/architecture/agent-friendly-public-surface.md) |
 | Tests and fixtures | [Test fixture skill](.agents/skills/marivo-test-fixtures/SKILL.md) |
@@ -51,8 +44,9 @@ Use `marivo.help("datasource.<target>")`, `marivo.help("semantic.<target>")` or
 
 ## Python and Validation
 
-Use repository entrypoints or explicit `.venv/bin/...` paths, never bare `python`,
-`pytest`, `mypy` or `ruff`. [Makefile](Makefile) owns execution flags and parallelism.
+Use [Make targets](Makefile) or the project virtual environment's explicit tool
+paths. See [development setup](README.md#development) and install the
+[`docs` extra](CONTRIBUTING.md) for Sphinx checks.
 
 | Purpose | Command |
 | --- | --- |
@@ -73,18 +67,16 @@ Use repository entrypoints or explicit `.venv/bin/...` paths, never bare `python
   affected content, links and diffs.
 - Pass `make check` without narrowing variables before pushing. Its default suite
   excludes Runtime and release tests; run relevant Runtime tests separately.
+  In the team development workflow, run the same full gate before committing
+  shared behavior changes, after integrating review repairs and acceptance:
+  `env -u TESTS -u LINT_TARGETS -u TYPECHECK_TARGETS -u PYTEST_ADDOPTS make check`.
 - Reserve full release acceptance for release work. Do not start MinIO for ordinary
-  commit preparation. Colima is authorized for relevant Runtime validation: follow
-  [environment instructions](tests/datasource/environment/README.md), use the dedicated
-  `marivo-multisource` environment, and reuse running services.
-- Fix failures caused by the change and rerun relevant checks. Report actual evidence
-  and blockers, distinguishing static, local, Runtime and release validation.
+  commit preparation. For relevant Runtime validation, use Podman and the
+  `marivo-multisource` Compose project. Follow the
+  [environment instructions](tests/datasource/environment/README.md) and reuse running services.
+- Distinguish static, local, provider Runtime, installed-package and release evidence.
 
 ## Library Decisions
-
-Public entry points are `marivo.help`, `marivo.datasource`, `marivo.semantic` and
-`marivo.analysis`. Use `import marivo` for Help and the aliases `md`, `ms` and `mv`
-for their respective submodules; there is no top-level `marivo.session`.
 
 - Semantic values and top-level Frames remain immutable. Consumers use completed
   scopes and enforce session/project ownership, without ambient refresh or import replay.
@@ -106,8 +98,8 @@ for their respective submodules; there is no top-level `marivo.session`.
 - Project semantic/analysis state belongs in `<project_root>/.marivo/`. Declare credentials
   with `md.env(...)`; never store secrets in project state. User-global secret caching
   follows the [datasource credential contract](docs/architecture/datasource/README.md#credentials-and-secret-persistence).
-- Domain exceptions belong to `DatasourceError`, `SemanticError` or `AnalysisError`;
-  cross-surface Help exceptions may directly extend `MarivoError`. Use structured
+- Domain exceptions follow the owning hierarchy, including `OntologyError` under
+  `SemanticError`. Cross-surface Help exceptions may extend `MarivoError`. Use structured
   fields and shared rendering. State expected/received input and a concrete repair
   based on real state; never invent candidates or silently fall back.
 - Keep one canonical public entry per capability. Within the changed scope, remove

@@ -322,12 +322,23 @@ ratios is not an overall ratio. Implicit field samples retain observed joint
 external/internal keys: completing output calendar buckets does not cross every
 bucket with every sample in the observation window. TimeField samples allow
 missing clocks even when sample_interval declares a cadence.
-A complete explicit internal domain retains empty
-samples under the child's empty policy; it may deliberately select a subset.
+A complete explicit internal Population selects full sample tuples for each
+external and enclosing sample key. Every shared axis requires equality of all
+its ordered components. Axes share a semantic role, relationship path, and
+compatible version or time binding. Nullable field categories compare with
+NULL-safe equality. Interval samples match their exact half-open bounds across
+directories. Overlapping intervals each receive eligible contributions. A
+finite interval selection supplies its own clock boundaries and keeps its
+original directory keys. This applies when the interval selection is combined
+with independent Population factors or projected to a new axis order.
+Sample axes without a shared binding retain all values
+present in each selected tuple. When no axes are shared, each parent key uses
+the whole Population. Compatible samples without facts use the child's
+empty-input policy, while a parent with no compatible samples has an empty fold.
 Use a membership directly, an ordered nonempty tuple, P, or `(P, rule, ...)`.
-Each nested layer independently selects and completes samples. Even empty or
-entirely unmatched samples preserve necessary external coordinates, producing
-zero for empty sum children and NA where the reducer's empty policy requires it.
+Each nested layer selects and completes samples against the output and all
+enclosing sample keys. External coordinates survive an empty fold. A strict
+sample reducer checks the values of its selected samples.
 
 Builtin calendar folds use actual sample keys in the Session's report timezone.
 `Metric.per(grain)` follows each branch's contribution time, while

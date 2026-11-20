@@ -1,9 +1,7 @@
 """Native equality buckets agree with frozen boundaries without SQL enumeration."""
 
-import os
 from collections.abc import Callable, Sequence
 from datetime import date, datetime, timezone
-from functools import partial
 from pathlib import Path
 from typing import Literal
 
@@ -31,19 +29,6 @@ CASES = source_params(
         ("clickhouse", "distributed"),
     ]
 )
-
-
-def _maria(profile: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    if profile != "mariadb":
-        return
-    if os.environ.get("MARIVO_MARIADB_ANALYSIS_TEST") != "1":
-        pytest.skip("Explicit ready MariaDB service required")
-    from tests.datasource.environment import mysql_analysis as mysql
-
-    monkeypatch.setenv("MARIVO_MYSQL_ANALYSIS_TEST", "1")
-    monkeypatch.setattr(mysql, "connection", partial(mysql.connection, port=23307))
-    monkeypatch.setattr(mysql, "setup", partial(mysql.setup, port=23307))
-    monkeypatch.setattr(mysql, "PORT", 23307)
 
 
 def _data(backend: str, points: Sequence[datetime | None]) -> SourceData:
@@ -77,7 +62,6 @@ def test_public_encoded_clocks_retain_wall_bucket_membership(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    _maria(profile, monkeypatch)
     clocks = [
         "2026-03-08 01:59:59",
         "2026-03-08 02:30:00",
@@ -211,7 +195,6 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    _maria(profile, monkeypatch)
     # Both transitions revisit a civil date. Native bucket membership need not
     # form one contiguous UTC interval; compare each executor to its own SQL.
     points = [
@@ -407,7 +390,6 @@ def test_public_hour_index_follows_native_gap_and_fold_interpretation(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    _maria(profile, monkeypatch)
     monkeypatch.chdir(tmp_path)
     # The fact is outside every selection, but belongs to each all-history window.
     with source_case(

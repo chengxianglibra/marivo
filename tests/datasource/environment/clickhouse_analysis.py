@@ -1,4 +1,4 @@
-"""Explicit setup for SELECT-only local MergeTree and Distributed cluster accounts."""
+"""Explicit setup for SELECT-only MergeTree and Distributed reads on one server."""
 
 from __future__ import annotations
 
@@ -6,13 +6,18 @@ import json
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from hashlib import sha256
 
 import clickhouse_connect
 from clickhouse_connect.driver.client import Client
 from clickhouse_connect.driver.exceptions import DatabaseError
 
 from tests.datasource.environment.credentials import password
+
+CLUSTER = "marivo_single_shard"
+
+
+def port() -> int:
+    return int(os.environ.get("MARIVO_CLICKHOUSE_TEST_PORT", "18123"))
 
 
 def _reset_unexpected_grants(con: Client, allowed: set[str]) -> None:
@@ -22,12 +27,10 @@ def _reset_unexpected_grants(con: Client, allowed: set[str]) -> None:
 
 
 @contextmanager
-def connection(*, admin: bool = False, port: int | None = None) -> Iterator[Client]:
+def connection(*, admin: bool = False) -> Iterator[Client]:
     client = clickhouse_connect.get_client(
         host="127.0.0.1",
-        port=port
-        if port is not None
-        else int(os.environ.get("MARIVO_CLICKHOUSE_TEST_PORT", "18123")),
+        port=port(),
         database="qualification",
         username="qualifier" if admin else "analysis_reader",
         password=password(),
@@ -42,16 +45,10 @@ def connection(*, admin: bool = False, port: int | None = None) -> Iterator[Clie
 def setup() -> dict[str, object]:
     with connection(admin=True) as con:
         assert con.server_version is not None, "Expected the connected server version"
-        if con.server_version.startswith("22."):
-            password_hash = sha256(password().encode()).hexdigest()
-            con.command(
-                f"CREATE USER IF NOT EXISTS analysis_reader IDENTIFIED WITH sha256_hash BY '{password_hash}'"
-            )
-        else:
-            con.command(
-                "CREATE USER IF NOT EXISTS analysis_reader IDENTIFIED BY {password:String}",
-                parameters={"password": password()},
-            )
+        con.command(
+            "CREATE USER IF NOT EXISTS analysis_reader IDENTIFIED BY {password:String}",
+            parameters={"password": password()},
+        )
         _reset_unexpected_grants(
             con,
             {
@@ -61,16 +58,13 @@ def setup() -> dict[str, object]:
         )
         con.command("GRANT SELECT ON qualification.* TO analysis_reader")
         con.command("GRANT SELECT(query, query_id, user) ON system.processes TO analysis_reader")
-        if con.server_version.startswith("22."):
-            con.command("ALTER USER analysis_reader SETTINGS readonly=0, join_use_nulls=1")
-        else:
-            con.command(
-                "ALTER USER analysis_reader SETTINGS readonly=1, join_use_nulls=1, "
-                "enable_materialized_cte=0 CHANGEABLE_IN_READONLY, "
-                "max_execution_time=0 CHANGEABLE_IN_READONLY, "
-                "cancel_http_readonly_queries_on_client_close=0 CHANGEABLE_IN_READONLY, "
-                "timeout_before_checking_execution_speed=0 CHANGEABLE_IN_READONLY"
-            )
+        con.command(
+            "ALTER USER analysis_reader SETTINGS readonly=1, join_use_nulls=1, "
+            "enable_materialized_cte=0 CHANGEABLE_IN_READONLY, "
+            "max_execution_time=0 CHANGEABLE_IN_READONLY, "
+            "cancel_http_readonly_queries_on_client_close=0 CHANGEABLE_IN_READONLY, "
+            "timeout_before_checking_execution_speed=0 CHANGEABLE_IN_READONLY"
+        )
         con.command(
             "CREATE TABLE IF NOT EXISTS permission_probe(id Int64) ENGINE=MergeTree ORDER BY id"
         )
@@ -93,136 +87,6 @@ def setup() -> dict[str, object]:
                 raise AssertionError("Reader unexpectedly has write privileges")
         assert con.query("SELECT getSetting('join_use_nulls')").first_row == (1,)
     return {"backend": "clickhouse", "version": version, "user": user, "denied": denied}
-
-
-CLUSTER = "marivo_multisource"
-CLUSTER_HTTP_PORTS = (18201, 18203)
-
-
-def setup_cluster() -> dict[str, object]:
-    """Prepare the two-shard Distributed fixture exactly once per shard.
-
-    Every loopback HTTP endpoint receives the same SELECT-only
-    ``analysis_reader`` account, the ``qualification_cluster`` database, the
-    local MergeTree table, and the Distributed table over the static
-    ``remote_servers`` topology. Reader privileges are checked for denial on
-    every node.
-    """
-    for port in CLUSTER_HTTP_PORTS:
-        with connection(admin=True, port=port) as con:
-            con.command(
-                "CREATE USER IF NOT EXISTS analysis_reader IDENTIFIED BY {password:String}",
-                parameters={"password": password()},
-            )
-            _reset_unexpected_grants(
-                con,
-                {
-                    "GRANT SELECT ON qualification.* TO analysis_reader",
-                    "GRANT SELECT ON qualification_cluster.* TO analysis_reader",
-                    "GRANT SELECT(query, query_id, user) ON system.processes TO analysis_reader",
-                },
-            )
-            con.command("GRANT SELECT ON qualification.* TO analysis_reader")
-            con.command(
-                "ALTER USER analysis_reader SETTINGS readonly=1, join_use_nulls=1, "
-                "enable_materialized_cte=0 CHANGEABLE_IN_READONLY, "
-                "max_execution_time=0 CHANGEABLE_IN_READONLY, "
-                "cancel_http_readonly_queries_on_client_close=0 CHANGEABLE_IN_READONLY, "
-                "timeout_before_checking_execution_speed=0 CHANGEABLE_IN_READONLY"
-            )
-            con.command("CREATE DATABASE IF NOT EXISTS qualification_cluster")
-            con.command(
-                "CREATE TABLE IF NOT EXISTS qualification_cluster.orders_local"
-                " (id Int64, amount Decimal(9, 2)) ENGINE=MergeTree ORDER BY id"
-            )
-            con.command("GRANT SELECT ON qualification_cluster.* TO analysis_reader")
-            con.command(
-                "GRANT SELECT(query, query_id, user) ON system.processes TO analysis_reader"
-            )
-    for port in CLUSTER_HTTP_PORTS:
-        with connection(admin=True, port=port) as con:
-            con.command(
-                "CREATE TABLE IF NOT EXISTS qualification_cluster.orders_distributed"
-                " AS qualification_cluster.orders_local"
-                f" ENGINE=Distributed({CLUSTER}, qualification_cluster, orders_local, rand())"
-            )
-            row = con.query(
-                "SELECT count() FROM system.clusters WHERE cluster = {cluster:String}",
-                parameters={"cluster": CLUSTER},
-            ).first_row
-            assert row is not None, "Expected cluster shard count"
-            shards = row[0]
-            assert shards == 2, f"Expected two shards on {CLUSTER}, saw {shards}"
-    receipt: dict[str, object] = {"backend": "clickhouse-cluster", "shards": shards}
-    for port in CLUSTER_HTTP_PORTS:
-        with connection(port=port) as con:
-            row = con.query("SELECT version(), currentUser()").first_row
-            assert row is not None, "Expected server version and reader identity"
-            version, user = row
-            assert user == "analysis_reader", f"Unexpected reader identity {user!r} on {port}"
-            receipt[f"version_{port}"] = version
-            denied: list[str] = []
-            for sql in (
-                "CREATE TABLE qualification_cluster.forbidden(id Int64)"
-                " ENGINE=MergeTree ORDER BY id",
-                "CREATE TEMPORARY TABLE forbidden_temp(id Int64)",
-                "INSERT INTO qualification_cluster.orders_local VALUES (1, '1.00')",
-                "INSERT INTO qualification_cluster.orders_distributed VALUES (1, '1.00')",
-                "DROP TABLE qualification_cluster.orders_distributed",
-            ):
-                try:
-                    con.command(sql)
-                except DatabaseError:
-                    denied.append(sql)
-                else:
-                    raise AssertionError("Reader unexpectedly has write privileges")
-            receipt[f"denied_{port}"] = denied
-    return receipt
-
-
-def drop_cluster_fixture() -> None:
-    """Remove Distributed and local tables plus the fixture database on both shards."""
-    for port in CLUSTER_HTTP_PORTS:
-        with connection(admin=True, port=port) as con:
-            con.command("DROP TABLE IF EXISTS qualification_cluster.orders_distributed")
-            con.command("DROP TABLE IF EXISTS qualification_cluster.orders_local")
-            con.command("DROP DATABASE IF EXISTS qualification_cluster")
-
-
-def create_cluster_tables(suffix: str, *, split_at: int = 1) -> None:
-    """Seed per-shard local MergeTree tables for one UUID-suffixed probe.
-
-    ``suffix`` must be unique per run and may contain only characters that are
-    valid inside an unquoted ClickHouse identifier. The fixed five-row span
-    ids 0..4 carries ``amount = id + 0.25``; rows with ``id < split_at`` land
-    on shard A and the remainder on shard B; every node also receives a
-    Distributed table over the seeded local tables. Call
-    ``drop_cluster_tables`` with the same suffix in a ``finally`` block.
-    """
-    shard_ids = {18201: list(range(split_at)), 18203: list(range(split_at, 5))}
-    for port, ids in shard_ids.items():
-        with connection(admin=True, port=port) as con:
-            con.command(
-                f"CREATE TABLE qualification_cluster.orders_{suffix}"
-                " (id Int64, amount Decimal(9, 2)) ENGINE=MergeTree ORDER BY id"
-            )
-            con.command(
-                f"CREATE TABLE qualification_cluster.orders_{suffix}_distributed"
-                f" AS qualification_cluster.orders_{suffix}"
-                f" ENGINE=Distributed({CLUSTER}, qualification_cluster,"
-                f" orders_{suffix}, rand())"
-            )
-            if ids:
-                values = ", ".join(f"({identity}, '{identity}.25')" for identity in ids)
-                con.command(f"INSERT INTO qualification_cluster.orders_{suffix} VALUES {values}")
-
-
-def drop_cluster_tables(suffix: str) -> None:
-    """Remove the UUID-suffixed probe tables on both shards."""
-    for port in CLUSTER_HTTP_PORTS:
-        with connection(admin=True, port=port) as con:
-            con.command(f"DROP TABLE IF EXISTS qualification_cluster.orders_{suffix}_distributed")
-            con.command(f"DROP TABLE IF EXISTS qualification_cluster.orders_{suffix}")
 
 
 if __name__ == "__main__":

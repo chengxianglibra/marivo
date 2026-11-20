@@ -57,14 +57,13 @@ def _native_times(backend: str, root: Path, monkeypatch: pytest.MonkeyPatch) -> 
         from tests.datasource.environment import clickhouse_analysis as clickhouse
         from tests.datasource.environment.credentials import password
 
-        port = int(os.environ.get("MARIVO_CLICKHOUSE_TEST_PORT", "18123"))
         monkeypatch.setenv("TIME_RANGE_USER", "analysis_reader")
         monkeypatch.setenv("TIME_RANGE_PASSWORD", password())
         md.register(
             md.clickhouse(
                 name="warehouse",
                 host="127.0.0.1",
-                port=port,
+                port=clickhouse.port(),
                 database="qualification",
                 user=md.env("TIME_RANGE_USER"),
                 password=md.env("TIME_RANGE_PASSWORD"),
@@ -72,7 +71,7 @@ def _native_times(backend: str, root: Path, monkeypatch: pytest.MonkeyPatch) -> 
             ),
             project_root=root,
         )
-        with clickhouse.connection(admin=True, port=port) as ch_connection:
+        with clickhouse.connection(admin=True) as ch_connection:
             ch_connection.command(
                 f"CREATE TABLE {table} (id Int64, instant DateTime, day Date) ENGINE=MergeTree ORDER BY id"
             )

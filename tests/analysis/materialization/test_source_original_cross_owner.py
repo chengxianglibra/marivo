@@ -9,6 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.errors import SemanticExpressionError
@@ -228,12 +229,15 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
             where=None if boundary in ("overflow", "coarsen", "partial") else scope,
         )
         trace = capture_source(monkeypatch)
-        if boundary == "overflow":
-            if backend == "mysql":
-                assert query.compute().to_pandas()["net"].tolist() == [12 * 10**18, -12 * 10**18]
-            else:
-                with pytest.raises((AnalysisError, SemanticExpressionError)):
-                    query.compute()
+        if boundary == "overflow" and backend == "mysql":
+            with pytest.raises(MaterializationError) as failure:
+                query.compute()
+            assert failure.value.stage == "numeric_value"
+            received = failure.value.received
+            assert received is not None and "int64" in received and "overflow" in received
+        elif boundary == "overflow":
+            with pytest.raises((AnalysisError, SemanticExpressionError)):
+                query.compute()
         else:
             result = query.compute().to_pandas()
             assert result["net"].tolist() == [-60 if boundary == "partial" else -120]

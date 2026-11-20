@@ -151,21 +151,29 @@ def test_trino_terminal_session_timeout_and_timezone_are_effective() -> None:
         python_symbol="source_control",
         location=DatasourceSourceLocation("source_control.py", 1),
     )
-    backend = build_backend(datasource, terminal_timeout_seconds=1)
+    profile = adapters.provider_for("trino")
+    assert profile.native_query_timeout is not None
+    # Inspect server-side session settings independently of the 1s timeout
+    # exercised below, so metadata planning is not itself the timing oracle.
+    inspection = build_backend(datasource, terminal_timeout_seconds=5)
     try:
-        profile = adapters.provider_for("trino")
-        assert profile.native_query_timeout is not None
-        with profile.native_query_timeout(backend, 1):
-            setting = backend.raw_sql("SHOW SESSION LIKE 'query_max_run_time'")
+        with profile.native_query_timeout(inspection, 5):
+            setting = inspection.raw_sql("SHOW SESSION LIKE 'query_max_run_time'")
             try:
-                assert setting.fetchone()[1] == "1s"
+                assert setting.fetchone()[1] == "5s"
             finally:
                 setting.close()
-            timezone = backend.raw_sql("SELECT current_timezone()")
+            timezone = inspection.raw_sql("SELECT current_timezone()")
             try:
                 assert timezone.fetchone()[0] == "UTC"
             finally:
                 timezone.close()
+    finally:
+        inspection.disconnect()
+
+    backend = build_backend(datasource, terminal_timeout_seconds=1)
+    try:
+        assert backend.con.session_properties["query_max_run_time"] == "1s"
         started = monotonic()
         with pytest.raises(TrinoQueryError) as failure, profile.native_query_timeout(backend, 1):
             # The 3x cross join cannot finish inside the 1s limit; a lighter

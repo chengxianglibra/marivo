@@ -15,7 +15,6 @@ import marivo.semantic as ms
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
-from tests.analysis.temporal.test_calendar_native_keys import _maria
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.shared_fixtures import catalog_get, catalog_value
 from tests.support.source_trace import SourceTrace
@@ -44,7 +43,6 @@ def test_scalar_relationship_prefixes_keep_exact_matches(
     semantic_project_factory: Callable[..., SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    _maria(profile, monkeypatch)
     records: dict[str, tuple[str, list[tuple[object, ...]]]] = {
         "facts": (
             "id BIGINT, tenant BIGINT, buyer BIGINT, seller BIGINT, amount BIGINT",

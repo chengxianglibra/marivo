@@ -2544,6 +2544,8 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
             ``revenue.per(created_at, grain=mv.grain("day")).last()``.
 
         Notes:
+            An explicit Population selects samples matching all shared complete
+            keys of the report and enclosing sample layers.
             Builtin calendar samples use the receiving Session's report timezone
             and the actual contributions. An explicit field selects the sample
             time independently of the contribution's time role.
