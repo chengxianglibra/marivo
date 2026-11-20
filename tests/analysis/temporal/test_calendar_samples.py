@@ -13,6 +13,7 @@ import pytest
 import marivo.analysis as mv
 from marivo._authoring.model import AuthoringCapability
 from marivo._definition.windows import ObservationWindow
+from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.materialization import sample_fusion
 from marivo.analysis.materialization.errors import MaterializationError
@@ -537,6 +538,18 @@ def test_explicit_sample_window_keeps_independent_values_on_report_axis(
     assert counted["positions"].tolist() == [1, 1]
     assert counted["fixed"].tolist() == pytest.approx([1310 / 6, 1310 / 6])
 
+    member_axis = session.time_scope(start="2026-09-28", end="2026-10-12").by(mv.grain("week"))
+    matched = (
+        session.observe(
+            {"positions": time_population(member_axis).count(), "fixed": metric}, by=(sparse_axis,)
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert matched["calendar:week"].tolist() == [pd.Timestamp("2026-10-05", tz="UTC")]
+    assert matched["positions"].tolist() == [1]
+    assert matched["fixed"].tolist() == pytest.approx([1310 / 6])
+
 
 @pytest.mark.parametrize("edition", ["docs", "zh-cn/docs"])
 def test_calendar_window_documentation_examples(calendar_session: Session, edition: str) -> None:
@@ -738,6 +751,106 @@ def test_explicit_calendar_samples_match_compatible_report_day_keys(
     assert rows["calendar:day"].dt.day.tolist() == [5, 6, 8, 11]
     assert rows["v"].iloc[:2].tolist() == [40, 60]
     assert rows["v"].iloc[2:].isna().tolist() == [True, True]
+
+
+def test_population_count_matches_calendar_keys_across_directories(
+    calendar_session: Session,
+) -> None:
+    session = calendar_session
+    day = mv.grain("day")
+    member_axis = session.time_scope(start="2026-10-05", end="2026-10-08").by(day)
+    report_axis = session.time_scope(start="2026-10-07", end="2026-10-10").by(day)
+    count = time_population(member_axis).count()
+
+    explicit = session.observe({"n": count}, by=time_population(report_axis)).compute().to_pandas()
+    assert explicit["calendar:day"].dt.day.tolist() == [7, 8, 9]
+    assert explicit["n"].tolist() == [1, 0, 0]
+
+    observed = session.observe({"n": count}, by=(report_axis,)).compute().to_pandas()
+    assert observed["calendar:day"].dt.day.tolist() == [7]
+    assert observed["n"].tolist() == [1]
+
+
+def test_population_count_uses_only_represented_report_days(calendar_session: Session) -> None:
+    session = calendar_session
+    day = mv.grain("day")
+    dates = time_population(session.time_scope(start="2026-10-05", end="2026-10-08").by(day))
+    removed = time_population(session.time_scope(start="2026-10-05", end="2026-10-06").by(day))
+    report = dates.difference(removed)
+    assert isinstance(report, mv.Population)
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    total = amount.sum(time=point)
+
+    rows = (
+        session.observe({"n": dates.count(), "total": total.where(amount == 20)}, by=report)
+        .compute()
+        .to_pandas()
+    )
+    assert rows["calendar:day"].dt.day.tolist() == [6, 7]
+    assert rows["n"].tolist() == [1, 1]
+    assert rows["total"].tolist() == [20, 0]
+
+    with pytest.raises(MaterializationError) as failure:
+        session.observe(
+            {"n": dates.count(), "total": total.where(amount == 10)}, by=report
+        ).compute()
+    assert failure.value.stage == "population_coverage"
+
+
+def test_population_count_matches_interval_endpoints_across_directories(
+    calendar_session: Session,
+) -> None:
+    session = calendar_session
+    first = time_population(session.time_scope(start="2026-10-05", end="2026-10-07"))
+    later = time_population(session.time_scope(start="2026-10-07", end="2026-10-12"))
+    overlap = time_population(session.time_scope(start="2026-10-07", end="2026-10-13"))
+    both = first.union(later)
+    assert isinstance(both, mv.Population)
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
+    people = mv.coordinates(by=(region,), keys=(("east",), (None,), ("east",)))
+
+    fixed = session.observe(
+        {
+            "same": later.count(),
+            "disjoint": first.count(),
+            "both": both.count(),
+            "overlap": overlap.count(),
+            "removed": both.difference(later).count(),
+            "people": mv.product(both, people).count(),
+            "independent": people.count(),
+        },
+        by=later,
+    ).compute()
+    rows = fixed.to_pandas()
+    assert rows.to_dict("records") == [
+        {
+            "interval.start": pd.Timestamp("2026-10-07", tz="UTC"),
+            "interval.end": pd.Timestamp("2026-10-12", tz="UTC"),
+            "same": 1,
+            "disjoint": 0,
+            "both": 1,
+            "overlap": 0,
+            "removed": 0,
+            "people": 2,
+            "independent": 2,
+        }
+    ]
+    assert fixed.schema.values["both"].dtype == ScalarDataType("int64")
+
+    report = both.difference(first)
+    assert isinstance(report, mv.Population)
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    reversed_directories = (
+        session.observe(
+            {"n": later.count().per(both).sum(), "total": amount.sum(time=point)}, by=report
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert reversed_directories["n"].tolist() == [1]
+    assert reversed_directories["total"].tolist() == [460]
 
 
 @pytest.mark.parametrize("native", (True, False))

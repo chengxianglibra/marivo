@@ -13,7 +13,11 @@ import pyarrow as pa
 from marivo._definition.observations import sample_key_matches
 from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.observation import FormulaProgram
-from marivo.analysis.core.calendar_keys import require_window_endpoints, time_key_series
+from marivo.analysis.core.calendar_keys import (
+    match_time_keys,
+    require_window_endpoints,
+    time_key_series,
+)
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.core.data_validation import distinct_key_rows
 from marivo.analysis.core.unique_keys import UniqueKeys
@@ -117,7 +121,7 @@ def _combine_program(
 
     import ibis
 
-    from marivo._definition.correspondence import coordinate_position
+    from marivo._definition.correspondence import coordinate_matches
     from marivo._definition.expressions import (
         BuiltinSampleCoordinate,
         DeclaredMetricRef,
@@ -285,36 +289,52 @@ def _combine_program(
         )
 
     def count_coordinates(count: MemberInput, members: pd.DataFrame) -> pd.DataFrame:
-        classified = dict(count.axis_mapping)
         mapping: list[tuple[str, str]] = []
         time_domains: list[tuple[str, CalendarCoordinate | IntervalCoordinate]] = []
+        time_matches: list[
+            tuple[
+                str,
+                CalendarCoordinate | IntervalCoordinate,
+                CalendarCoordinate | IntervalCoordinate,
+            ]
+        ] = []
         actual_sample_slots: list[str] = []
         offset = 0
         for axis in program.axes:
             if isinstance(axis, BuiltinSampleCoordinate):
                 actual_sample_slots.append(key_slots[offset])
                 offset += 1
-            elif (
-                isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-                and axis not in classified
-            ):
-                time_domains.append(
-                    (
-                        key_slots[offset],
-                        axis,
-                    )
-                )
+                continue
+            match = next(
+                (
+                    (candidate, group)
+                    for candidate, group in count.axis_mapping
+                    if coordinate_matches(candidate, axis)
+                ),
+                None,
+            )
+            if match is None:
+                assert isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+                time_domains.append((key_slots[offset], axis))
                 offset += 1
-            else:
-                source_keys = count.axis_mapping[coordinate_position(count.population.axes, axis)][
-                    1
-                ]
-                mapping.extend(
-                    zip(source_keys, key_slots[offset : offset + len(source_keys)], strict=True)
-                )
-                offset += len(source_keys)
+                continue
+            member_axis, source_keys = match
+            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+                assert isinstance(member_axis, (CalendarCoordinate, IntervalCoordinate))
+                time_matches.append((key_slots[offset], member_axis, axis))
+            mapping.extend(
+                zip(source_keys, key_slots[offset : offset + len(source_keys)], strict=True)
+            )
+            offset += len(source_keys)
         selected = members.loc[:, [source for source, _ in mapping]].copy()
         selected.columns = [target for _, target in mapping]
+        for slot, member_axis, axis in time_matches:
+            selected[slot] = match_time_keys(selected[slot], member_axis, axis)
+            if axis is program.calendar and isinstance(axis, IntervalCoordinate):
+                # A report can select one interval from a larger captured directory.
+                selected = selected.loc[selected[slot].eq(axis.report_key)]
+            elif member_axis != axis:
+                selected = selected.dropna(subset=[slot])
         if time_domains:
             # Independent counts broadcast only over established complete keys.
             # The calendar directory describes positions, not represented rows.
@@ -326,18 +346,8 @@ def _combine_program(
                 if shared
                 else support.merge(selected, how="cross")
             )
-        offset = 0
-        for axis in program.axes:
-            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
-                slot = key_slots[offset]
+            for slot, axis in time_domains:
                 selected[slot] = selected[slot].astype(time_key_series(axis).dtype)
-                offset += 1
-            elif isinstance(axis, BuiltinSampleCoordinate):
-                offset += 1
-            else:
-                offset += len(
-                    count.axis_mapping[coordinate_position(count.population.axes, axis)][1]
-                )
         if actual_sample_slots:
             ordinary_slots = [slot for slot in keys if slot not in actual_sample_slots]
             actual = domain.loc[:, keys]
@@ -349,11 +359,15 @@ def _combine_program(
         return selected
 
     count_data = {}
+    # Only an inferred report domain can gain keys from member counts.
+    count_provides_domain = (
+        bool(keys) and forced_domain is None and program.output_population is None
+    )
     for count in program.counts:
         member_data = population_domain(count.population, count.keys)
         count_data[count.definition] = (count, member_data)
-        member_coordinates = count_coordinates(count, member_data)
-        if keys and forced_domain is None:
+        if count_provides_domain:
+            member_coordinates = count_coordinates(count, member_data)
             member_coordinates = distinct_key_rows(member_coordinates.loc[:, keys], key_slots)
             if not member_coordinates.empty:
                 if domain.empty:

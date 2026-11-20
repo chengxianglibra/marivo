@@ -54,7 +54,7 @@ from marivo.analysis.compiler.graph_plan import (
     read_reduction,
 )
 from marivo.analysis.compiler.observation import reduction_input
-from marivo.analysis.core.calendar_keys import time_key_type
+from marivo.analysis.core.calendar_keys import match_time_keys, time_key_type
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn
 from marivo.analysis.core.data_validation import distinct_key_rows
@@ -389,20 +389,27 @@ def _domains(
                         outer = _required_report_domain(outer_keys, inputs)
                         count_domains = []
                         for count in program.counts:
-                            groups = [
-                                group
+                            matches = [
+                                (axis, candidate, group)
                                 for axis in program.graph.signature.axes
                                 for candidate, group in count.axis_mapping
                                 if coordinate_matches(axis, candidate)
                             ]
-                            if len(groups) != len(program.graph.signature.axes):
+                            if len(matches) != len(program.graph.signature.axes):
                                 continue
+                            member_axis = next(
+                                candidate for axis, candidate, _ in matches if axis is report_axis
+                            )
+                            assert isinstance(member_axis, (CalendarCoordinate, IntervalCoordinate))
                             members = _population_domain(count.population, count.keys, populations)
                             count_keys = members.loc[
-                                :, [key for group in groups for key in group]
+                                :, [key for _, _, group in matches for key in group]
                             ].copy()
                             count_keys.columns = list(outer_keys)
-                            count_domains.append(count_keys)
+                            count_keys[report_key] = match_time_keys(
+                                count_keys[report_key], member_axis, report_axis
+                            )
+                            count_domains.append(count_keys.dropna(subset=[report_key]))
                         if count_domains:
                             represented = [
                                 part for part in (outer, *count_domains) if not part.empty

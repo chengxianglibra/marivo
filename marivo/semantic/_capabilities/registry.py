@@ -2571,7 +2571,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 _parameter_input("dependency", "InstantAnchor", "anchor"),
             ),
             preconditions=("The consuming operation must read the target version row.",),
-            example="order_customer.at(session.instant('2026-01-01'))",
+            example="relationship.at(session.instant('2026-01-01'))",
             public_entrypoint="relationship.at",
             see_also=(
                 LiveHelpTarget(surface="analysis", canonical_id="path.define"),
@@ -3217,19 +3217,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 mutations=("project_state",),
                 flags=("may_call_model", "may_write_search_cache"),
             ),
-            example=(
-                "print(catalog.search())  # All loaded kinds, first page\n"
-                "print(catalog.search(kind='entity', domain='sales'))  # Datasource bindings\n"
-                "print(catalog.search(kind='dimension', entity='sales.orders'))\n"
-                "page = catalog.search(kind='metric', limit=100)\n"
-                "while True:\n"
-                "    for metric in page.items:\n"
-                "        print(metric.id, metric.name)\n"
-                "    if page.next_cursor is None:\n"
-                "        break\n"
-                "    page = catalog.search(kind='metric', limit=100, cursor=page.next_cursor)\n"
-                "print(catalog.search('accepted revenue', kind='metric', limit=5))"
-            ),
+            example="page = catalog.search(kind='metric')\nprint(page)",
             public_entrypoint="catalog.search",
         ),
     )

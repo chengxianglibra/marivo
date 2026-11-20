@@ -17,10 +17,17 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.environment import clickhouse_analysis as ch
-from tests.datasource.source_cases import Case, SourceData, source_case, source_params
+from tests.datasource.source_cases import (
+    MYSQL_RUNTIME_PROFILES,
+    Case,
+    SourceData,
+    source_case,
+    source_params,
+)
 from tests.shared_fixtures import catalog_value, datasource_arguments_source, time_population
 
 
@@ -368,6 +375,91 @@ def test_public_native_numeric_query(
         if backend == "duckdb":
             assert returned.iloc[0] == 9007199254740993
             assert pd.api.types.is_integer_dtype(returned.dtype)
+
+
+@pytest.mark.parametrize("profile", MYSQL_RUNTIME_PROFILES)
+@pytest.mark.parametrize("sampled", (False, True), ids=("source", "sample"))
+def test_mysql_family_integer_sum_keeps_bound_transport(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    profile: str,
+    sampled: bool,
+) -> None:
+    from dataclasses import replace
+
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.errors import DatasourceSourceCapabilityError
+
+    minimum, maximum = -(2**63), 2**63 - 1
+    rows = (
+        ("a", "zero", 0),
+        ("a", "mixed", 10),
+        ("b", "mixed", None),
+        ("c", "mixed", 30),
+        ("a", "min", minimum),
+        ("a", "max", maximum),
+        ("a", "under", minimum),
+        ("b", "under", -1),
+        ("a", "over", maximum),
+        ("b", "over", 1),
+    )
+    values = ",".join(
+        f"({identity},'{tenant}','{category}',NULL,{big if big is not None else 'NULL'},1,DATE '2026-07-01')"
+        for identity, (tenant, category, big) in enumerate(rows, start=5)
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(
+        "mysql", profile, tmp_path, monkeypatch, replace(DATA, values=f"{DATA.values},{values}")
+    ) as case:
+        _project("mysql", case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("mysql_integer_sum", timezone="UTC")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+        big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        integer_sum = big.sum().per(tenant).sum() if sampled else big.sum()
+        decimal_sum = amount.sum().per(tenant).sum() if sampled else amount.sum()
+        actual_types: list[tuple[pa.DataType, pa.DataType]] = []
+        execute = SourceSession.execute
+
+        def capture_types(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+            result = execute(owner, read)
+            actual_types.extend(
+                (field.type, pa.array(result[field.name]).type) for field in read.schema
+            )
+            return result
+
+        monkeypatch.setattr(SourceSession, "execute", capture_types)
+        int64 = pa.int64()
+        for label, expected in (
+            ("zero", 0),
+            ("empty", 0),
+            ("mixed", 40),
+            ("min", minimum),
+            ("max", maximum),
+            (None, None),
+        ):
+            actual_types.clear()
+            predicate = category.isnull() if label is None else category == label
+            result = session.observe({"total": integer_sum}, where=predicate).compute()
+            assert actual_types == [(int64, int64)], label
+            assert result.schema.values["total"].dtype == ScalarDataType("int64")
+            value = result.to_pandas()["total"].iloc[0]
+            assert pd.isna(value) if expected is None else value == expected, label
+
+        for label in ("under", "over"):
+            with pytest.raises(DatasourceSourceCapabilityError) as failure:
+                session.observe({"total": integer_sum}, where=category == label).compute()
+            expected_type = failure.value.expected
+            assert expected_type is not None and "int64" in expected_type
+
+        actual_types.clear()
+        decimal = session.observe({"total": decimal_sum}, where=category == "x").compute()
+        decimal_type = pa.decimal128(38, 2)
+        assert actual_types == [(decimal_type, decimal_type)]
+        assert decimal.schema.values["total"].dtype == DecimalDataType(38, 2)
+        assert decimal.to_pandas()["total"].tolist() == [Decimal("4.00")]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))

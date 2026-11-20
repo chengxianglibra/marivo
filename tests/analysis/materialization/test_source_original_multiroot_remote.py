@@ -15,6 +15,7 @@ from sqlglot import expressions as sge
 import marivo.analysis as mv
 from marivo.analysis.compiler.native_formula import align_native_inputs
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -311,15 +312,18 @@ def test_native_recipe_and_formula_checks_survive_empty_parent_selection(
             other = 0 if boundary == "formula_overflow" else 80
             assert sorted(fine.compute().to_pandas()["value"].tolist()) == [expected, other, other]
             assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
+        elif boundary == "formula_overflow" and backend == "mysql":
+            for query in (fine, fine.top(0, by=fine["value"])):
+                with pytest.raises(MaterializationError) as failure:
+                    query.compute()
+                assert failure.value.stage == "numeric_value"
+                received = failure.value.received
+                assert received is not None and "int64" in received and "overflow" in received
         elif boundary == "formula_overflow":
-            if backend == "mysql":
-                assert fine.compute().to_pandas()["value"].max() == 2**63 + 78
-                assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
-            else:
-                with pytest.raises(AnalysisError):
-                    fine.compute()
-                with pytest.raises(AnalysisError):
-                    fine.top(0, by=fine["value"]).compute()
+            with pytest.raises(AnalysisError):
+                fine.compute()
+            with pytest.raises(AnalysisError):
+                fine.top(0, by=fine["value"]).compute()
         else:
             with pytest.raises(AnalysisError):
                 fine.top(0, by=fine["value"]).compute()

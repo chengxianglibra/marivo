@@ -22,6 +22,7 @@ from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod, FrameSh
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
+from marivo.semantic._capabilities.validation import validate_semantic_live_surface
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory, catalog_value, frozen_coordinates
 from tests.support.paths import PROJECT_ROOT
@@ -92,6 +93,10 @@ def test_native_help_examples_use_valid_public_call_shapes() -> None:
             _check_public_calls(
                 analysis_descriptor.example.code, f"analysis.{analysis_descriptor.canonical_id}"
             )
+
+
+def test_semantic_live_surface_matches_registered_contracts() -> None:
+    validate_semantic_live_surface()
 
 
 def test_raw_sql_help_example_runs_on_builtin_datasource(

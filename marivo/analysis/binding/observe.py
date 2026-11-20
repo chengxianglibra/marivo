@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Literal
 
-from marivo._definition.correspondence import coordinate_matches
+from marivo._definition.correspondence import coordinate_matches, interval_key_pairs
 from marivo._definition.expressions import (
     BuiltinSampleCoordinate,
     ContributionFilter,
@@ -102,7 +102,13 @@ def _shared_sample_axes(
 ) -> SampleAxisMatches:
     parents_with_layers = tuple((axis, layer) for layer in parents for axis in layer.axes)
     return tuple(
-        SampleAxisMatch(outer, inner, _sample_interval_keys(parent, sample))
+        SampleAxisMatch(
+            outer,
+            inner,
+            interval_key_pairs(parent, sample)
+            if isinstance(parent, IntervalCoordinate) and isinstance(sample, IntervalCoordinate)
+            else None,
+        )
         for outer, (parent, parent_layer) in enumerate(parents_with_layers)
         for inner, sample in enumerate(sample_layer.axes, start=len(parents_with_layers))
         if _sample_axis_matches(parent, sample, parent_layer, sample_layer)
@@ -121,23 +127,6 @@ def _sample_axis_matches(
             and _membership_roles(parent_layer, parent) == _membership_roles(sample_layer, sample)
         )
     return coordinate_matches(parent, sample)
-
-
-def _sample_interval_keys(
-    parent: SampleAxis, sample: SampleAxis
-) -> tuple[tuple[int, int], ...] | None:
-    if (
-        isinstance(parent, IntervalCoordinate)
-        and isinstance(sample, IntervalCoordinate)
-        and parent.bounds != sample.bounds
-    ):
-        outer_ordinals = {bounds: ordinal for ordinal, bounds in enumerate(parent.bounds)}
-        return tuple(
-            (outer_ordinals[bounds], inner)
-            for inner, bounds in enumerate(sample.bounds)
-            if bounds in outer_ordinals
-        )
-    return None
 
 
 def _selected_interval_ordinals(population: PopulationDependency | None) -> tuple[int, ...] | None:
