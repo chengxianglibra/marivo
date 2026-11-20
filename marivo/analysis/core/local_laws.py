@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from marivo._definition.query import FilterValues
+from marivo._definition.query import (
+    CoordinateSlot,
+    FilterValues,
+    ValueBinary,
+    ValueExpression,
+    ValueLiteral,
+    ValueSlot,
+)
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
 
 
@@ -24,54 +31,55 @@ def query_selection_fusion_issue(
     conjunction. Arithmetic, presence selection and independent domains remain
     outside this bounded law.
     """
-    from marivo._definition.query import (
-        CoordinateSlot,
-        ValueBinary,
-        ValueExpression,
-        ValueLiteral,
-        ValueSlot,
-    )
-
     if not single_consumer:
         return "one consumer of the intermediate selection", "multiple consumers"
     if original_boundary:
         return "an unchanged original fine-grid completion boundary", "original completion"
     if not same_layout:
         return "same-layout comparisons on the same actual input", "different layout"
-    by_slot = {column.slot_id: column for column in columns}
-
-    def operand(expression: ValueExpression) -> bool:
-        if isinstance(expression, ValueLiteral):
-            return type(expression.value) is int and -(2**63) <= expression.value < 2**63
-        if isinstance(expression, ValueSlot):
-            return 0 <= expression.index < len(value_columns) and value_columns[
-                expression.index
-            ].dtype in (ScalarDataType("int64"), DecimalDataType(38, 0))
-        if isinstance(expression, CoordinateSlot):
-            return (
-                0 <= expression.index < len(key_groups)
-                and all(
-                    by_slot[slot].dtype == ScalarDataType("int64")
-                    for slot in key_groups[expression.index]
-                )
-                and len(key_groups[expression.index]) == 1
-            )
-        return False
-
-    def predicate(expression: object) -> bool:
-        if not isinstance(expression, ValueBinary):
-            return False
-        if expression.operation in ("and", "or"):
-            return predicate(expression.left) and predicate(expression.right)
-        return (
-            expression.operation in ("eq", "ne", "lt", "le", "gt", "ge")
-            and operand(expression.left)
-            and operand(expression.right)
-        )
-
-    if not predicate(first.predicate) or not predicate(second.predicate):
+    if any(
+        selection_predicate_columns(item.predicate, value_columns, columns, key_groups) is None
+        for item in (first, second)
+    ):
         return (
             "closed int64 or Decimal(38,0) comparisons with the same drop-NA mask policy",
             "unqualified predicate or numeric operation",
         )
     return None
+
+
+def selection_predicate_columns(
+    expression: ValueExpression,
+    value_columns: tuple[DataColumn, ...],
+    columns: tuple[DataColumn, ...],
+    key_groups: tuple[tuple[str, ...], ...],
+) -> frozenset[str] | None:
+    """Return the columns of a total row-local comparison predicate, if admitted."""
+    by_slot = {column.slot_id: column for column in columns}
+
+    def operand(expression: ValueExpression) -> frozenset[str] | None:
+        if isinstance(expression, ValueLiteral):
+            if type(expression.value) is int and -(2**63) <= expression.value < 2**63:
+                return frozenset()
+        elif isinstance(expression, ValueSlot) and 0 <= expression.index < len(value_columns):
+            column = value_columns[expression.index]
+            if column.dtype in (ScalarDataType("int64"), DecimalDataType(38, 0)):
+                return frozenset((column.slot_id,))
+        elif isinstance(expression, CoordinateSlot) and 0 <= expression.index < len(key_groups):
+            group = key_groups[expression.index]
+            if len(group) == 1 and by_slot[group[0]].dtype == ScalarDataType("int64"):
+                return frozenset(group)
+        return None
+
+    def predicate(expression: ValueExpression) -> frozenset[str] | None:
+        if not isinstance(expression, ValueBinary):
+            return None
+        if expression.operation in ("and", "or"):
+            left, right = predicate(expression.left), predicate(expression.right)
+        elif expression.operation in ("eq", "ne", "lt", "le", "gt", "ge"):
+            left, right = operand(expression.left), operand(expression.right)
+        else:
+            return None
+        return None if left is None or right is None else left | right
+
+    return predicate(expression)

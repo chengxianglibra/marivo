@@ -13,6 +13,8 @@ from marivo._definition.query import (
     ReduceValues,
     SelectValues,
     TopValues,
+    ValueBinary,
+    ValueExpression,
     ValuePartition,
     ValueSlot,
 )
@@ -53,9 +55,46 @@ def _pair_values(
     )
 
 
-def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
+def evaluate_frame(
+    program: FrameProgram,
+    inputs: tuple[pd.DataFrame, ...],
+    *,
+    second_filter_columns: tuple[str, ...] | None = None,
+) -> pd.DataFrame:
     """Evaluate a Frame operation with a fresh current-input memo."""
-    return _evaluate_frame(program, inputs[0].reset_index(drop=True), FrameEvaluation())
+    source = inputs[0].reset_index(drop=True)
+    evaluation = FrameEvaluation()
+    if second_filter_columns is not None:
+        operation = program.operation
+        assert isinstance(operation, FilterValues)
+        predicate = operation.predicate
+        assert isinstance(predicate, ValueBinary) and predicate.operation == "and"
+        first = _true_mask(predicate.left, source, program, evaluation).to_numpy(dtype=bool)
+        if first.all():
+            mask = _true_mask(predicate.right, source, program, evaluation)
+            return source.loc[mask].reset_index(drop=True).copy()
+        positions = np.flatnonzero(first)
+        if not positions.size:
+            return source.iloc[:0].copy()
+        # The qualified second predicate only needs its own columns from
+        # surviving rows. Materialize the complete Frame once, at the end.
+        operands = source.loc[:, list(second_filter_columns)].take(positions)
+        second = _true_mask(predicate.right, operands, program, evaluation).to_numpy(dtype=bool)
+        return source.take(positions[second]).reset_index(drop=True).copy()
+    return _evaluate_frame(program, source, evaluation)
+
+
+def _true_mask(
+    predicate: ValueExpression,
+    source: pd.DataFrame,
+    program: FrameProgram,
+    evaluation: FrameEvaluation,
+) -> pd.Series:
+    return (
+        expression_series(predicate, source, program, evaluation=evaluation)
+        .astype("boolean")
+        .fillna(False)
+    )
 
 
 def _group_index(source: pd.DataFrame, columns: tuple[DataColumn, ...]) -> FrameGroupIndex:
@@ -113,11 +152,7 @@ def _evaluate_frame(
     if isinstance(operation, FilterValues):
         from marivo.analysis.core.frame_expression import expressions
 
-        mask = (
-            expression_series(expressions(operation)[0], source, program, evaluation=evaluation)
-            .astype("boolean")
-            .fillna(False)
-        )
+        mask = _true_mask(expressions(operation)[0], source, program, evaluation)
         return source.loc[mask].reset_index(drop=True).copy()
     if isinstance(operation, TopValues):
         score = expression_series(operation.score, source, program, evaluation=evaluation)

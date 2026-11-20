@@ -2297,6 +2297,7 @@ def execute_numeric_query(
     retain_inputs: dict[str, StageOutput] | None = None,
 ) -> StageOutput:
     """Execute the fixed numeric schedule and return invocation-local pandas data."""
+    from marivo.analysis.compiler.frame_filter_fusion import frame_filter_steps
     from marivo.analysis.core.model import reject
     from marivo.analysis.materialization.graph_execution import run_query_plan
     from marivo.analysis.materialization.graph_local_execution import run_local
@@ -2486,9 +2487,14 @@ def execute_numeric_query(
         return StageOutput.from_completed(data)
 
     def frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
-        output = run_local(stage, inputs)
-        if observe_frame is not None:
-            observe_frame(stage, output)
+        steps = (
+            frame_filter_steps(stage, inputs[0].frame_schema) if stage.filter_fusion else (stage,)
+        )
+        for step in steps:
+            output = run_local(step, inputs)
+            if observe_frame is not None:
+                observe_frame(step, output)
+            inputs = (output,)
         return output
 
     def finish(stage: QueryStage, output: StageOutput) -> StageOutput:

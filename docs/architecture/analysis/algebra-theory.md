@@ -663,7 +663,7 @@ r 是 `K′⊆K` 的包含映射时，得到“求值后限制”与“在 `a^{-
 
 | 本文内容 | 当前规则与状态 | 实现入口及边界 |
 | --- | --- | --- |
-| L1 固定载体选择 | 编译器 L1，受限实现 | [query_selection_fusion_issue](../../../marivo/analysis/core/local_laws.py) 检查同实际输入、同布局、单消费者、无待完成检查的闭合 int64 或 Decimal(38,0) 比较；nullable 谓词只保留 True。通过后由 [optimization.py](../../../marivo/analysis/compiler/optimization.py) 合并过滤 |
+| L1 固定载体选择 | 相邻过滤融合 | 公开 Frame 计划可合并调度顺序上相邻的一对过滤。中间结果须只有一个消费者，并且无需发布、保留为来源输入或采集键检查点。两步的布局、列绑定和最终坐标事实须一致。谓词支持 int64 和 Decimal(38,0) 值列、单分量 int64 坐标及可表示为 int64 的整数字面量之间的比较，允许用 AND、OR 组合。执行器复核实际输入模式，符合条件时仅对第一步保留的行计算第二个谓词，再一次取出完整结果行。模式不符时按原两步执行。内部 ResultProgram 的 L1 仍有独立的资格检查。[Frame 计划](../../../marivo/analysis/compiler/frame_filter_fusion.py) · [谓词资格](../../../marivo/analysis/core/local_laws.py) · [公开执行对照](../../../tests/analysis/materialization/test_query_optimization.py) |
 | L4 上下文变换与取值的合成 | 未实现通用映射复合改写 | 无 compose_mapping 入口；普通算子组合不等于编译器已消除中间映射 |
 | L6 摘要分区与上卷 | 按 Frame 的归约顺序执行 | 相邻归约各自完成。归并已经完成的值需要证明中间有效性、数值边界和必要检查均得以保留。[Frame 归约](../../../marivo/analysis/methods/frame_values.py) |
 | L7 拉回与限制 | 未实现通用限制改写 | 无 restrict_state 入口；当前行筛选不等于按完整原像限制来源状态 |

@@ -393,6 +393,14 @@ class FrameInput:
 
 
 @dataclass(frozen=True, slots=True)
+class FrameFilterFusion:
+    """Columns needed by the second mask and original steps for carrier changes."""
+
+    second_columns: tuple[str, ...]
+    fallback: tuple[FrameCompute, FrameCompute]
+
+
+@dataclass(frozen=True, slots=True)
 class FrameCompute:
     """A closed Frame program, independent from semantic Query kernels."""
 
@@ -410,6 +418,7 @@ class FrameCompute:
     )
 
     unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+    filter_fusion: FrameFilterFusion | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
