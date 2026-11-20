@@ -78,8 +78,9 @@ The selected west region stays fixed even if a later source read changes values.
 The bridge projects complete ordinary joint keys and declares the target field;
 it does not recover nominal identity from a label. by supplies complete output
 keys and must cover every necessary complete output key, while where explicitly
-restricts contributions. Internal per(P) may select a subset; empty samples
-still retain external output coordinates. New source values can differ
+restricts contributions. Internal per(P) selects sample tuples that match every
+shared complete coordinate. External output coordinates survive an empty fold.
+New source values can differ
 from those used to select parents. A pending selection would rerun before its
 keys were consumed; retain the returned completed Frame when prior keys matter.
 

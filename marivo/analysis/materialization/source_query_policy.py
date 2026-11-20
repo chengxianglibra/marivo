@@ -6,7 +6,6 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import EntityCount, SourceAggregate, SourceWeightedMean
-from marivo._definition.query import PairStatistic, ReduceValues
 from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.graph_plan import SourceReadStage, read_reduction, require_reduction
 from marivo.analysis.compiler.query_program import ResultProgram
@@ -145,20 +144,4 @@ def qualify_query_top(owner: SourceSession, program: ResultProgram, score: ir.Va
         or (owner.provider.name in ("trino", "clickhouse") and score.type().is_numeric())
     ):
         return "remote Top retains its established pandas score method"
-    return None
-
-
-def qualify_query_reduce(owner: SourceSession, program: ResultProgram) -> str | None:
-    """Push qualified cell counts and native sums with their independent NA masks."""
-    if not qualified_query_provider(owner):
-        return "this provider has no qualified cell reduction route"
-    if not isinstance(program.operation, ReduceValues) or any(
-        isinstance(statistic, PairStatistic)
-        or (
-            statistic.method != "row_count"
-            and not (owner.provider.name in ("trino", "clickhouse") and statistic.method == "sum")
-        )
-        for _, statistic in program.operation.values
-    ):
-        return "remote cell statistics retain their existing local numeric method"
     return None

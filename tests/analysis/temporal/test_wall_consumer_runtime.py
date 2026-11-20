@@ -1,6 +1,5 @@
 """Public temporal consumers on ready native services at the repaired seams."""
 
-import os
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
@@ -162,12 +161,6 @@ def test_clickhouse_hour_sampling_uses_non_utc_server_timezone(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    port = os.environ.get("MARIVO_CLICKHOUSE_NON_UTC_TEST_PORT")
-    if port is None:
-        pytest.skip(
-            "Explicit Asia/Shanghai ClickHouse server required: MARIVO_CLICKHOUSE_NON_UTC_TEST_PORT"
-        )
-    monkeypatch.setenv("MARIVO_CLICKHOUSE_TEST_PORT", port)
     data = SourceData(
         "",
         "",
@@ -190,14 +183,17 @@ def test_clickhouse_hour_sampling_uses_non_utc_server_timezone(
         # No session timezone setting or per-user timezone override is applied.
         # The server's own Date + hour conversion supplies the independent oracle.
         oracle_sql = (
-            "SELECT point, sum(amount) AS sample FROM (SELECT "
+            "SELECT toUnixTimestamp(point), sum(amount) AS sample FROM (SELECT "
             "toTimeZone(toDateTime(day) + toIntervalHour(hour), 'UTC') AS point, amount "
             f"FROM qualification.{case.source.table}) WHERE "
             "point >= toDateTime('2026-04-30 16:00:00', 'UTC') AND "
             "point < toDateTime('2026-04-30 18:00:00', 'UTC') GROUP BY point ORDER BY point"
         )
-        oracle = native.query(oracle_sql).result_rows
-        assert [(pd.Timestamp(point).tz_convert("UTC"), value) for point, value in oracle] == [
+        oracle = [
+            (pd.Timestamp(epoch, unit="s", tz="UTC"), value)
+            for epoch, value in native.query(oracle_sql).result_rows
+        ]
+        assert oracle == [
             (pd.Timestamp("2026-04-30T16:00:00Z"), 10),
             (pd.Timestamp("2026-04-30T17:00:00Z"), 20),
         ]

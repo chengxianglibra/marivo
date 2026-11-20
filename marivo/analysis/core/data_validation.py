@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -202,22 +204,43 @@ def normalize_stage_frame(
 
 def _validate_stage_keys(result: pd.DataFrame, keys: tuple[str, ...]) -> None:
     """Scan complete typed keys when no producer or prior check proves uniqueness."""
-    arrays = tuple(pa.array(result[key], from_pandas=True) for key in keys)
     seen: set[tuple[pa.Scalar | None, ...]] = set()
-    for cells in zip(*arrays, strict=True):
-        # Arrow preserves valid minimum temporal ticks separately from null.
-        # Keep pandas' repeated-NaN identity without conflating Arrow nulls.
-        key = tuple(
-            None
-            if pa.types.is_floating(cell.type) and cell.is_valid and pc.is_nan(cell).as_py()
-            else cell
-            for cell in cells
-        )
+    for key in _stage_key_tokens(result, keys):
         if key in seen:
             raise _stage_error(
                 f"a complete unique stage key {keys!r}", "null or duplicate key values"
             )
         seen.add(key)
+
+
+def _stage_key_tokens(
+    rows: pd.DataFrame, keys: tuple[str, ...]
+) -> Iterator[tuple[pa.Scalar | None, ...]]:
+    arrays = tuple(pa.array(rows[key], from_pandas=True) for key in keys)
+    for cells in zip(*arrays, strict=True):
+        # Arrow preserves valid minimum temporal ticks separately from null.
+        # Keep pandas' repeated-NaN identity without conflating Arrow nulls.
+        yield tuple(
+            None
+            if pa.types.is_floating(cell.type) and cell.is_valid and pc.is_nan(cell).as_py()
+            else cell
+            for cell in cells
+        )
+
+
+def distinct_key_rows(rows: pd.DataFrame, keys: tuple[str, ...]) -> pd.DataFrame:
+    """Keep the first row of each exact key, preserving its physical carriers."""
+    if not keys:
+        return rows.iloc[:1].reset_index(drop=True)
+    if len(rows) < 2:
+        return rows.reset_index(drop=True)
+    # pandas can coerce nullable Arrow integer keys to float64 to deduplicate.
+    kept: dict[tuple[pa.Scalar | None, ...], int] = {}
+    for index, key in enumerate(_stage_key_tokens(rows, keys)):
+        kept.setdefault(key, index)
+    if len(kept) == len(rows):
+        return rows.reset_index(drop=True)
+    return rows.iloc[pd.Index(kept.values())].reset_index(drop=True)
 
 
 def normalize_complete_frame(

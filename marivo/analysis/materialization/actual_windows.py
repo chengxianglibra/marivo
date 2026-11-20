@@ -61,10 +61,14 @@ def prepare_actual_window_plan(
             metric=f"candidate_{index}",
             coordinates=item.coordinates[: item.output_axis_count],
             calendars=tuple(
-                (slot, calendar) for slot, calendar in item.calendars if calendar == axis
+                (slot, calendar)
+                for slot, calendar in item.calendars
+                if calendar == axis and slot not in item.sample_time_slots
             ),
             sample_axes=(),
             sample_calendar_reads=(),
+            sample_time_slots=(),
+            sample_interval_ranges=(),
             memberships=observation.coordinates.memberships,
             window_rule=None,
         )

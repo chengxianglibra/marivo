@@ -97,6 +97,24 @@ def _require_decimal_transport(frame: pd.DataFrame, schema: pa.Schema) -> None:
             )
 
 
+def _mysql_bound_integer(values: pd.Series, field: pa.Field) -> pa.Array:
+    """Convert a native MySQL Decimal result to its compiled integer carrier."""
+    try:
+        return pa.array(values, from_pandas=True).cast(field.type, safe=True)
+    except (pa.ArrowException, OverflowError):
+        raise DatasourceSourceCapabilityError(
+            message="MySQL Decimal result cannot be converted to the bound integer type.",
+            expected=f"{field.name}: exact {field.type} values",
+            received="a native Decimal result outside the bound integer range or with a fractional part",
+            location="datasource adapter",
+            repair=repair(
+                kind="inspect",
+                canonical_id="inspect",
+                action="Keep the result within the bound integer range or explicitly declare a Decimal expression in the Entity when a wider or fractional carrier is intended.",
+            ),
+        ) from None
+
+
 def provider_for(backend: str) -> EngineProfile:
     """Select one backend without loading any driver or opening a connection."""
     return require_profile_for_backend_type(backend)
@@ -739,9 +757,8 @@ class SourceSession:
                                 native_decimal = any(isinstance(value, Decimal) for value in values)
                                 if pa.types.is_boolean(field.type):
                                     array = pa.array(values, from_pandas=True).cast(pa.bool_())
-                                    result[field.name] = pd.Series(
-                                        pd.arrays.ArrowExtensionArray(array)
-                                    )
+                                elif native_decimal and pa.types.is_integer(field.type):
+                                    array = _mysql_bound_integer(values, field)
                                 elif (
                                     pa.types.is_integer(field.type)
                                     or pa.types.is_decimal(field.type)
@@ -758,9 +775,9 @@ class SourceSession:
                                         type=arrow_type,
                                         from_pandas=not pa.types.is_floating(field.type),
                                     )
-                                    result[field.name] = pd.Series(
-                                        pd.arrays.ArrowExtensionArray(array)
-                                    )
+                                else:
+                                    continue
+                                result[field.name] = pd.Series(pd.arrays.ArrowExtensionArray(array))
                         elif self.provider.name == "clickhouse" and all(
                             requirement.method_id == "query.source_read"
                             and requirement.version == 1
@@ -845,7 +862,11 @@ class SourceSession:
         except BaseException as error:
             submission.state = "failed"
             query.error = error
-            if isinstance(error, Exception) and cr.injected_values(self._backend):
+            if (
+                isinstance(error, Exception)
+                and not isinstance(error, DatasourceSourceCapabilityError)
+                and cr.injected_values(self._backend)
+            ):
                 raise cr.safe_backend_exception(error, self._backend) from None
             raise
         finally:

@@ -623,13 +623,9 @@ def _sample_domain(
                 received=axis.field.reference.ref.key,
             )
         items.append(
-            AxisBinding(
-                axis.root,
-                axis.field.reference,
-                axis_read.path if axis_read else (),
-                "field",
-                axis_read.at if axis_read else None,
-            )
+            field_axis(axis_read)
+            if axis_read is not None
+            else AxisBinding(axis.root, axis.field.reference, (), "field")
         )
     try:
         axes, memberships = normalize_groupings(

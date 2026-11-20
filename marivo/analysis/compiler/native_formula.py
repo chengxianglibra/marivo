@@ -65,12 +65,9 @@ def align_native_inputs(
     combined = tables[0]
     remaining = tables[1:]
     if alignment == "domain" and keys and remaining:
-        domain = combined.select(*keys)
-        for table in remaining:
-            domain = distinct_returned_keys(
-                domain.union(table.select(*keys), distinct=False), provider
-            )
-        combined, remaining = domain, tables
+        first, *others = (table.select(*keys) for table in tables)
+        domain = first.union(*others, distinct=False)
+        combined, remaining = distinct_returned_keys(domain, provider), tables
     for table in remaining:
         combined, table = combined.view(), table.view()
         joined = combined.join(

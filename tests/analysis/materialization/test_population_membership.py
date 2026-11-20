@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
+from unittest.mock import Mock
 
 import duckdb
 import pandas as pd
@@ -11,7 +12,9 @@ import marivo.analysis as mv
 from marivo._definition.types import CoordinateValue
 from marivo.analysis.dsl.population import population_keys
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import sample_fusion
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.methods import _sample_numeric
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory, catalog_value
@@ -222,6 +225,148 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
     assert session.observe({"v": revenue.per(omitted).mean()}).compute().to_pandas()[
         "v"
     ].tolist() == [40]
+
+
+@pytest.mark.parametrize("native", (True, False))
+def test_explicit_samples_match_shared_nullable_axis_and_preserve_output_coverage(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    native: bool,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
+        connection.execute("INSERT INTO orders VALUES (4,NULL,70),(5,4,NULL)")
+    if not native:
+        monkeypatch.setattr(
+            sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered
+        )
+    reducer = Mock(wraps=_sample_numeric.reduce_samples)
+    monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
+    samples = mv.coordinates(by=(customer,), keys=((1,), (2,), (3,), (4,), (None,)))
+    complete = mv.coordinates(by=(customer,), keys=((1,), (2,), (3,), (4,), (5,), (None,)))
+    frame = session.observe({"average": revenue.per(samples).mean()}, by=complete)
+    rows = frame.compute().to_pandas()
+    customers = rows.iloc[:, 0]
+    assert customers.dropna().tolist() == [1, 2, 3, 4, 5]
+    assert rows.loc[customers.isin([1, 2, 3]), "average"].tolist() == [40, 100, 0]
+    assert rows.loc[customers.isin([4, 5]), "average"].isna().tolist() == [True, True]
+    assert rows.loc[customers.isna(), "average"].tolist() == [70]
+    assert bool(reducer.call_args_list) is not native
+
+    without_null_value = mv.coordinates(by=(customer,), keys=((1,), (2,), (3,), (None,)))
+    strict = revenue.per(without_null_value).mean(nulls="error")
+    rows = session.observe({"average": strict}, by=complete).compute().to_pandas()
+    assert rows.loc[rows.iloc[:, 0] == 4, "average"].isna().tolist() == [True]
+    with pytest.raises(MaterializationError) as strict_error:
+        session.observe(
+            {"average": revenue.per(samples).mean(nulls="error")}, by=complete
+        ).compute()
+    assert strict_error.value.stage == "numeric_value"
+    assert strict_error.value.expected == "non-NA internal samples"
+    subset = mv.coordinates(by=(customer,), keys=((1,),))
+    with pytest.raises(MaterializationError) as error:
+        session.observe({"average": revenue.per(subset).mean()}, by=subset).compute()
+    assert error.value.stage == "population_coverage"
+
+
+@pytest.mark.parametrize("native", (True, False))
+def test_nested_explicit_samples_match_shared_axis_and_keep_full_sample_tuple(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    native: bool,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    if not native:
+        monkeypatch.setattr(
+            sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered
+        )
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
+    order = catalog_value(session.catalog, "sales.orders.id", kind="dimension")
+    customers = mv.coordinates(by=(customer,), keys=((1,), (2,), (3,)))
+    orders = mv.coordinates(by=(order, customer), keys=((1, 1), (2, 1), (3, 2)))
+    per_order = revenue.per(orders).mean()
+    nested = per_order.per(customers).mean()
+    rows = session.observe({"average": per_order}, by=(customer,)).compute().to_pandas()
+    assert rows.iloc[:, 0].tolist() == [1, 2]
+    assert rows["average"].tolist() == [20, 100]
+    # Customers 1 and 2 each supply their order mean; customer 3 has no
+    # compatible sample orders and supplies no value to the outer mean.
+    assert session.observe({"average": nested}).compute().to_pandas()["average"].tolist() == [60]
+    grouped = session.observe({"average": nested}, by=customers).compute().to_pandas()
+    assert grouped.iloc[:, 0].tolist() == [1, 2, 3]
+    assert grouped["average"].iloc[:2].tolist() == [20, 100]
+    assert pd.isna(grouped["average"].iloc[2])
+
+
+def test_explicit_field_samples_keep_identity_role_independent(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    orders = catalog_value(session.catalog, "sales.orders", kind="entity")
+    order_id = catalog_value(session.catalog, "sales.orders.id", kind="dimension")
+    samples = mv.coordinates(by=(order_id,), keys=((1,), (2,), (3,)))
+    rows = (
+        session.observe({"average": revenue.per(samples).mean()}, by=(mv.identity(orders),))
+        .compute()
+        .to_pandas()
+    )
+    assert rows.iloc[:, 0].tolist() == [1, 2, 3]
+    assert rows["average"].tolist() == pytest.approx([10 / 3, 30 / 3, 100 / 3])
+
+
+@pytest.mark.parametrize("native", (True, False))
+def test_explicit_identity_samples_match_every_primary_key_component(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    native: bool,
+) -> None:
+    model = _MODEL.replace('primary_key=["id"])\noid', 'primary_key=["id", "customer"])\noid')
+    session = _session(semantic_project_factory, tmp_path, monkeypatch, model=model)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
+        connection.execute("UPDATE orders SET id=1 WHERE id=3")
+        connection.execute("ALTER TABLE orders ALTER COLUMN id SET NOT NULL")
+        connection.execute("ALTER TABLE orders ALTER COLUMN customer SET NOT NULL")
+    if not native:
+        monkeypatch.setattr(
+            sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered
+        )
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    orders = catalog_value(session.catalog, "sales.orders", kind="entity")
+    axis = mv.identity(orders)
+    complete = mv.coordinates(by=(axis,), keys=(((1, 1),), ((1, 2),), ((1, 3),), ((2, 1),)))
+    samples = mv.coordinates(by=(axis,), keys=(((1, 1),), ((1, 3),), ((2, 1),)))
+    rows = session.observe({"v": revenue.per(samples).mean()}, by=complete).compute().to_pandas()
+    assert rows.iloc[:, 0].tolist() == [
+        (1, 1),
+        (1, 2),
+        (1, 3),
+        (2, 1),
+    ]
+    values = rows["v"].tolist()
+    assert [values[i] for i in (0, 2, 3)] == [10, 0, 30]
+    assert pd.isna(values[1])
+    represented = (
+        session.observe({"v": revenue.per(session.members(orders)).mean()}, by=complete)
+        .compute()
+        .to_pandas()
+    )
+    values = represented["v"].tolist()
+    assert [values[i] for i in (0, 1, 3)] == [10, 100, 30]
+    assert pd.isna(values[2])
+    if not native:
+        members = session.observe({"v": complete.count().per(samples).mean()}, by=complete)
+        values = members.compute().to_pandas()["v"].tolist()
+        assert [values[i] for i in (0, 2, 3)] == [1, 1, 1]
+        assert pd.isna(values[1])
 
 
 def test_membership_deduplicates_root_bucket_and_complete_domain(
@@ -693,7 +838,8 @@ def test_sample_selection_preserves_required_external_coordinates(
     complete = mv.coordinates(by=(customer,), keys=((1,), (2,)))
     result = session.observe({"v": metric}, by=complete).compute().to_pandas()
     assert result.iloc[:, 0].tolist() == [1, 2]
-    if "empty" in sampling:
+    no_compatible_sample = "empty" in sampling or sampling == "nested_missing"
+    if no_compatible_sample:
         assert result["v"].isna().tolist() == [True, True]
     else:
         assert result["v"].tolist() == [0, 0]
@@ -706,7 +852,7 @@ def test_sample_selection_preserves_required_external_coordinates(
     assert "2" in error.value.received
     filtered = session.observe({"v": metric}, by=subset, where=customer == 1).compute().to_pandas()
     assert filtered.iloc[:, 0].tolist() == [1]
-    assert pd.isna(filtered["v"].iloc[0]) if "empty" in sampling else filtered["v"].tolist() == [0]
+    assert pd.isna(filtered["v"].iloc[0]) if no_compatible_sample else filtered["v"].tolist() == [0]
 
 
 def test_empty_output_population_checks_fact_keys_including_zero_axis(

@@ -179,12 +179,13 @@ integer ticks retain their declared unit on admitted file routes. Decimal precis
 interpolation and any native approximation are method contracts, not promises of
 universal rational arithmetic or a global error bound.
 
-MySQL SUM retains its native widened Decimal value instead of a redundant
-same-type result CAST, which can clip an out-of-range SELECT result to an endpoint
-with only a warning. When that sum crosses a source boundary, safe conversion to
-the bound Decimal(38,s) carrier rejects unrepresentable values before publication.
-This adds no source scan, overflow precheck or local retry; native arithmetic
-inside a fused expression still follows the backend's precision and overflow.
+MySQL native execution removes a redundant same-type Decimal cast directly around
+SUM. The widened result can then reach safe conversion to the bound Decimal(38,s)
+carrier. A fused grouped projection can still cast the completed nullable result
+to Decimal(38,s) in SQL. MySQL 8.4 can clip an out-of-range result to the carrier
+endpoint and emit warning 1264 in this projection. Safe transport rejects values
+that arrive out of range. A clipped endpoint arrives already in range. Fused
+arithmetic follows the backend's precision and overflow behavior.
 
 Exact median/quantile uses linear interpolation h=(n-1)q; [0,10] at q=.95 gives
 9.5. Native approximate reductions require an explicit approximate definition,

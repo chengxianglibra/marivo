@@ -118,9 +118,11 @@ def _ordered_keys(
     return tuple(tuple(key[positions[column.slot_id]] for column in columns) for key in keys)
 
 
-def _take(frame: pd.DataFrame, slot: str, indices: list[int | None]) -> pd.Series:
+def _take(frame: pd.DataFrame, slot: str, indices: pa.Int64Array | list[int | None]) -> pd.Series:
     values = pa.array(frame[slot], from_pandas=True)
-    return pd.Series(pd.arrays.ArrowExtensionArray(values.take(pa.array(indices, type=pa.int64()))))
+    if isinstance(indices, list):
+        indices = pa.array(indices, type=pa.int64())
+    return pd.Series(pd.arrays.ArrowExtensionArray(values.take(indices)))
 
 
 def combine_frame_data(
@@ -314,15 +316,14 @@ def combine_frames(
         _ordered_keys(right_known, b, right_columns) if right_known is not None else None,
     )
     keys = left_keys + [key for key in right_keys if key not in left_index]
-    left_rows = [left_index.get(key) for key in keys]
-    right_rows = [right_index.get(key) for key in keys]
+    left_rows = pa.array([left_index.get(key) for key in keys], type=pa.int64())
+    right_rows = pa.array([right_index.get(key) for key in keys], type=pa.int64())
+    left_present, right_present = left_rows.is_valid(), right_rows.is_valid()
     columns: dict[str, pd.Series] = {}
     for target, source, other in zip(output.key_fields, left_columns, right_columns, strict=True):
         left_values = pa.array(_take(left, source.slot_id, left_rows))
         right_values = pa.array(_take(right, other.slot_id, right_rows))
-        values = pc.if_else(
-            pa.array([i is not None for i in left_rows], type=pa.bool_()), left_values, right_values
-        )
+        values = pc.if_else(left_present, left_values, right_values)
         columns[target] = pd.Series(pd.arrays.ArrowExtensionArray(values))
     for i, path in enumerate(output.value_paths):
         side, original = path[0], path[1:]
@@ -331,14 +332,13 @@ def combine_frames(
         schema, frame, indices = (a, left, left_rows) if side == "left" else (b, right, right_rows)
         column = schema.values[schema.value_paths.index(original)]
         columns[output.values[i].slot_id] = _take(frame, column.slot_id, indices)
-    columns[output.presence[0].slot_id] = pd.Series([i is not None for i in left_rows], dtype=bool)
-    columns[output.presence[1].slot_id] = pd.Series([i is not None for i in right_rows], dtype=bool)
+    columns[output.presence[0].slot_id] = pd.Series(left_present, dtype=bool)
+    columns[output.presence[1].slot_id] = pd.Series(right_present, dtype=bool)
     inherited = 2
     for schema, frame, indices in ((a, left, left_rows), (b, right, right_rows)):
         for column in schema.presence:
-            columns[output.presence[inherited].slot_id] = pd.Series(
-                [False if i is None else bool(frame[column.slot_id].iloc[i]) for i in indices],
-                dtype=bool,
+            columns[output.presence[inherited].slot_id] = (
+                _take(frame, column.slot_id, indices).fillna(False).astype(bool)
             )
             inherited += 1
     return pd.DataFrame(
@@ -728,7 +728,7 @@ def compare_frame_data(
         indices.append(baseline_index)
         frames.append(frame)
         key_columns.append(columns)
-    takes = [[index.get(key) for key in all_keys] for index in indices]
+    takes = [pa.array([index.get(key) for key in all_keys], type=pa.int64()) for index in indices]
     result: dict[str, pd.Series] = {}
     for offset, column in enumerate(output.columns[: len(current_columns)]):
         coordinates = pa.array(_take(frames[0], key_columns[0][offset].slot_id, takes[0]))
@@ -752,17 +752,13 @@ def compare_frame_data(
             result[output.values[start + 2 * count + index].slot_id] = relative
     for side, take in enumerate(takes):
         result[output.presence[side].slot_id] = pd.Series(
-            [index is not None for index in take], dtype="bool[pyarrow]"
+            pd.arrays.ArrowExtensionArray(take.is_valid())
         )
     offset = len(takes)
     for schema, frame, take in zip(program.input_schemas, frames, takes, strict=True):
         for column in schema.presence:
-            result[output.presence[offset].slot_id] = pd.Series(
-                [
-                    False if index is None else bool(frame[column.slot_id].iloc[index])
-                    for index in take
-                ],
-                dtype="bool[pyarrow]",
+            result[output.presence[offset].slot_id] = _take(frame, column.slot_id, take).fillna(
+                False
             )
             offset += 1
     resolved, carried = _resolve_comparison_facts(program, attachments, tuple(output_attachments))

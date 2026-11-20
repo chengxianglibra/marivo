@@ -6,12 +6,17 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import pandas as pd
+import pyarrow as pa
 
+from marivo._definition.correspondence import interval_key_pairs
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 from marivo.analysis.core.data_types import ScalarDataType, TimestampDataType
 
 if TYPE_CHECKING:
     from marivo._definition.observations import ContributionBinding
+
+_CALENDAR_DTYPE = pd.ArrowDtype(pa.timestamp("us", tz="UTC"))
+_INTERVAL_DTYPE = pd.ArrowDtype(pa.int64())
 
 
 def window_endpoint_keys(
@@ -70,7 +75,23 @@ def time_key_series(axis: CalendarCoordinate | IntervalCoordinate) -> pd.Series:
     """Construct exact Arrow-backed directory keys, including an empty selection."""
     return pd.Series(
         time_keys(axis),
-        dtype="timestamp[us, tz=UTC][pyarrow]"
-        if isinstance(axis, CalendarCoordinate)
-        else "int64[pyarrow]",
+        dtype=_CALENDAR_DTYPE if isinstance(axis, CalendarCoordinate) else _INTERVAL_DTYPE,
     )
+
+
+def match_time_keys(
+    values: pd.Series,
+    source: CalendarCoordinate | IntervalCoordinate,
+    target: CalendarCoordinate | IntervalCoordinate,
+) -> pd.Series:
+    """Translate represented keys between compatible axes, marking unmatched rows as NA."""
+    if isinstance(target, IntervalCoordinate):
+        assert isinstance(source, IntervalCoordinate)
+        pairs = interval_key_pairs(target, source)
+        if pairs is not None:
+            ordinals = pd.Series({old: new for new, old in pairs}, dtype=_INTERVAL_DTYPE)
+            values = values.map(ordinals)
+        return values.astype(_INTERVAL_DTYPE)
+    assert isinstance(source, CalendarCoordinate)
+    keys = values.astype(_CALENDAR_DTYPE)
+    return keys if source.cells == target.cells else keys.where(keys.isin(time_keys(target)))

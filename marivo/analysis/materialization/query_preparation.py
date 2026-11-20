@@ -6,6 +6,7 @@ import operator
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
+from itertools import pairwise
 
 import ibis
 import ibis.expr.operations as ops
@@ -19,7 +20,12 @@ from marivo._definition.expressions import (
     RowExpression,
     RowField,
 )
-from marivo._definition.observations import CalendarGrouping, ObservationPeriod, SampleAxis
+from marivo._definition.observations import (
+    CalendarGrouping,
+    ObservationPeriod,
+    SampleAxis,
+    SampleIntervalRanges,
+)
 from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import (
     AttributeTime,
@@ -150,6 +156,8 @@ class SourceInputContract:
     time_authorities: tuple[SourceTimeAuthority, ...]
     sample_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
     window_coordinates: tuple[tuple[str, int | datetime], ...] = ()
+    sample_time_slots: tuple[str, ...] = ()
+    sample_interval_ranges: tuple[tuple[str, SampleIntervalRanges], ...] = ()
 
     @classmethod
     def capture(
@@ -186,6 +194,8 @@ class SourceInputContract:
             (),
             sample_calendar_reads=contribution.sample_calendar_reads,
             window_coordinates=contribution.window_coordinates,
+            sample_time_slots=contribution.sample_time_slots,
+            sample_interval_ranges=contribution.sample_interval_ranges,
         )
 
 
@@ -402,12 +412,17 @@ def prepare_fields(
 
     table = entities[contribution.root.ref.path].view() if root_table is None else root_table
     reserved.update(table.columns)
+    fixed_time_slots = dict(contribution.window_coordinates)
+    # Internal time selection qualifies sample rows without removing parent keys.
+    sample_time_slots = set(contribution.sample_time_slots) - fixed_time_slots.keys()
+    sample_intervals = dict(contribution.sample_interval_ranges)
     # Calendar membership is independent of the enclosing source read period.
     # Window bindings own their contribution period instead of the output cells.
     selected_calendars = tuple(
         calendar
         for key, calendar in contribution.calendars
-        if key not in dict(contribution.window_coordinates)
+        if key not in fixed_time_slots
+        and key not in sample_time_slots
         and not isinstance(calendar, BuiltinSampleCoordinate)
         and not (isinstance(calendar, CalendarCoordinate) and calendar.actual_only)
         and (contribution.window_key is None or calendar in contribution.sample_axes)
@@ -598,7 +613,8 @@ def prepare_fields(
             strict=True,
         )
     )
-    pending_calendars: list[tuple[str, str, CalendarCoordinate]] = []
+    pending_calendars: list[tuple[str, str, str, CalendarCoordinate]] = []
+    pending_intervals: list[tuple[str, tuple[tuple[int, str], ...], bool]] = []
     day_clocks: dict[str, tuple[ir.Value, TargetDimensionContract, SourceTimeAuthority]] = {}
     predicate_time_axes = membership_time_axes(contribution)
     for index, (read, component, read_key) in enumerate(parts):
@@ -646,15 +662,15 @@ def prepare_fields(
                     if isinstance(calendar, BuiltinSampleCoordinate):
                         continue
                     name = unique("__bucket_" + key.replace(".", "_"))
-                    if key in dict(contribution.window_coordinates):
-                        point = dict(contribution.window_coordinates)[key]
+                    if key in fixed_time_slots:
+                        point = fixed_time_slots[key]
                         extras[name] = ibis.literal(
                             point, type="int64" if isinstance(point, int) else "timestamp('UTC', 6)"
                         )
                     elif isinstance(calendar, CalendarCoordinate):
                         extras[name] = ibis.null().cast("timestamp('UTC', 6)")
                         clock_key = read_key
-                        pending_calendars.append((name, clock_key, calendar))
+                        pending_calendars.append((key, name, clock_key, calendar))
                         assert isinstance(read, FieldRead)
                         encoding = time_encodings.get(read.field.ref.path)
                         if (
@@ -669,6 +685,22 @@ def prepare_fields(
                             )
                         ):
                             day_clocks[name] = encoding[:3]
+                    elif key in sample_intervals:
+                        ranges = sample_intervals[key]
+                        flags = []
+                        for ordinal, start, end in ranges:
+                            flag = unique(f"{name}_contains_{ordinal}")
+                            extras[flag] = period_condition(
+                                expression, start, end, calendar.timezone
+                            ).fill_null(False)
+                            flags.append((ordinal, flag))
+                        if flags:
+                            ordered = sorted((start, end) for _, start, end in ranges)
+                            overlaps = any(
+                                end > next_start for (_, end), (next_start, _) in pairwise(ordered)
+                            )
+                            pending_intervals.append((name, tuple(flags), overlaps))
+                        extras[name] = ibis.null().cast("int64")
                     else:
                         extras[name] = period_condition(
                             expression, calendar.start, calendar.end, calendar.timezone
@@ -844,7 +876,7 @@ def prepare_fields(
             table = table.filter(table[dict(columns)["__time_period"]])
     from marivo.analysis.compiler.calendar import bind_calendar
 
-    for name, time_key, calendar in pending_calendars:
+    for key, name, time_key, calendar in pending_calendars:
         day_clock = day_clocks.get(name)
         day_timezone = (
             day_clock[2].timezone
@@ -902,9 +934,52 @@ def prepare_fields(
                 registry, normalize_target_entity(registry, contribution.root.ref.path)
             ),
         )
-        if calendar in selected_calendars or calendar.actual_only:
+        if key not in sample_time_slots and (
+            calendar in selected_calendars or calendar.actual_only
+        ):
             table = table.filter(table[name].notnull())
+    for name, flags, overlaps in pending_intervals:
+        if not overlaps:
+            table = table.mutate(
+                **{
+                    name: ibis.cases(
+                        *((table[flag], ibis.literal(key, type="int64")) for key, flag in flags),
+                        else_=ibis.null().cast("int64"),
+                    )
+                }
+            )
+            continue
+        from marivo.datasource._calendar_relations import calendar_range
+
+        # Overlapping intervals receive each matching source occurrence.
+        # The extra position preserves the enclosing key when no interval matches.
+        position = unique(name + "_position")
+        table = table.cross_join(calendar_range(len(flags) + 1).rename({position: "position"}))
+        ordinal = table[position]
+        masks = tuple(table[flag].fill_null(False) for _, flag in flags)
+        matched = ibis.or_(*(mask & (ordinal == i) for i, mask in enumerate(masks)))
+        unmatched = (ordinal == len(flags)) & ~ibis.or_(*masks)
+        table = table.filter(matched | unmatched)
+        ordinal = table[position]
+        table = table.mutate(
+            **{
+                name: ibis.cases(
+                    *(
+                        (ordinal == i, ibis.literal(key, type="int64"))
+                        for i, (key, _) in enumerate(flags)
+                    ),
+                    else_=ibis.null().cast("int64"),
+                )
+            }
+        )
     prepared_columns = dict(columns)
+    for slot in contribution.sample_time_slots:
+        if slot in sample_time_slots:
+            position = slot.removeprefix("key.")
+            name = unique("__sample_time_" + position)
+            table = table.mutate(**{name: table[prepared_columns[calendar_field(slot)]].notnull()})
+            columns.append((f"__sample_assigned_{position}", name))
+            originals.append((name, table[name]))
     sample_calendars = dict(contribution.sample_calendar_reads)
     for key, sample_calendar in contribution.calendars:
         if not isinstance(sample_calendar, BuiltinSampleCoordinate):

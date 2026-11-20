@@ -33,10 +33,8 @@ from marivo._definition.query import (
     FilterValues,
     KeyImage,
     LiteralValues,
-    PairStatistic,
     PopulationValues,
     ReadFields,
-    ReduceValues,
     SelectValues,
     TopValues,
     ValueBinary,
@@ -105,7 +103,6 @@ from marivo.analysis.core.value_types import expression_value, ibis_type
 from marivo.analysis.materialization.query_parameters import _replace_parameter
 from marivo.analysis.materialization.source_query_policy import (
     qualified_query_provider,
-    qualify_query_reduce,
     qualify_query_source,
     qualify_query_top,
 )
@@ -1132,7 +1129,7 @@ def native_query_relation(
                     )
                 )
             )
-        elif isinstance(operation, (FilterValues, SelectValues, TopValues, ReduceValues)):
+        elif isinstance(operation, (FilterValues, SelectValues, TopValues)):
             arithmetic = owner.provider.name in ("duckdb", "trino", "clickhouse")
             # Demand pruning retains the original positional expression layout.
             # Typed placeholders occupy only slots unused by this operation.
@@ -1247,52 +1244,6 @@ def native_query_relation(
                     ),
                 )
                 expression = expression.order_by(*order).limit(operation.n)
-            else:
-                if any(isinstance(statistic, PairStatistic) for _, statistic in operation.values):
-                    return "paired statistics retain their local Frame numeric method"
-                if owner.provider.name != "duckdb":
-                    issue = qualify_query_reduce(owner, program)
-                    if issue is not None:
-                        return issue
-                aggregates: dict[str, ir.Value] = {}
-                for index, (_, statistic) in enumerate(operation.values):
-                    slot = f"value.{index}"
-                    if isinstance(statistic, PairStatistic):
-                        return "paired statistics retain their local Frame numeric method"
-                    if statistic.method == "row_count":
-                        aggregates[slot] = expression.count()
-                    elif statistic.method == "sum" and isinstance(statistic.value, ValueSlot):
-                        value = values[statistic.value.index]
-                        if (
-                            value.type().is_integer()
-                            or value.type().is_floating()
-                            or value.type().is_decimal()
-                        ):
-                            from marivo.semantic._numeric_lowering import _source_sum
-
-                            total = _source_sum(value)
-                            aggregates[slot] = (expression.count() == 0).ifelse(
-                                ibis.literal(0).cast(total.type()), total
-                            )
-                        else:
-                            return "cell sum retains its exact Duration finisher"
-                    else:
-                        return "cell reduction retains an unsupported statistic or expression"
-                selected_keys = tuple(
-                    key for position in operation.positions for key in program.key_groups[position]
-                )
-                value_slots = tuple(aggregates)
-                groups: dict[str, ir.Value] = {}
-                for index, (target, key) in enumerate(zip(stage.keys, selected_keys, strict=True)):
-                    value = expression[key]
-                    if value.type().is_string():
-                        groups[f"__query_group_{index}"] = _string_bytes(value, owner.provider.name)
-                        aggregates[target] = value.min()
-                    else:
-                        groups[target] = value
-                expression = expression.aggregate(**aggregates, by=groups).select(
-                    *stage.keys, *value_slots
-                )
         else:
             return "producer operation is outside the admitted field relation grammar"
         return NativeQueryRelation(expression, members, sources, checks, parameters)
@@ -1680,7 +1631,7 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
             if any(
                 isinstance(item, LocalCompute)
                 and isinstance(item.program, ResultProgram)
-                and isinstance(item.program.operation, (TopValues, ReduceValues, PopulationValues))
+                and isinstance(item.program.operation, (TopValues, PopulationValues))
                 for item in lowered.plan.stages
                 if item.stage_id in native.stages and item.stage_id != endpoint.stage_id
             ):
@@ -1705,7 +1656,7 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
                     and isinstance(item.program, ResultProgram)
                     and isinstance(
                         item.program.operation,
-                        (TopValues, ReduceValues, PopulationValues),
+                        (TopValues, PopulationValues),
                     )
                     for item in lowered.plan.stages
                     if item.stage_id in native.stages and item.stage_id != endpoint.stage_id
@@ -2854,22 +2805,22 @@ def _fold_output_coverage(prepared: PreparedSources, lowered: LoweredQuery) -> L
             diagnostics = witnesses
             if failures is not None:
                 diagnostics = diagnostics.cross_join(failures)
+            rows = expression.anti_join(witnesses, ibis.literal(True)).mutate(
+                **{name: ibis.literal(False)}
+            )
             diagnostics = diagnostics.select(
                 **{
                     column: diagnostics[column]
                     if column in candidate.keys or column in checks
                     else ibis.literal(False)
                     if expression[column].type().is_boolean()
-                    else ibis.null().cast(expression[column].type())
+                    # The anti-join makes carrier columns nullable.
+                    else ibis.null().cast(rows[column].type())
                     for column in expression.columns
                 },
                 **{name: ibis.literal(True)},
             )
-            expression = (
-                expression.anti_join(witnesses, ibis.literal(True))
-                .mutate(**{name: ibis.literal(False)})
-                .union(diagnostics)
-            )
+            expression = rows.union(diagnostics)
             expected = "an output Population covering every required complete coordinate"
             received = "missing output coordinates"
             updated_source = replace(

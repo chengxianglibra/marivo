@@ -25,7 +25,6 @@ from marivo.semantic._source_timezone import DeclaredSourceTimezone
 from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse, TargetDimensionContract
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.temporal.encoded_time_fixtures import axis
-from tests.analysis.temporal.test_calendar_native_keys import _maria
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.documentation import _example as documentation_example
 from tests.support.source_trace import SourceTrace
@@ -709,7 +708,6 @@ def test_hour_filter_executes_on_native_backends(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _maria(profile, monkeypatch)
     pairs = [
         ("20261028", 3),
         ("20261028", 3),

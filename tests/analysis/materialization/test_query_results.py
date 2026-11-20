@@ -553,6 +553,27 @@ def test_population_count_counts_full_tuples_and_empty_cells(result_session: Ses
     assert scalars["unit"].tolist() == [1]
 
 
+def test_population_count_does_not_expand_fact_coverage(result_session: Session) -> None:
+    from marivo.analysis.materialization.errors import MaterializationError
+
+    session = result_session
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    members = mv.coordinates(by=(region,), keys=(("A",), ("count-only",)))
+    report = mv.coordinates(by=(region,), keys=(("A",), ("empty",)))
+    metrics = {"members": members.count(), "total": amount.sum()}
+
+    rows = session.observe(metrics, by=report, where=amount > 20).compute().to_pandas()
+    assert rows.set_index("region").to_dict("index") == {
+        "A": {"members": 1, "total": 30},
+        "empty": {"members": 0, "total": 0},
+    }
+
+    with pytest.raises(MaterializationError) as failure:
+        session.observe(metrics, by=report, where=amount >= 20).compute()
+    assert failure.value.stage == "population_coverage"
+
+
 def test_dependent_source_uses_complete_null_safe_key_relations(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

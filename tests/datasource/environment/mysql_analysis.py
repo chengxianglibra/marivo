@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 HOST = "127.0.0.1"
 PORT = 23306
+MARIADB_PORT = 23307
 DATABASE = "analysis"
 READER = "analysis_reader"
 

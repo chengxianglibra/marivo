@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from marivo._errors import MarivoError
+from marivo.analysis.compiler.frame_filter_fusion import fuse_frame_filters
 from marivo.analysis.compiler.frame_plan import (
     CompiledFramePlan,
     CompiledSourceFrame,
@@ -245,6 +246,15 @@ def _evaluate_frame(
     operation_inputs = {
         id(expression): identifier for identifier, expression in expressions.items()
     }
+    protected_inputs = frozenset(
+        operation_inputs
+        if declaration_keys is not None
+        else (
+            id(expressions[dependency])
+            for identifier in source_frames
+            for dependency in captured.dependencies[identifier]
+        )
+    )
 
     def checkpoint_operations(
         plan: CompiledFramePlan,
@@ -290,6 +300,7 @@ def _evaluate_frame(
             compiled_domain = plan_frame(
                 domain_input, {**plans, input_id: domain_plan}, frame_inputs=expressions
             )
+            compiled_domain = fuse_frame_filters(compiled_domain, protected_inputs=protected_inputs)
             prepared_domain = {**sources, **({input_id: domain_sources} if domain_sources else {})}
 
             def adapt_domain(identifier: str, output: StageOutput) -> StageOutput:
@@ -393,6 +404,7 @@ def _evaluate_frame(
                 for input_id, source in prepared_by_input.items()
             },
         )
+        compiled = fuse_frame_filters(compiled, protected_inputs=protected_inputs)
         checkpoint = checkpoint_operations(compiled)
         stage_inputs = dict(compiled.source_stages)
         calendar_owners: dict[str, dict[str, dict[datetime, SourceSession]]] = {}

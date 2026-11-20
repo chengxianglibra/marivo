@@ -1,4 +1,4 @@
-"""Pandas kernels for checked result expressions, selection and statistics."""
+"""Local kernels for checked result expressions, selection and statistics."""
 
 from __future__ import annotations
 
@@ -8,19 +8,17 @@ from decimal import Decimal, localcontext
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from marivo._definition.query import (
     CoordinateSlot,
     FilterValues,
     KeyImage,
     LiteralValues,
-    PairStatistic,
     PopulationValues,
     PresenceSlot,
     ReadFields,
-    ReduceValues,
     SelectValues,
-    Statistic,
     TopValues,
     ValueExpression,
     ValueLiteral,
@@ -31,13 +29,34 @@ from marivo._definition.query import (
 )
 from marivo.analysis.compiler.graph_plan import LocalCompute, local_result
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
-from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
-from marivo.analysis.core.data_validation import stage_arrow_type, typed_null_mask
+from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.core.data_validation import typed_null_mask
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.frame_evaluation import FrameEvaluation, expression_key
-from marivo.analysis.methods.numeric_state import finish_division, sum_values
-from marivo.analysis.methods.physical import DecimalType, DurationType
 from marivo.semantic._numeric_lowering import numeric_failure
+
+_ORDERED_COMPARISONS = {"lt": "less", "le": "less_equal", "gt": "greater", "ge": "greater_equal"}
+
+
+def _int64_literal(expression: ValueExpression) -> pa.Scalar | None:
+    if isinstance(expression, ValueLiteral):
+        value = expression.value
+        if type(value) is int and -(2**63) <= value < 2**63:
+            return pa.scalar(value, type=pa.int64())
+    return None
+
+
+def _int64_array(
+    expression: ValueExpression, values: pd.Series
+) -> pa.Array | pa.ChunkedArray | None:
+    dtype = values.dtype
+    if (
+        not isinstance(expression, ValueLiteral)
+        and isinstance(dtype, pd.ArrowDtype)
+        and dtype.pyarrow_dtype == pa.int64()
+    ):
+        return pa.array(values, from_pandas=True)
+    return None
 
 
 def _binary(operation: str, left: object, right: object) -> object:
@@ -227,8 +246,29 @@ def expression_series(
                 index=values.index,
             )
         return -values if expression.operation == "neg" else values.abs()
-    left = expression_series(expression.left, frame, program, evaluation=evaluation)
-    right = expression_series(expression.right, frame, program, evaluation=evaluation)
+    kernel = _ORDERED_COMPARISONS.get(expression.operation)
+    left_scalar = _int64_literal(expression.left) if kernel is not None else None
+    right_scalar = _int64_literal(expression.right) if kernel is not None else None
+    left = (
+        expression_series(expression.left, frame, program, evaluation=evaluation)
+        if left_scalar is None
+        else None
+    )
+    right = (
+        expression_series(expression.right, frame, program, evaluation=evaluation)
+        if right_scalar is None
+        else None
+    )
+    if kernel is not None and (left is not None or right is not None):
+        arrow_left = _int64_array(expression.left, left) if left is not None else left_scalar
+        arrow_right = _int64_array(expression.right, right) if right is not None else right_scalar
+        if arrow_left is not None and arrow_right is not None:
+            comparison = pc.call_function(kernel, [arrow_left, arrow_right])
+            return pd.Series(pd.arrays.ArrowExtensionArray(comparison))
+    if left is None:
+        left = expression_series(expression.left, frame, program, evaluation=evaluation)
+    if right is None:
+        right = expression_series(expression.right, frame, program, evaluation=evaluation)
     if expression.operation in ("add", "sub", "mul", "div"):
         from marivo.analysis.methods.numeric_state import duration_arithmetic, nullable_arithmetic
 
@@ -383,102 +423,6 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
             .reset_index(drop=True)
             .copy()
         )
-    if isinstance(operation, ReduceValues):
-        statistics: list[tuple[str, Statistic]] = []
-        for name, statistic in operation.values:
-            if isinstance(statistic, PairStatistic):
-                reject(
-                    "paired statistics evaluated by the local Frame route",
-                    statistic.method,
-                    "Keep paired statistics on their owning AnalysisFrame.",
-                    statistic.location,
-                )
-            statistics.append((name, statistic))
-        evaluated = {
-            name: expression_series(statistic.value, frame, program)
-            for name, statistic in statistics
-            if statistic.value is not None
-        }
-        selected = tuple(
-            key for position in operation.positions for key in program.key_groups[position]
-        )
-        groups = (
-            (((), frame),)
-            if not selected
-            else tuple(frame.groupby(list(selected), dropna=False, sort=True, observed=True))
-        )
-        rows = []
-        for key, subset in groups:
-            key_tuple = key if isinstance(key, tuple) else (key,)
-            row: dict[str, object] = dict(zip(stage.keys, key_tuple, strict=True))
-            for index, (name, statistic) in enumerate(statistics):
-                if statistic.method == "row_count":
-                    value: object = len(subset)
-                else:
-                    series = evaluated[name].iloc[subset.index]
-                    active_series = series.loc[~typed_null_mask(series)]
-                    active = active_series.tolist()
-                    column = stage.columns[len(stage.keys) + index]
-                    try:
-                        input_type = program.statistic_types[index]
-                        if subset.empty and statistic.method == "sum":
-                            value = (
-                                sum_values((), stage_arrow_type(input_type))
-                                if not isinstance(input_type, DurationDataType)
-                                else 0
-                            )
-                        elif isinstance(input_type, DurationDataType):
-                            ticks = tuple(
-                                int(tick)
-                                for tick in pa.array(
-                                    active_series,
-                                    type=pa.duration(input_type.unit),
-                                    from_pandas=True,
-                                )
-                                .cast(pa.int64())
-                                .to_pylist()
-                            )
-                            value = (
-                                finish_division(
-                                    sum(ticks),
-                                    1 if statistic.method == "sum" else len(ticks),
-                                    DurationType(input_type.unit),
-                                )
-                                if ticks
-                                else None
-                            )
-                        else:
-                            total = sum_values(active, stage_arrow_type(input_type))
-                            value = (
-                                total
-                                if active and statistic.method == "sum"
-                                else finish_division(
-                                    total,
-                                    len(active),
-                                    DecimalType(column.dtype.precision, column.dtype.scale),
-                                )
-                                if active and isinstance(column.dtype, DecimalDataType)
-                                else total / len(active)
-                                if active
-                                else None
-                            )
-                    except (ValueError, OverflowError) as error:
-                        numeric_failure("a native value statistic", str(error))
-                row[f"value.{index}"] = value
-            rows.append(row)
-        result = pd.DataFrame(
-            rows, columns=[column.slot_id for column in stage.columns], dtype=object
-        )
-        for column in stage.columns[len(stage.keys) :]:
-            if isinstance(column.dtype, DurationDataType):
-                result[column.slot_id] = pd.Series(
-                    pd.arrays.ArrowExtensionArray(
-                        pa.array(result[column.slot_id], type=pa.int64(), from_pandas=True).cast(
-                            pa.duration(column.dtype.unit)
-                        )
-                    )
-                )
-        return result
     reject(
         "a planned result kernel",
         type(operation).__name__,

@@ -53,7 +53,9 @@ def run_local(
         from marivo.analysis.methods.frame_comparison import combine_frame_data, compare_frame_data
         from marivo.analysis.methods.frame_values import evaluate_frame
 
-        stage = effective_frame(stage, inputs)
+        if stage.filter_fusion is None:
+            stage = effective_frame(stage, inputs)
+        # The schedule admits a fused program only on its exact compiled input schema.
         required = required_attachments(stage.program.output_schema)
 
         def retained_input_attachments() -> tuple[OutputAttachment, ...]:
@@ -178,7 +180,14 @@ def run_local(
                 ),
                 unique_keys=inputs[0].unique_keys,
             )
-            frame = evaluate_frame(stage.program, tuple(item.table for item in inputs))
+            tables = tuple(item.table for item in inputs)
+            fusion = stage.filter_fusion
+            if fusion is None:
+                frame = evaluate_frame(stage.program, tables)
+            else:
+                frame = evaluate_frame(
+                    stage.program, tables, second_filter_columns=fusion.second_columns
+                )
             attachments = tuple(a for a in inputs[0].frame_attachments if a.name in required)
         if isinstance(stage.program, (FrameCompareProgram, FrameCombineProgram)):
             from dataclasses import replace

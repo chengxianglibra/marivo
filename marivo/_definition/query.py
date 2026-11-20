@@ -139,7 +139,6 @@ QueryOperation: TypeAlias = (
     SelectValues
     | FilterValues
     | TopValues
-    | ReduceValues
     | LiteralValues
     | PopulationValues
     | KeyImage

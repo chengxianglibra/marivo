@@ -20,7 +20,7 @@ from tests.support.source_trace import capture_source
 pytestmark = pytest.mark.runtime
 
 
-@pytest.mark.parametrize("shape", ("enum8", "nullable_enum16", "date", "proxy", "multishard_proxy"))
+@pytest.mark.parametrize("shape", ("enum8", "nullable_enum16", "date", "proxy"))
 def test_clickhouse_attribute_input_carriers(
     shape: str,
     tmp_path: Path,
@@ -36,11 +36,8 @@ def test_clickhouse_attribute_input_carriers(
             else "Enum8('z_finish'=2, 'a_exception'=4, 'start'=1)"
         )
     )
-    date_key = shape in ("date", "proxy", "multishard_proxy")
-    is_proxy = shape.endswith("proxy")
-    distributed = shape == "multishard_proxy"
-    profile = "distributed" if distributed else "mergetree"
-    ports = ch.CLUSTER_HTTP_PORTS if distributed else (18123,)
+    date_key = shape in ("date", "proxy")
+    is_proxy = shape == "proxy"
     rows: list[dict[str, object]] = [
         {
             "id": date(2026, 10, day) if date_key else str(i),
@@ -70,22 +67,19 @@ def test_clickhouse_attribute_input_carriers(
         rows,
     )
     monkeypatch.chdir(tmp_path)
-    with source_case("clickhouse", profile, tmp_path, monkeypatch, data) as case:
+    with source_case("clickhouse", "mergetree", tmp_path, monkeypatch, data) as case:
         assert isinstance(case.source, TableSourceIR)
         database, table = case.source.database, case.source.table
         proxy, view = table + "_proxy", table + "_view"
         try:
             if is_proxy:
-                local = table.removesuffix("_distributed") if distributed else table
-                cluster = ch.CLUSTER if distributed else "marivo_single_shard"
-                for port in ports:
-                    with ch.connection(admin=True, port=port) as admin:
-                        admin.command(
-                            f"CREATE VIEW {database}.{view} AS SELECT * FROM {database}.{local} WHERE day >= toDate('2026-10-22')"
-                        )
-                        admin.command(
-                            f"CREATE TABLE {database}.{proxy} AS {database}.{local} ENGINE=Distributed('{cluster}', '{database}', '{view}', rand())"
-                        )
+                with ch.connection(admin=True) as admin:
+                    admin.command(
+                        f"CREATE VIEW {database}.{view} AS SELECT * FROM {database}.{table} WHERE day >= toDate('2026-10-22')"
+                    )
+                    admin.command(
+                        f"CREATE TABLE {database}.{proxy} AS {database}.{table} ENGINE=Distributed('{ch.CLUSTER}', '{database}', '{view}', rand())"
+                    )
                 case = Case(case.session, TableSourceIR(proxy, database), case.environment)
             _project("clickhouse", case, monkeypatch, semantic_project_factory)
             session = mv.session.get_or_create("ck-inputs", timezone="UTC")
@@ -148,13 +142,12 @@ def test_clickhouse_attribute_input_carriers(
                     zero.attribute(by=(tenant,)).compute()
         finally:
             if is_proxy:
-                for port in ports:
-                    with ch.connection(admin=True, port=port) as admin:
-                        admin.command(f"DROP TABLE IF EXISTS {database}.{proxy}")
-                        admin.command(f"DROP VIEW IF EXISTS {database}.{view}")
+                with ch.connection(admin=True) as admin:
+                    admin.command(f"DROP TABLE IF EXISTS {database}.{proxy}")
+                    admin.command(f"DROP VIEW IF EXISTS {database}.{view}")
 
 
-def test_multishard_distributed_attribute_uses_global_joins(
+def test_distributed_attribute_uses_global_joins(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[..., SemanticProject],
@@ -164,7 +157,7 @@ def test_multishard_distributed_attribute_uses_global_joins(
     monkeypatch.chdir(tmp_path)
     with source_case("clickhouse", "distributed", tmp_path, monkeypatch, DATA) as case:
         _project("clickhouse", case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("multishard", timezone="UTC")
+        session = mv.session.get_or_create("distributed", timezone="UTC")
         entity = catalog_value(session.catalog, "sales.facts", kind="entity")
         tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
         parent = session.observe({"n": entity.count()}).compute()

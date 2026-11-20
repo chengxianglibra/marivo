@@ -10,7 +10,6 @@ from sqlglot import expressions as sge
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.temporal.test_calendar_native_keys import _maria
 from tests.analysis.temporal.test_wall_consumer_runtime import _model
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.source_trace import SourceTrace
@@ -37,7 +36,6 @@ def test_encoded_comparisons_in_public_observation(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    _maria(profile, monkeypatch)
     data = SourceData(
         "id BIGINT, stamp VARCHAR(8), amount BIGINT",
         "(1,'20260801',10),(2,'20260802',20),(3,'20260803',30),(4,'20260804',40),(5,NULL,50)",

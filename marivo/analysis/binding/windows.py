@@ -129,14 +129,14 @@ def validate_date_contribution(
     if not is_role and not is_sample and not sample_slots:
         return
     calendars = tuple(
-        axis
+        (slot, axis)
         for slot, axis in contribution.calendars
         if slot in sample_slots
         or ((is_role or is_sample) and not isinstance(axis, BuiltinSampleCoordinate))
     )
     if any(
         isinstance(axis, CalendarCoordinate) and not axis.cells and not axis.actual_only
-        for axis in calendars
+        for _, axis in calendars
     ):
         return
 
@@ -160,7 +160,8 @@ def validate_date_contribution(
         fail(f"{path}: elapsed duration {rule.duration}")
     if isinstance(rule, ToDate) and rule.grain.unit in ("second", "minute", "hour"):
         fail(f"{path}: subday reset {rule.grain!r}")
-    for axis in calendars:
+    sample_intervals = dict(contribution.sample_interval_ranges)
+    for slot, axis in calendars:
         if isinstance(axis, (CalendarCoordinate, BuiltinSampleCoordinate)):
             if axis.grain_spec.unit in ("second", "minute", "hour"):
                 fail(f"{path}: subday calendar {axis.grain_spec._to_token()}")
@@ -168,7 +169,12 @@ def validate_date_contribution(
                 continue
             bounds = tuple(bound for cell in axis.cells for bound in cell[2:])
         else:
-            bounds = (axis.start, axis.end)
+            selected = sample_intervals.get(slot)
+            bounds = (
+                (axis.start, axis.end)
+                if selected is None
+                else tuple(bound for _, start, end in selected for bound in (start, end))
+            )
         zone = normalize_timezone(axis.timezone).tz
         offending = next(
             (bound for bound in bounds if bound.astimezone(zone).time() != datetime.min.time()),

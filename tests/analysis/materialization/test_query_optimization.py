@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from dataclasses import replace
 from decimal import Decimal, localcontext
 from fractions import Fraction
@@ -15,7 +16,7 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
-from marivo._definition.query import LiteralValues
+from marivo._definition.query import FilterValues, LiteralValues
 from marivo._definition.types import AxisBinding
 from marivo.analysis.compiler import optimization
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
@@ -35,11 +36,12 @@ from marivo.analysis.compiler.optimization import (
     compilation_key,
     optimize_query,
 )
-from marivo.analysis.compiler.query_program import ResultProgram
+from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     ExpressionFrameBacking,
     LiteralFrameBinding,
+    MemoryFrameBacking,
     SourceFrameBinding,
 )
 from marivo.analysis.core.graph import BoundGraph
@@ -112,10 +114,16 @@ def _source_graph(frame: AnalysisFrame) -> BoundGraph:
 
 
 def _execute(
-    session: Session, query: AnalysisFrame, *, optimized: bool
+    session: Session,
+    query: AnalysisFrame,
+    *,
+    optimized: bool,
+    optimize_sources: bool | None = None,
+    completed: list[AnalysisFrame] | None = None,
 ) -> tuple[StageOutput, QueryPlan, tuple[str, ...], dict[str, tuple[str, ...]]]:
     from marivo.analysis.materialization import frame_evaluation, frame_source_preparation
 
+    optimize_sources = optimized if optimize_sources is None else optimize_sources
     if (
         isinstance(query._backing, ExpressionFrameBacking)
         and isinstance(query._backing.root, (SourceFrameBinding, LiteralFrameBinding))
@@ -132,7 +140,7 @@ def _execute(
             open_query_sources(connections, graph, session.catalog._state) as prepared,
         ):
             plan = plan_query(graph, prepared.schemas)
-            if optimized:
+            if optimize_sources:
                 plan = optimize_query(plan)
 
             def local(stage: LocalCompute, output: StageOutput) -> None:
@@ -194,12 +202,19 @@ def _execute(
         captured.append((output, compiled.lowered.plan))
         return output
 
-    with patch.object(frame_evaluation, "run_frame_plan", observe):
-        if optimized:
-            query.compute()
-        else:
-            with patch.object(frame_source_preparation, "optimize_query", lambda plan: plan):
-                query.compute()
+    with ExitStack() as controls:
+        controls.enter_context(patch.object(frame_evaluation, "run_frame_plan", observe))
+        if not optimize_sources:
+            controls.enter_context(
+                patch.object(frame_source_preparation, "optimize_query", lambda plan: plan)
+            )
+        if not optimized:
+            controls.enter_context(
+                patch.object(frame_evaluation, "fuse_frame_filters", lambda plan, **_: plan)
+            )
+        fixed = query.compute()
+    if completed is not None:
+        completed.append(fixed)
     assert len(captured) == 1
     output, plan = captured[0]
     assert query._local.owner == session._runtime.local.owner
@@ -207,15 +222,32 @@ def _execute(
 
 
 def _same(
-    session: Session, query: AnalysisFrame
+    session: Session, query: AnalysisFrame, *, completed: list[AnalysisFrame] | None = None
 ) -> tuple[StageOutput, QueryPlan, tuple[str, ...], dict[str, tuple[str, ...]]]:
-    baseline, _, _, _ = _execute(session, query, optimized=False)
-    result, planned, events, actual = _execute(session, query, optimized=True)
+    baseline, _, _, _ = _execute(session, query, optimized=False, completed=completed)
+    result, planned, events, actual = _execute(session, query, optimized=True, completed=completed)
     pd.testing.assert_frame_equal(result.table, baseline.table)
     assert result.keys == baseline.keys
     assert result.columns == baseline.columns
     assert result.layout == baseline.layout
     return result, planned, events, actual
+
+
+def _filter_events(plan: QueryPlan, events: tuple[str, ...]) -> tuple[str, ...]:
+    filters = {
+        stage.stage_id
+        for stage in plan.stages
+        if isinstance(stage, FrameCompute)
+        and isinstance(stage.program, FrameProgram)
+        and isinstance(stage.program.operation, FilterValues)
+    }
+    filters.update(
+        member
+        for group in plan.fusion_groups
+        if group.law == "L1" and group.output in filters
+        for member in group.members
+    )
+    return tuple(stage_id for stage_id in events if stage_id in filters)
 
 
 def _wide(session: Session) -> AnalysisFrame:
@@ -313,10 +345,150 @@ def test_current_frame_filters_preserve_real_source_domain(optimization_session:
     source = optimization_session.observe({"sales": amount.sum()}, by=(region,))
     first = source.where(source["sales"] >= 0)
     second = first.where(first["sales"] < 35)
-    result, plan, events, _ = _same(optimization_session, second)
-    filters = [stage for stage in plan.stages if isinstance(stage, FrameCompute)]
-    assert len(filters) == 2 and all(stage.stage_id in events for stage in filters)
+    completed: list[AnalysisFrame] = []
+    before, baseline, before_events, _ = _execute(
+        optimization_session, second, optimized=False, optimize_sources=True, completed=completed
+    )
+    result, plan, events, _ = _execute(
+        optimization_session, second, optimized=True, completed=completed
+    )
+    pd.testing.assert_frame_equal(result.table, before.table)
+    assert result.frame_schema == before.frame_schema and result.unique_keys == before.unique_keys
+    assert len(_filter_events(baseline, before_events)) == 2
+    assert _filter_events(plan, events) == (plan.publish,)
+    assert result.table.iloc[:, 0].tolist() == ["B"]
     assert result.table["value.0"].tolist() == [20]
+    control, fixed = completed
+    assert isinstance(fixed._backing, MemoryFrameBacking)
+    assert fixed._backing.metadata.evaluation.operations == ("source", "where", "where")
+    assert fixed._backing.metadata.lineage == second.lineage
+    assert [(read.scopes, read.returned_rows) for read in fixed.persist().source_reads] == [
+        (read.scopes, read.returned_rows) for read in control.persist().source_reads
+    ]
+
+
+def test_integral_decimal_source_filters_keep_values_beyond_int64(
+    optimization_session: Session,
+) -> None:
+    session = optimization_session
+    maximum = 2**63 - 1
+    with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
+        connection.execute("ALTER TABLE orders ALTER amount TYPE DECIMAL(38,0)")
+        connection.execute("UPDATE orders SET amount=? WHERE id=1", [maximum])
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    source = session.observe({"sales": amount.sum()}, by=(region,))
+    first = source.where(source["sales"] >= 0)
+    query = first.where(first["sales"] > maximum)
+    before, baseline, before_events, _ = _execute(
+        session, query, optimized=False, optimize_sources=True
+    )
+    result, plan, events, _ = _execute(session, query, optimized=True)
+    assert len(_filter_events(baseline, before_events)) == 2
+    assert _filter_events(plan, events) == (plan.publish,)
+    pd.testing.assert_frame_equal(result.table, before.table)
+    assert result.table.iloc[:, 0].tolist() == ["A"]
+    assert result.table["value.0"].tolist() == [Decimal(maximum + 30)]
+    assert str(result.table["value.0"].dtype) == "decimal128(38, 0)[pyarrow]"
+
+
+def test_source_carrier_change_uses_original_filter_stages(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pyarrow as pa
+
+    from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
+    from marivo.analysis.materialization import graph_source_execution
+
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    source = session.observe({"sales": amount.min()}, by=(region,))
+    first = source.where(source["sales"] >= 0)
+    query = first.where(first["sales"] < 25)
+    read = graph_source_execution.read_stage
+
+    def changed_carrier(
+        prepared: PreparedSources,
+        stage: SourceReadStage,
+        lowered: LoweredRead,
+        *,
+        value_keys: tuple[str, ...] = (),
+    ) -> StageOutput:
+        # Model a source adapter closing a different carrier after preparation.
+        output = read(prepared, stage, lowered, value_keys=value_keys)
+        (value,) = [
+            column
+            for column in output.columns
+            if column.slot_id not in output.keys and column.dtype == ScalarDataType("int64")
+        ]
+        values = pa.array(
+            [
+                None if pd.isna(cell) else Decimal(cell) + Decimal("0.25")
+                for cell in output.table[value.slot_id]
+            ],
+            type=pa.decimal128(16, 2),
+        )
+        rows = output.table.assign(**{value.slot_id: pd.arrays.ArrowExtensionArray(values)})
+        columns = tuple(
+            replace(column, dtype=DecimalDataType(16, 2)) if column == value else column
+            for column in output.columns
+        )
+        return replace(output, columns=columns, table=rows)
+
+    monkeypatch.setattr(graph_source_execution, "read_stage", changed_carrier)
+    result, plan, events, _ = _same(session, query)
+    (group,) = [group for group in plan.fusion_groups if group.law == "L1"]
+    assert group.output == plan.publish
+    assert _filter_events(plan, events) == group.members
+    assert result.table.iloc[:, 0].tolist() == ["A", "B"]
+    assert result.table["value.0"].tolist() == [Decimal("10.25"), Decimal("20.25")]
+    assert str(result.table["value.0"].dtype) == "decimal128(16, 2)[pyarrow]"
+
+
+@pytest.mark.parametrize("empty", (False, True), ids=("surviving-rows", "empty-first-mask"))
+def test_fixed_integer_filters_fuse_without_changing_nullable_values_or_order(
+    optimization_session: Session, empty: bool
+) -> None:
+    session = optimization_session
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    minimum, maximum = -(2**63), 2**63 - 1
+    left = session.values(
+        by=(region,),
+        columns={"a": "CNY"},
+        rows=(
+            (("A",), {"a": maximum}),
+            (("B",), {"a": minimum}),
+            (("D",), {"a": 1}),
+            (("E",), {"a": 0}),
+        ),
+    )
+    right = session.values(
+        by=(region,),
+        columns={"b": "CNY"},
+        rows=(
+            (("A",), {"b": maximum - 1}),
+            (("B",), {"b": minimum + 1}),
+            (("C",), {"b": 0}),
+            (("E",), {"b": 0}),
+        ),
+    )
+    source = left.align(right, on=((left.axes[0], right.axes[0]),))
+    fixed = source.top(5, by=source["left.a"]).compute()
+    first = fixed.where(
+        fixed["left.a"] > maximum
+        if empty
+        else (fixed["left.a"] >= minimum) & (fixed["left.a"] <= maximum)
+    )
+    query = first.where((first["left.a"] != first["right.b"]) | (first["left.a"] == 0))
+    before, baseline, before_events, _ = _execute(session, query, optimized=False)
+    result, plan, events, _ = _execute(session, query, optimized=True)
+    assert len(_filter_events(baseline, before_events)) == 2
+    assert _filter_events(plan, events) == (plan.publish,)
+    pd.testing.assert_frame_equal(result.table, before.table)
+    assert result.table.iloc[:, 0].tolist() == ([] if empty else ["A", "E", "B"])
+    assert result.table.iloc[:, 1].tolist() == ([] if empty else [maximum, 0, minimum])
+    assert str(result.table.iloc[:, 1].dtype) == "int64[pyarrow]"
 
 
 def test_multiple_consumers_keep_independent_filter_domains(optimization_session: Session) -> None:
@@ -328,11 +500,107 @@ def test_multiple_consumers_keep_independent_filter_domains(optimization_session
     left = left_input.select({"left": left_input["a"]})
     right = right.select({"right": right["a"]})
     query = left.align(right, on=tuple(zip(left.axes, right.axes, strict=True)))
-    result, _, _, _ = _same(optimization_session, query)
+    result, plan, events, _ = _same(optimization_session, query)
+    assert len(_filter_events(plan, events)) == 3
     rows = result.table
     assert rows["value.0"].iloc[:2].tolist() == [10, 20]
     assert rows["value.1"].iloc[1:].tolist() == [20, 30]
     assert pd.isna(rows["value.0"].iloc[2]) and pd.isna(rows["value.1"].iloc[0])
+
+
+def test_fused_coordinate_filters_use_the_bound_complete_key(
+    optimization_session: Session,
+) -> None:
+    session = optimization_session
+    entity = catalog_value(session.catalog, "sales.orders", kind="entity")
+    fixed = session.frame(session.members(entity)).compute()
+    first = fixed.where(fixed.coord(fixed.axes[0]) >= 2)
+    query = first.where(first.coord(first.axes[0]) < 4)
+    rows, plan, events, _ = _same(session, query)
+    assert _filter_events(plan, events) == (plan.publish,)
+    assert rows.table.iloc[:, 0].tolist() == [2, 3]
+
+
+def test_filter_used_as_frame_key_checkpoint_keeps_its_complete_domain(
+    optimization_session: Session,
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    source = session.observe({"sales": amount.sum()}, by=(region,))
+    first = source.where(source["sales"] >= 0)
+    second = first.where(first["sales"] < 35)
+    keys = session.population_from(first, on=((first.axes[0], region),))
+    target = session.observe({"sales": amount.sum()}, by=(region,), where=mv.in_population(keys))
+    query = second.align(target, on=((second.axes[0], target.axes[0]),))
+    completed: list[AnalysisFrame] = []
+    _, plan, events, _ = _same(session, query, completed=completed)
+    assert len(_filter_events(plan, events)) == 2
+    control, fixed = completed
+    rows = fixed.to_pandas()
+    assert rows["region"].tolist() == ["B", "A"]
+    assert rows["left_present"].tolist() == [True, False]
+    assert rows["right.sales"].tolist() == [20, 40]
+    for frame in (control, fixed):
+        assert frame._derivation is not None
+        (binding,) = [
+            output.target.current.binding
+            for output in frame._derivation.outputs
+            if output.path == ("right", "sales")
+        ]
+        (checkpoint,) = binding.frame_key_inputs
+        assert checkpoint.frame.to_pandas().to_dict("list") == {"region": ["A", "B"]}
+
+
+def test_fused_fixed_filters_keep_original_frozen_calendar_directory(
+    optimization_session: Session,
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    date = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
+    scope = session.time_scope(start="2026-01-01", end="2026-01-03")
+    fixed = session.observe(
+        {"sales": amount.min(time=date)}, by=(scope.by(mv.grain("day")),)
+    ).compute()
+    first = fixed.where(fixed["sales"] >= 0)
+    query = first.where(first["sales"] > 20)
+    completed: list[AnalysisFrame] = []
+    result, plan, events, _ = _same(session, query, completed=completed)
+    assert _filter_events(plan, events) == (plan.publish,)
+    assert result.table["value.0"].tolist() == [30]
+    assert len(result.frame_attachments) == 1
+    assert isinstance(fixed._backing, MemoryFrameBacking)
+    (original,) = fixed._backing.data.copy_attachments()
+    (directory,) = result.frame_attachments
+    assert directory.name == original.name and directory.schema == original.schema
+    pd.testing.assert_frame_equal(directory.rows, original.rows)
+    control, fused = completed
+    pd.testing.assert_frame_equal(
+        fused.to_pandas(time_details=True), control.to_pandas(time_details=True)
+    )
+
+
+def test_fused_fixed_filters_inherit_method_facts_and_source_reads(
+    optimization_session: Session,
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    fixed = (
+        session.observe({"sales": amount.sum()}, where=amount >= 0)
+        .attribute(by=(region,))
+        .compute()
+        .persist()
+    )
+    first = fixed.where(fixed["detail.value.sales"] >= 0)
+    query = first.where(first["detail.value.sales"] < 35)
+    completed: list[AnalysisFrame] = []
+    _, plan, events, _ = _same(session, query, completed=completed)
+    assert _filter_events(plan, events) == (plan.publish,)
+    for result in completed:
+        assert result.to_pandas()["detail.value.sales"].tolist() == [20]
+        assert result.method_facts and result.method_facts == fixed.method_facts
+        assert result.persist().source_reads == fixed.source_reads
 
 
 def test_top_and_explicit_source_denominator_preserve_values(optimization_session: Session) -> None:
@@ -367,8 +635,67 @@ def test_dynamic_predicate_checks_before_empty_filter(optimization_session: Sess
     source = _wide(optimization_session)
     first = source.where(source["a"] > 0)
     query = first.where(first["b"] / first["a"] > 1)
-    result, _, _, _ = _same(optimization_session, query)
+    result, plan, events, _ = _same(optimization_session, query)
+    assert len(_filter_events(plan, events)) == 2
     assert result.table["value.0"].tolist() == [10, 20, 30]
+
+
+def test_partition_predicate_uses_only_rows_retained_by_first_filter(
+    optimization_session: Session,
+) -> None:
+    source = _wide(optimization_session)
+    first = source.where(source["a"] >= 20)
+    query = first.where(first["a"] >= first.over(first["a"].mean()))
+    result, plan, events, _ = _same(optimization_session, query)
+    assert len(_filter_events(plan, events)) == 2
+    assert result.table["value.0"].tolist() == [30]
+
+
+def test_first_filter_can_discard_rows_where_second_predicate_would_overflow(
+    optimization_session: Session,
+) -> None:
+    session = optimization_session
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    maximum = 2**63 - 1
+    source = session.values(
+        by=(region,),
+        columns={"a": "CNY"},
+        rows=((("A",), {"a": maximum}), (("B",), {"a": 1})),
+    ).compute()
+    first = source.where(source["a"] < maximum)
+    result, plan, events, _ = _same(session, first.where(first["a"] + 1 > 0))
+    assert len(_filter_events(plan, events)) == 2
+    assert result.table["value.0"].tolist() == [1]
+    first = source.where(source["a"] > 0)
+    failures = []
+    for optimized in (False, True):
+        with pytest.raises(AnalysisError) as error:
+            _execute(session, first.where(first["a"] + 1 > 0), optimized=optimized)
+        cause = error.value.__cause__
+        assert isinstance(cause, SemanticExpressionError)
+        failures.append((cause.expected, cause.received, cause.repair))
+    assert failures[0] == failures[1]
+    assert "overflow" in (failures[0][1] or "").lower()
+
+
+def test_fusion_keeps_strict_source_checks_before_the_empty_mask(
+    optimization_session: Session,
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    source = session.observe({"sales": amount.sum(nulls="error")}, by=(region,))
+    first = source.where(source["sales"] < 0)
+    query = first.where(first["sales"] > 0)
+    failures = []
+    for optimized in (False, True):
+        with pytest.raises(AnalysisError) as error:
+            _execute(session, query, optimized=optimized, optimize_sources=True)
+        cause = error.value.__cause__
+        assert isinstance(cause, SemanticExpressionError)
+        assert cause.expected == "non-NA source values"
+        failures.append((cause.received, cause.repair))
+    assert failures[0] == failures[1]
 
 
 def test_unselected_native_branch_keeps_its_dynamic_checks_masked(

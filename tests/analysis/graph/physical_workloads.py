@@ -272,74 +272,35 @@ def _tables(
 
             assert isinstance(database, str)
             prefix = database + "."
-            if native_profile == "distributed":
-                ports = ch.CLUSTER_HTTP_PORTS
-                local_facts = case.source.table.removesuffix("_distributed")
-                local_subjects, local_other = subjects_name + "_local", other + "_local"
-                try:
-                    for shard, port in enumerate(ports):
-                        with ch.connection(admin=True, port=port) as admin:
-                            admin.command(
-                                f"CREATE TABLE {prefix}{local_subjects} (tenant String, sid Int64) ENGINE=MergeTree ORDER BY tuple()"
-                            )
-                            admin.command(
-                                f"CREATE TABLE {prefix}{local_other} ({_data(rows[:1], backend).clickhouse_columns}) ENGINE=MergeTree ORDER BY tuple()"
-                            )
-                            admin.command(
-                                f"CREATE TABLE {prefix}{subjects_name} AS {prefix}{local_subjects} ENGINE=Distributed({ch.CLUSTER}, {database}, {local_subjects}, rand())"
-                            )
-                            admin.command(
-                                f"CREATE TABLE {prefix}{other} AS {prefix}{local_other} ENGINE=Distributed({ch.CLUSTER}, {database}, {local_other}, rand())"
-                            )
-                            shard_subjects = subjects[shard :: len(ports)]
-                            admin.insert(
-                                prefix + local_subjects,
-                                [list(row.values()) for row in shard_subjects],
-                                column_names=list(subjects[0]),
-                            )
-                            shard_rows = rows[shard :: len(ports)]
-                            for start in range(0, len(shard_rows), BATCH_ROWS):
-                                batch = shard_rows[start : start + BATCH_ROWS]
-                                admin.insert(
-                                    prefix + local_other,
-                                    [list(row.values()) for row in batch],
-                                    column_names=list(rows[0]),
-                                )
-                                if shard == 0 and start == 0:
-                                    batch = batch[1:]
-                                if batch:
-                                    admin.insert(
-                                        prefix + local_facts,
-                                        [list(row.values()) for row in batch],
-                                        column_names=list(rows[0]),
-                                    )
-                    case.environment["profile"] = native_profile
-                    yield case, subjects_name, other
-                finally:
-                    for port in ports:
-                        with ch.connection(admin=True, port=port) as admin:
-                            for table in (other, subjects_name, local_other, local_subjects):
-                                admin.command(f"DROP TABLE IF EXISTS {prefix}{table}")
-                return
-            if native_profile != "mergetree":
+            if native_profile not in ("mergetree", "distributed"):
                 raise ValueError("Unknown ClickHouse cost profile")
+            distributed = native_profile == "distributed"
+            local_facts = case.source.table.removesuffix("_distributed")
+            local_subjects = subjects_name + "_local" if distributed else subjects_name
+            local_other = other + "_local" if distributed else other
             with ch.connection(admin=True) as admin:
                 try:
                     admin.command(
-                        f"CREATE TABLE {prefix}{subjects_name} (tenant String, sid Int64) ENGINE=MergeTree ORDER BY tuple()"
+                        f"CREATE TABLE {prefix}{local_subjects} (tenant String, sid Int64) ENGINE=MergeTree ORDER BY tuple()"
                     )
                     admin.command(
-                        f"CREATE TABLE {prefix}{other} ({_data(rows[:1], backend).clickhouse_columns}) ENGINE=MergeTree ORDER BY tuple()"
+                        f"CREATE TABLE {prefix}{local_other} ({_data(rows[:1], backend).clickhouse_columns}) ENGINE=MergeTree ORDER BY tuple()"
                     )
+                    if distributed:
+                        for proxy, local in ((subjects_name, local_subjects), (other, local_other)):
+                            admin.command(
+                                f"CREATE TABLE {prefix}{proxy} AS {prefix}{local} "
+                                f"ENGINE=Distributed({ch.CLUSTER}, {database}, {local}, rand())"
+                            )
                     admin.insert(
-                        prefix + subjects_name,
+                        prefix + local_subjects,
                         [list(row.values()) for row in subjects],
                         column_names=list(subjects[0]),
                     )
                     for start in range(0, len(rows), BATCH_ROWS):
                         batch = rows[start : start + BATCH_ROWS]
                         admin.insert(
-                            prefix + other,
+                            prefix + local_other,
                             [list(row.values()) for row in batch],
                             column_names=list(rows[0]),
                         )
@@ -347,15 +308,18 @@ def _tables(
                             batch = batch[1:]
                         if batch:
                             admin.insert(
-                                prefix + case.source.table,
+                                prefix + local_facts,
                                 [list(row.values()) for row in batch],
                                 column_names=list(rows[0]),
                             )
                     case.environment["profile"] = native_profile
                     yield case, subjects_name, other
                 finally:
-                    admin.command(f"DROP TABLE IF EXISTS {prefix}{other}")
-                    admin.command(f"DROP TABLE IF EXISTS {prefix}{subjects_name}")
+                    if distributed:
+                        admin.command(f"DROP TABLE IF EXISTS {prefix}{other}")
+                        admin.command(f"DROP TABLE IF EXISTS {prefix}{subjects_name}")
+                    admin.command(f"DROP TABLE IF EXISTS {prefix}{local_other}")
+                    admin.command(f"DROP TABLE IF EXISTS {prefix}{local_subjects}")
 
 
 def _author(
