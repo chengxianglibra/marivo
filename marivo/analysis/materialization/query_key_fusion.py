@@ -2854,22 +2854,22 @@ def _fold_output_coverage(prepared: PreparedSources, lowered: LoweredQuery) -> L
             diagnostics = witnesses
             if failures is not None:
                 diagnostics = diagnostics.cross_join(failures)
+            rows = expression.anti_join(witnesses, ibis.literal(True)).mutate(
+                **{name: ibis.literal(False)}
+            )
             diagnostics = diagnostics.select(
                 **{
                     column: diagnostics[column]
                     if column in candidate.keys or column in checks
                     else ibis.literal(False)
                     if expression[column].type().is_boolean()
-                    else ibis.null().cast(expression[column].type())
+                    # The anti-join makes carrier columns nullable.
+                    else ibis.null().cast(rows[column].type())
                     for column in expression.columns
                 },
                 **{name: ibis.literal(True)},
             )
-            expression = (
-                expression.anti_join(witnesses, ibis.literal(True))
-                .mutate(**{name: ibis.literal(False)})
-                .union(diagnostics)
-            )
+            expression = rows.union(diagnostics)
             expected = "an output Population covering every required complete coordinate"
             received = "missing output coordinates"
             updated_source = replace(

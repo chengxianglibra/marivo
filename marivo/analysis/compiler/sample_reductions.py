@@ -25,6 +25,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
+from marivo._definition.observations import SampleAxisMatches, sample_key_matches
 from marivo._definition.relations import PopulationDependency, sample_population
 from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._source_aggregates import aggregate_operation, native_aggregate
@@ -129,9 +130,17 @@ class SampleLowerer:
         self.unique_keys = unique_keys or {}
         self.shared_relations = shared_relations
         self.declared = dict(program.declared)
+        self.sample_matches = dict(program.sample_matches)
         self.serial = 0
         self.cache: dict[
-            tuple[MetricNode, tuple[str, ...], tuple[str, ...], ops.Relation | None], SampleRelation
+            tuple[
+                MetricNode,
+                tuple[str, ...],
+                tuple[str, ...],
+                tuple[tuple[tuple[int, ...], SampleAxisMatches], ...],
+                ops.Relation | None,
+            ],
+            SampleRelation,
         ] = {}
 
     def name(self, role: str = "value") -> str:
@@ -275,6 +284,11 @@ class SampleLowerer:
             tuple(
                 self.identities.get(binding.stage_id, binding.stage_id)
                 for binding in self.bindings(path)
+            ),
+            tuple(
+                (occurrence[len(path) :], matches)
+                for occurrence, matches in self.sample_matches.items()
+                if occurrence[: len(path)] == path
             ),
             None if forced is None else forced.op(),
         )
@@ -436,7 +450,6 @@ class SampleLowerer:
         complete_keys = (*keys, *sample_keys)
         children = (node.operand,) if isinstance(node, PerReduce) else (node.value, node.weight)
         parent = self.sample_domain(keys, path) if forced is None else forced
-        sample_domain = self.sample_domain(complete_keys, path)
         definition = sample_population(node.samples)
         if definition is not None and keys == self.keys and forced is None:
             # Explicit internal domains consume the complete enclosing output domain.
@@ -454,9 +467,30 @@ class SampleLowerer:
                 parent = distinct_returned_keys(
                     parent.union(selected_domain, distinct=False), self.provider
                 )
-        if definition is not None:
-            sample_domain = parent.cross_join(self.population(definition, sample_keys))
         implicit = definition is None
+        if definition is None:
+            sample_domain = self.sample_domain(complete_keys, path)
+        else:
+            selected_samples = self.population(definition, sample_keys)
+            matches = sample_key_matches(groups, self.sample_matches.get(path, ()))
+            if any(match.interval_keys == () for match in matches):
+                sample_domain = parent.cross_join(selected_samples).filter(ibis.literal(False))
+            elif matches:
+                predicates = []
+                for match in matches:
+                    outer, inner = parent[match.outer], selected_samples[match.inner]
+                    if match.interval_keys is not None:
+                        inner = ibis.cases(
+                            *(
+                                (inner == sample, ibis.literal(report, type="int64"))
+                                for report, sample in match.interval_keys
+                            ),
+                            else_=ibis.null().cast("int64"),
+                        )
+                    predicates.append(same_returned_key(outer, inner, self.provider))
+                sample_domain = parent.inner_join(selected_samples, predicates)
+            else:
+                sample_domain = parent.cross_join(selected_samples)
         operands = tuple(
             self.lower(child, (*path, i), complete_keys, None if implicit else sample_domain)
             for i, child in enumerate(children)

@@ -1058,6 +1058,7 @@ def _plan_query(
         axes=graph.signature.axes,
         calendar_samples=observation.calendar_samples if observation is not None else (),
         window_endpoints=window_endpoint_keys(contributions),
+        sample_matches=observation.sample_matches if observation is not None else (),
     )
     count_inputs = []
     for definition, member_population in (
@@ -1108,22 +1109,26 @@ def _plan_query(
                 tuple(zip(member_population.axes, member_groups, strict=True)),
             )
         )
-    if parent_scope is not None:
+    output_groups: tuple[tuple[str, ...], ...] = ()
+    if parent_scope is not None or program.sample_matches:
         from marivo.analysis.compiler.queries import key_groups as output_key_groups
 
-        parent_groups = output_key_groups(
+        output_groups = output_key_groups(
             graph, keys, tuple(column.slot_id for column in keys), counts=tuple(count_inputs)
         )
+    if parent_scope is not None:
         program = replace(
             program,
             parent_scope=parent_scope,
             parent_slots=tuple(
                 slot
                 for axis in parent_scope.axes
-                for slot in parent_groups[graph.signature.axes.index(axis)]
+                for slot in output_groups[graph.signature.axes.index(axis)]
             ),
         )
-    program = replace(program, counts=tuple(count_inputs), calendar_key=calendar_key)
+    program = replace(
+        program, counts=tuple(count_inputs), calendar_key=calendar_key, key_groups=output_groups
+    )
     columns = tuple(
         replace(column, unit=quantity.unit)
         for column, quantity in zip(

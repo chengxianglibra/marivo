@@ -30,6 +30,39 @@ from marivo._temporal import InstantAnchor
 
 CalendarGrouping: TypeAlias = CalendarCoordinate | IntervalCoordinate | BuiltinSampleCoordinate
 SampleAxis: TypeAlias = AxisBinding | CalendarGrouping
+SampleIntervalRanges: TypeAlias = tuple[tuple[int, InstantAnchor, InstantAnchor], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SampleAxisMatch:
+    """One shared complete axis, with exact interval ordinal translation if needed."""
+
+    outer: int
+    inner: int
+    interval_keys: tuple[tuple[int, int], ...] | None = None
+
+
+SampleAxisMatches: TypeAlias = tuple[SampleAxisMatch, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SampleKeyMatch:
+    """One physical key equality within a shared axis."""
+
+    outer: str
+    inner: str
+    interval_keys: tuple[tuple[int, int], ...] | None
+
+
+def sample_key_matches(
+    groups: tuple[tuple[str, ...], ...], matches: SampleAxisMatches
+) -> tuple[SampleKeyMatch, ...]:
+    """Expand each shared axis to every ordered component of its complete key."""
+    return tuple(
+        SampleKeyMatch(outer, inner, match.interval_keys)
+        for match in matches
+        for outer, inner in zip(groups[match.outer], groups[match.inner], strict=True)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +71,7 @@ class SampleLayer:
 
     axes: tuple[SampleAxis, ...]
     memberships: tuple[MembershipBinding, ...]
+    interval_ordinals: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +127,8 @@ class ContributionBinding:
     sample_window: SampleWindowContext | None = None
     window_coordinates: tuple[tuple[str, int | datetime], ...] = ()
     metric: str = ""
+    sample_time_slots: tuple[str, ...] = ()
+    sample_interval_ranges: tuple[tuple[str, SampleIntervalRanges], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +143,7 @@ class ObservationBinding:
     calendar_samples: tuple[tuple[tuple[int, ...], BuiltinSampleCoordinate], ...] = ()
     pending_interval: int | None = None
     empty_interval: bool = False
+    sample_matches: tuple[tuple[tuple[int, ...], SampleAxisMatches], ...] = ()
 
     @property
     def fingerprint(self) -> str:

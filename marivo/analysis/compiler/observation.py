@@ -31,7 +31,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
-from marivo._definition.observations import CalendarGrouping, SampleAxis
+from marivo._definition.observations import CalendarGrouping, SampleAxis, SampleAxisMatches
 from marivo._definition.relations import PopulationDependency
 from marivo._definition.types import (
     CalendarCoordinate,
@@ -129,6 +129,8 @@ class FormulaProgram:
     population_checked: bool = False
     calendar_samples: tuple[tuple[tuple[int, ...], BuiltinSampleCoordinate], ...] = ()
     window_endpoints: tuple[tuple[tuple[int, ...], tuple[datetime, ...]], ...] = ()
+    sample_matches: tuple[tuple[tuple[int, ...], SampleAxisMatches], ...] = ()
+    key_groups: tuple[tuple[str, ...], ...] = ()
 
 
 def calendar_field(slot: str) -> str:

@@ -24,7 +24,9 @@ from marivo._definition.graph import children
 from marivo._definition.observations import (
     ContributionBinding,
     ObservationPeriod,
+    SampleAxisMatches,
     SampleWindowContext,
+    sample_key_matches,
 )
 from marivo._definition.relations import (
     ObserveQuery,
@@ -55,6 +57,7 @@ from marivo.analysis.compiler.observation import reduction_input
 from marivo.analysis.core.calendar_keys import time_key_type
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn
+from marivo.analysis.core.data_validation import distinct_key_rows
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.value_types import ibis_type
@@ -87,21 +90,24 @@ def _consumers(stages: tuple[QueryStage, ...]) -> tuple[tuple[str, tuple[str, ..
     )
 
 
-def _sample_slot(graph: BoundGraph, item: ContributionBinding, context: SampleWindowContext) -> str:
-    width = sum(
-        len(coordinate_read_keys(read)) for read in item.coordinates[: item.output_axis_count]
-    )
-    width += sum(
-        isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) for axis in graph.signature.axes
-    )
-    ordinary = iter(item.coordinates[item.output_axis_count :])
-    for axis in item.sample_axes[: context.depth]:
-        width += (
+def _key_groups(graph: BoundGraph, item: ContributionBinding) -> tuple[tuple[str, ...], ...]:
+    ordinary = iter(item.coordinates)
+    groups: list[tuple[str, ...]] = []
+    offset = 0
+    for axis in (*graph.signature.axes, *item.sample_axes):
+        width = (
             1
             if isinstance(axis, (BuiltinSampleCoordinate, CalendarCoordinate, IntervalCoordinate))
             else len(coordinate_read_keys(next(ordinary)))
         )
-    return f"key.{width - 1}"
+        groups.append(tuple(f"key.{index}" for index in range(offset, offset + width)))
+        offset += width
+    return tuple(groups)
+
+
+def _sample_slot(graph: BoundGraph, item: ContributionBinding, context: SampleWindowContext) -> str:
+    (slot,) = _key_groups(graph, item)[len(graph.signature.axes) + context.depth - 1]
+    return slot
 
 
 def prepare_sample_window_plan(
@@ -225,17 +231,21 @@ def prepare_sample_window_plan(
 
 def _enclosing_populations(
     graph: BoundGraph,
-) -> dict[tuple[int, ...], tuple[tuple[int, PopulationDependency], ...]]:
+) -> dict[tuple[int, ...], tuple[tuple[int, PopulationDependency, SampleAxisMatches], ...]]:
     """Retain explicit parent sample selections before discovering inner endpoints."""
-    assert isinstance(graph.root, ObserveQuery)
+    observation = graph.signature.observation
+    assert isinstance(graph.root, ObserveQuery) and observation is not None
     declared = dict(graph.signature.declared_metrics)
-    result: dict[tuple[int, ...], tuple[tuple[int, PopulationDependency], ...]] = {}
+    matches = dict(observation.sample_matches)
+    result: dict[
+        tuple[int, ...], tuple[tuple[int, PopulationDependency, SampleAxisMatches], ...]
+    ] = {}
 
     def visit(
         node: MetricNode,
         path: tuple[int, ...],
         depth: int,
-        selected: tuple[tuple[int, PopulationDependency], ...],
+        selected: tuple[tuple[int, PopulationDependency, SampleAxisMatches], ...],
     ) -> None:
         result[path] = selected
         if isinstance(node, DeclaredMetricRef):
@@ -244,7 +254,7 @@ def _enclosing_populations(
         if isinstance(node, (PerReduce, PerWeightedMean)):
             population = sample_population(node.samples)
             if population is not None:
-                selected = (*selected, (depth, population))
+                selected = (*selected, (depth, population, matches.get(path, ())))
             samples = node.samples
             depth += (
                 1
@@ -285,7 +295,7 @@ def _population_domain(
             )
             for row in finite
         ]
-        keys = pd.DataFrame(rows, columns=slots)
+        keys = pd.DataFrame(rows, columns=slots, dtype=object)
     return keys
 
 
@@ -293,26 +303,26 @@ def _select_parent_samples(
     graph: BoundGraph,
     item: ContributionBinding,
     domain: pd.DataFrame,
-    selections: tuple[tuple[int, PopulationDependency], ...],
+    selections: tuple[tuple[int, PopulationDependency, SampleAxisMatches], ...],
     populations: Mapping[PopulationDependency, pd.DataFrame],
 ) -> pd.DataFrame:
-    for depth, population in selections:
-        slots: list[str] = []
-        for axis in population.axes:
-            offset = next(
-                index
-                for index, sample in enumerate(item.sample_axes[depth:])
-                if not isinstance(sample, BuiltinSampleCoordinate)
-                and coordinate_matches(sample, axis)
-            )
-            start = int(_sample_slot(graph, item, SampleWindowContext((), depth + offset))[4:]) + 1
-            end = (
-                int(_sample_slot(graph, item, SampleWindowContext((), depth + offset + 1))[4:]) + 1
-            )
-            slots.extend(f"key.{index}" for index in range(start, end))
-        keys = _population_domain(population, tuple(slots), populations)
+    groups = _key_groups(graph, item)
+    for depth, population, matches in selections:
+        start = len(graph.signature.axes) + depth
+        slots = tuple(
+            slot for group in groups[start : start + len(population.axes)] for slot in group
+        )
+        for match in sample_key_matches(groups, matches):
+            left, right = domain[match.outer], domain[match.inner]
+            if match.interval_keys is not None:
+                right = right.map({inner: outer for outer, inner in match.interval_keys})
+                compatible = left.eq(right).fillna(False)
+            else:
+                compatible = left.eq(right).fillna(False) | (left.isna() & right.isna())
+            domain = domain.loc[compatible]
+        keys = _population_domain(population, slots, populations)
         domain = (
-            domain.merge(keys.drop_duplicates(), on=slots, how="inner")
+            domain.merge(distinct_key_rows(keys, slots), on=list(slots), how="inner")
             if slots
             else domain
             if len(keys)
@@ -398,7 +408,9 @@ def _domains(
                                 part for part in (outer, *count_domains) if not part.empty
                             ]
                             if represented:
-                                outer = pd.concat(represented, ignore_index=True).drop_duplicates()
+                                outer = distinct_key_rows(
+                                    pd.concat(represented, ignore_index=True), outer_keys
+                                )
                     shared = [key for key in outer_keys if key in selected]
                     selected = (
                         outer.merge(selected, on=shared, how="inner")
@@ -444,7 +456,7 @@ def _domains(
         slot = _sample_slot(program.graph, representative, context)
         keys = tuple(f"key.{i}" for i in range(int(slot[4:]) + 1))
         domains[context.occurrence] = (
-            pd.concat(parts, ignore_index=True).drop_duplicates().reset_index(drop=True)
+            distinct_key_rows(pd.concat(parts, ignore_index=True), keys)
             if parts
             else pd.DataFrame(columns=keys)
         )
@@ -487,7 +499,7 @@ def _restrict(
     names = tuple(fields)
     key_columns = tuple(columns[name] for name in names)
     output = StageOutput.from_frame(
-        allowed.loc[:, list(names)].drop_duplicates(), key_columns, names
+        distinct_key_rows(allowed.loc[:, list(names)], names), key_columns, names
     )
     name = "__marivo_sample_window_keys"
     keys = ibis.table(
@@ -537,7 +549,7 @@ def _required_report_domain(
     if not keys:
         return pd.DataFrame(index=pd.RangeIndex(int(any(len(part) for part in parts))))
     return (
-        pd.concat(parts, ignore_index=True).drop_duplicates().reset_index(drop=True)
+        distinct_key_rows(pd.concat(parts, ignore_index=True), keys)
         if parts
         else pd.DataFrame(columns=keys)
     )
@@ -700,9 +712,7 @@ def run_sample_windows(
         sources,
         lowered,
         observe_read=observe_read,
-        report_domain=_required_report_domain(stage.keys, candidates)
-        if observation.coordinates.population is not None
-        else None,
+        report_domain=_required_report_domain(stage.keys, candidates),
         sample_domains=domains,
         frame_key_inputs=dict(
             zip(program.key_inputs, inputs[len(program.candidates) : key_end], strict=True)

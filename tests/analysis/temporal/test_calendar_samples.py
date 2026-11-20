@@ -3,7 +3,9 @@
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import Mock
 
+import duckdb
 import ibis
 import pandas as pd
 import pytest
@@ -12,7 +14,9 @@ import marivo.analysis as mv
 from marivo._authoring.model import AuthoringCapability
 from marivo._definition.windows import ObservationWindow
 from marivo.analysis.core.model import CoreRuleError
+from marivo.analysis.materialization import sample_fusion
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.methods import _sample_numeric
 from marivo.analysis.session.core import Session
 from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._deferred_semantics import consume_metric
@@ -694,6 +698,205 @@ def test_calendar_window_samples_respect_enclosing_population_selection(
     scope = session.time_scope(start="2026-10-05", end="2026-10-12")
     actual = session.observe({"v": metric}, where=scope).compute().to_pandas()
     assert actual["v"].isna().all()
+
+
+def test_calendar_window_samples_preserve_report_keys_without_compatible_samples(
+    calendar_session: Session, tmp_path: Path
+) -> None:
+    session = calendar_session
+    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as conn:
+        conn.execute("UPDATE facts SET region = 'west' WHERE point::date = DATE '2026-10-11'")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
+    selected = mv.coordinates(by=(region,), keys=(("east",),))
+    daily = amount.sum(time=point).window(mv.all_history()).per(mv.grain("day")).sum()
+    scope = session.time_scope(start="2026-10-05", end="2026-10-12")
+    actual = (
+        session.observe({"v": daily.per(selected).mean()}, where=scope, by=(region,))
+        .compute()
+        .to_pandas()
+    )
+    # East's actual dates give cumulative totals of 40, 100, and 260.
+    # West has source facts and keeps its output key, but no compatible sample.
+    assert actual["region"].tolist() == ["east", "west"]
+    assert actual["v"].iloc[0] == 400
+    assert pd.isna(actual["v"].iloc[1])
+
+
+def test_explicit_calendar_samples_match_compatible_report_day_keys(
+    calendar_session: Session,
+) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    grain = mv.grain("day")
+    sample = session.time_scope(start="2026-10-05", end="2026-10-08").by(grain)
+    report = session.time_scope(start="2026-10-05", end="2026-10-12").by(grain)
+    metric = amount.sum(time=point).per(time_population(sample)).mean()
+    rows = session.observe({"v": metric}, by=(report,)).compute().to_pandas()
+    assert rows["calendar:day"].dt.day.tolist() == [5, 6, 8, 11]
+    assert rows["v"].iloc[:2].tolist() == [40, 60]
+    assert rows["v"].iloc[2:].isna().tolist() == [True, True]
+
+
+@pytest.mark.parametrize("native", (True, False))
+def test_explicit_sample_intervals_match_exact_endpoints_across_directories(
+    calendar_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    native: bool,
+) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    first = time_population(session.time_scope(start="2026-10-05", end="2026-10-07"))
+    later = time_population(session.time_scope(start="2026-10-07", end="2026-10-12"))
+    together = first.union(later)
+    report = together.difference(first)
+    shorter = time_population(session.time_scope(start="2026-10-08", end="2026-10-12"))
+    assert isinstance(together, mv.Population) and isinstance(report, mv.Population)
+    if not native:
+        monkeypatch.setattr(
+            sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered
+        )
+    reducer = Mock(wraps=_sample_numeric.reduce_samples)
+    monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
+    revenue = amount.sum(time=point)
+    combined = session.observe({"v": revenue.per(together).mean()}, by=report).compute()
+    assert combined.to_pandas()["v"].tolist() == [460]
+    reversed_directory = session.observe({"v": revenue.per(together).mean()}, by=later).compute()
+    assert reversed_directory.to_pandas()["v"].tolist() == [460]
+    matching_sample = session.observe({"v": revenue.per(later).mean()}, by=report).compute()
+    assert matching_sample.to_pandas()["v"].tolist() == [460]
+    unmatched = session.observe({"v": revenue.per(shorter).mean()}, by=report).compute()
+    assert unmatched.to_pandas()["v"].isna().tolist() == [True]
+    assert bool(reducer.call_args_list) is not native
+
+
+@pytest.mark.parametrize("native", (True, False))
+def test_explicit_overlapping_intervals_each_receive_matching_occurrences(
+    calendar_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    native: bool,
+) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    first = time_population(session.time_scope(start="2026-10-05", end="2026-10-07"))
+    middle = time_population(session.time_scope(start="2026-10-06", end="2026-10-09"))
+    later = time_population(session.time_scope(start="2026-10-07", end="2026-10-12"))
+    scope = session.time_scope(start="2026-10-05", end="2026-10-12")
+    samples = first.union(middle).union(later)
+    assert isinstance(samples, mv.Population)
+    if not native:
+        monkeypatch.setattr(
+            sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered
+        )
+    reducer = Mock(wraps=_sample_numeric.reduce_samples)
+    monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
+    metric = amount.sum(time=point).per(samples).mean()
+    rows = session.observe({"v": metric}, where=scope).compute().to_pandas()
+    # Intervals complete to 40+60, 60+160, and 160+300. Shared fact days
+    # participate in both of their intervals, with an exclusive end.
+    assert rows["v"].tolist() == [260]
+    assert bool(reducer.call_args_list) is not native
+
+
+def test_date_samples_validate_selected_intervals_and_preserve_directory_ordinals(
+    calendar_session: Session, tmp_path: Path
+) -> None:
+    session = calendar_session
+    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as conn:
+        conn.execute("ALTER TABLE facts ALTER COLUMN point TYPE DATE USING CAST(point AS DATE)")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    partial = time_population(session.time_scope(start="2026-10-04T12:00", end="2026-10-05"))
+    first = time_population(session.time_scope(start="2026-10-05", end="2026-10-07"))
+    second = time_population(session.time_scope(start="2026-10-06", end="2026-10-09"))
+    one = first.union(partial).difference(partial)
+    all_intervals = first.union(second).union(partial)
+    both = all_intervals.difference(partial)
+    assert isinstance(one, mv.Population)
+    assert isinstance(both, mv.Population)
+    assert isinstance(all_intervals, mv.Population)
+    revenue = amount.sum(time=point)
+
+    # Removing the partial interval leaves the same directory. Both valid
+    # intervals keep their original keys 1 and 2 and include 100 and 220.
+    for samples in (one, both):
+        matched = session.observe({"v": revenue.per(samples).mean()}, by=first).compute()
+        assert matched.to_pandas()["v"].tolist() == [100]
+    rows = session.observe({"v": revenue.per(both).mean()}).compute().to_pandas()
+    assert rows["v"].tolist() == [160]
+    with pytest.raises(CoreRuleError) as failure:
+        session.observe({"v": revenue.per(all_intervals).mean()}).compute()
+    assert (
+        failure.value.expected
+        == "civil DATE contributions at complete business-midnight boundaries"
+    )
+    assert "2026-10-04T12:00:00" in (failure.value.received or "")
+
+
+def test_date_sample_interval_support_survives_source_backed_product_and_projection(
+    calendar_session: Session, tmp_path: Path
+) -> None:
+    session = calendar_session
+    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as conn:
+        conn.execute("ALTER TABLE facts ALTER COLUMN point TYPE DATE USING CAST(point AS DATE)")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    facts = catalog_value(session.catalog, "sales.facts", kind="entity")
+    partial = time_population(session.time_scope(start="2026-10-03T12:00", end="2026-10-05"))
+    whole = time_population(session.time_scope(start="2026-10-05", end="2026-10-07"))
+    retained = whole.union(partial).difference(partial)
+    assert isinstance(retained, mv.Population)
+    members = session.members(facts)
+    direct = mv.product(whole, members)
+    mixed = mv.product(retained, members)
+    assert isinstance(direct, mv.Population)
+    assert isinstance(mixed, mv.Population)
+    reordered = mixed.project(by=tuple(reversed(mixed.axes)))
+    assert isinstance(reordered, mv.Population)
+    revenue = amount.sum(time=point)
+
+    # All eleven members remain eligible samples for the retained interval.
+    # The four matching facts total 100 and the other members each supply zero.
+    for samples in (direct, mixed, reordered):
+        rows = session.observe({"v": revenue.per(samples).mean()}, by=whole).compute().to_pandas()
+        assert rows["v"].tolist() == pytest.approx([100 / 11])
+
+
+def test_window_explicit_samples_keep_adjacent_nullable_bigint_report_keys(
+    calendar_session: Session,
+    tmp_path: Path,
+) -> None:
+    session = calendar_session
+    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as conn:
+        conn.execute(
+            "ALTER TABLE facts ALTER COLUMN region TYPE BIGINT USING CASE "
+            "WHEN point::date = DATE '2026-10-11' THEN 9007199254740992 "
+            "WHEN point::date = DATE '2026-10-08' THEN NULL ELSE 9007199254740993 END"
+        )
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
+    selected = mv.coordinates(by=(region,), keys=((2**53 + 1,), (None,)))
+    daily = amount.sum(time=point).window(mv.all_history()).per(mv.grain("day")).sum()
+    scope = session.time_scope(start="2026-10-05", end="2026-10-12")
+    rows = (
+        session.observe({"v": daily.per(selected).mean()}, where=scope, by=(region,))
+        .compute()
+        .to_pandas()
+    )
+    values = {
+        None if pd.isna(region) else region: value
+        for region, value in rows.itertuples(index=False, name=None)
+    }
+    assert len(rows) == 3
+    assert set(values) == {2**53, 2**53 + 1, None}
+    assert pd.isna(values[2**53])
+    assert values[2**53 + 1] == 140
+    assert values[None] == 160
 
 
 def test_sample_windows_keep_each_outputs_sample_key_types(calendar_session: Session) -> None:

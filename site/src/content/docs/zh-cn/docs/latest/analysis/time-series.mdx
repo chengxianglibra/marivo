@@ -145,7 +145,8 @@ progress.show()
 
 `sample_interval=(1, "hour")` 声明来源采样节拍，不会将时间戳截断或分桶到小时。
 所有 TimeField 样本规约均使用实际出现的样本，允许缺点，不隐式补零或补 NULL。
-NULL、空输入和加权有效配对仍遵循各规约原有策略；显式 Population 保留声明的样本坐标。
+NULL、空输入和加权有效配对仍遵循各规约原有策略。显式 Population 按
+[共享完整键](/zh-cn/docs/latest/analysis/population/#explicit-metric-samples)选择声明的样本元组。
 
 六笔订单示例先按订单日期计算每日金额均值，再在各地区内对实际出现的日期取均值。
 只有有订单的日期参与，各日期权重相同；当每日订单数不同时，结果可能不同于按订单数

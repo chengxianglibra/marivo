@@ -163,7 +163,8 @@ Changing the report timezone does not reinterpret that source timestamp.
 into hourly buckets. All TimeField sample reducers use represented timestamps,
 allow missing clocks and never implicitly fill them with zero or NULL.
 NULL, empty-input and weighted valid-pair policies remain reducer-owned.
-An explicit `Population` still selects its declared sample coordinates.
+An explicit `Population` selects declared sample tuples using [shared complete
+keys](/docs/latest/analysis/population/#explicit-metric-samples).
 
 In the six-order example, first average order amounts per date, then average
 the represented dates within each region. Only dates with orders participate,

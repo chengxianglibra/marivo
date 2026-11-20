@@ -2349,7 +2349,10 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 summary += (
                     "per accepts a Dimension, TimeField, native field Grouping or membership, a nonempty tuple of these, "
                     "or a complete Population; finish with a sample reducer. Field samples use observed "
-                    "keys; Population binds every compatible tuple, including empty samples. "
+                    "joint keys. Population samples match every shared axis by complete key; "
+                    "axes must have compatible roles, paths and time bindings. Interval keys match exact bounds. Without shared axes, "
+                    "each parent key uses all Population tuples. Compatible samples with no facts "
+                    "use the child Metric's empty value. No compatible samples leave an empty fold. "
                     "Place correlated mv.membership(...) rules directly in samples, or use (P, rule, ...). "
                     "Membership fields expand in order; explicit non-first fields locate interleaved axes. "
                     "Reject repeated first fields, overlapping rules and reordered member fields. "
