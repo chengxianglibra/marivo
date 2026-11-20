@@ -140,6 +140,46 @@ def _values(frame: AnalysisFrame, name: str) -> list[object]:
     return frame.to_pandas()[name].tolist()
 
 
+@pytest.mark.parametrize("operation", ["align", "compare"])
+def test_wide_outer_pairing_keeps_null_values_distinct_from_missing_endpoints(
+    local: LocalFrameServices, operation: str
+) -> None:
+    i64 = ScalarDataType("int64")
+    axis = DataAxis("region", (DataColumn("key", "region", i64, True),), name="region")
+    names = ("sales", "orders", "returns", "visits")
+    schema = DataSchema(
+        (axis,),
+        tuple(DataColumn(name, name, i64, True) for name in names),
+        value_paths=tuple((name,) for name in names),
+    )
+    left = _data_frame(
+        local,
+        schema,
+        {
+            "key": pd.Series([None, 1], dtype="int64[pyarrow]"),
+            **{name: [None, None] for name in names},
+        },
+    )
+    right = _data_frame(local, schema, {"key": [1, 2], **{name: [0, 0] for name in names}})
+    if operation == "align":
+        rows = left.align(right).compute().to_pandas()
+        left_prefix, right_prefix = "left.", "right."
+        left_presence, right_presence = "left_present", "right_present"
+    else:
+        rows = left.compare(right).compute().to_pandas()
+        left_prefix, right_prefix = "", "reference.baseline."
+        left_presence, right_presence = "current.present", "reference.present"
+        for name in names:
+            assert rows[f"reference.absolute.{name}"].isna().all()
+            assert rows[f"reference.relative.{name}"].isna().all()
+    assert rows["region"].tolist() == [pd.NA, 1, 2]
+    assert rows[left_presence].tolist() == [True, True, False]
+    assert rows[right_presence].tolist() == [False, True, True]
+    for name in names:
+        assert rows[f"{left_prefix}{name}"].isna().all()
+        assert rows[f"{right_prefix}{name}"].tolist() == [pd.NA, 0, 0]
+
+
 def test_composite_identity_and_field_domains_are_full_tuples(local: LocalFrameServices) -> None:
     identity = DataAxis(
         "id",
