@@ -319,9 +319,10 @@ def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
 @pytest.mark.skipif(
     os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1", reason="opt-in MySQL service"
 )
-def test_mysql_utc_timestamp_transport_and_named_source_timezone(
+def test_mysql_utc_timestamp_transport_and_source_timezones(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from marivo.datasource._temporal_expressions import localize
     from marivo.datasource.engines.mysql import verify_source_timezone as verify_mysql
 
     data = SourceData(
@@ -339,7 +340,8 @@ def test_mysql_utc_timestamp_transport_and_named_source_timezone(
         assert table.point.type().timezone == "UTC"
         assert table.clock.type().timezone is None
         assert table.point.type().scale == table.clock.type().scale == 6
-        verify_source_timezone(owner._backend, "Asia/Shanghai")
+        for zone in ("UTC", "+08:00", "Asia/Shanghai"):
+            verify_source_timezone(owner._backend, zone)
         with pytest.raises(DatasourceConnectionError) as failure:
             verify_mysql(owner._backend, "Marivo/Unavailable")
         assert failure.value.received == "Marivo/Unavailable"
@@ -362,12 +364,16 @@ def test_mysql_utc_timestamp_transport_and_named_source_timezone(
         )
         assert authority.kind == "instant"
         assert clock_authority.kind == "wall_clock" and clock_authority.origin == "field"
-        expression = lower_temporal(table.select(point=point, clock=clock), "mysql")
+        expression = lower_temporal(
+            table.select(point=point, clock=clock, fixed=localize("UTC+08:00", table.clock)),
+            "mysql",
+        )
         assert isinstance(expression, ir.Table)
         frame = owner.collect_bounded(expression, purpose="temporal.native", max_rows=2)
         expected = pd.Timestamp("2026-04-30 16:30:00.123456")
         assert frame.point.tolist() == [expected.tz_localize("UTC")]
         assert frame.clock.tolist() == [expected.tz_localize("UTC")]
+        assert frame.fixed.tolist() == [expected.tz_localize("UTC")]
         receipt(
             "adapters-runtime-mysql",
             {
@@ -484,6 +490,9 @@ def test_gap_fold_ranges_match_native_source_localization(
         )
 
 
+@pytest.mark.skipif(
+    os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1", reason="opt-in ClickHouse service"
+)
 @pytest.mark.parametrize(
     "zone, hours", (("UTC", 0), ("Asia/Tokyo", 9), ("UTC+08:00", 8), ("UTC-05:00", -5))
 )
@@ -495,12 +504,9 @@ def test_clickhouse_date_offsets_ignore_server_timezone(
     from marivo.datasource._temporal_lowering import lower_temporal as lower_native
     from tests.datasource.environment.clickhouse_analysis import connection
 
-    port = os.environ.get("MARIVO_CLICKHOUSE_NON_UTC_TEST_PORT")
-    if port is None:
-        pytest.skip("Explicit non-UTC ClickHouse server required")
     expression = localize(zone, timestamp(ibis.literal(date(2026, 7, 1))))
     lowered = (lower_temporal if analysis else lower_native)(expression, "clickhouse")
-    with connection(port=int(port)) as client:
+    with connection() as client:
         assert client.query("SELECT timezone()").result_rows == [("Asia/Shanghai",)]
         expected = client.query(
             f"SELECT toDateTime64('2026-07-01 00:00:00', 6, 'UTC') - INTERVAL {hours} HOUR"

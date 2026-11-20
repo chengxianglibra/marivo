@@ -1,8 +1,6 @@
 """MySQL-family Attribute strings retain native source comparison semantics."""
 
-import os
 from collections.abc import Callable, Iterator
-from functools import partial
 from pathlib import Path
 
 import pandas as pd
@@ -14,18 +12,10 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.environment import mysql_analysis as mysql
-from tests.datasource.source_cases import Case, SourceData, source_case
+from tests.datasource.source_cases import MYSQL_RUNTIME_PROFILES, Case, SourceData, source_case
 from tests.shared_fixtures import catalog_value
 
-SERVERS = [
-    pytest.param(23306, "MARIVO_MYSQL_ANALYSIS_TEST", id="mysql-84", marks=pytest.mark.runtime),
-    pytest.param(
-        23307, "MARIVO_MARIADB_ANALYSIS_TEST", id="mariadb-114", marks=pytest.mark.runtime
-    ),
-    pytest.param(
-        23309, "MARIVO_MARIADB_103_ANALYSIS_TEST", id="mariadb-103", marks=pytest.mark.runtime
-    ),
-]
+pytestmark = pytest.mark.parametrize("profile", MYSQL_RUNTIME_PROFILES)
 
 
 @pytest.fixture
@@ -39,21 +29,19 @@ def amount_type() -> str:
 
 
 @pytest.fixture
+def mysql_port(profile: str) -> int:
+    return mysql.MARIADB_PORT if profile == "mariadb" else mysql.PORT
+
+
+@pytest.fixture
 def string_case(
-    port: int,
-    flag: str,
+    profile: str,
     collation: str | None,
     amount_type: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> Iterator[Case]:
-    if os.environ.get(flag) != "1":
-        pytest.skip(f"Explicit ready service required: {flag}=1")
-    monkeypatch.setenv("MARIVO_MYSQL_ANALYSIS_TEST", "1")
-    monkeypatch.setattr(mysql, "connection", partial(mysql.connection, port=port))
-    monkeypatch.setattr(mysql, "setup", partial(mysql.setup, port=port))
-    monkeypatch.setattr(mysql, "PORT", port)
     suffix = " CHARACTER SET utf8mb4" + ("" if collation is None else f" COLLATE {collation}")
     values = []
     for phase, offset in (("base", 0), ("current", 10)):
@@ -77,14 +65,15 @@ def string_case(
         [],
     )
     monkeypatch.chdir(tmp_path)
-    with source_case("mysql", "innodb-table", tmp_path, monkeypatch, data) as case:
+    with source_case("mysql", profile, tmp_path, monkeypatch, data) as case:
         _project("mysql", case, monkeypatch, semantic_project_factory)
         yield case
 
 
-@pytest.mark.parametrize("port,flag", SERVERS)
 @pytest.mark.parametrize("collation", (None, "utf8mb4_bin"))
-def test_mysql_attribute_groups_and_metrics_follow_native_collation(string_case: Case) -> None:
+def test_mysql_attribute_groups_and_metrics_follow_native_collation(
+    string_case: Case, mysql_port: int
+) -> None:
     session = mv.session.get_or_create("mysql-native-strings", timezone="UTC")
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
@@ -96,7 +85,7 @@ def test_mysql_attribute_groups_and_metrics_follow_native_collation(string_case:
     ).compute()
     rows = parent.attribute(by=(tenant, category)).compute().to_pandas()
     assert isinstance(string_case.source, TableSourceIR)
-    with mysql.connection() as con, con.cursor() as cursor:
+    with mysql.connection(port=mysql_port) as con, con.cursor() as cursor:
         cursor.execute(
             f"SELECT category FROM `{string_case.source.table}` "
             "WHERE tenant = 'base' GROUP BY tenant, category"
@@ -124,9 +113,10 @@ def test_mysql_attribute_groups_and_metrics_follow_native_collation(string_case:
     assert rows["contribution.ratio"].sum() == pytest.approx(127 / 22)
 
 
-@pytest.mark.parametrize("port,flag", SERVERS)
 @pytest.mark.parametrize("amount_type", ("DECIMAL(18,2)",))
-def test_mysql_attribute_paired_shapley_keeps_native_groups(string_case: Case) -> None:
+def test_mysql_attribute_paired_shapley_keeps_native_groups(
+    string_case: Case, mysql_port: int
+) -> None:
     session = mv.session.get_or_create("mysql-native-shapley", timezone="UTC")
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
@@ -147,7 +137,7 @@ def test_mysql_attribute_paired_shapley_keeps_native_groups(string_case: Case) -
     report = selected.attribute(by=(category,), permutations=2, seed=23).compute()
     rows = report.to_pandas()
     assert isinstance(string_case.source, TableSourceIR)
-    with mysql.connection() as con, con.cursor() as cursor:
+    with mysql.connection(port=mysql_port) as con, con.cursor() as cursor:
         cursor.execute(
             f"SELECT category FROM `{string_case.source.table}` "
             "WHERE tenant = 'base' GROUP BY category"
@@ -169,9 +159,9 @@ def test_mysql_attribute_paired_shapley_keeps_native_groups(string_case: Case) -
     assert all(item.method.kind == "shapley" for item in report.method_facts[0].parents[0].metrics)
 
 
-@pytest.mark.parametrize("port,flag", SERVERS)
 def test_mysql_attribute_population_and_parent_subset_use_native_membership(
     string_case: Case,
+    mysql_port: int,
 ) -> None:
     session = mv.session.get_or_create("mysql-native-population", timezone="UTC")
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
@@ -184,7 +174,7 @@ def test_mysql_attribute_population_and_parent_subset_use_native_membership(
     parent = observed.where(observed.coord(observed.axes[0]) == "base").compute()
     rows = parent.attribute(by=(category,)).compute().to_pandas()
     assert isinstance(string_case.source, TableSourceIR)
-    with mysql.connection() as con, con.cursor() as cursor:
+    with mysql.connection(port=mysql_port) as con, con.cursor() as cursor:
         cursor.execute(
             f"SELECT SUM(amount) FROM `{string_case.source.table}` "
             "WHERE tenant = 'base' AND category = 'a'"
@@ -196,11 +186,12 @@ def test_mysql_attribute_population_and_parent_subset_use_native_membership(
     assert rows["total.sum"].tolist() == [native[0]]
 
 
-@pytest.mark.parametrize("port,flag", SERVERS)
 @pytest.mark.parametrize("amount_type", ("DECIMAL(18,2)",))
-def test_mysql_attribute_alignment_uses_returned_representatives(string_case: Case) -> None:
+def test_mysql_attribute_alignment_uses_returned_representatives(
+    string_case: Case, mysql_port: int
+) -> None:
     assert isinstance(string_case.source, TableSourceIR)
-    with mysql.connection(admin=True) as con, con.cursor() as cursor:
+    with mysql.connection(admin=True, port=mysql_port) as con, con.cursor() as cursor:
         cursor.execute(
             f"UPDATE `{string_case.source.table}` "
             "SET category = CASE WHEN tenant = 'base' THEN 'A' ELSE 'a' END "
@@ -226,7 +217,6 @@ def test_mysql_attribute_alignment_uses_returned_representatives(string_case: Ca
     assert rows["contribution.change"].sum() == 2
 
 
-@pytest.mark.parametrize("port,flag", SERVERS)
 def test_mysql_attribute_source_condition_keeps_native_equality(string_case: Case) -> None:
     session = mv.session.get_or_create("mysql-native-condition", timezone="UTC")
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
@@ -242,8 +232,9 @@ def test_mysql_attribute_source_condition_keeps_native_equality(string_case: Cas
     assert rows["total.sum"].tolist() == [31] * len(rows)
 
 
-@pytest.mark.parametrize("port,flag", SERVERS)
-def test_mysql_attribute_string_equality_preserves_sql_nulls(string_case: Case) -> None:
+def test_mysql_attribute_string_equality_preserves_sql_nulls(
+    string_case: Case, mysql_port: int
+) -> None:
     import ibis
 
     table = string_case.session.bind(string_case.source, source_identity="native-equality").relation
@@ -258,7 +249,7 @@ def test_mysql_attribute_string_equality_preserves_sql_nulls(string_case: Case) 
         expression, purpose="attribute.native_equality", max_rows=14
     )
     assert isinstance(string_case.source, TableSourceIR)
-    with mysql.connection() as con, con.cursor() as cursor:
+    with mysql.connection(port=mysql_port) as con, con.cursor() as cursor:
         cursor.execute(
             "SELECT id, category = 'a', NOT(category = 'a'), category = CAST(NULL AS CHAR) "
             f"FROM `{string_case.source.table}` ORDER BY id"

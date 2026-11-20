@@ -1,7 +1,6 @@
 """Native fixed-width character metadata, validation and grouped observation."""
 
 from collections.abc import Callable
-from functools import partial
 from pathlib import Path
 
 import pandas as pd
@@ -18,34 +17,22 @@ pytestmark = pytest.mark.runtime
 
 
 @pytest.mark.parametrize(
-    "backend,profile,port",
+    "backend,profile",
     [
-        ("postgres", "table", None),
-        ("mysql", "innodb-table", 23306),
-        ("mysql", "innodb-table", 23307),
-        ("trino", "non-iceberg", None),
+        ("postgres", "table"),
+        ("mysql", "innodb-table"),
+        ("mysql", "mariadb"),
+        ("trino", "non-iceberg"),
     ],
     ids=["postgres", "mysql", "mariadb", "trino"],
 )
 def test_char_entity_preview_and_analysis(
     backend: str,
     profile: str,
-    port: int | None,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    if port == 23307:
-        import os
-
-        if os.environ.get("MARIVO_MARIADB_ANALYSIS_TEST") != "1":
-            pytest.skip("Enable MARIVO_MARIADB_ANALYSIS_TEST for MariaDB")
-        from tests.datasource.environment import mysql_analysis as mysql
-
-        monkeypatch.setattr(mysql, "connection", partial(mysql.connection, port=port))
-        monkeypatch.setattr(mysql, "setup", partial(mysql.setup, port=port))
-        monkeypatch.setattr(mysql, "PORT", port)
-        monkeypatch.setenv("MARIVO_MYSQL_ANALYSIS_TEST", "1")
     data = SourceData(
         "id CHAR(8) NOT NULL, category CHAR(8), amount BIGINT, ignored CHAR(1)",
         "('one','A',1,'x'),('two','A ',2,'x'),('three','',4,'x'),('four',NULL,8,'x'),('five','猫',16,'x')",

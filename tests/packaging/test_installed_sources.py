@@ -134,7 +134,6 @@ def test_installed_native_behavior_owners(
             "MARIVO_TRINO_ANALYSIS_TEST",
             "MARIVO_TRINO_NON_ICEBERG_TEST",
             "MARIVO_CLICKHOUSE_ANALYSIS_TEST",
-            "MARIVO_CLICKHOUSE_CLUSTER_TEST",
         )
     }
     name = engine + "-" + owner.rsplit("/", 1)[-1].removesuffix(".py")

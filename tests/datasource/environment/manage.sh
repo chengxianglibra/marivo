@@ -4,62 +4,71 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../../.." && pwd)"
 state_dir="$HOME/.cache/marivo-multisource"
-profile="marivo-multisource"
-socket="unix://$HOME/.colima/$profile/docker.sock"
+project="marivo-multisource"
+machine="${MARIVO_PODMAN_MACHINE:-podman-machine-default}"
+profiles='trino|clickhouse|postgres-analysis|mysql-analysis|mariadb-analysis|minio|all'
 
-if [[ $# -ne 2 || ! "$1" =~ ^(start|stop|status|logs)$ || ! "$2" =~ ^(trino|clickhouse|clickhouse-cluster|postgres-analysis|mysql-analysis|mysql-no-timezones|mariadb-analysis|mariadb-103-analysis|minio)$ ]]; then
-    echo "Usage: $0 {start|stop|status|logs} {trino|clickhouse|clickhouse-cluster|postgres-analysis|mysql-analysis|mysql-no-timezones|mariadb-analysis|mariadb-103-analysis|minio}" >&2
+if [[ $# -ne 2 || ! "$1" =~ ^(start|stop|status|logs)$ || ! "$2" =~ ^($profiles)$ ]]; then
+    echo "Usage: $0 {start|stop|status|logs} {$profiles}" >&2
     exit 2
 fi
 if [[ ! -f "$state_dir/secrets.env" || ! -f "$state_dir/docker/config.json" ]]; then
     echo "Missing private environment setup; follow README.md before starting services." >&2
     exit 1
 fi
-docker_command=(docker --config "$state_dir/docker" --host "$socket")
-compose=("${docker_command[@]}" compose --progress quiet --env-file "$state_dir/secrets.env"
-    -f "$repo_root/tests/datasource/environment/compose.yaml" --profile "$2")
+if ! socket="$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' "$machine")" || [[ ! -S "$socket" ]]; then
+    echo "Podman machine '$machine' has no active API socket. See tests/datasource/environment/README.md." >&2
+    exit 1
+fi
+
+profile="$2"
+compose_profile="$profile"
+if [[ "$profile" == all ]]; then
+    compose_profile='*'
+fi
+compose=(docker --config "$state_dir/docker" --host "unix://$socket" compose --progress quiet
+    --project-name "$project" --env-file "$state_dir/secrets.env"
+    -f "$repo_root/tests/datasource/environment/compose.yaml" --profile "$compose_profile")
+cd "$repo_root"
+python="$repo_root/.venv/bin/python"
 
 case "$1" in
     start)
-        "$repo_root/.venv/bin/python" -c 'import shutil, sys; sys.exit(0 if shutil.disk_usage(sys.argv[1]).free >= 8 * 1024**3 else "Need at least 8 GiB free before starting qualification")' "$repo_root"
-        if [[ "$2" == trino ]]; then
-            "${compose[@]}" stop clickhouse clickhouse-shard-a clickhouse-shard-b
+        "$python" -c 'import shutil, sys; sys.exit(0 if shutil.disk_usage(sys.argv[1]).free >= 8 * 1024**3 else "Need at least 8 GiB free before starting qualification")' "$repo_root"
+        if [[ "$profile" == trino || "$profile" == all ]]; then
+            "${compose[@]}" up -d --wait --wait-timeout 180 postgres-analysis
+            "$python" -c 'from tests.datasource.environment.postgres_analysis import setup_catalog; setup_catalog()'
             # Named volumes must be writable by the pinned Trino image's uid 1000.
             "${compose[@]}" run --rm --no-deps --user root --entrypoint sh trino \
                 -c 'mkdir -p /warehouse && chown 1000:1000 /warehouse'
-        elif [[ "$2" == clickhouse ]]; then
-            "${compose[@]}" stop trino postgres clickhouse-shard-a clickhouse-shard-b
-        elif [[ "$2" == clickhouse-cluster ]]; then
-            "${compose[@]}" stop trino postgres clickhouse
         fi
         "${compose[@]}" up -d --wait --wait-timeout 180
-        if [[ "$2" == postgres-analysis ]]; then
-            "$repo_root/.venv/bin/python" "$repo_root/tests/datasource/environment/postgres_analysis.py"
-        elif [[ "$2" == mysql-analysis ]]; then
-            "$repo_root/.venv/bin/python" "$repo_root/tests/datasource/environment/mysql_analysis.py"
-        elif [[ "$2" == mysql-no-timezones ]]; then
-            (cd "$repo_root" && "$repo_root/.venv/bin/python" -c 'from tests.datasource.environment.mysql_analysis import initialize; initialize(port=23308)')
-        elif [[ "$2" == mariadb-analysis ]]; then
-            (cd "$repo_root" && "$repo_root/.venv/bin/python" -c 'from tests.datasource.environment.mysql_analysis import initialize; initialize(port=23307)')
-        elif [[ "$2" == mariadb-103-analysis ]]; then
-            (cd "$repo_root" && "$repo_root/.venv/bin/python" -c 'from tests.datasource.environment.mysql_analysis import initialize; initialize(port=23309)')
+        if [[ "$profile" == postgres-analysis || "$profile" == trino || "$profile" == all ]]; then
+            "$python" -m tests.datasource.environment.postgres_analysis
+        fi
+        if [[ "$profile" == mysql-analysis || "$profile" == all ]]; then
+            "$python" -m tests.datasource.environment.mysql_analysis
+        fi
+        if [[ "$profile" == mariadb-analysis || "$profile" == all ]]; then
+            "$python" -c '
+import json
+from tests.datasource.environment.mysql_analysis import MARIADB_PORT, initialize
+
+print(json.dumps(initialize(port=MARIADB_PORT), sort_keys=True))
+'
         fi
         ;;
     stop)
-        if [[ "$2" == trino ]]; then
-            "${compose[@]}" stop trino postgres
-        elif [[ "$2" == clickhouse-cluster ]]; then
-            "${compose[@]}" stop clickhouse-shard-a clickhouse-shard-b clickhouse
-        else
-            "${compose[@]}" stop "$2"
-        fi
+        case "$profile" in
+            all) "${compose[@]}" stop ;;
+            *) "${compose[@]}" stop "$profile" ;;
+        esac
         ;;
-    status) "${compose[@]}" ps -a ;;
+    status) "${compose[@]}" ps -a --orphans=false ;;
     logs)
-        if [[ "$2" == clickhouse-cluster ]]; then
-            "${compose[@]}" logs --tail 60 clickhouse-shard-a clickhouse-shard-b
-        else
-            "${compose[@]}" logs --tail 60 "$2"
-        fi
+        case "$profile" in
+            all) "${compose[@]}" logs --tail 60 ;;
+            *) "${compose[@]}" logs --tail 60 "$profile" ;;
+        esac
         ;;
 esac

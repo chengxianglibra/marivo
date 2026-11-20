@@ -74,9 +74,9 @@ Use repository entrypoints or explicit `.venv/bin/...` paths, never bare `python
 - Pass `make check` without narrowing variables before pushing. Its default suite
   excludes Runtime and release tests; run relevant Runtime tests separately.
 - Reserve full release acceptance for release work. Do not start MinIO for ordinary
-  commit preparation. Colima is authorized for relevant Runtime validation: follow
-  [environment instructions](tests/datasource/environment/README.md), use the dedicated
-  `marivo-multisource` environment, and reuse running services.
+  commit preparation. For relevant Runtime validation, use Podman and the
+  `marivo-multisource` Compose project. Follow the
+  [environment instructions](tests/datasource/environment/README.md) and reuse running services.
 - Fix failures caused by the change and rerun relevant checks. Report actual evidence
   and blockers, distinguishing static, local, Runtime and release validation.
 

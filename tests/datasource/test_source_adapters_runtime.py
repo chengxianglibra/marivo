@@ -480,75 +480,6 @@ def test_mysql_table_view_and_decimal_values(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.skipif(
-    os.environ.get("MARIVO_MYSQL_NO_TIMEZONES_TEST") != "1",
-    reason="opt-in MySQL service without named time zone tables",
-)
-def test_mysql_reader_without_named_timezone_tables(monkeypatch: pytest.MonkeyPatch) -> None:
-    import pymysql
-
-    from marivo.datasource.timezone import verify_source_timezone
-    from tests.datasource.environment import mysql_analysis as mysql
-
-    name = "no_timezones_" + uuid4().hex
-    monkeypatch.setenv("MARIVO_SOURCE_ADAPTER_MYSQL_PASSWORD", mysql.password())
-    with mysql.connection(admin=True, port=23308) as admin, admin.cursor() as cursor:
-        cursor.execute("SELECT COUNT(*) FROM mysql.time_zone_name")
-        assert cursor.fetchone() == (0,)
-        with pytest.raises(pymysql.OperationalError) as failure:
-            cursor.execute("SET @@session.time_zone = 'UTC'")
-        assert failure.value.args[0] == 1298
-        cursor.execute("SET @@session.time_zone = '+08:00'")
-        cursor.execute(f"CREATE TABLE {name} (point TIMESTAMP(6), clock DATETIME(6))")
-        try:
-            cursor.execute(
-                f"INSERT INTO {name} VALUES "
-                "('2026-05-01 00:30:00.123456', '2026-05-01 00:30:00.123456')"
-            )
-            datasource = _datasource(
-                "mysql",
-                {
-                    "host": mysql.HOST,
-                    "port": 23308,
-                    "database": mysql.DATABASE,
-                    "user": mysql.READER,
-                },
-                {"password": "MARIVO_SOURCE_ADAPTER_MYSQL_PASSWORD"},
-            )
-            with provider_for("mysql").open(datasource) as session:
-                with session._backend.raw_sql("SELECT @@session.time_zone") as result:
-                    assert result.fetchone() == ("+00:00",)
-                verify_source_timezone(session._backend, "UTC")
-                verify_source_timezone(session._backend, "+08:00")
-                from marivo.datasource.errors import DatasourceConnectionError
-
-                with pytest.raises(DatasourceConnectionError) as unavailable:
-                    verify_source_timezone(session._backend, "Asia/Tokyo")
-                assert unavailable.value.received == "Asia/Tokyo"
-                assert unavailable.value.repair is not None
-                bound = session.bind(TableSourceIR(name), source_identity=name)
-                assert bound.relation.point.type().timezone == "UTC"
-                assert bound.relation.clock.type().timezone is None
-                frame = session.collect_bounded(
-                    bound.relation, purpose="temporal.no_timezone_tables", max_rows=2
-                )
-                assert frame.point.tolist() == [pd.Timestamp("2026-04-30 16:30:00.123456Z")]
-                assert frame.clock.tolist() == [pd.Timestamp("2026-05-01 00:30:00.123456")]
-                from marivo.datasource._temporal_expressions import localize
-                from marivo.datasource._temporal_lowering import lower_temporal
-
-                fixed = lower_temporal(
-                    bound.relation.select(instant=localize("UTC+08:00", bound.relation.clock)),
-                    "mysql",
-                )
-                converted = session.collect_bounded(
-                    fixed, purpose="temporal.fixed_offset_without_timezone_tables", max_rows=2
-                )
-                assert converted.instant.tolist() == [pd.Timestamp("2026-04-30 16:30:00.123456Z")]
-        finally:
-            cursor.execute(f"DROP TABLE IF EXISTS {name}")
-
-
-@pytest.mark.skipif(
     os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1", reason="opt-in MySQL service"
 )
 def test_mysql_invalid_date_and_read_only_permission(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -670,7 +601,7 @@ def test_mariadb_pymysql_preserves_exact_table_values(monkeypatch: pytest.Monkey
 
     name = "pymysql_mariadb_" + uuid4().hex
     monkeypatch.setenv("MARIVO_MARIADB_PASSWORD", mysql.password())
-    with mysql.connection(admin=True, port=23307) as admin, admin.cursor() as cursor:
+    with mysql.connection(admin=True, port=mysql.MARIADB_PORT) as admin, admin.cursor() as cursor:
         cursor.execute(f"CREATE TABLE {name} (id BIGINT NOT NULL, amount DECIMAL(20,2))")
         cursor.execute(f"INSERT INTO {name} VALUES (9007199254740993,9007199254740993.01)")
         try:
@@ -678,7 +609,7 @@ def test_mariadb_pymysql_preserves_exact_table_values(monkeypatch: pytest.Monkey
                 "mysql",
                 {
                     "host": mysql.HOST,
-                    "port": 23307,
+                    "port": mysql.MARIADB_PORT,
                     "database": mysql.DATABASE,
                     "user": mysql.READER,
                 },
@@ -716,7 +647,12 @@ def test_mariadb_native_timeout_fallback_and_connection_release(
     monkeypatch.setenv("MARIVO_MARIADB_PASSWORD", mysql.password())
     datasource = _datasource(
         "mysql",
-        {"host": mysql.HOST, "port": 23307, "database": mysql.DATABASE, "user": mysql.READER},
+        {
+            "host": mysql.HOST,
+            "port": mysql.MARIADB_PORT,
+            "database": mysql.DATABASE,
+            "user": mysql.READER,
+        },
         {"password": "MARIVO_MARIADB_PASSWORD"},
     )
     built = build_backend_with_secrets(datasource, terminal_timeout_seconds=1)
@@ -736,7 +672,10 @@ def test_mariadb_native_timeout_fallback_and_connection_release(
         assert all(item.purpose == "datasource.native_query_timeout" for item in statements)
     finally:
         assert built.lease.close(suppress_errors=False)
-    with mysql.connection(admin=True, port=23307) as observer, observer.cursor() as cursor:
+    with (
+        mysql.connection(admin=True, port=mysql.MARIADB_PORT) as observer,
+        observer.cursor() as cursor,
+    ):
         cursor.execute("SELECT ID FROM information_schema.PROCESSLIST WHERE ID=%s", (identity,))
         assert cursor.fetchall() == ()
 
@@ -967,38 +906,3 @@ def test_clickhouse_partition_catalog_uses_bound_read(monkeypatch: pytest.Monkey
                 assert result.rows == ({"dt": "20260926"}, {"dt": "20260927"})
         finally:
             admin.command(f"DROP TABLE IF EXISTS {name}")
-
-
-@pytest.mark.skipif(
-    os.environ.get("MARIVO_CLICKHOUSE_CLUSTER_TEST") != "1", reason="opt-in ClickHouse cluster"
-)
-def test_clickhouse_distributed_reads_both_shards(monkeypatch: pytest.MonkeyPatch) -> None:
-    from tests.datasource.environment import clickhouse_analysis as ch
-    from tests.datasource.environment.credentials import password
-
-    ch.setup_cluster()
-    suffix = "source_adapter_" + uuid4().hex
-    monkeypatch.setenv("MARIVO_SOURCE_ADAPTER_CLICKHOUSE_PASSWORD", password())
-    ch.create_cluster_tables(suffix)
-    try:
-        datasource = _datasource(
-            "clickhouse",
-            {
-                "host": "127.0.0.1",
-                "port": 18201,
-                "database": "qualification_cluster",
-                "user": "analysis_reader",
-            },
-            {"password": "MARIVO_SOURCE_ADAPTER_CLICKHOUSE_PASSWORD"},
-        )
-        with provider_for("clickhouse").open(datasource) as session:
-            _assert_table_read(
-                session,
-                TableSourceIR(f"orders_{suffix}_distributed", database="qualification_cluster"),
-                identity=suffix,
-                expected=[{"id": value, "amount": value + 0.25} for value in range(5)],
-            )
-            session.close()
-            assert all(item.connection_disconnected for item in session.submissions)
-    finally:
-        ch.drop_cluster_tables(suffix)

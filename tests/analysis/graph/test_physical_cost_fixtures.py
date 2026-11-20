@@ -1,6 +1,5 @@
 """Full-row local files and actual distributed roots for cost fixtures."""
 
-import ast
 from pathlib import Path
 
 import pytest
@@ -10,7 +9,6 @@ from marivo.datasource.adapters import PhysicalRequirement
 from marivo.datasource.ir import TableSourceIR
 from tests.analysis.graph.physical_workloads import _data, _rows, _tables, workload
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.support.paths import PROJECT_ROOT
 
 
 @pytest.mark.parametrize("backend", ("duckdb", "trino"))
@@ -24,39 +22,6 @@ def test_cost_fixture_declares_trino_microsecond_time_only(backend: str) -> None
     )
     assert data.rows is rows
     assert "DateTime64(6, 'UTC')" in data.clickhouse_columns
-
-
-def test_cluster_reader_policy_matches_single_node_deadline_controls() -> None:
-    path = PROJECT_ROOT / "tests/datasource/environment/clickhouse_analysis.py"
-    tree = ast.parse(path.read_text())
-
-    def policy(name: str) -> frozenset[str]:
-        functions = [
-            node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name
-        ]
-        assert len(functions) == 1
-        settings = [
-            node.args[0].value
-            for node in ast.walk(functions[0])
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "command"
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-            and isinstance(node.args[0].value, str)
-            and node.args[0].value.startswith("ALTER USER analysis_reader SETTINGS readonly=1")
-        ]
-        assert len(settings) == 1
-        entries = settings[0].removeprefix("ALTER USER analysis_reader SETTINGS ")
-        return frozenset(entry.split(maxsplit=1)[0] for entry in entries.split(","))
-
-    single_node, cluster = policy("setup"), policy("setup_cluster")
-    assert single_node == cluster
-    assert {
-        "max_execution_time=0",
-        "timeout_before_checking_execution_speed=0",
-        "cancel_http_readonly_queries_on_client_close=0",
-    } <= single_node
 
 
 @pytest.mark.parametrize("profile", ("csv", "parquet", "local-json"))

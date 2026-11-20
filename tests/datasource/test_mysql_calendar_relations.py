@@ -1,12 +1,10 @@
-"""Compact calendar ranges and exact JSON parameters on old and current MySQL servers."""
+"""Compact calendar ranges and exact JSON parameters on MySQL and MariaDB."""
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Iterator
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from functools import partial
 from pathlib import Path
 
 import ibis
@@ -24,32 +22,13 @@ from marivo.datasource._calendar_relations import (
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
-from tests.datasource.environment import mysql_analysis as mysql
-from tests.datasource.source_cases import Case, SourceData, source_case
+from tests.datasource.source_cases import MYSQL_RUNTIME_PROFILES, Case, SourceData, source_case
 from tests.shared_fixtures import catalog_value, time_population
 from tests.support.source_trace import capture_source
 
-SERVERS = [
-    pytest.param(23306, "MARIVO_MYSQL_ANALYSIS_TEST", id="mysql-84", marks=pytest.mark.runtime),
-    pytest.param(
-        23307, "MARIVO_MARIADB_ANALYSIS_TEST", id="mariadb-114", marks=pytest.mark.runtime
-    ),
-    pytest.param(
-        23309, "MARIVO_MARIADB_103_ANALYSIS_TEST", id="mariadb-103", marks=pytest.mark.runtime
-    ),
-]
-
 
 @pytest.fixture
-def mysql_case(
-    port: int, flag: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[Case]:
-    if os.environ.get(flag) != "1":
-        pytest.skip(f"Explicit ready service required: {flag}=1")
-    monkeypatch.setenv("MARIVO_MYSQL_ANALYSIS_TEST", "1")
-    monkeypatch.setattr(mysql, "connection", partial(mysql.connection, port=port))
-    monkeypatch.setattr(mysql, "setup", partial(mysql.setup, port=port))
-    monkeypatch.setattr(mysql, "PORT", port)
+def mysql_case(profile: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Case]:
     data = SourceData(
         "id BIGINT, point DATETIME(6), amount BIGINT",
         "(1,'2025-12-31 15:59:59.999999',100),"
@@ -61,9 +40,7 @@ def mysql_case(
         "",
         [],
     )
-    with source_case("mysql", "innodb-table", tmp_path, monkeypatch, data) as case:
-        if port == 23309:
-            assert str(case.environment["version"]).startswith("10.3.18-MariaDB")
+    with source_case("mysql", profile, tmp_path, monkeypatch, data) as case:
         yield case
 
 
@@ -77,7 +54,7 @@ def test_mysql_range_sql_stays_compact_at_high_cardinality() -> None:
     assert sizes[2] < 3 * sizes[1]
 
 
-@pytest.mark.parametrize("port,flag", SERVERS)
+@pytest.mark.parametrize("profile", MYSQL_RUNTIME_PROFILES)
 def test_mysql_calendar_range_exact_positions(mysql_case: Case) -> None:
     for count in (0, 1, 9, 10, 11, 1001):
         relation = calendar_range(count)
@@ -88,7 +65,7 @@ def test_mysql_calendar_range_exact_positions(mysql_case: Case) -> None:
         assert pd.api.types.is_integer_dtype(rows.position.dtype)
 
 
-@pytest.mark.parametrize("port,flag", SERVERS)
+@pytest.mark.parametrize("profile", MYSQL_RUNTIME_PROFILES)
 def test_mysql_calendar_parameters_retain_types_and_nulls(mysql_case: Case) -> None:
     schema = ibis.schema(
         {
@@ -153,7 +130,7 @@ def test_mysql_calendar_parameters_retain_types_and_nulls(mysql_case: Case) -> N
     assert empty.empty and empty.columns.tolist() == list(schema.names)
 
 
-@pytest.mark.parametrize("port,flag", SERVERS)
+@pytest.mark.parametrize("profile", MYSQL_RUNTIME_PROFILES)
 def test_mysql_public_daily_output_is_sparse_unless_domain_is_explicit(
     mysql_case: Case,
     tmp_path: Path,

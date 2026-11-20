@@ -17,7 +17,6 @@ from marivo.semantic.ir import StrptimeParse
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.analysis.temporal.encoded_time_fixtures import axis
-from tests.analysis.temporal.test_calendar_native_keys import _maria
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.shared_fixtures import declared_test_timezone
 
@@ -218,7 +217,6 @@ def test_native_parser_rejects_bad_data_without_losing_legal_values(
         with pytest.raises(DatasetCompilationError):
             parse_strptime(backend, ibis.literal(good), StrptimeParse(fmt))
         return
-    _maria(profile, monkeypatch)
     points = (good, None) if backend == "postgres" else (good, bad, "", None)
     rows: list[dict[str, object]] = [
         {"id": index, "point": point} for index, point in enumerate(points)
@@ -257,7 +255,6 @@ def test_safe_membership_excludes_invalid_calendar_and_keeps_native_noncanonical
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _maria(profile, monkeypatch)
     points = (
         ("28022026", "30022026", "broken")
         if fmt == "%d%m%Y"
@@ -346,7 +343,6 @@ def test_public_parsed_time_predicate_and_calendar_keep_native_interpretation(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[..., SemanticProject],
 ) -> None:
-    _maria(profile, monkeypatch)
     bad = None if backend == "postgres" else "bad"
     data = SourceData(
         "id BIGINT, point VARCHAR(30), amount BIGINT",
@@ -425,7 +421,6 @@ def test_native_input_expression_error_boundary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _maria(profile, monkeypatch)
     data = SourceData(
         "id BIGINT, point VARCHAR(100)",
         "(1,'bad')",

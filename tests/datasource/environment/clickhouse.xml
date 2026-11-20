@@ -1,4 +1,5 @@
 <clickhouse>
+    <timezone>Asia/Shanghai</timezone>
     <max_server_memory_usage>2147483648</max_server_memory_usage>
     <logger>
         <level>warning</level>

@@ -1,6 +1,5 @@
 """Calendar buckets stay on civil boundaries when the ClickHouse server zone is not UTC."""
 
-import os
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -42,12 +41,6 @@ def _shanghai_session(
     ] = "Nullable(DateTime64(6, 'UTC'))",
     report_timezone: str = "Asia/Shanghai",
 ) -> Iterator[tuple[mv.Session, ms.TimeDimension, ms.Measure]]:
-    port = os.environ.get("MARIVO_CLICKHOUSE_NON_UTC_TEST_PORT")
-    if port is None:
-        pytest.skip(
-            "Explicit Asia/Shanghai ClickHouse server required: MARIVO_CLICKHOUSE_NON_UTC_TEST_PORT"
-        )
-    monkeypatch.setenv("MARIVO_CLICKHOUSE_TEST_PORT", port)
     data = SourceData(
         "",
         "",
@@ -139,7 +132,7 @@ def _civil(day: str, clock: str) -> datetime:
 
 
 @pytest.mark.parametrize(
-    ("unit", "count", "start", "end", "facts", "expected"),
+    ("unit", "count", "start", "end", "facts", "starts", "expected"),
     [
         (
             "week",
@@ -152,6 +145,7 @@ def _civil(day: str, clock: str) -> datetime:
                 ("2026-10-26", "00:00:00"),
                 ("2026-10-31", "12:00:00"),
             ],
+            ["2026-10-19", "2026-10-26"],
             [2, 2],
         ),
         (
@@ -160,6 +154,7 @@ def _civil(day: str, clock: str) -> datetime:
             "2026-10-01",
             "2026-12-01",
             [("2026-10-01", "00:00:00"), ("2026-10-31", "17:00:00"), ("2026-11-01", "00:00:00")],
+            ["2026-10-01", "2026-11-01"],
             [2, 1],
         ),
         (
@@ -174,7 +169,8 @@ def _civil(day: str, clock: str) -> datetime:
                 ("2026-10-28", "13:45:00"),
                 ("2026-10-28", "23:00:00"),
             ],
-            [2, 1, 0, 0, 1, 0, 0, 1],
+            ["2026-10-28 00:00", "2026-10-28 03:00", "2026-10-28 12:00", "2026-10-28 21:00"],
+            [2, 1, 1, 1],
         ),
     ],
     ids=["week-sunday-evening", "month-last-evening", "hour3-width-not-dividing-offset"],
@@ -185,6 +181,7 @@ def test_calendar_buckets_follow_civil_boundaries_on_shanghai_server(
     start: str,
     end: str,
     facts: list[tuple[str, str]],
+    starts: list[str],
     expected: list[int],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -197,16 +194,18 @@ def test_calendar_buckets_follow_civil_boundaries_on_shanghai_server(
         amount,
     ):
         axis_scope = session.time_scope(start=start, end=end)
-        totals = (
+        rows = (
             session.observe(
                 {"total": amount.sum(time=point)},
                 by=(axis_scope.by(mv.grain(unit, count=count)),),
             )
             .compute()
             .to_pandas()
-            .total.tolist()
         )
-        assert totals == expected
+        assert rows.iloc[:, 0].tolist() == [
+            pd.Timestamp(label, tz="Asia/Shanghai") for label in starts
+        ]
+        assert rows.total.tolist() == expected
 
 
 @pytest.mark.parametrize(
@@ -218,7 +217,7 @@ def test_calendar_buckets_follow_civil_boundaries_on_shanghai_server(
     ],
 )
 @pytest.mark.parametrize("physical_type", ["Date", pytest.param("Nullable(Date)", id="nullable")])
-def test_date_calendar_day_keeps_dates_and_completes_only_missing_days(
+def test_date_calendar_day_keeps_supported_civil_dates(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -294,10 +293,12 @@ def test_date_calendar_day_keeps_dates_and_completes_only_missing_days(
             {"total": amount.sum(time=point)}, by=(axis_scope.by(mv.grain("day")),)
         ).compute()
         rows = frame.to_pandas(time_details=True)
-        expected = [pd.Timestamp(f"2026-10-{day}", tz=report_timezone) for day in (28, 29, 30)]
-        assert rows["calendar:day"].tolist() == expected
-        assert rows["calendar:day.label"].tolist() == ["2026-10-28", "2026-10-29", "2026-10-30"]
-        assert rows.total.tolist() == [2, 0, 1]
+        expected_days = ["2026-10-28", "2026-10-30"]
+        assert rows["calendar:day"].tolist() == [
+            pd.Timestamp(day, tz=report_timezone) for day in expected_days
+        ]
+        assert rows["calendar:day.label"].tolist() == expected_days
+        assert rows.total.tolist() == [2, 1]
         assert source_trace.native_sql
 
         subdays: tuple[tuple[Literal["second", "minute", "hour"], str], ...] = (
