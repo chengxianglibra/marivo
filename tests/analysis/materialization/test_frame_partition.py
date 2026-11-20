@@ -16,6 +16,7 @@ from marivo.analysis.core.data_types import (
     DecimalDataType,
     DurationDataType,
     ScalarDataType,
+    TimestampDataType,
 )
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
 from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
@@ -94,6 +95,7 @@ def test_over_uses_complete_null_safe_large_integer_keys(local: LocalFrameServic
     keys = (
         DataColumn("entity.a", "a", ScalarDataType("int64"), True),
         DataColumn("entity.b", "b", ScalarDataType("string"), True),
+        DataColumn("entity.stamp", "stamp", TimestampDataType("ns", "UTC"), False),
     )
     sample = DataColumn("sample", "sample", ScalarDataType("int64"), False)
     schema = DataSchema(
@@ -103,18 +105,74 @@ def test_over_uses_complete_null_safe_large_integer_keys(local: LocalFrameServic
     )
     rows = pd.DataFrame(
         {
-            "entity.a": [large, large + 1, None, large, None, large],
-            "entity.b": ["a", "a", "a", "b", "a", "a"],
-            "sample": [5, 4, 3, 2, 1, 0],
-            "x": [1, 2, 3, 4, 5, 6],
+            "entity.a": [large, large + 1, None, large, None, large, large],
+            "entity.b": ["a", "a", "a", "b", "a", "a", "a"],
+            "entity.stamp": pd.to_datetime([1, 1, 1, 1, 1, 1, 2], unit="ns", utc=True),
+            "sample": [6, 5, 4, 3, 2, 1, 0],
+            "x": [1, 2, 3, 4, 5, 6, 11],
         },
         dtype=object,
     )
     frame = _memory(local, schema, rows)
-    result = frame.select({"total": frame.over(frame["x"].sum(), by=(frame.axes[0],))})
+    by = (frame.axes[0],)
+    result = frame.select(
+        {"total": frame.over(frame["x"].sum(), by=by), "count": frame.over(mv.row_count(), by=by)}
+    )
     output = result.compute().to_pandas()
-    assert output["sample"].tolist() == [5, 4, 3, 2, 1, 0]
-    assert output["total"].tolist() == [7, 2, 8, 4, 8, 7]
+    assert output["sample"].tolist() == [6, 5, 4, 3, 2, 1, 0]
+    assert output["total"].tolist() == [7, 2, 8, 4, 8, 7, 11]
+    assert output["count"].tolist() == [2, 1, 2, 1, 2, 2, 1]
+
+
+def test_over_same_groups_use_independent_samples(local: LocalFrameServices) -> None:
+    group = DataColumn("group", "group", INT64, True)
+    sample = DataColumn("sample", "sample", INT64, False)
+    schema = DataSchema(
+        (DataAxis("group", (group,), name="group"), DataAxis("sample", (sample,), name="sample")),
+        (DataColumn("x", "x", INT64, True), DataColumn("y", "y", INT64, True)),
+        value_paths=(("x",), ("y",)),
+    )
+    y = {1: 100, 2: 60, 5: 300}
+    frame = _memory(
+        local,
+        schema,
+        pd.DataFrame(
+            {
+                "group": [i % 4 or None for i in range(48)],
+                "sample": range(48),
+                "x": [i if i % 7 else None for i in range(48)],
+                "y": [y.get(i) for i in range(48)],
+            },
+            dtype=object,
+        ),
+    )
+    group_axis, sample_axis = frame.axes
+    by = (group_axis,)
+    x_total = frame.over(frame["x"].sum(), by=by)
+    output = (
+        frame.select(
+            {
+                "total": x_total,
+                "mean": frame.over(frame["x"].mean(), by=by),
+                "mean_y": frame.over(frame["y"].mean(), by=by),
+                "count": frame.over(mv.row_count(), by=by),
+                "repeated_total": frame.over(x_total.sum(), by=by),
+                "singleton_count": frame.over(mv.row_count(), by=(sample_axis,)),
+            }
+        )
+        .compute()
+        .to_pandas()
+    )
+    sums = [236, 255, 232, 258]
+    means = [236 / 10, 255 / 11, 232 / 10, 258 / 10]
+    assert output["sample"].tolist() == list(range(48))
+    assert output["total"].tolist() == sums * 12
+    assert output["mean"].tolist() == pytest.approx(means * 12)
+    assert output["mean_y"].isna().tolist() == [True, False, False, True] * 12
+    assert output["mean_y"].dropna().tolist() == [200, 60] * 12
+    assert output["count"].tolist() == [12] * 48
+    assert output["repeated_total"].tolist() == [total * 12 for total in sums] * 12
+    assert output["singleton_count"].tolist() == [1] * 48
 
 
 @pytest.mark.parametrize("carrier", ("memory", "pending", "stored"))
@@ -460,10 +518,11 @@ def test_partition_evaluation_reuses_typed_results_without_sorting() -> None:
         assert result[program.output_schema.values[0].slot_id].tolist() == [40, 20, 40, 40]
         assert result[program.output_schema.values[1].slot_id].tolist() == [0.25, 1, 0.75, 1]
         changed = source.copy()
-        changed["x"] = [1, 2, 3, 4]
+        changed["group"] = pd.Series([2, 2, None, 1], dtype=object)
+        changed["x"] = [1, 2, 30, 40]
         again = frame_values.evaluate_frame(program, (changed,))
         assert partition.call_count == 2
-        assert again[program.output_schema.values[0].slot_id].tolist() == [4, 2, 4, 4]
+        assert again[program.output_schema.values[0].slot_id].tolist() == [3, 3, 30, 40]
     reduced = frame_values.evaluate_frame(
         frame_program(schema, ReduceValues((("sum", Statistic("sum", ValueSlot(0))),), (0,))),
         (source,),
