@@ -1,4 +1,4 @@
-"""Pandas kernels for checked result expressions, selection and statistics."""
+"""Local kernels for checked result expressions, selection and statistics."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from decimal import Decimal, localcontext
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from marivo._definition.query import (
     CoordinateSlot,
@@ -38,6 +39,29 @@ from marivo.analysis.methods.frame_evaluation import FrameEvaluation, expression
 from marivo.analysis.methods.numeric_state import finish_division, sum_values
 from marivo.analysis.methods.physical import DecimalType, DurationType
 from marivo.semantic._numeric_lowering import numeric_failure
+
+_ORDERED_COMPARISONS = {"lt": "less", "le": "less_equal", "gt": "greater", "ge": "greater_equal"}
+
+
+def _int64_literal(expression: ValueExpression) -> pa.Scalar | None:
+    if isinstance(expression, ValueLiteral):
+        value = expression.value
+        if type(value) is int and -(2**63) <= value < 2**63:
+            return pa.scalar(value, type=pa.int64())
+    return None
+
+
+def _int64_array(
+    expression: ValueExpression, values: pd.Series
+) -> pa.Array | pa.ChunkedArray | None:
+    dtype = values.dtype
+    if (
+        not isinstance(expression, ValueLiteral)
+        and isinstance(dtype, pd.ArrowDtype)
+        and dtype.pyarrow_dtype == pa.int64()
+    ):
+        return pa.array(values, from_pandas=True)
+    return None
 
 
 def _binary(operation: str, left: object, right: object) -> object:
@@ -227,8 +251,29 @@ def expression_series(
                 index=values.index,
             )
         return -values if expression.operation == "neg" else values.abs()
-    left = expression_series(expression.left, frame, program, evaluation=evaluation)
-    right = expression_series(expression.right, frame, program, evaluation=evaluation)
+    kernel = _ORDERED_COMPARISONS.get(expression.operation)
+    left_scalar = _int64_literal(expression.left) if kernel is not None else None
+    right_scalar = _int64_literal(expression.right) if kernel is not None else None
+    left = (
+        expression_series(expression.left, frame, program, evaluation=evaluation)
+        if left_scalar is None
+        else None
+    )
+    right = (
+        expression_series(expression.right, frame, program, evaluation=evaluation)
+        if right_scalar is None
+        else None
+    )
+    if kernel is not None and (left is not None or right is not None):
+        arrow_left = _int64_array(expression.left, left) if left is not None else left_scalar
+        arrow_right = _int64_array(expression.right, right) if right is not None else right_scalar
+        if arrow_left is not None and arrow_right is not None:
+            comparison = pc.call_function(kernel, [arrow_left, arrow_right])
+            return pd.Series(pd.arrays.ArrowExtensionArray(comparison))
+    if left is None:
+        left = expression_series(expression.left, frame, program, evaluation=evaluation)
+    if right is None:
+        right = expression_series(expression.right, frame, program, evaluation=evaluation)
     if expression.operation in ("add", "sub", "mul", "div"):
         from marivo.analysis.methods.numeric_state import duration_arithmetic, nullable_arithmetic
 
