@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 
 import marivo.analysis as mv
@@ -220,11 +223,22 @@ def test_share_filter_stage_and_signed_zero_total(local: LocalFrameServices) -> 
 
 def test_empty_partition_does_not_create_rows(local: LocalFrameServices) -> None:
     frame = _frame(local, ())
+    total = frame["x"].sum()
     output = frame.select(
-        {"count": frame.over(mv.row_count()), "share": frame["x"].share(along=frame.axes)}
+        {
+            "count": frame.over(mv.row_count()),
+            "share": frame["x"].share(along=frame.axes),
+            "total": frame.over(total),
+        }
     ).compute()
     assert output.to_pandas().empty
     assert len(output.axes) == 1
+    reduced = frame.reduce({"total": total}).compute()
+    values = pa.array(reduced.to_pandas()["total"])
+    assert values.type == pa.int64()
+    assert values.to_pylist() == [0]
+    assert isinstance(reduced._schema, DataSchema)
+    assert reduced._schema.values[0].unit == "USD"
 
 
 def test_partition_division_masks_zeros_before_reduction(local: LocalFrameServices) -> None:
@@ -344,13 +358,65 @@ def test_over_keeps_interval_and_paired_current_axis_facts(
     assert result.to_pandas()["rows"].tolist() == [1]
 
 
-def test_over_preserves_native_integer_sum_type(local: LocalFrameServices) -> None:
-    frame = _frame(local, (2**63 - 1, 1))
+def test_reduce_and_over_preserve_native_integer_sum_type(local: LocalFrameServices) -> None:
+    frame = _frame(local, (2**63 - 1, None, 1))
     result = frame.select({"total": frame.over(frame["x"].sum())}).compute()
     assert isinstance(result._schema, DataSchema)
     assert result._schema.values[0].dtype == ScalarDataType("int64")
     assert result._schema.values[0].unit == "USD"
-    assert result.to_pandas()["total"].tolist() == [-(2**63), -(2**63)]
+    assert pa.array(result.to_pandas()["total"]).to_pylist() == [-(2**63)] * 3
+    reduced = frame.reduce({"total": frame["x"].sum()}).compute()
+    values = pa.array(reduced.to_pandas()["total"])
+    assert values.type == pa.int64()
+    assert values.to_pylist() == [-(2**63)]
+
+
+def test_nullable_float_sum_keeps_dense_arrow_rounding_and_validity(
+    local: LocalFrameServices,
+) -> None:
+    group = DataColumn("group", "group", INT64, False)
+    sample = DataColumn("sample", "sample", INT64, False)
+    schema = DataSchema(
+        (DataAxis("group", (group,), name="group"), DataAxis("sample", (sample,), name="sample")),
+        (DataColumn("x", "x", ScalarDataType("float64"), True, "USD"),),
+        value_paths=(("x",),),
+    )
+    rows = pd.DataFrame(
+        {
+            "group": [2, 1, 3, 2, 4, 3, 2, 2, 4, 4],
+            "sample": range(10),
+            "x": pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array([1.0, None, float("nan"), None, 3.0, None, -1e17, 1e17, 0.0, -1.0])
+                )
+            ),
+        }
+    )
+    frame = _memory(local, schema, rows)
+    total = frame["x"].sum()
+    by = (frame.axes[0],)
+    cancellation = pc.sum(pa.array([1.0, -1e17, 1e17])).as_py()
+    nan = float("nan")
+
+    reduced = frame.reduce({"total": total}, by=by).compute()
+    broadcast = frame.select({"total": frame.over(total, by=by)}).compute()
+    for result, expected in (
+        (reduced, [None, cancellation, nan, 2.0]),
+        (
+            broadcast,
+            [cancellation, None, nan, cancellation, 2.0, nan, cancellation, cancellation, 2.0, 2.0],
+        ),
+    ):
+        values = pa.array(result.to_pandas()["total"])
+        assert isinstance(result._schema, DataSchema)
+        assert result._schema.values[0].unit == "USD"
+        assert values.type == pa.float64()
+        assert values.is_valid().to_pylist() == [value is not None for value in expected]
+        for actual, value in zip(values.to_pylist(), expected, strict=True):
+            if value is not None and math.isnan(value):
+                assert math.isnan(actual)
+            else:
+                assert actual == value
 
 
 def test_share_along_subset_uses_complement_partitions_and_normalizes_axis_order(

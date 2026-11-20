@@ -238,7 +238,6 @@ def _reduce(
                 value = len(positions)
             else:
                 series = evaluated[name].take(positions)
-                active = series.loc[~typed_null_mask(series)]
                 (dtype,) = program.statistic_types[index]
                 try:
                     if not positions and statistic.method == "sum":
@@ -248,6 +247,7 @@ def _reduce(
                             else 0
                         )
                     elif isinstance(dtype, DurationDataType):
+                        active = series.loc[~typed_null_mask(series)]
                         ticks = tuple(
                             int(tick)
                             for tick in (
@@ -265,7 +265,15 @@ def _reduce(
                             if ticks
                             else None
                         )
+                    elif statistic.method == "sum" and isinstance(series.dtype, pd.ArrowDtype):
+                        array = pa.array(series, from_pandas=False)
+                        if pa.types.is_floating(array.type) and array.null_count:
+                            # Arrow's bitmap and dense float sums can round differently.
+                            active = series.loc[~typed_null_mask(series)]
+                            array = pa.array(active, from_pandas=False)
+                        value = pc.sum(array, skip_nulls=True, min_count=1).as_py()
                     else:
+                        active = series.loc[~typed_null_mask(series)]
                         array = pa.array(active, from_pandas=False)
                         value = (
                             (
