@@ -53,7 +53,8 @@ qualified registered candidates when available.
 
 Public function docstrings cover purpose, parameters, return value, a usage
 example and constraints. Every public API symbol resolves through a focused
-`datasource.<target>`, `semantic.<target>` or `analysis.<target>` Help path.
+`datasource.<target>`, `semantic.<target>`, `analysis.<target>` or
+`ontology.<target>` Help path.
 Top-level navigation excludes type aliases and internal handoff types; exact
 type pages own method discovery.
 
@@ -263,5 +264,5 @@ journey correctness and failed lookups/repairs also matter.
 [marivo/_help](../../marivo/_help/) coordinates public Help;
 [introspection/live](../../marivo/introspection/live/) owns shared reflection,
 resolution and rendering. Domain-native registries live in the datasource,
-semantic and analysis _capabilities packages. Public export snapshots and
+semantic, analysis and ontology _capabilities packages. Public export snapshots and
 behavior tests are independent of rendered output.
