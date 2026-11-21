@@ -18,7 +18,12 @@ from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.refs import ref
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._metric_time import metric_time_occurrences
-from marivo.semantic.errors import SemanticError, SemanticLoadFailed
+from marivo.semantic.errors import (
+    ErrorKind,
+    SemanticError,
+    SemanticExpressionError,
+    SemanticLoadFailed,
+)
 from tests.shared_fixtures import catalog_get, write_minimal_catalog_project
 
 _MODEL = """
@@ -565,8 +570,11 @@ def test_zero_parameter_contract_rejects_retired_authoring_shapes(tmp_path: Path
 
 def test_explicit_none_and_foreign_field_fail_when_constructing_a_closed_reduction(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _project(tmp_path)
+    monkeypatch.setattr(DatasourceConnectionService, "backend_for", _reject_source_io)
+    monkeypatch.setattr(DatasourceConnectionService, "source_session", _reject_source_io)
     catalog = ms.load(workspace_dir=tmp_path)
     amount = catalog_get(catalog, "measure:sales.orders.amount", kind="measure")
     orders = catalog_get(catalog, "entity:sales.orders", kind="entity")
@@ -574,8 +582,16 @@ def test_explicit_none_and_foreign_field_fail_when_constructing_a_closed_reducti
         catalog, "time_dimension:sales.customers.joined_at", kind="time_dimension"
     )
     assert _clock_facts(amount.sum(time=None)) == ((None, None),)
-    with pytest.raises(SemanticError):
+    with pytest.raises(SemanticExpressionError) as caught:
         orders.count(time=foreign)
+    error = caught.value
+    assert error.kind == ErrorKind.INVALID_TIME_PATH.value
+    assert error.expected == orders.id and error.received == "entity:sales.customers"
+    assert foreign.id in error.message
+    assert error.repair is not None
+    assert "time=field.via(path)" in error.repair.action
+    assert "path starting at the contribution Entity" in error.repair.action
+    assert error.repair.help_target.canonical_id == "field.via"
 
 
 def test_report_independent_values_broadcast_after_reduction_and_window_only_clocked_leaves(

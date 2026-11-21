@@ -119,6 +119,11 @@ def bad():
 """
     )
     with load_inline_semantic(source) as result:
-        kinds = {e.kind for e in result.errors}
-        assert ErrorKind.MISSING_SUM_PERMISSION in kinds
         assert result.registry is None
+        (error,) = result.errors
+        assert error.kind == ErrorKind.MISSING_SUM_PERMISSION
+        assert error.received == "sum() on measure:test.orders.unit_price"
+        assert error.repair is not None
+        assert "only when the business definition permits" in error.repair.action
+        assert "mean() if the question calls for an average" in error.repair.action
+        assert error.repair.help_target.canonical_id == "row.sum"

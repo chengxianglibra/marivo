@@ -10,10 +10,17 @@ from typing import Literal
 import pytest
 from ibis.common.deferred import const
 
+import marivo
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo._definition.deferred import inspect_deferred
 from marivo._definition.types import DefinitionGraphError
-from marivo.semantic.errors import ErrorKind, SemanticError, SemanticExpressionError
+from marivo.semantic.errors import (
+    ErrorKind,
+    SemanticError,
+    SemanticExpressionError,
+    SemanticLoadFailed,
+)
 from tests.shared_fixtures import write_minimal_catalog_project
 
 
@@ -69,6 +76,66 @@ def test_expression_error_carries_expected_received_and_reauthor_repair() -> Non
     assert error.repair is not None
     assert error.repair.kind == "reauthor"
     rendered = str(error)
+
+
+@pytest.mark.parametrize(
+    ("expression", "received", "target", "actions"),
+    [
+        pytest.param(
+            "revenue.log()",
+            "log(USD)",
+            "metric.log",
+            ("dimensionless", "same unit"),
+            id="unit-bearing-log",
+        ),
+        pytest.param(
+            "status.mean()",
+            "mean() on dimension:sales.orders.status",
+            "measure.from_column",
+            ("numeric", "ms.measure_column"),
+            id="dimension-mean",
+        ),
+        pytest.param(
+            "amount_value.last()",
+            "row.last()",
+            "metric_samples.last",
+            ("metric.per(time_field).last()", "uniquely"),
+            id="row-last",
+        ),
+        pytest.param(
+            "revenue.per(status).last()",
+            "no time axis was selected",
+            "metric_samples.last",
+            ("TimeDimension in per(...)", "order_by="),
+            id="missing-sample-order",
+        ),
+    ],
+)
+def test_loaded_metric_errors_point_to_operation_specific_repairs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    expression: str,
+    received: str,
+    target: str,
+    actions: tuple[str, ...],
+) -> None:
+    write_minimal_catalog_project(tmp_path)
+    with (tmp_path / "models/semantic/sales/objects.py").open("a") as model:
+        model.write(f"\n@ms.metric()\ndef invalid():\n    return {expression}\n")
+
+    with pytest.raises(SemanticLoadFailed) as caught:
+        ms.load(workspace_dir=tmp_path)
+
+    (error,) = caught.value.errors
+    assert error.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
+    assert error.expected and error.received == received
+    assert error.repair is not None
+    assert all(action in error.repair.action for action in actions)
+    help_target = error.repair.help_target
+    qualified = f"{help_target.surface}.{help_target.canonical_id}"
+    assert qualified == f"semantic.{target}"
+    marivo.help(qualified)
+    assert f"Target: {qualified}" in capsys.readouterr().out
 
 
 def test_definition_failure_translates_with_its_location() -> None:

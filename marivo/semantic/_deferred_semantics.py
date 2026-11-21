@@ -167,7 +167,7 @@ def _fail(
     expected: str,
     received: str,
     kind: ErrorKind = ErrorKind.INVALID_EXPRESSION_STAGE,
-    action: str | None = None,
+    action: str = "Use resolved semantic fields at the same stage and reduce rows before combining Metrics.",
     help_target: str = "expressions",
     scope_dependent: bool = False,
 ) -> NoReturn:
@@ -178,12 +178,7 @@ def _fail(
         received=received,
         help_target=help_target,
         details={"defer_to_scope": True} if scope_dependent else None,
-        action=action
-        or (
-            "Declare a Measure with an explicit additivity grant before summing this expression."
-            if kind is ErrorKind.MISSING_SUM_PERMISSION
-            else "Use resolved semantic fields at the same stage and reduce rows before combining Metrics."
-        ),
+        action=action,
     )
 
 
@@ -439,10 +434,17 @@ def _compose(
             ),
         ).render()
     if operation in {"log", "ln", "exp"} and unit not in (None, "1"):
+        stage = "row" if rows else "metric"
+        method = "log" if operation == "ln" else operation
         _fail(
-            "This native function requires a dimensionless argument.",
+            f"{operation}() requires a dimensionless argument.",
             expected="unit 1",
             received=f"{operation}({unit})",
+            action=(
+                "Use a dimensionless input. If a relative value is intended, divide by a "
+                "meaningful reference with the same unit before applying this function."
+            ),
+            help_target=f"{stage}.{method}",
             scope_dependent=True,
         )
     if boolean:
@@ -766,10 +768,17 @@ def _time(recipe: Resolver | None, row: RowFacts) -> ContributionClockBinding | 
         )
     if value.root.ref != row.root.ref:
         _fail(
-            "Time field belongs to another root.",
+            f"Time field {value.field.reference.ref.key} is rooted at a different Entity "
+            "from the reduction.",
             kind=ErrorKind.INVALID_TIME_PATH,
             expected=row.root.ref.key,
             received=value.root.ref.key,
+            action=(
+                "Use a TimeDimension of the contribution Entity in time=. If the intended "
+                "clock is on a related Entity, pass time=field.via(path) with a single-valued "
+                "path starting at the contribution Entity."
+            ),
+            help_target="field.via",
         )
     return ContributionClockBinding(
         value.field.reference,
@@ -854,14 +863,17 @@ def _reduce(
                     expected="calendar first/last without a field order_by",
                     received="Grain samples with order_by",
                     action="Omit order_by to use the calendar cell order.",
+                    help_target=f"metric_samples.{name}",
                 )
             if "order_by" in kwargs:
                 ordering = _consume(kwargs["order_by"])
                 if not isinstance(ordering, RowFacts) or ordering.field is None:
                     _fail(
                         "order_by must name an internal time axis.",
-                        expected="resolved TimeField",
+                        expected="a resolved TimeDimension in per(...)",
                         received=type(ordering).__name__,
+                        action="Pass a TimeDimension used in per(...) as order_by=.",
+                        help_target=f"metric_samples.{name}",
                     )
                 assert isinstance(ordering, RowFacts) and ordering.field is not None
                 order_by = ordering.field.reference
@@ -882,9 +894,16 @@ def _reduce(
                 not in tuple(axis.field for axis in sample_axes if isinstance(axis, AxisBinding))
             ):
                 _fail(
-                    "Ordered sample reduction requires one internal time axis.",
-                    expected="order_by naming an internal TimeField",
-                    received=str(order_by),
+                    f"{name}() requires a time axis from the internal samples.",
+                    expected="order_by naming a TimeDimension in per(...)",
+                    received=order_by.ref.key
+                    if order_by is not None
+                    else "no time axis was selected",
+                    action=(
+                        "Include a TimeDimension in per(...) and pass it as order_by=. "
+                        "You can omit order_by when per(...) contains exactly one time axis."
+                    ),
+                    help_target=f"metric_samples.{name}",
                 )
         node = PerReduce(
             metric.node,
@@ -916,17 +935,44 @@ def _reduce(
     if name in {"first", "last"}:
         _fail(
             "Ordered reductions require internal time samples.",
-            expected="Metric.per(TimeField).first() or .last()",
+            expected=f"Metric.per(TimeDimension).{name}()",
             received=f"row.{name}()",
+            action=(
+                f"Define a Metric for the value at each sample, then call metric.per(time_field).{name}(). "
+                "Use a TimeDimension that uniquely orders the samples."
+            ),
+            help_target=f"metric_samples.{name}",
         )
     if name not in {"count", "count_distinct", "approx_nunique"} and not row.numeric:
-        _fail("Reduction requires a numeric Measure.", expected="numeric row", received=name)
+        receiver_label = (
+            row.field.reference.ref.key if row.field is not None else "a non-numeric row expression"
+        )
+        _fail(
+            "Reduction requires a numeric Measure.",
+            expected="a Measure or a numeric row expression",
+            received=f"{name}() on {receiver_label}",
+            action=(
+                "Use a Measure for the quantity. If a numeric Entity column is declared as "
+                "a Dimension, give the quantity its own Measure with ms.measure_column(...)."
+            ),
+            help_target="measure.from_column",
+        )
     if name == "sum" and isinstance(row.permission, SumNone):
         _fail(
             "This expression has no sum authorization.",
             kind=ErrorKind.MISSING_SUM_PERMISSION,
             expected="an additive Measure or linear expression",
-            received="non-additive expression",
+            received=(
+                f"sum() on {row.field.reference.ref.key}"
+                if row.field is not None
+                else "sum() on a row expression without sum permission"
+            ),
+            action=(
+                "Declare a Measure with matching additivity only when the business definition "
+                "permits summing this quantity over the intended axes. "
+                "Use mean() if the question calls for an average."
+            ),
+            help_target="row.sum",
         )
     time = _time(kwargs.get("time"), row)
     independent_origin: Literal["explicit_none", "no_entity_default"] = (
