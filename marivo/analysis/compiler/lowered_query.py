@@ -8,6 +8,7 @@ import ibis.expr.types as ir
 
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.query_stages import QueryPlan
+from marivo.analysis.model.slot_roles import StageObligations
 from marivo.semantic.spi import NumericCheck
 
 
@@ -30,6 +31,13 @@ class LoweredRead:
     expression: ir.Table
     numeric_checks: tuple[tuple[str, NumericCheck], ...] = ()
     population_checks: tuple[PopulationCheck, ...] = ()
+
+    @property
+    def obligations(self) -> StageObligations:
+        return StageObligations.from_aliases(
+            tuple(self.expression.columns),
+            checks=frozenset(name for name, _ in self.numeric_checks),
+        )
 
 
 @dataclass(frozen=True, slots=True, eq=False)

@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
+from marivo.analysis.model.optimization_policy import (
+    DEFAULT_OPTIMIZATION_POLICY,
+    OptimizationPolicy,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -43,6 +48,7 @@ class PreparedSources:
     collation_qualifications: dict[tuple[SourceSession, ops.Node, str], str | None] = field(
         default_factory=dict
     )
+    optimization_policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY
 
 
 @dataclass(frozen=True, slots=True, eq=False)

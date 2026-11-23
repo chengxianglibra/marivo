@@ -24,7 +24,7 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.graph import children, walk
-from marivo._definition.observations import SampleAxis, sample_key_matches
+from marivo._definition.observations import SampleAxis, SampleKeyMatch, sample_key_matches
 from marivo._definition.relations import (
     PopulationDependency,
     sample_population,
@@ -39,7 +39,11 @@ from marivo.analysis.core.frozen_calendar import frozen_key_rows
 from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.analysis.methods import _sample_numeric
 from marivo.analysis.methods._ibis_numeric import evaluate_numeric
-from marivo.analysis.methods.local_formula_domains import FormulaDomains, initial_formula_domain
+from marivo.analysis.methods.local_formula_domains import (
+    FormulaDomains,
+    initial_formula_domain,
+    ordered_report_rows,
+)
 from marivo.analysis.model.attribute_failures import (
     AttributeFailureContext,
     AttributeFineFiber,
@@ -119,10 +123,22 @@ def query_combine(
         sample_domains=sample_domains,
         attribute=attribute,
         unique_keys=unique_keys,
+        report_columns=stage.columns[: len(stage.keys)],
         report_candidates=report_domain
         if sample_domains is not None and program.output_population is None
         else None,
     )
+    if (
+        stage.keys
+        and program.axes
+        and program.values
+        and program.output_population is None
+        and program.parent_scope is None
+        and report_domain is None
+        and attribute is None
+    ):
+        # Inferred source observations synthesize the ordered union of branch keys.
+        frame = ordered_report_rows(frame, stage.keys)
     for name, expected, received in checks:
         violation = frame[name].astype("boolean").fillna(False)
         if violation.any():
@@ -141,6 +157,7 @@ def _combine_program(
     unique_keys: tuple[UniqueKeys, ...] = (),
     sample_domains: Mapping[tuple[int, ...], pd.DataFrame] | None = None,
     report_candidates: pd.DataFrame | None = None,
+    report_columns: tuple[DataColumn, ...] = (),
 ) -> tuple[pd.DataFrame, tuple[tuple[str, str, str], ...]]:
     """Keep sample checks as data until the enclosing formula demands them."""
 
@@ -153,6 +170,7 @@ def _combine_program(
         initial_formula_domain(
             program, formula_inputs.frames, key_slots, forced_domain, report_candidates
         ),
+        report_columns,
     )
     count_data = domains.prepare_report(forced_domain, sample_domains)
     samples = _SampleEvaluation(
@@ -332,10 +350,40 @@ def _sample_operands(
     )
 
 
+def _bind_sample_population_keys(
+    rows: pd.DataFrame,
+    slots: tuple[str, ...],
+    inputs: tuple[pd.DataFrame, ...],
+    parents: pd.DataFrame,
+    matches: tuple[SampleKeyMatch, ...],
+) -> pd.DataFrame:
+    """Give literal sample coordinates the carrier already bound by their inputs."""
+    carriers = {
+        match.inner: carrier
+        for match in matches
+        if match.interval_keys is None
+        and isinstance(carrier := parents[match.outer].dtype, pd.ArrowDtype)
+    }
+    carriers.update(
+        (slot, carrier)
+        for frame in reversed(inputs)
+        for slot in slots
+        if slot in frame and isinstance(carrier := frame[slot].dtype, pd.ArrowDtype)
+    )
+    typed = {
+        slot: pd.arrays.ArrowExtensionArray(
+            pa.array(rows[slot], from_pandas=False).cast(carriers[slot].pyarrow_dtype, safe=True)
+        )
+        for slot in slots
+        if slot in carriers and not isinstance(rows[slot].dtype, pd.ArrowDtype)
+    }
+    return rows.assign(**typed) if typed else rows
+
+
 def _complete_sample_domain(
     program: FormulaProgram,
     domains: FormulaDomains,
-    child_program: FormulaProgram,
+    child: _SampleOperands,
     node: PerReduce | PerWeightedMean,
     occurrence: tuple[int, ...],
     sample_keys: tuple[str, ...],
@@ -348,7 +396,10 @@ def _complete_sample_domain(
     if sample_population_definition is not None:
         sample_domain = domains.population_domain(sample_population_definition, sample_keys)
         matches = sample_key_matches(
-            child_program.key_groups, dict(program.sample_matches).get(occurrence, ())
+            child.program.key_groups, dict(program.sample_matches).get(occurrence, ())
+        )
+        sample_domain = _bind_sample_population_keys(
+            sample_domain, sample_keys, child.frames, domain, matches
         )
         if matches:
             outer_slots = [match.outer for match in matches]
@@ -448,7 +499,7 @@ class _SampleEvaluation:
         )
         child_program = selected.program
         complete_domain = _complete_sample_domain(
-            program, self.domains, child_program, node, occurrence, sample_keys, sample_domains
+            program, self.domains, selected, node, occurrence, sample_keys, sample_domains
         )
         child_domains = {
             (index, *path[len(prefix) :]): selected

@@ -86,7 +86,10 @@ def prepare_actual_window_plan(
         consumption_timezone=timezone,
         frame_schemas=frame_schemas,
     )
-    candidate_plan = optimize_query(plan_query(candidate, candidate_sources.schemas))
+    candidate_sources = replace(candidate_sources, optimization_policy=prepared.optimization_policy)
+    candidate_plan = optimize_query(
+        plan_query(candidate, candidate_sources.schemas), policy=prepared.optimization_policy
+    )
     finish_shape = plan_query(graph, prepared.schemas)
     endpoint = next(
         stage for stage in finish_shape.stages if stage.stage_id == finish_shape.publish
@@ -269,7 +272,8 @@ def prepare_actual_window_read(
         frame_schemas=frame_schemas,
     )
     selected = _restrict_window_reads(selected, graph, candidates)
-    plan = optimize_query(plan_query(graph, selected.schemas))
+    selected = replace(selected, optimization_policy=prepared.optimization_policy)
+    plan = optimize_query(plan_query(graph, selected.schemas), policy=prepared.optimization_policy)
     lowered = lower_query(plan, selected.relations, selected.population_checks)
     qualify_query_sources(selected, lowered)
     return PreparedWindowRead(

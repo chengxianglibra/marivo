@@ -34,6 +34,10 @@ from marivo.analysis.model.frame_schema import LogicalSchema
 from marivo.analysis.model.frame_structure import PendingDataSchema
 from marivo.analysis.model.lineage import FrameLineage
 from marivo.analysis.model.lineage import validate as validate_lineage
+from marivo.analysis.model.optimization_policy import (
+    DEFAULT_OPTIMIZATION_POLICY,
+    OptimizationPolicy,
+)
 
 FrameT = TypeVar("FrameT", bound=FrameNode)
 
@@ -83,13 +87,17 @@ def complete_frame(
     frame: FrameNode,
     backing: ExpressionFrameBacking | StoredFrameBacking,
     frame_type: type[FrameNode],
+    *,
+    policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY,
 ) -> tuple[CompletedFrameResult, FrameDerivation | None]:
     """Return a completed result and its detached key declaration."""
     if isinstance(backing, StoredFrameBacking):
         return frame_local(frame).read_complete(backing), frame_derivation_of(frame)
     keys: dict[str, CompletedFrameData] = {}
     needs_keys = frame_derivation.uses_frame_keys(frame_derivation_of(frame))
-    result = frame_evaluation.evaluate_frame(frame, declaration_keys=keys if needs_keys else None)
+    result = frame_evaluation.evaluate_frame(
+        frame, declaration_keys=keys if needs_keys else None, policy=policy
+    )
 
     def bind_key(
         local: LocalFrameServices, result: CompletedFrameResult, input_id: str

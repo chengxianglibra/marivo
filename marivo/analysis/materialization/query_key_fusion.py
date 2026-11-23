@@ -40,21 +40,11 @@ from marivo.analysis.compiler.query_stages import (
 from marivo.analysis.compiler.source_predicates import (
     source_parameter_comparisons,
 )
+from marivo.analysis.materialization.native_population_relations import _native_member_counts
 from marivo.analysis.materialization.native_query_checks import (
     NativeQueryRelation,
     _attach_relation_checks,
 )
-from marivo.analysis.materialization.query_parameters import _replace_parameter, inline_key_relation
-from marivo.analysis.materialization.source_query_policy import (
-    qualified_query_provider,
-)
-
-if TYPE_CHECKING:
-    from marivo.analysis.materialization.prepared_sources import PreparedSources
-    from marivo.datasource.spi import SourceSession
-
-
-from marivo.analysis.materialization.native_population_relations import _native_member_counts
 from marivo.analysis.materialization.native_query_relation import (
     _physical_owner,
     _read_scopes,
@@ -62,16 +52,26 @@ from marivo.analysis.materialization.native_query_relation import (
 )
 from marivo.analysis.materialization.query_coverage_fusion import _fold_output_coverage
 from marivo.analysis.materialization.query_key_values import _distinct
+from marivo.analysis.materialization.query_parameters import _replace_parameter, inline_key_relation
 from marivo.analysis.materialization.query_plan_transport import (
     _consumers,
     _host_domain_selections,
     _logical_reads,
     _prune_transport,
+    _stage_dependencies,
 )
 from marivo.analysis.materialization.query_shared_keys import (
     fuse_shared_query_keys,
     qualified_parameter_consumer,
 )
+from marivo.analysis.materialization.source_query_policy import (
+    qualified_query_provider,
+)
+
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.prepared_sources import PreparedSources
+    from marivo.analysis.model.optimization_policy import OptimizationPolicy
+    from marivo.datasource.spi import SourceSession
 
 
 def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
@@ -91,22 +91,14 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
             continue
         candidate = lowered.plan
         pruned: set[str] = set()
-        for parameter in lowered.plan.source_read_stage(original.stage_id).parameters:
+        parameters = lowered.plan.source_read_stage(original.stage_id).parameters
+        for parameter in parameters:
             candidate, transport = _prune_transport(candidate, parameter.stage_id)
             pruned.update(transport)
         by_id = {stage.stage_id: stage for stage in candidate.stages}
-        closure = {original.stage_id}
-
-        def include(
-            identifier: str, members: set[str] = closure, stages: dict[str, QueryStage] = by_id
-        ) -> None:
-            if identifier not in members:
-                members.add(identifier)
-                for dependency in stages[identifier].inputs:
-                    include(dependency, members, stages)
-
-        for parameter in lowered.plan.source_read_stage(original.stage_id).parameters:
-            include(parameter.stage_id)
+        closure = {original.stage_id} | _stage_dependencies(
+            by_id, tuple(parameter.stage_id for parameter in parameters)
+        )
         natives = tuple(
             native_query_relation(
                 prepared,
@@ -116,7 +108,7 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
                 shared=True,
                 allowed_consumers=frozenset(closure),
             )
-            for parameter in lowered.plan.source_read_stage(original.stage_id).parameters
+            for parameter in parameters
         )
         if any(isinstance(native, str) for native in natives):
             continue
@@ -129,9 +121,7 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
             continue
         expression = original.expression
         compatible = True
-        for parameter, native in zip(
-            lowered.plan.source_read_stage(original.stage_id).parameters, native_inputs, strict=True
-        ):
+        for parameter, native in zip(parameters, native_inputs, strict=True):
             producer = by_id[parameter.stage_id]
             if len(producer.keys) != len(parameter.columns):
                 compatible = False
@@ -173,10 +163,7 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
             original.numeric_checks,
             prepared=prepared,
         )
-        producers = {
-            parameter.stage_id
-            for parameter in lowered.plan.source_read_stage(original.stage_id).parameters
-        }
+        producers = {parameter.stage_id for parameter in parameters}
         stage = replace(
             lowered.plan.source_read_stage(original.stage_id),
             inputs=tuple(
@@ -327,7 +314,7 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
             program=updated,
         )
         rewritten = {**by_id, carrier_id: stage, candidate.stage_id: compute}
-        retained = _retained_stage_ids(lowered.plan.publish, rewritten)
+        retained = _stage_dependencies(rewritten, (lowered.plan.publish,))
         stages = tuple(
             rewritten[item.stage_id] for item in lowered.plan.stages if item.stage_id in retained
         )
@@ -653,13 +640,24 @@ def _member_count_relation(
     return population_binding.stage_id, native, owner.provider.name
 
 
-def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
+def fuse_query_keys(
+    prepared: PreparedSources,
+    lowered: LoweredQuery,
+    *,
+    policy: OptimizationPolicy | None = None,
+) -> LoweredQuery:
     """Inline qualified source-key uses while retaining independently consumed producers."""
+    if policy is not None and policy != lowered.plan.optimization_policy:
+        lowered = replace(lowered, plan=replace(lowered.plan, optimization_policy=policy))
+    policy = lowered.plan.optimization_policy
     if any(isinstance(stage, FrameKeysInput) for stage in lowered.plan.stages):
         # An explicit bridge still completes before its source consumer. Its
         # existing parameter can carry check summaries in that same read; this
         # neither uploads additional keys nor rereads the fixed Frame.
-        lowered = _fold_population_checks(prepared, lowered)
+        if policy.allows("source_population_check_fusion"):
+            lowered = _fold_population_checks(prepared, lowered)
+        if not policy.allows("source_key_fusion"):
+            return lowered
         return replace(
             lowered,
             plan=replace(
@@ -675,10 +673,22 @@ def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> Lowered
                 ),
             ),
         )
-    lowered = _fold_member_count_reads(prepared, lowered)
-    lowered = _fold_population_checks(prepared, lowered)
-    lowered = _fuse_parameter_blocks(prepared, lowered)
-    lowered = fuse_shared_query_keys(prepared, lowered)
+    if policy.allows("source_member_count"):
+        lowered = _fold_member_count_reads(prepared, lowered)
+    if policy.allows("source_population_check_fusion"):
+        lowered = _fold_population_checks(prepared, lowered)
+    if policy.allows("source_parameter_block"):
+        lowered = _fuse_parameter_blocks(prepared, lowered)
+    if policy.allows("source_shared_key_fusion"):
+        lowered = fuse_shared_query_keys(prepared, lowered)
+    if policy.allows("source_key_fusion"):
+        lowered = _fuse_inline_query_keys(prepared, lowered)
+    if policy.allows("source_output_population_coverage"):
+        lowered = _fold_output_coverage(prepared, lowered)
+    return lowered
+
+
+def _fuse_inline_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
     decisions = list(lowered.plan.optimization_decisions)
     host_selections = _host_domain_selections(lowered.plan)
     for original in lowered.reads:
@@ -760,10 +770,7 @@ def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> Lowered
                 pruned,
                 decisions,
             )
-    return _fold_output_coverage(
-        prepared,
-        replace(lowered, plan=replace(lowered.plan, optimization_decisions=tuple(decisions))),
-    )
+    return replace(lowered, plan=replace(lowered.plan, optimization_decisions=tuple(decisions)))
 
 
 def _install_key_relation(
@@ -807,7 +814,7 @@ def _install_key_relation(
         item.stage_id: stage if item.stage_id == stage.stage_id else item
         for item in candidate.stages
     }
-    retained = _retained_stage_ids(candidate.publish, rewritten)
+    retained = _stage_dependencies(rewritten, (candidate.publish,))
     removed = frozenset(rewritten) - retained
     stages = tuple(
         rewritten[item.stage_id] for item in candidate.stages if item.stage_id in retained
@@ -852,20 +859,3 @@ def _install_key_relation(
             if item.stage_id not in removed
         ),
     )
-
-
-def _retained_stage_ids(publish: str, stages: dict[str, QueryStage]) -> set[str]:
-    retained: set[str] = set()
-
-    def keep(
-        identifier: str,
-        retained: set[str] = retained,
-        rewritten: dict[str, QueryStage] = stages,
-    ) -> None:
-        if identifier not in retained:
-            retained.add(identifier)
-            for dependency in rewritten[identifier].inputs:
-                keep(dependency)
-
-    keep(publish)
-    return retained

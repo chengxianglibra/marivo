@@ -36,7 +36,6 @@ from marivo.analysis.core.frame_data import (
     StoredFrameBacking,
 )
 from marivo.analysis.errors import AnalysisStageUnavailableError
-from marivo.analysis.materialization import query_key_fusion, query_terminal_fusion, sample_fusion
 from marivo.analysis.materialization.actual_windows import prepare_actual_window_plan
 from marivo.analysis.materialization.attribute_source_preparation import prepare_attribute_endpoint
 from marivo.analysis.materialization.frame_inputs import CapturedFrameInputs
@@ -48,6 +47,7 @@ from marivo.analysis.materialization.interval_reports import (
     retain_domain,
 )
 from marivo.analysis.materialization.native_calendar import bind_pandas_calendars
+from marivo.analysis.materialization.optimization import optimize_lowered_source
 from marivo.analysis.materialization.prepared_sources import PreparedSources
 from marivo.analysis.materialization.query_source_dependencies import _query_entities
 from marivo.analysis.materialization.query_sources import (
@@ -86,12 +86,14 @@ from marivo.analysis.model.frame_metadata import (
     StoredInput,
 )
 from marivo.analysis.model.frame_structure import PendingDataColumn, PendingDataSchema, axis_role
+from marivo.analysis.model.optimization_policy import DEFAULT_OPTIMIZATION_POLICY
 from marivo.analysis.model.time_facts import FrameSourceTime, merge_source_times
 from marivo.datasource.spi import JsonResponseCache, TableSourceIR
 from marivo.semantic.spi import normalize_target_entity
 
 if TYPE_CHECKING:
     from marivo.analysis.core.frame_data import FrameNode
+    from marivo.analysis.model.optimization_policy import OptimizationPolicy
     from marivo.datasource.spi import DatasourceConnectionService
 
 
@@ -209,6 +211,7 @@ def prepare_frame_sources(
     stack: ExitStack,
     *,
     run_interval_domain: RunIntervalDomain | None = None,
+    policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY,
 ) -> PreparedFrameSources:
     """Open, prepare, lower and qualify sources in captured discovery order."""
     # Validate every dependency before any HTTP source can acquire business data.
@@ -218,7 +221,9 @@ def prepare_frame_sources(
             backing.root, SourceFrameBinding
         ):
             qualify_source_inputs(backing.root.graph, backing.root.state)
-    state = _FrameSourcePreparation(captured, stack, run_interval_domain, list(captured.operations))
+    state = _FrameSourcePreparation(
+        captured, stack, run_interval_domain, list(captured.operations), policy
+    )
     for input_id, current in captured.source_frames.items():
         state.prepare(input_id, current)
     for input_id, current in captured.fixed_frames.items():
@@ -251,6 +256,7 @@ class _FrameSourcePreparation:
     stack: ExitStack
     run_interval_domain: RunIntervalDomain | None
     operations: list[FrameOperationName]
+    policy: OptimizationPolicy
     connection_services: dict[tuple[Path, int], DatasourceConnectionService] = field(
         default_factory=dict
     )
@@ -382,7 +388,7 @@ class _FrameSourcePreparation:
         if service is None:
             service = self.stack.enter_context(binding.connection.operation())
             self.connection_services[scope] = service
-        return self.stack.enter_context(
+        prepared = self.stack.enter_context(
             open_query_sources(
                 service,
                 graph,
@@ -394,6 +400,7 @@ class _FrameSourcePreparation:
                 reuse_sources=reuse_sources,
             )
         )
+        return replace(prepared, optimization_policy=self.policy)
 
     def _resolve_pending_interval(
         self,
@@ -425,7 +432,8 @@ class _FrameSourcePreparation:
             domain_plan = optimize_query(
                 prune_domain_plan(
                     plan_query(domain, domain_schemas), observation.coordinates.population
-                )
+                ),
+                policy=self.policy,
             )
             domain_lowered = lower_query(
                 domain_plan,
@@ -433,9 +441,8 @@ class _FrameSourcePreparation:
                 None if domain_sources is None else domain_sources.population_checks,
             )
             if domain_sources is not None:
-                domain_lowered = query_key_fusion.fuse_query_keys(domain_sources, domain_lowered)
-                domain_lowered = query_terminal_fusion.fuse_query_terminal(
-                    domain_sources, domain_lowered
+                domain_lowered = optimize_lowered_source(
+                    domain_sources, domain_lowered, self.policy, include_sample=False
                 )
                 qualify_query_sources(domain_sources, domain_lowered)
             domain_schema = _schema(current, domain_lowered.plan, graph=domain, keys_only=True)
@@ -519,13 +526,13 @@ class _FrameSourcePreparation:
             )
             if input_id in self.captured.games:
                 assert prepared is not None
-                plan, native_value_slots = _qualify_game(prepared, plan)
+                plan, native_value_slots = _qualify_game(prepared, plan, self.policy)
             if not checked_inputs:
-                plan = optimize_query(plan)
+                plan = optimize_query(plan, policy=self.policy)
         if lowered is None:
             assert plan is not None
             lowered = lower_query(
-                plan,
+                replace(plan, optimization_policy=self.policy),
                 {} if prepared is None else prepared.relations,
                 None if prepared is None else prepared.population_checks,
             )
@@ -537,9 +544,7 @@ class _FrameSourcePreparation:
             and not sample_windows
             and not checked_inputs
         ):
-            lowered = sample_fusion.fuse_sample_reductions(prepared, lowered)
-            lowered = query_key_fusion.fuse_query_keys(prepared, lowered)
-            lowered = query_terminal_fusion.fuse_query_terminal(prepared, lowered)
+            lowered = optimize_lowered_source(prepared, lowered, self.policy)
         if prepared is not None:
             try:
                 qualify_query_sources(prepared, lowered)
@@ -553,7 +558,9 @@ class _FrameSourcePreparation:
         return lowered, prepared, native_reads, native_value_slots
 
 
-def _qualify_game(prepared: PreparedSources, plan: QueryPlan) -> tuple[QueryPlan, list[str]]:
+def _qualify_game(
+    prepared: PreparedSources, plan: QueryPlan, policy: OptimizationPolicy
+) -> tuple[QueryPlan, list[str]]:
     native_value_slots: list[str] = []
     qualify_attribute_game_sources(prepared, plan)
     qualified_stages: list[QueryStage] = []
@@ -591,5 +598,7 @@ def _qualify_game(prepared: PreparedSources, plan: QueryPlan) -> tuple[QueryPlan
             if reduction is not None:
                 native_value_slots.append(reduction.value_slot)
         qualified_stages.append(candidate)
-    plan = share_frequency_reads(replace(plan, stages=tuple(qualified_stages)))
+    plan = replace(plan, stages=tuple(qualified_stages))
+    if policy.allows("attribute_frequency_sharing"):
+        plan = share_frequency_reads(plan)
     return plan, native_value_slots

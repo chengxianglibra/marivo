@@ -161,11 +161,18 @@ def sample_game(
     permutations: int,
     seed: int,
     evaluate: Callable[[int], CoalitionValue],
+    *,
+    memoize_values: bool = True,
 ) -> GameSample:
     """Sample complete paths over cached typed values supplied by the execution owner."""
     cache: dict[int, _Value] = {}
+    visited: set[int] = set()
 
     def value(mask: int) -> _Value:
+        if not memoize_values:
+            visited.add(mask)
+            actual = evaluate(mask)
+            return _series(_number(actual.value, reason="invalid_value"), actual.column)
         if mask not in cache:
             actual = evaluate(mask)
             cache[mask] = _series(_number(actual.value, reason="invalid_value"), actual.column)
@@ -229,7 +236,7 @@ def sample_game(
         errors,
         CoalitionValue(current.column, _number(current.values.iloc[0])),
         CoalitionValue(baseline.column, _number(baseline.values.iloc[0])),
-        len(cache),
+        len(cache) if memoize_values else len(visited),
         budget,
     )
 

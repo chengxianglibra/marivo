@@ -91,6 +91,10 @@ from marivo.analysis.model.frame_attribute_merge import (
 )
 from marivo.analysis.model.frame_contracts import CheckedStageInputT
 from marivo.analysis.model.frame_structure import PendingDataSchema, require_complete_structure
+from marivo.analysis.model.optimization_policy import (
+    DEFAULT_OPTIMIZATION_POLICY,
+    OptimizationPolicy,
+)
 
 
 def _durations(schema: DataSchema, expression: ValueExpression) -> tuple[DurationBinary, ...]:
@@ -650,6 +654,7 @@ def plan_frame(
     source_plans: Mapping[str, CompiledSourceFrame[CheckedStageInputT]],
     *,
     frame_inputs: Mapping[str, FrameExpression] | None = None,
+    policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY,
 ) -> CompiledFramePlan[CheckedStageInputT]:
     planner = _FramePlanner(source_plans, {} if frame_inputs is None else frame_inputs)
     output, schema = planner.visit(root)
@@ -672,6 +677,7 @@ def plan_frame(
         tuple(tuple(c.slot_id for c in axis.columns) for axis in schema.axes),
         fusion_groups=tuple(planner.groups),
         optimization_decisions=tuple(planner.decisions),
+        optimization_policy=policy,
     )
     return CompiledFramePlan(
         LoweredQuery(with_unique_keys(plan), tuple(planner.reads)),

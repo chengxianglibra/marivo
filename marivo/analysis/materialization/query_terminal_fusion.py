@@ -18,6 +18,7 @@ from marivo._definition.relations import (
     PopulationProgram,
     PopulationSet,
 )
+from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.native_query import NativeQueryFinish
 from marivo.analysis.compiler.optimization import required_slots
@@ -51,6 +52,30 @@ from marivo.analysis.materialization.query_plan_transport import (
 )
 
 
+def _terminal_population_stage(endpoint: LocalCompute, lowered: LoweredQuery) -> LocalCompute:
+    """Find the complete Population forwarded by a field-only Frame formula."""
+    program = endpoint.program
+    if (
+        not isinstance(program, FormulaProgram)
+        or program.values
+        or program.output_population is None
+    ):
+        return endpoint
+    population = next(
+        (item for item in program.populations if item.definition == program.output_population), None
+    )
+    if population is None:
+        return endpoint
+    return next(
+        (
+            stage
+            for stage in lowered.plan.stages
+            if isinstance(stage, LocalCompute) and stage.stage_id == population.stage_id
+        ),
+        endpoint,
+    )
+
+
 def _order_terminal_population(
     endpoint: LocalCompute,
     native: NativeQueryRelation,
@@ -58,28 +83,30 @@ def _order_terminal_population(
     lowered: LoweredQuery,
     owner: SourceSession,
 ) -> tuple[NativeQueryRelation, NativeQueryFinish | None] | None:
+    population = _terminal_population_stage(endpoint, lowered)
     finish: NativeQueryFinish | None = None
-    if isinstance(endpoint.program, ResultProgram) and isinstance(
-        endpoint.program.operation, PopulationValues
+    if isinstance(population.program, ResultProgram) and isinstance(
+        population.program.operation, PopulationValues
     ):
         if any(
             isinstance(item, LocalCompute)
             and isinstance(item.program, ResultProgram)
             and isinstance(item.program.operation, (TopValues, PopulationValues))
             for item in lowered.plan.stages
-            if item.stage_id in native.stages and item.stage_id != endpoint.stage_id
+            if item.stage_id in native.stages and item.stage_id != population.stage_id
         ):
             return None
-        domain = endpoint.program.operation.definition
+        domain = population.program.operation.definition
         if (
-            isinstance(domain, PopulationProgram)
+            endpoint.keys
+            and isinstance(domain, PopulationProgram)
             and isinstance(domain.root, PopulationSet)
             and domain.root.operation == "union"
         ):
             left_position = next(
                 (
                     index
-                    for index, atom in enumerate(endpoint.program.population_inputs)
+                    for index, atom in enumerate(population.program.population_inputs)
                     if computation_fingerprint(atom) == computation_fingerprint(domain.root.left)
                 ),
                 None,
@@ -89,7 +116,7 @@ def _order_terminal_population(
             left = native_query_relation(
                 prepared,
                 lowered,
-                endpoint.inputs[left_position],
+                population.inputs[left_position],
                 owner,
                 shared=True,
                 allowed_consumers=native.stages,
@@ -97,8 +124,12 @@ def _order_terminal_population(
             if isinstance(left, str):
                 return None
             source_keys = tuple(
-                key for group in endpoint.program.population_layouts[left_position] for key in group
+                key
+                for group in population.program.population_layouts[left_position]
+                for key in group
             )
+            # Each source leaf completes in key order. Retain the left block
+            # before appending right-only keys in the same canonical order.
             key_relation = _distinct(
                 left.expression.select(
                     **dict(
@@ -127,7 +158,7 @@ def _order_terminal_population(
             finish = NativeQueryFinish(
                 endpoint.columns,
                 ("__query_union_order", *endpoint.keys),
-                endpoint.program.output_layout,
+                population.program.output_layout if population is endpoint else None,
             )
     return native, finish
 

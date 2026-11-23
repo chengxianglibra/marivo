@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import replace
+from functools import partial
 from typing import TYPE_CHECKING
 
 import ibis.expr.types as ir
@@ -63,6 +64,10 @@ from marivo.analysis.methods.carriers.stages import StageOutput, source_columns
 from marivo.analysis.methods.frame_attribute import attribute_parent_mapping
 from marivo.analysis.model.domain_captures import DomainPreparationError
 from marivo.analysis.model.errors import reject
+from marivo.analysis.model.optimization_policy import (
+    DEFAULT_OPTIMIZATION_POLICY,
+    OptimizationPolicy,
+)
 from marivo.datasource.spi import (
     SourceSession,
 )
@@ -74,8 +79,9 @@ def _prepare_dependent_read(
     owner: SourceSession,
     inputs: tuple[StageOutput, ...],
     parameter_relations: dict[tuple[SourceSession, str], ir.Table],
+    policy: OptimizationPolicy,
 ) -> tuple[SourceReadStage, LoweredRead]:
-    stage, request = finish_population_checks(stage, lowered, owner.provider.name)
+    stage, request = finish_population_checks(stage, lowered, owner.provider.name, policy=policy)
     expression = request.expression
     for parameter in stage.parameters:
         source = inputs[stage.inputs.index(parameter.stage_id)]
@@ -207,7 +213,12 @@ def _execute_dependent_query(
         return replace(output, receipts=(*nested.receipts, *output.receipts))
     owner = selected.sources.get(stage.source_id, selected.source)
     stage, request = _prepare_dependent_read(
-        stage, lowered.read(stage.stage_id), owner, inputs, parameter_relations
+        stage,
+        lowered.read(stage.stage_id),
+        owner,
+        inputs,
+        parameter_relations,
+        lowered.plan.optimization_policy,
     )
     output = source_reads.read_stage(
         selected, stage, request, value_keys=value_keys.get(stage.stage_id, ())
@@ -265,6 +276,13 @@ def _finish_query_output(
     return output
 
 
+def _frame_kernel(
+    policy: OptimizationPolicy,
+) -> Callable[[FrameCompute, tuple[StageOutput, ...]], StageOutput]:
+    run = graph_local_execution.run_local
+    return run if policy == DEFAULT_OPTIMIZATION_POLICY else partial(run, policy=policy)
+
+
 def execute_numeric_query(
     prepared: PreparedSources | None,
     lowered: LoweredQuery,
@@ -288,6 +306,7 @@ def execute_numeric_query(
     value_keys = source_value_keys(lowered.plan)
     parameter_relations: dict[tuple[SourceSession, str], ir.Table] = {}
     native_cache: NativeCache = {}
+    frame_kernel = _frame_kernel(lowered.plan.optimization_policy)
 
     def transport(stage_id: str, output: StageOutput) -> StageOutput:
         if not lowered.plan.required_slots:
@@ -352,7 +371,7 @@ def execute_numeric_query(
             frame_filter_steps(stage, inputs[0].frame_schema) if stage.filter_fusion else (stage,)
         )
         for step in steps:
-            output = graph_local_execution.run_local(step, inputs)
+            output = frame_kernel(step, inputs)
             if observe_frame is not None:
                 observe_frame(step, output)
             inputs = (output,)

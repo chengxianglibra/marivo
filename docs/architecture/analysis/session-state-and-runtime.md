@@ -183,6 +183,17 @@ selections do not rerank against changed sources. Their new source values can
 change, with no cross-read snapshot promise. Source-only relation qualification
 is separate from fixed Frame inputs and local combination.
 
+Internal verification can pass an immutable `OptimizationPolicy` when
+completing an authored Frame. The default enables the registered optional
+rewrites. The disabled policy exercises the remaining schedule, and per-rule
+controls isolate individual rewrite decisions. Both schedules complete the
+same binding, source and result obligations. Policy comparisons retain the
+numeric kernels selected by source and method qualification. Sample ablation
+keeps the qualified native sample finish and computes its folds separately.
+Shapley cache ablation recomputes captured summaries with the qualified
+numeric kernel. The stage transport view records complete keys, check slots,
+support markers and ordered witness components.
+
 ## Store generation and data layout
 
 Store 28 is under `<project_root>/.marivo/analysis/generations/v28/`. One closed

@@ -28,9 +28,11 @@ from marivo.analysis.materialization.query_parameters import _replace_parameter
 from marivo.analysis.methods import _sample_numeric
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.optimization_policy import OptimizationPolicy
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
+from tests.support.optimization import compute_with_policy
 from tests.support.source_trace import capture_source
 
 
@@ -341,16 +343,21 @@ def test_source_population_set_terminal_preserves_native_layout(
     assert isinstance(selected, mv.Population)
     trace = capture_source(monkeypatch)
     reads, outputs, locals_ = _capture_stages(monkeypatch)
-    result = session.frame(selected).compute()
+    query = session.frame(selected)
+    result = query.compute()
     rows = result.to_pandas()
     assert (
         rows.iloc[:, 0].tolist()
-        == {"union": [1, 2, 3], "intersection": [3], "difference": [2]}[operation]
+        == {"union": [2, 3, 1], "intersection": [3], "difference": [2]}[operation]
     )
     assert len(reads) == len(outputs) == len(trace.native_sql) == 1
     stage, request = reads[0]
     assert isinstance(stage.program, NativeRead)
-    assert stage.program.finish is None
+    if operation == "union":
+        assert stage.program.finish is not None
+        assert stage.program.finish.order == ("__query_union_order", "key.0")
+    else:
+        assert stage.program.finish is None
     assert stage.keys == ("key.0",)
     assert tuple(column.slot_id for column in stage.columns) == ("key.0",)
     assert tuple(outputs[0].table.columns) == ("key.0",)
@@ -362,6 +369,36 @@ def test_source_population_set_terminal_preserves_native_layout(
     assert len(request.numeric_checks) == 2
     assert trace.returned_rows == [len(rows)]
     assert locals_ == []
+    unoptimized = compute_with_policy(query, OptimizationPolicy.disabled())
+    pd.testing.assert_frame_equal(unoptimized.to_pandas(), rows)
+    assert len(reads) == len(outputs) == len(trace.native_sql) == 3
+
+
+@pytest.mark.parametrize("invalid_amount", (19, 21), ids=("right", "left"))
+def test_source_population_union_checks_both_operands(
+    source_query_session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_amount: int,
+) -> None:
+    session = source_query_session
+    entity = catalog_value(session.catalog, "sales.orders", kind="entity")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    left = session.members(entity, where=amount >= 20)
+    right = session.members(entity, where=amount <= 20)
+    with duckdb.connect(str(tmp_path / "query.duckdb")) as db:
+        db.execute("INSERT INTO orders VALUES (NULL, 'invalid', ?, 0)", [invalid_amount])
+    selected = left.union(right)
+    assert isinstance(selected, mv.Population)
+    query = session.frame(selected)
+    trace = capture_source(monkeypatch)
+    with pytest.raises(MaterializationError) as fused:
+        query.compute()
+    assert len(trace.native_sql) == 1
+    with pytest.raises(MaterializationError) as reference:
+        compute_with_policy(query, OptimizationPolicy.disabled())
+    assert fused.value.stage == reference.value.stage == "population_identity"
+    assert fused.value.expected == reference.value.expected == "non-null complete identity keys"
 
 
 def test_fixed_top_identity_bridge_reads_explicit_source(

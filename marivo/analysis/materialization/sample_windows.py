@@ -149,7 +149,10 @@ def prepare_sample_window_plan(
         frame_schemas=frame_schemas,
         reuse_sources=prepared if checked_inputs else None,
     )
-    plan = plan_query(candidate, sources.schemas)
+    sources = replace(sources, optimization_policy=prepared.optimization_policy)
+    plan = replace(
+        plan_query(candidate, sources.schemas), optimization_policy=prepared.optimization_policy
+    )
     if checked_inputs:
         plan = restrict_plan(plan, checked_inputs, empty=False)
     candidates = tuple(
@@ -709,7 +712,10 @@ def prepare_sample_window_read(
         _restrict(sources, item, selected, selected_columns, width)
     # Source reductions remain native; the existing local sample kernel consumes
     # the frozen domains, including samples whose windows have no contributions.
-    plan = plan_query(rebound, sources.schemas)
+    sources = replace(sources, optimization_policy=prepared.optimization_policy)
+    plan = replace(
+        plan_query(rebound, sources.schemas), optimization_policy=prepared.optimization_policy
+    )
     population_outputs = None
     if program.reuse_population_outputs:
         population_outputs = dict(

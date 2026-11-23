@@ -6,7 +6,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, TypeAlias
 
-import ibis
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import (
@@ -39,7 +38,7 @@ from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.binding.signature import ResultQuantity
 from marivo.analysis.compiler.observation import common_slot
-from marivo.analysis.compiler.original import component_layout
+from marivo.analysis.compiler.original_components import retain_components as retain_components
 from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.compiler.query_stages import (
     AttributeRead,
@@ -67,13 +66,13 @@ from marivo.analysis.compiler.query_stages import (
     require_reduction,
     require_result,
 )
-from marivo.analysis.core.value_types import ibis_type
-from marivo.analysis.model.data_types import DataColumn, DecimalDataType, ScalarDataType
+from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
 from marivo.analysis.model.kernels import QUERY_COMBINE_KERNEL
 from marivo.analysis.model.local_laws import total_selection_issue
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.lowered_query import LoweredQuery
+    from marivo.analysis.model.optimization_policy import OptimizationPolicy
 
 
 def required_for(plan: QueryPlan, stage_id: str) -> RequiredSlots:
@@ -91,17 +90,7 @@ def _support(stage: QueryStage) -> set[str]:
         return {column.slot_id for column in stage.columns}
     if isinstance(stage, SourceReadStage):
         required.update(
-            column.slot_id
-            for column in stage.columns
-            if column.slot_id.startswith(
-                (
-                    "numeric_check.",
-                    "predicate_check.",
-                    "__numeric_present",
-                    "__sample_present",
-                    "__sample_scope_",
-                )
-            )
+            stage.obligations.names("numeric_check", "predicate_check", "presence", "sample_scope")
         )
     elif isinstance(stage.program, ResultProgram) and stage.program.output_layout is not None:
         layout = stage.program.output_layout
@@ -176,6 +165,8 @@ def _input_columns(stage: LocalCompute, wanted: set[str]) -> set[str]:
 
 def required_slots(plan: QueryPlan) -> tuple[RequiredSlots, ...]:
     """Merge every consumer's finite demand in one backward topological pass."""
+    if not plan.optimization_policy.allows("required_slots"):
+        return ()
     stages = {stage.stage_id: stage for stage in plan.stages}
     wanted = {stage.stage_id: set[str]() for stage in plan.stages}
     components = {stage.stage_id: set[str]() for stage in plan.stages}
@@ -234,10 +225,15 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
     decisions: list[RuleDecision] = []
     consumers = {stage_id: set(values) for stage_id, values in _consumers(plan.stages)}
     source_roots: dict[str, SourceReadStage] = {}
+    policy = plan.optimization_policy
     for original in plan.stages:
         stage = stages[original.stage_id]
         if isinstance(stage, SourceReadStage):
-            if read_reduction(stage) is not None and stage.source_id in source_roots:
+            if (
+                policy.allows("source_merge")
+                and read_reduction(stage) is not None
+                and stage.source_id in source_roots
+            ):
                 prior = source_roots[stage.source_id]
                 decisions.append(
                     RuleDecision(
@@ -256,7 +252,8 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
             source_roots[stage.source_id] = stage
             continue
         if (
-            not isinstance(stage, LocalCompute)
+            not policy.allows("L1")
+            or not isinstance(stage, LocalCompute)
             or not isinstance(stage.program, ResultProgram)
             or len(stage.inputs) != 1
         ):
@@ -575,13 +572,24 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
     return replace(result, required_slots=required_slots(result))
 
 
-def optimize_query(plan: QueryPlan) -> QueryPlan:
+def optimize_query(plan: QueryPlan, *, policy: OptimizationPolicy | None = None) -> QueryPlan:
     """Apply one bounded demand/law pass; preserve the original plan as a control."""
+    if policy is not None and policy != plan.optimization_policy:
+        plan = replace(plan, optimization_policy=policy)
+    policy = plan.optimization_policy
     if any(isinstance(stage, (FrameInput, FrameCompute, FrameKeysInput)) for stage in plan.stages):
         # Source children are optimized before composition. Fixed data is a hard
         # boundary; complete validation and strict expressions survive demand.
         return replace(plan, required_slots=required_slots(plan))
-    planned = _fuse(replace(plan, required_slots=required_slots(plan)))
+    planned = replace(plan, required_slots=required_slots(plan))
+    if policy.allows("L1") or policy.allows("source_merge"):
+        planned = _fuse(planned)
+    if policy.allows("required_slots"):
+        planned = _prune_slots(planned)
+    return _common_sources(planned) if policy.allows("source_merge") else planned
+
+
+def _prune_slots(planned: QueryPlan) -> QueryPlan:
     required = required_slots(planned)
     by_stage = {item.stage_id: item for item in required}
     stages: list[QueryStage] = []
@@ -632,7 +640,7 @@ def optimize_query(plan: QueryPlan) -> QueryPlan:
             elif isinstance(operation, (FilterValues, TopValues)):
                 stage = replace(stage, columns=columns)
         stages.append(stage)
-    return _common_sources(replace(planned, stages=tuple(stages), required_slots=required))
+    return replace(planned, stages=tuple(stages), required_slots=required)
 
 
 @dataclass(frozen=True, slots=True)
@@ -796,37 +804,3 @@ class InvocationMemo:
         self._keys[slot] = key
         self._captures[slot] = value
         return value
-
-
-def retain_components(plan: QueryPlan, schemas: tuple[SourceSchema, ...]) -> QueryPlan:
-    """Add sufficient source inputs only when an original consumer demands them."""
-    stages = []
-    for stage in plan.stages:
-        if (
-            not isinstance(stage, SourceReadStage)
-            or read_reduction(stage) is None
-            or read_components(stage) is not None
-        ):
-            stages.append(stage)
-            continue
-        schema = next(
-            item
-            for item in schemas
-            if item.source_id == stage.source_id and item.occurrence == stage.occurrence
-        )
-        physical = {
-            column.column: ibis_type(column.dtype)
-            for column in (*schema.keys, *schema.fields, *schema.original_identity)
-        }
-        table = ibis.table(physical, name="__original_schema")
-        identity = tuple(
-            (DataColumn(f"__original_id.{index}", column.field, column.dtype, False), column.column)
-            for index, column in enumerate(schema.original_identity or schema.keys)
-        )
-        # Original-contribution consumers require every completed sample.
-        reduction = require_reduction(stage)
-        layout = component_layout(
-            reduction, stage.columns, identity, table, dict(stage.field_columns)
-        )
-        stages.append(replace(stage, program=ComponentRead(layout)))
-    return replace(plan, stages=tuple(stages))

@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
@@ -14,10 +15,13 @@ from marivo._definition.types import CoordinateValue
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import sample_fusion
 from marivo.analysis.methods import _sample_numeric
+from marivo.analysis.methods.local_formula_domains import ordered_report_rows
 from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.optimization_policy import OptimizationPolicy
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory, catalog_value
+from tests.support.optimization import compute_with_policy
 from tests.support.source_trace import capture_source
 
 _MODEL = """import marivo.datasource as md
@@ -270,6 +274,119 @@ def test_explicit_samples_match_shared_nullable_axis_and_preserve_output_coverag
     with pytest.raises(MaterializationError) as error:
         session.observe({"average": revenue.per(subset).mean()}, by=subset).compute()
     assert error.value.stage == "population_coverage"
+
+
+@pytest.mark.parametrize("native", (True, False), ids=("default", "control"))
+def test_explicit_population_retains_the_typed_null_only_classification(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    native: bool,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute("INSERT INTO orders VALUES (1, NULL, 0), (2, 2, NULL)")
+    catalog = session.catalog
+    key = catalog_value(catalog, "sales.orders.id", kind="dimension")
+    group = catalog_value(catalog, "sales.orders.customer", kind="dimension")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="measure")
+    left, right = amount.sum(where=key == 1), amount.sum(where=key == 3)
+    population = mv.coordinates(by=(group,), keys=((None,),))
+    query = session.observe({"total": (left + right) - right}, by=population)
+    completed = (
+        query.compute() if native else compute_with_policy(query, OptimizationPolicy.disabled())
+    )
+    rows = completed.to_pandas()
+    pd.testing.assert_extension_array_equal(
+        rows.iloc[:, 0].array, pd.arrays.ArrowExtensionArray(pa.array([None], type=pa.int64()))
+    )
+    assert rows["total"].tolist() == [0]
+
+
+@pytest.mark.parametrize("native", (True, False), ids=("native", "local"))
+@pytest.mark.parametrize("explicit", (False, True), ids=("implicit", "shared-literal"))
+def test_sample_mean_retains_the_typed_null_only_parent_group(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    native: bool,
+    explicit: bool,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute("INSERT INTO orders VALUES (1, NULL, 0)")
+    catalog = session.catalog
+    key = catalog_value(catalog, "sales.orders.id", kind="dimension")
+    group = catalog_value(catalog, "sales.orders.customer", kind="dimension")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="measure")
+    if not native:
+        monkeypatch.setattr(
+            sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered
+        )
+    sample = mv.coordinates(by=(group,), keys=((None,),)) if explicit else key
+    query = session.observe({"average": amount.sum().per(sample).mean()}, by=(group,))
+    rows = query.compute().to_pandas()
+    pd.testing.assert_extension_array_equal(
+        rows.iloc[:, 0].array, pd.arrays.ArrowExtensionArray(pa.array([None], type=pa.int64()))
+    )
+    assert rows["average"].tolist() == [0.0]
+
+
+@pytest.mark.parametrize("native", (True, False), ids=("default", "control"))
+def test_observation_orders_complete_keys_after_combining_sparse_branches(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    native: bool,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders VALUES (1, NULL, NULL), (2, NULL, NULL), (3, 0, NULL)"
+        )
+    catalog = session.catalog
+    key = catalog_value(catalog, "sales.orders.id", kind="dimension")
+    group = catalog_value(catalog, "sales.orders.customer", kind="dimension")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="measure")
+    query = session.observe({"total": amount.sum(where=key == 2) + amount.sum()}, by=(group,))
+    completed = (
+        query.compute() if native else compute_with_policy(query, OptimizationPolicy.disabled())
+    )
+    rows = completed.to_pandas()
+    pd.testing.assert_extension_array_equal(
+        rows.iloc[:, 0].array, pd.arrays.ArrowExtensionArray(pa.array([0, None], type=pa.int64()))
+    )
+    assert rows["total"].isna().tolist() == [True, True]
+
+
+def test_report_key_order_preserves_arrow_date_extrema_and_float_validity() -> None:
+    minimum, maximum = -(2**31), 2**31 - 1
+    rows = pd.DataFrame(
+        {
+            "day": pd.arrays.ArrowExtensionArray(
+                pa.array([None, minimum, minimum, minimum, maximum], type=pa.int32()).cast(
+                    pa.date32()
+                )
+            ),
+            "coordinate": pd.arrays.ArrowExtensionArray(
+                pa.array([0.0, None, float("nan"), 0.0, -1.0], type=pa.float64())
+            ),
+            "row": range(5),
+        }
+    )
+    ordered = ordered_report_rows(rows, ("day", "coordinate"))
+    assert ordered["row"].tolist() == [3, 2, 1, 4, 0]
+    assert pa.array(ordered["day"]).cast(pa.int32()).to_pylist() == [
+        minimum,
+        minimum,
+        minimum,
+        maximum,
+        None,
+    ]
+    assert pa.array(ordered["coordinate"]).is_valid().to_pylist() == [True, True, False, True, True]
 
 
 @pytest.mark.parametrize("native", (True, False))

@@ -208,7 +208,7 @@ def reduce_samples(
         groups.setdefault(key_at(sample_arrays, sample_position), []).append(sample_position)
     for domain_position in range(len(domain)):
         group = frame.iloc[groups.get(key_at(domain_arrays, domain_position), [])]
-        record: dict[str, object] = {key: domain[key].iloc[domain_position] for key in keys}
+        record: dict[str, object] = {}
         for name, _, _ in inherited:
             record[name] = bool(group[name].astype("boolean").fillna(False).any())
         record.update(
@@ -230,6 +230,8 @@ def reduce_samples(
             output_type,
         )
         records.append(record)
-    return pd.DataFrame(
-        records, columns=[*keys, "value", *(name for name, _, _ in metadata)], dtype=object
-    ), metadata
+    values = pd.DataFrame(
+        records, columns=["value", *(name for name, _, _ in metadata)], dtype=object
+    )
+    coordinates = domain.loc[:, list(keys)].reset_index(drop=True)
+    return pd.concat((coordinates, values), axis=1), metadata

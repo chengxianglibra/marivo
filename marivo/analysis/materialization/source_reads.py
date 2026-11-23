@@ -56,6 +56,7 @@ from marivo.analysis.materialization.source_qualification import _route_gap
 from marivo.analysis.methods.carriers.stages import StageOutput, source_columns
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.frame_contracts import CheckReceipt
+from marivo.analysis.model.optimization_policy import DEFAULT_OPTIMIZATION_POLICY
 from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.datasource.spi import (
     PhysicalRequirement,
@@ -89,7 +90,9 @@ def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> N
     for read in lowered.reads:
         stage = lowered.plan.source_read_stage(read.stage_id)
         source = prepared.sources.get(stage.source_id, prepared.source)
-        stage, read = finish_population_checks(stage, read, source.provider.name)
+        stage, read = finish_population_checks(
+            stage, read, source.provider.name, policy=prepared.optimization_policy
+        )
         expression = read.expression
         for parameter in stage.parameters:
             empty = StageOutput.from_frame(
@@ -216,7 +219,12 @@ def _native_query_expression(
     cached = prepared.native_expressions.get(key)
     if cached is not None:
         return cached
-    expression = temporal_sql.lower_temporal(read.expression, source.provider.name)
+    policy = prepared.optimization_policy
+    expression = (
+        temporal_sql.lower_temporal(read.expression, source.provider.name)
+        if policy == DEFAULT_OPTIMIZATION_POLICY
+        else temporal_sql.lower_temporal(read.expression, source.provider.name, policy=policy)
+    )
     assert isinstance(expression, ir.Table)
     expression = source.provider.dialect.lower_query_numeric(expression)
     prepared.native_expressions[key] = expression
@@ -251,7 +259,9 @@ def read_stage(
             "the source read lacks its checked original-parent association",
         )
     source = prepared.sources.get(stage.source_id, prepared.source)
-    stage, lowered = finish_population_checks(stage, lowered, source.provider.name)
+    stage, lowered = finish_population_checks(
+        stage, lowered, source.provider.name, policy=prepared.optimization_policy
+    )
     expression = _native_query_expression(prepared, stage, lowered)
     lowered = replace(lowered, expression=expression)
     purpose = f"query.{stage.stage_id}"

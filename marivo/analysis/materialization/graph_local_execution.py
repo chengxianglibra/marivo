@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import replace
+from functools import partial
 from typing import TYPE_CHECKING, TypeAlias
 
 import pandas as pd
@@ -52,6 +53,10 @@ from marivo.analysis.methods.query_values import evaluate_result
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.frame_attribute_merge import AttributeMergeProgram
 from marivo.analysis.model.frame_contracts import CheckReceipt
+from marivo.analysis.model.optimization_policy import (
+    DEFAULT_OPTIMIZATION_POLICY,
+    OptimizationPolicy,
+)
 from marivo.analysis.model.unique_keys import UniqueKeys
 
 if TYPE_CHECKING:
@@ -67,10 +72,11 @@ def run_local(
     *,
     report_domain: pd.DataFrame | None = None,
     sample_domains: Mapping[tuple[int, ...], pd.DataFrame] | None = None,
+    policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY,
 ) -> StageOutput:
     """Run one checked Query kernel without mutating its shared inputs."""
     if isinstance(stage, FrameCompute):
-        return _run_frame(stage, inputs)
+        return _run_frame(stage, inputs, policy)
     attribute_inputs: tuple[AttributeRootInputs, ...] = ()
     if local_steps(stage):
         output = inputs[0]
@@ -168,7 +174,9 @@ def run_local(
     )
 
 
-def _run_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
+def _run_frame(
+    stage: FrameCompute, inputs: tuple[StageOutput, ...], policy: OptimizationPolicy
+) -> StageOutput:
     attribute_inputs: tuple[AttributeRootInputs, ...] = ()
     if stage.filter_fusion is None:
         stage = effective_frame(stage, inputs)
@@ -180,7 +188,9 @@ def _run_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOut
     attachments: tuple[OutputAttachment, ...]
 
     if isinstance(stage.program, AttributeGameProgram):
-        frame, payload = attribute_game_data(stage.program, inputs)
+        frame, payload = attribute_game_data(
+            stage.program, inputs, memoize_values=policy.allows("shapley_summary_state")
+        )
         attachments = _retained_input_attachments(inputs, required)
         attribute_methods = (payload,)
     elif isinstance(stage.program, AttributeMergeProgram):
@@ -224,12 +234,15 @@ def _run_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOut
         )
         tables = tuple(item.table for item in inputs)
         fusion = stage.filter_fusion
+        evaluate = (
+            query_values.evaluate_frame
+            if policy.allows("frame_evaluation_cache")
+            else partial(query_values.evaluate_frame, memoize=False)
+        )
         if fusion is None:
-            frame = query_values.evaluate_frame(stage.program, tables)
+            frame = evaluate(stage.program, tables)
         else:
-            frame = query_values.evaluate_frame(
-                stage.program, tables, second_filter_columns=fusion.second_columns
-            )
+            frame = evaluate(stage.program, tables, second_filter_columns=fusion.second_columns)
         attachments = tuple(a for a in inputs[0].frame_attachments if a.name in required)
     if isinstance(stage.program, (FrameCompareProgram, FrameCombineProgram)):
         stage = replace(stage, program=replace(stage.program, output_schema=resolved_schema))

@@ -9,14 +9,22 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.materialization import frame_source_preparation, query_terminal_fusion
+from marivo.analysis.model.optimization_policy import OptimizationPolicy
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import DATA, _project
 from tests.datasource.environment.clickhouse_analysis import connection
 from tests.datasource.source_cases import SourceData, receipt, source_case, source_params
 from tests.shared_fixtures import catalog_value
+from tests.support.optimization import compute_with_policy
 from tests.support.source_trace import capture_source
+
+_LOGICAL_CONTROL = (
+    OptimizationPolicy.default()
+    .with_rule("source_merge", enabled=False)
+    .with_rule("required_slots", enabled=False)
+    .with_rule("L1", enabled=False)
+)
 
 
 @pytest.mark.parametrize(
@@ -115,9 +123,7 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
             },
             by=by,
         )
-        with monkeypatch.context() as control:
-            control.setattr(frame_source_preparation, "optimize_query", lambda plan: plan)
-            baseline = query.compute().to_pandas()
+        baseline = compute_with_policy(query, _LOGICAL_CONTROL).to_pandas()
         trace = capture_source(monkeypatch)
         result = query.compute().to_pandas()
         # MySQL's isolated SUM returns Decimal; the existing common aggregate
@@ -200,12 +206,10 @@ def test_count_and_quantiles_share_actual_scan(
         }
         query = session.observe(metrics, by=by, where=where)
         with monkeypatch.context() as control:
-            control.setattr(frame_source_preparation, "optimize_query", lambda plan: plan)
-            control.setattr(
-                query_terminal_fusion, "fuse_query_terminal", lambda prepared, lowered: lowered
-            )
             baseline_trace = capture_source(control)
-            baseline = query.compute().to_pandas()
+            baseline = compute_with_policy(
+                query, _LOGICAL_CONTROL.with_rule("source_terminal_fusion", enabled=False)
+            ).to_pandas()
         with monkeypatch.context() as control:
             single_trace = capture_source(control)
             session.observe({"count": amount.count(time=day)}, by=by, where=where).compute()

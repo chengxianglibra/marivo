@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
 
 from marivo._definition.correspondence import coordinate_matches
 from marivo._definition.expressions import (
@@ -23,9 +25,19 @@ from marivo.analysis.binding.calendar_keys import (
     time_key_series,
 )
 from marivo.analysis.binding.programs import FormulaProgram, MemberInput
-from marivo.analysis.core.data_validation import distinct_key_rows
+from marivo.analysis.core.data_validation import distinct_key_rows, normalize_stage_columns
+from marivo.analysis.model.data_types import DataColumn
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.semantic.spi import numeric_failure
+
+
+def ordered_report_rows(rows: pd.DataFrame, keys: tuple[str, ...]) -> pd.DataFrame:
+    """Order complete report keys in their Arrow carriers with NULL last."""
+    if len(rows) < 2 or not keys:
+        return rows
+    coordinates = pa.table({key: pa.array(rows[key], from_pandas=True) for key in keys})
+    order = pc.sort_indices(coordinates, sort_keys=[(key, "ascending") for key in keys])
+    return rows.take(order.to_numpy()).reset_index(drop=True)
 
 
 def initial_formula_domain(
@@ -96,6 +108,7 @@ class FormulaDomains:
     key_slots: tuple[str, ...]
     population_frames: tuple[pd.DataFrame, ...]
     domain: pd.DataFrame
+    report_columns: tuple[DataColumn, ...]
 
     def population_domain(
         self, definition: PopulationDependency, slots: tuple[str, ...]
@@ -262,10 +275,10 @@ class FormulaDomains:
                 )
         domain = self.parent_scoped(domain)
         if program.output_population is not None:
-            complete_domain = distinct_key_rows(
-                self.parent_scoped(self.population_domain(program.output_population, key_slots)),
-                key_slots,
-            )
+            population = self.population_domain(program.output_population, key_slots)
+            if self.report_columns:
+                population = normalize_stage_columns(population, self.report_columns)
+            complete_domain = distinct_key_rows(self.parent_scoped(population), key_slots)
             if program.values and not program.population_checked:
                 if keys:
                     missing = domain.merge(complete_domain, on=keys, how="left", indicator=True)
@@ -273,6 +286,7 @@ class FormulaDomains:
                 else:
                     missing = domain if not len(complete_domain) else domain.iloc[:0]
                 if len(missing):
+                    missing = ordered_report_rows(missing, key_slots)
                     raise MaterializationError(
                         expected="an output Population covering every required complete coordinate",
                         received=f"missing output coordinates={missing.head(6).to_dict(orient='records') if keys else [()]}",

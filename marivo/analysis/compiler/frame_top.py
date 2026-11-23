@@ -38,10 +38,10 @@ def _bounded_read(
     provider: str,
 ) -> tuple[SourceReadStage, LoweredRead]:
     expression = read.expression
+    obligations = read.obligations
+    marker = obligations.numeric_presence
     data = (
-        expression.filter(expression["__numeric_present"].fill_null(False))
-        if "__numeric_present" in expression.columns
-        else expression
+        expression.filter(expression[marker].fill_null(False)) if marker is not None else expression
     )
     summaries: dict[str, ir.Value] = {"__frame_top_input_count": expression.count()}
     checks: list[tuple[str, NumericCheck]] = []
@@ -50,8 +50,8 @@ def _bounded_read(
         alias = f"__frame_top_numeric_{index}"
         summaries[alias] = expression[name].any().fill_null(False)
         checks.append((alias, check))
-        original_keys = tuple(f"{name}.witness.{i}" for i in range(len(stage.keys)))
-        if all(key in expression.columns for key in original_keys):
+        original_keys = obligations.witnesses(name, width=len(stage.keys))
+        if len(original_keys) == len(stage.keys):
             witness_keys = tuple(f"{alias}.witness.{i}" for i in range(len(stage.keys)))
             summaries.update(
                 {
@@ -66,8 +66,8 @@ def _bounded_read(
             continue
         alias = f"__frame_top_null_{index}"
         invalid = expression[column.slot_id].isnull()
-        if "__numeric_present" in expression.columns:
-            invalid = invalid & expression["__numeric_present"].fill_null(False)
+        if marker is not None:
+            invalid = invalid & expression[marker].fill_null(False)
         summaries[alias] = invalid.any().fill_null(False)
         integrity.append(
             (

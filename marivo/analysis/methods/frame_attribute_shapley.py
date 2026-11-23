@@ -371,6 +371,8 @@ def _sample(
     permutations: int,
     seed: int,
     paired_game: AttributeGame | None = None,
+    *,
+    memoize_values: bool = True,
 ) -> tuple[GameSample, tuple[str, ...]]:
     types: dict[str, dt.DataType] = {}
     fields: dict[str, Domain] = {}
@@ -443,7 +445,9 @@ def _sample(
         series = evaluate_numeric(expression.value.op(), physical, pd.RangeIndex(1))
         return CoalitionValue(output, _number(series.iloc[0]))
 
-    return sample_game(parent, players, permutations, seed, evaluate), proof
+    return sample_game(
+        parent, players, permutations, seed, evaluate, memoize_values=memoize_values
+    ), proof
 
 
 def _frequency_state(
@@ -659,7 +663,10 @@ def _fixed_leaf_facts(
 
 
 def attribute_game_data(
-    program: AttributeGameProgram, inputs: tuple[StageOutput, ...]
+    program: AttributeGameProgram,
+    inputs: tuple[StageOutput, ...],
+    *,
+    memoize_values: bool = True,
 ) -> tuple[pd.DataFrame, AttributeMethodPayload]:
     _, left, right, _, _ = inputs
     operation, target = program.operation, program.operation.target
@@ -701,6 +708,7 @@ def attribute_game_data(
                 operation.permutations,
                 operation.seed,
                 operation.games[1],
+                memoize_values=memoize_values,
             )
             current = _series(sampled.current.value, sampled.current.column)
             baseline = _series(sampled.baseline.value, sampled.baseline.column)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from contextlib import ExitStack
 from dataclasses import replace
 from decimal import Decimal, localcontext
 from fractions import Fraction
@@ -11,6 +10,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import duckdb
+import ibis
+import ibis.expr.operations as ops
 import pandas as pd
 import pyarrow as pa
 import pytest
@@ -27,7 +28,7 @@ from marivo.analysis.compiler import optimization
 from marivo.analysis.compiler.attribute_frequencies import frequency_read
 from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
 from marivo.analysis.compiler.graph_lowering import lower_query
-from marivo.analysis.compiler.lowered_query import LoweredRead
+from marivo.analysis.compiler.lowered_query import LoweredRead, PopulationCheck
 from marivo.analysis.compiler.optimization import (
     InvocationMemo,
     _common_sources,
@@ -60,7 +61,6 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import (
     frame_evaluation,
-    frame_source_preparation,
     source_reads,
     terminal_store,
 )
@@ -69,11 +69,14 @@ from marivo.analysis.materialization.graph_source_execution import (
     execute_numeric_query,
     run_frame_plan,
 )
+from marivo.analysis.materialization.native_query_checks import _population_check_summary
 from marivo.analysis.materialization.prepared_sources import PreparedSources
 from marivo.analysis.materialization.query_sources import open_query_sources
 from marivo.analysis.materialization.source_reads import read_stage
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
+from marivo.analysis.model.optimization_policy import OptimizationPolicy
+from marivo.analysis.model.slot_roles import StageObligations
 from marivo.analysis.session.core import Session
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.datasource.runtime.read_types import CompiledRead
@@ -84,6 +87,7 @@ from tests.shared_fixtures import (
     catalog_value,
     terminal_runs,
 )
+from tests.support.optimization import compute_with_policy
 from tests.support.source_trace import SourceTrace, capture_source
 
 
@@ -134,6 +138,122 @@ def _source_graph(frame: AnalysisFrame) -> BoundGraph:
     assert isinstance(frame._backing, ExpressionFrameBacking)
     assert isinstance(frame._backing.root, (SourceFrameBinding, LiteralFrameBinding))
     return frame._backing.root.graph
+
+
+def test_explicit_optimization_policy_controls_reads_and_preserves_values(
+    optimization_session: Session,
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    frame = session.observe({"total": amount.sum(), "count": amount.count()}, by=(region,))
+    filtered = frame.where(frame["total"] >= 15)
+    selected = filtered.where(filtered["count"] > 0)
+    default = OptimizationPolicy.default()
+    without_terminal = default.with_rule("source_terminal_fusion", enabled=False)
+    for policy, read_count in (
+        (default, 1),
+        (OptimizationPolicy.disabled(), 2),
+        (without_terminal, 1),
+        (without_terminal.with_rule("source_merge", enabled=False), 2),
+    ):
+        result = frame_evaluation.evaluate_frame(selected, policy=policy)
+        assert len(result.metadata.source_reads) == read_count, policy
+        assert list(result.data.copy_rows().itertuples(index=False, name=None)) == [
+            ("A", 40, 2),
+            ("B", 20, 1),
+        ]
+
+
+def test_stage_obligations_preserve_role_and_witness_position() -> None:
+    check = "predicate_check.1.block2"
+    slots = StageObligations.from_aliases(
+        (
+            "key.1",
+            f"{check}.witness.1",
+            "value.0",
+            check,
+            "numeric_check.0",
+            "__sample_scope_2",
+            "__numeric_present",
+            "key.0",
+            f"{check}.witness.0",
+            "__original_value",
+        )
+    )
+    assert slots.ordered_keys() == ("key.0", "key.1")
+    assert slots.names("predicate_check") == (check,)
+    assert slots.names("numeric_check") == ("numeric_check.0",)
+    assert slots.names("raw_component") == ("__original_value",)
+    assert slots.coverage_marker(2) == "__sample_scope_2"
+    assert slots.coverage_marker(1) == "__numeric_present"
+    assert slots.witnesses(check) == (f"{check}.witness.0", f"{check}.witness.1")
+
+
+def test_population_witness_fallback_preserves_one_complete_row() -> None:
+    table = ibis.memtable({"key.0": [2, 1, 1], "key.1": [1, 8, 3], "invalid": [True, True, False]})
+    obligations = (PopulationCheck(table, "invalid", "clean", "invalid", ("key.0", "key.1")),)
+    default = OptimizationPolicy.default()
+    expected = {
+        "__population_check_0": True,
+        "__population_check_0.witness.0": 1,
+        "__population_check_0.witness.1": 8,
+    }
+    backend = ibis.duckdb.connect()
+    try:
+        for combined in (True, False):
+            summary, _ = _population_check_summary(
+                obligations,
+                "duckdb",
+                0,
+                policy=default.with_rule(
+                    "native_check_summary",
+                    enabled=combined,
+                ),
+            )
+            assert summary is not None
+            assert bool(summary.op().find(ops.ArgMin)) is combined
+            assert backend.to_pyarrow(summary).to_pylist() == [expected]
+    finally:
+        backend.disconnect()
+
+
+@pytest.mark.parametrize(
+    "share, threshold, expected",
+    ((False, 1.125, [1.25, 1]), (True, 1.375, [1.25, 0, 75.5])),
+)
+def test_policy_preserves_the_qualified_native_sample_kernel(
+    optimization_session: Session,
+    share: bool,
+    threshold: float,
+    expected: list[float | int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = optimization_session
+    with duckdb.connect(str(session.catalog.workspace_dir / "optimization.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders (id, amount, ordered_at) VALUES "
+            "(1, 1, '2026-01-01'), (2, 2, '2026-01-02'), (3, 100, '2026-01-03')"
+        )
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
+    samples = amount.mean(time=point).per(point)
+    percentile = samples.approx_quantile(0.25)
+    outputs = {"quantile": percentile, "band": (percentile > threshold).ifelse(1, 0)}
+    if share:
+        outputs["upper"] = samples.approx_quantile(0.75)
+    frame = session.observe(outputs)
+    trace = capture_source(monkeypatch)
+    assert frame.compute().to_pandas().iloc[0].tolist() == expected
+    assert all("QUANTILE_CONT(" not in sql.upper() for sql in trace.native_sql), trace.native_sql
+    assert sum(sql.upper().count("APPROX_QUANTILE(") for sql in trace.native_sql) >= 1 + share
+    for policy in (
+        OptimizationPolicy.disabled(),
+        OptimizationPolicy.default().with_rule("source_sample_reduction", enabled=False),
+    ):
+        result = compute_with_policy(frame, policy).to_pandas()
+        assert result.iloc[0].tolist() == expected
 
 
 def _execute(
@@ -223,17 +343,13 @@ def _execute(
         captured.append((output, compiled.lowered.plan))
         return output
 
-    with ExitStack() as controls:
-        controls.enter_context(patch.object(frame_evaluation, "run_frame_plan", observe))
-        if not optimize_sources:
-            controls.enter_context(
-                patch.object(frame_source_preparation, "optimize_query", lambda plan: plan)
-            )
-        if not optimized:
-            controls.enter_context(
-                patch.object(frame_evaluation, "fuse_frame_filters", lambda plan, **_: plan)
-            )
-        fixed = query.compute()
+    policy = OptimizationPolicy.default().with_rule("L1", enabled=optimized)
+    if not optimize_sources:
+        policy = policy.with_rule("required_slots", enabled=False).with_rule(
+            "source_merge", enabled=False
+        )
+    with patch.object(frame_evaluation, "run_frame_plan", observe):
+        fixed = compute_with_policy(query, policy)
     if completed is not None:
         completed.append(fixed)
     assert len(captured) == 1

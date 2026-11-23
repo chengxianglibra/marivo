@@ -24,6 +24,11 @@ from marivo.analysis.compiler.query_stages import (
 from marivo.analysis.compiler.reduction_input import ReductionInput
 from marivo.analysis.materialization.prepared_sources import PreparedSources
 from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.optimization_policy import (
+    DEFAULT_OPTIMIZATION_POLICY,
+    OptimizationPolicy,
+)
+from marivo.analysis.model.slot_roles import StageObligations
 from marivo.datasource.spi import query_policy
 from marivo.semantic.spi import NumericCheck
 
@@ -114,6 +119,8 @@ def _population_check_summary(
     obligations: tuple[PopulationCheck, ...],
     provider: str,
     offset: int,
+    *,
+    policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY,
 ) -> tuple[ir.Table | None, tuple[tuple[str, NumericCheck], ...]]:
     """Summarize each checked scope once, outside the business relation."""
     checks: list[tuple[str, NumericCheck]] = []
@@ -137,7 +144,8 @@ def _population_check_summary(
         summary = _check_summary(
             relation_expr,
             tuple((alias, relation_expr[check.flag], check.keys) for alias, check in batch),
-            combined=query_policy(provider).supports_fused_arithmetic,
+            combined=policy.allows("native_check_summary")
+            and query_policy(provider).supports_fused_arithmetic,
             provider=provider,
         )
         summaries.append(summary)
@@ -157,8 +165,9 @@ def _attach_population_checks(
     obligations: tuple[PopulationCheck, ...],
     provider: str,
     offset: int,
+    policy: OptimizationPolicy,
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
-    summary, checks = _population_check_summary(obligations, provider, offset)
+    summary, checks = _population_check_summary(obligations, provider, offset, policy=policy)
     if summary is None:
         return expression, ()
     if "__numeric_present" not in expression.columns:
@@ -167,13 +176,17 @@ def _attach_population_checks(
 
 
 def finish_population_checks(
-    stage: SourceReadStage, read: LoweredRead, provider: str
+    stage: SourceReadStage,
+    read: LoweredRead,
+    provider: str,
+    *,
+    policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY,
 ) -> tuple[SourceReadStage, LoweredRead]:
     """Render deferred Population diagnostics for a standalone physical read."""
     if not read.population_checks:
         return stage, read
     expression, checks = _attach_population_checks(
-        read.expression, read.population_checks, provider, len(read.numeric_checks)
+        read.expression, read.population_checks, provider, len(read.numeric_checks), policy
     )
     return (
         replace(
@@ -203,16 +216,13 @@ def _source_check_summary(
 ) -> ir.Table:
     direct: dict[str, tuple[str, ...]] = {}
     external: list[tuple[str, str, ir.Table, tuple[str, ...]]] = []
+    obligations = source.obligations
     for alias, (name, _check) in zip(aliases, source.numeric_checks, strict=True):
         scope = source.expression
         source_keys = source_stage.keys
-        witness_keys = tuple(
-            column for column in scope.columns if column.startswith(name + ".witness.")
-        )
+        witness_keys = obligations.witnesses(name)
         if witness_keys:
-            source_keys = tuple(
-                sorted(witness_keys, key=lambda column: int(column.rsplit(".", 1)[1]))
-            )
+            source_keys = witness_keys
         elif any(name == item[0] for item in source_stage.preparation_checks):
             raw = (
                 prepared.relations.get(
@@ -297,7 +307,10 @@ def _attach_relation_checks(
         provider = prepared.sources.get(source_id, prepared.source).provider.name
     # Other providers retain the qualified branch until actual execution and
     # cost evidence admits the tuple aggregate on their native carriers.
-    combined = query_policy(provider).supports_fused_arithmetic
+    combined = (
+        plan.optimization_policy.allows("native_check_summary")
+        and query_policy(provider).supports_fused_arithmetic
+    )
     for source in native.sources:
         if not source.numeric_checks:
             continue
@@ -327,16 +340,7 @@ def _attach_relation_checks(
         if len(relations) == 1:
             relation = next(iter(relations)).to_expr()
             assert isinstance(relation, ir.Table)
-            keys = tuple(
-                sorted(
-                    (
-                        column
-                        for column in relation.columns
-                        if column.startswith("key.") and column.removeprefix("key.").isdigit()
-                    ),
-                    key=lambda column: int(column.removeprefix("key.")),
-                )
-            )
+            keys = StageObligations.from_aliases(tuple(relation.columns)).ordered_keys()
             summary = _check_summary(
                 relation,
                 tuple((alias, check.violation, keys) for alias, check in batch),
@@ -362,6 +366,7 @@ def _attach_relation_checks(
         tuple(check for source in native.sources for check in source.population_checks),
         provider,
         len(checks),
+        plan.optimization_policy,
     )
     prepared_checks.extend(
         (name, check.expected, check.received) for name, check in population_checks

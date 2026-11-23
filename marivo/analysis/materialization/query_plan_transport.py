@@ -40,6 +40,8 @@ def _consumers(stages: tuple[QueryStage, ...]) -> tuple[tuple[str, tuple[str, ..
 
 def _prune_transport(plan: QueryPlan, producer: str) -> tuple[QueryPlan, tuple[str, ...]]:
     """Drop formula Population inputs that supply no output, member or sample domain."""
+    if not plan.optimization_policy.allows("dead_population_transport"):
+        return plan, ()
     removed: list[str] = []
     for original in plan.stages:
         if not isinstance(original, LocalCompute) or not isinstance(
@@ -90,6 +92,18 @@ def _prune_transport(plan: QueryPlan, producer: str) -> tuple[QueryPlan, tuple[s
         plan = replace(plan, stages=stages, consumers=_consumers(stages))
         removed.extend(redundant)
     return plan, tuple(removed)
+
+
+def _stage_dependencies(stages: dict[str, QueryStage], roots: tuple[str, ...]) -> set[str]:
+    """Return the requested stages and every input needed to execute them."""
+    pending = list(roots)
+    retained: set[str] = set()
+    while pending:
+        identifier = pending.pop()
+        if identifier not in retained:
+            retained.add(identifier)
+            pending.extend(stages[identifier].inputs)
+    return retained
 
 
 def _host_domain_selections(plan: QueryPlan) -> frozenset[str]:

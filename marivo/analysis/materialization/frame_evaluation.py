@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from functools import partial
 from types import TracebackType
 from typing import TYPE_CHECKING, TypeAlias
 from uuid import uuid4
@@ -15,9 +16,7 @@ from typing_extensions import override
 from marivo._kernel.errors import MarivoError
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.compiled_frame import CompiledFramePlan, CompiledSourceFrame
-from marivo.analysis.compiler.frame_filter_fusion import fuse_frame_filters
 from marivo.analysis.compiler.frame_plan import plan_frame
-from marivo.analysis.compiler.frame_top import bound_pending_frame_top
 from marivo.analysis.compiler.lowered_query import LoweredRead
 from marivo.analysis.compiler.query_stages import (
     FrameCompute,
@@ -45,6 +44,7 @@ from marivo.analysis.materialization.frame_source_preparation import (
 )
 from marivo.analysis.materialization.graph_source_execution import run_frame_plan
 from marivo.analysis.materialization.native_calendar import freeze_output_calendars
+from marivo.analysis.materialization.optimization import optimize_compiled_frame
 from marivo.analysis.materialization.prepared_sources import PreparedSources
 from marivo.analysis.materialization.query_runtime_types import effective_frame_schema
 from marivo.analysis.methods.carriers.stages import StageOutput
@@ -64,6 +64,7 @@ from marivo.analysis.model.frame_source_reads import (
     FrameSourceReadScope,
     merge_source_reads,
 )
+from marivo.analysis.model.optimization_policy import DEFAULT_OPTIMIZATION_POLICY
 from marivo.datasource.spi import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 
@@ -71,6 +72,7 @@ if TYPE_CHECKING:
     from marivo.analysis.core.attribute import AttributeMethodPayload
     from marivo.analysis.core.frame_attribute_inputs import AttributeInputRequest
     from marivo.analysis.core.frame_data import FrameNode
+    from marivo.analysis.model.optimization_policy import OptimizationPolicy
 
 
 def _attribute_associations(
@@ -210,6 +212,7 @@ _CalendarOwners: TypeAlias = dict[str, dict[str, dict[datetime, SourceSession]]]
 class _FrameEvaluation:
     captured: CapturedFrameInputs
     declaration_keys: dict[str, CompletedFrameData] | None
+    policy: OptimizationPolicy
     fixed_method_facts: dict[str, tuple[FrameMethodFacts, ...]] = field(default_factory=dict)
     fixed_source_reads: dict[str, tuple[FrameSourceRead, ...]] = field(default_factory=dict)
     method_productions: list[tuple[str, AttributeMethodPayload]] = field(default_factory=list)
@@ -298,10 +301,13 @@ class _FrameEvaluation:
     ) -> StageOutput:
         domain_input = SourceFrameInput(input_id, domain_graph)
         compiled_domain = plan_frame(
-            domain_input, {**plans, input_id: domain_plan}, frame_inputs=self.captured.expressions
+            domain_input,
+            {**plans, input_id: domain_plan},
+            frame_inputs=self.captured.expressions,
+            policy=self.policy,
         )
-        compiled_domain = fuse_frame_filters(
-            compiled_domain, protected_inputs=self.protected_inputs
+        compiled_domain = optimize_compiled_frame(
+            compiled_domain, {}, self.protected_inputs, self.policy, include_top=False
         )
         prepared_domain = {**sources, **({input_id: domain_sources} if domain_sources else {})}
 
@@ -390,18 +396,25 @@ class _FrameEvaluation:
         )
 
     def compile(self, prepared: PreparedFrameSources) -> CompiledFramePlan[StageOutput]:
-        compiled = plan_frame(
-            self.captured.root, prepared.plans, frame_inputs=self.captured.expressions
+        planner = (
+            plan_frame
+            if self.policy == DEFAULT_OPTIMIZATION_POLICY
+            else partial(plan_frame, policy=self.policy)
         )
-        compiled = bound_pending_frame_top(
+        compiled = planner(
+            self.captured.root,
+            prepared.plans,
+            frame_inputs=self.captured.expressions,
+        )
+        return optimize_compiled_frame(
             compiled,
             {
                 input_id: source.source.provider.name
                 for input_id, source in prepared.prepared.items()
             },
+            self.protected_inputs,
+            self.policy,
         )
-        compiled = fuse_frame_filters(compiled, protected_inputs=self.protected_inputs)
-        return compiled
 
     def execute(
         self, prepared: PreparedFrameSources, compiled: CompiledFramePlan[StageOutput]
@@ -492,12 +505,19 @@ def _evaluate_frame(
     frame: FrameNode,
     request: AttributeInputRequest | None = None,
     declaration_keys: dict[str, CompletedFrameData] | None = None,
+    *,
+    policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY,
 ) -> CompletedFrameResult | StageOutput:
     """Evaluate once, close all sources, then return independent data and facts."""
     captured = capture_frame_inputs(frame, request)
-    state = _FrameEvaluation(captured, declaration_keys)
+    state = _FrameEvaluation(captured, declaration_keys, policy)
     with _SourceContexts() as stack:
-        prepared = prepare_frame_sources(captured, stack, run_interval_domain=state.run_domain)
+        prepare = (
+            prepare_frame_sources
+            if policy == DEFAULT_OPTIMIZATION_POLICY
+            else partial(prepare_frame_sources, policy=policy)
+        )
+        prepared = prepare(captured, stack, run_interval_domain=state.run_domain)
         compiled = state.compile(prepared)
         output = state.execute(prepared, compiled)
         if request is not None:
@@ -548,9 +568,12 @@ def _evaluate_frame(
 
 
 def evaluate_frame(
-    frame: FrameNode, *, declaration_keys: dict[str, CompletedFrameData] | None = None
+    frame: FrameNode,
+    *,
+    declaration_keys: dict[str, CompletedFrameData] | None = None,
+    policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY,
 ) -> CompletedFrameResult:
-    result = _evaluate_frame(frame, declaration_keys=declaration_keys)
+    result = _evaluate_frame(frame, declaration_keys=declaration_keys, policy=policy)
     assert isinstance(result, CompletedFrameResult)
     return result
 

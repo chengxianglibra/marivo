@@ -84,7 +84,8 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
         if not replacements:
             continue
         adopted = True
-        replacements, reads, values = _share_folds(replacements, reads, values, prepared)
+        if lowered.plan.optimization_policy.allows("source_sample_reduction"):
+            replacements, reads, values = _share_folds(replacements, reads, values, prepared)
         # Keep sources with other consumers, or with unoptimized sibling occurrences.
         used = {value.stage_id for value in values}
         removed = {
@@ -229,7 +230,9 @@ def _membership_checks(
             continue
         owner = prepared.sources.get(source.source_id, prepared.source)
         obligations = lowered.read(source.stage_id).population_checks
-        summary, numeric = _population_check_summary(obligations, owner.provider.name, 0)
+        summary, numeric = _population_check_summary(
+            obligations, owner.provider.name, 0, policy=lowered.plan.optimization_policy
+        )
         assert summary is not None
         # Emit only the diagnostic row when a check fails.
         expression = summary.filter(ibis.or_(*(summary[name] for name, _ in numeric)))
@@ -290,7 +293,9 @@ def _share_folds(
         quantiles: dict[tuple[ops.Value, ops.Value | None], list[ops.Quantile]] = {}
         for metric in metrics.values():
             for quantile in metric.find(ops.Quantile):
-                quantiles.setdefault((quantile.arg, quantile.where), []).append(quantile)
+                if type(quantile) is ops.Quantile:
+                    # ApproxQuantile also matches Quantile; preserve its native algorithm.
+                    quantiles.setdefault((quantile.arg, quantile.where), []).append(quantile)
         for (argument, where), candidates in quantiles.items():
             candidates = list(dict.fromkeys(candidates))
             if len(candidates) < 2:

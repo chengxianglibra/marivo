@@ -116,8 +116,11 @@ def lower_query(
             seeds[source.op()] = UniqueKeys(
                 tuple(source.columns), (tuple(physical[key] for key in stage.keys),)
             )
-        facts = relation_unique_keys(read.expression, seeds).project(
-            tuple(c.slot_id for c in stage.columns)
+        columns = tuple(c.slot_id for c in stage.columns)
+        facts = (
+            relation_unique_keys(read.expression, seeds).project(columns)
+            if plan.optimization_policy.allows("unique_keys")
+            else UniqueKeys(columns)
         )
         mixed = (
             read_components(stage) is not None

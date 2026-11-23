@@ -124,14 +124,7 @@ def _required_coordinates(
     expression = read.expression
     if any(key not in expression.columns for key in keys):
         return None
-    marker = next(
-        (
-            name
-            for name in (f"__sample_scope_{len(keys)}", "__sample_present", "__numeric_present")
-            if name in expression.columns
-        ),
-        None,
-    )
+    marker = read.obligations.coverage_marker(len(keys))
     if marker is not None:
         expression = expression.filter(expression[marker].fill_null(False))
     if keys:
@@ -178,7 +171,7 @@ def _attach_coverage_witnesses(
         else missing.limit(1)
     )
     expression = original.expression
-    if "__numeric_present" not in expression.columns:
+    if original.obligations.numeric_presence is None:
         expression = expression.mutate(__numeric_present=ibis.literal(True))
     checks = tuple(alias for alias, _ in original.numeric_checks)
     failures = (

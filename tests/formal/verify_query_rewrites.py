@@ -47,13 +47,6 @@ from marivo.analysis.core.frame_data import (
     MemoryFrameBacking,
     SourceFrameBinding,
 )
-from marivo.analysis.materialization import (
-    frame_evaluation,
-    frame_source_preparation,
-    query_key_fusion,
-    query_terminal_fusion,
-    sample_fusion,
-)
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_inputs import capture_frame_inputs
 from marivo.analysis.materialization.graph_source_execution import (
@@ -70,10 +63,12 @@ from marivo.analysis.model.data_types import DataColumn, DecimalDataType, Scalar
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.frame_contracts import frame_backing
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.optimization_policy import OptimizationPolicy
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.formal._smt import prove_unsat
 from tests.shared_fixtures import catalog_value
+from tests.support.optimization import compute_with_policy
 from tests.support.source_trace import SourceTrace
 
 _INT = ScalarDataType("int64")
@@ -413,9 +408,8 @@ def test_public_l1_only_evaluates_the_second_mask_on_demanded_rows(
     query = first.where((first["exact"] >= _I64_MAX) | (first["y"] > 0))
     original = _compile_fixed_frame(query)
     second_predicate = _frame_filter(_published_compute(original.lowered.plan))[1]
-    with monkeypatch.context() as patch:
-        patch.setattr(frame_evaluation, "fuse_frame_filters", lambda compiled, **_: compiled)
-        sequential = query.compute().to_pandas()
+    policy = OptimizationPolicy.default().with_rule("L1", enabled=False)
+    sequential = compute_with_policy(query, policy).to_pandas()
 
     calls: list[pd.DataFrame] = []
     evaluate = query_values.expression_series
@@ -722,7 +716,7 @@ def test_only_aggregates_on_the_same_contribution_domain_merge(
 
 
 def test_projection_and_empty_top_cannot_erase_discarded_strict_check(
-    query_session: mv.Session, monkeypatch: pytest.MonkeyPatch
+    query_session: mv.Session,
 ) -> None:
     amount = catalog_value(query_session.catalog, "sales.orders.amount", kind="measure")
     extra = catalog_value(query_session.catalog, "sales.orders.extra", kind="measure")
@@ -732,28 +726,17 @@ def test_projection_and_empty_top_cannot_erase_discarded_strict_check(
     for candidate in (projected, empty):
         with pytest.raises(MaterializationError) as optimized:
             candidate.compute()
-        with monkeypatch.context() as patch:
-            patch.setattr(frame_source_preparation, "optimize_query", lambda plan: plan)
-            with pytest.raises(MaterializationError) as original:
-                candidate.compute()
+        with pytest.raises(MaterializationError) as original:
+            compute_with_policy(candidate, OptimizationPolicy.disabled())
         assert type(optimized.value) is type(original.value)
         assert optimized.value.expected == original.value.expected
         assert optimized.value.stage == original.value.stage == "numeric_value"
         assert "nulls='error'" in (optimized.value.received or ""), optimized.value
 
 
-def _without_query_rewrites(patch: pytest.MonkeyPatch) -> None:
-    # Keep capture, preparation, lowering, source execution and Frame completion.
-    patch.setattr(frame_source_preparation, "optimize_query", lambda plan: plan)
-    patch.setattr(sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered)
-    patch.setattr(query_key_fusion, "fuse_query_keys", lambda prepared, lowered: lowered)
-    patch.setattr(query_terminal_fusion, "fuse_query_terminal", lambda prepared, lowered: lowered)
-
-
 @pytest.mark.parametrize("loose_lane,split,alternate", product((False, True), repeat=3))
 def test_full_decimal_query_with_nullable_branch_filters(
     query_session: mv.Session,
-    monkeypatch: pytest.MonkeyPatch,
     source_trace: SourceTrace,
     loose_lane: bool,
     split: bool,
@@ -782,9 +765,7 @@ def test_full_decimal_query_with_nullable_branch_filters(
     start = len(source_trace.native_sql)
     optimized = query.compute().to_pandas()
     middle = len(source_trace.native_sql)
-    with monkeypatch.context() as patch:
-        _without_query_rewrites(patch)
-        control = query.compute().to_pandas()
+    control = compute_with_policy(query, OptimizationPolicy.disabled()).to_pandas()
     plain_reads = len(source_trace.native_sql) - middle
     optimized_reads = middle - start
     assert 0 < optimized_reads < plain_reads, (optimized_reads, plain_reads)
@@ -853,9 +834,7 @@ def test_full_decimal_query_preserves_exact_comparison_boundaries(
         (observed["amount"] > threshold) | (observed["amount"].is_null() & (observed["side"] > 0))
     )
     start = len(source_trace.native_sql)
-    with monkeypatch.context() as patch:
-        _without_query_rewrites(patch)
-        plain = query.compute().to_pandas()
+    plain = compute_with_policy(query, OptimizationPolicy.disabled()).to_pandas()
     middle = len(source_trace.native_sql)
     optimized = query.compute().to_pandas()
     assert list(plain["region"]) == ["east"]
@@ -867,7 +846,6 @@ def test_full_decimal_query_preserves_exact_comparison_boundaries(
 @pytest.mark.parametrize("supported", (True, False), ids=("exact-comparison", "type-rejection"))
 def test_metric_predicate_compares_decimal_values_at_different_scales(
     query_session: mv.Session,
-    monkeypatch: pytest.MonkeyPatch,
     source_trace: SourceTrace,
     supported: bool,
 ) -> None:
@@ -884,12 +862,9 @@ def test_metric_predicate_compares_decimal_values_at_different_scales(
     query = session.observe({"chosen": (total > threshold).ifelse(total, other)}, by=(region,))
     if not supported:
         before = len(source_trace.native_sql)
-        for optimized in (False, True):
-            with monkeypatch.context() as patch:
-                if not optimized:
-                    _without_query_rewrites(patch)
-                with pytest.raises(SemanticExpressionError) as rejected:
-                    query.compute()
+        for policy in (OptimizationPolicy.disabled(), OptimizationPolicy.default()):
+            with pytest.raises(SemanticExpressionError) as rejected:
+                compute_with_policy(query, policy)
             error = rejected.value
             assert error.expected == "physical types admitted by the numeric recipe"
             assert "decimal(38, 2)" in (error.received or "")
@@ -897,9 +872,7 @@ def test_metric_predicate_compares_decimal_values_at_different_scales(
             assert error.repair is not None
         assert len(source_trace.native_sql) == before
         return
-    with monkeypatch.context() as patch:
-        _without_query_rewrites(patch)
-        plain = query.compute().to_pandas()
+    plain = compute_with_policy(query, OptimizationPolicy.disabled()).to_pandas()
     assert plain.loc[plain["region"] == "east", "chosen"].tolist() == [
         Decimal("9007199254740992.10")
     ]
@@ -909,7 +882,6 @@ def test_metric_predicate_compares_decimal_values_at_different_scales(
 @pytest.mark.parametrize("demand", ("masked", "west-only", "demanded"))
 def test_full_decimal_query_keeps_strict_checks_on_their_branch(
     query_session: mv.Session,
-    monkeypatch: pytest.MonkeyPatch,
     source_trace: SourceTrace,
     demand: str,
 ) -> None:
@@ -933,9 +905,7 @@ def test_full_decimal_query_keeps_strict_checks_on_their_branch(
     )
     if demand != "demanded":
         before = len(source_trace.native_sql)
-        with monkeypatch.context() as patch:
-            _without_query_rewrites(patch)
-            plain = query.compute().to_pandas()
+        plain = compute_with_policy(query, OptimizationPolicy.disabled()).to_pandas()
         expected = {
             "east": Decimal(0),
             "west": Decimal("-1.20") if demand == "masked" else Decimal("2.10"),
@@ -950,10 +920,8 @@ def test_full_decimal_query_keeps_strict_checks_on_their_branch(
         pd.testing.assert_frame_equal(query.compute().to_pandas(), plain)
         assert 0 < len(source_trace.native_sql) - middle < middle - before
     else:
-        with monkeypatch.context() as patch:
-            _without_query_rewrites(patch)
-            with pytest.raises(MaterializationError) as plain_error:
-                query.compute()
+        with pytest.raises(MaterializationError) as plain_error:
+            compute_with_policy(query, OptimizationPolicy.disabled())
         with pytest.raises(MaterializationError) as optimized_error:
             query.compute()
         for error in (plain_error.value, optimized_error.value):

@@ -46,6 +46,7 @@ from marivo.analysis.methods.frame_evaluation import (
     FrameEvaluation,
     FrameGroupIndex,
     expression_key,
+    group_index,
 )
 from marivo.analysis.methods.numeric_state import (
     Number,
@@ -64,14 +65,8 @@ from marivo.analysis.methods.query_value_scalars import (
 from marivo.analysis.methods.query_value_scalars import (
     int64_literal as _int64_literal,
 )
-from marivo.analysis.model.data_types import (
-    DataColumn,
-    DataType,
-    DurationDataType,
-    ScalarDataType,
-)
+from marivo.analysis.model.data_types import DataType, DurationDataType, ScalarDataType
 from marivo.analysis.model.errors import reject
-from marivo.analysis.model.frozen_keys import FrozenKey
 from marivo.semantic.spi import numeric_failure
 
 _ORDERED_COMPARISONS = {"lt": "less", "le": "less_equal", "gt": "greater", "ge": "greater_equal"}
@@ -286,6 +281,20 @@ def _binary_series(
     return _comparison_series(expression, left, right)
 
 
+def _evaluate_partition(
+    expression: ValuePartition,
+    frame: pd.DataFrame,
+    program: FrameProgram,
+    evaluation: FrameEvaluation,
+) -> pd.Series:
+    if not evaluation.memoize:
+        return partition_series(expression, frame, program, evaluation)
+    key = expression_key(expression)
+    if key not in evaluation.partitions:
+        evaluation.partitions[key] = partition_series(expression, frame, program, evaluation)
+    return evaluation.partitions[key]
+
+
 def expression_series(
     expression: ValueExpression,
     frame: pd.DataFrame,
@@ -315,12 +324,7 @@ def expression_series(
                 "Evaluate partitions on their original AnalysisFrame input.",
                 "frame.over",
             )
-        if evaluation is None:
-            evaluation = FrameEvaluation()
-        key = expression_key(expression)
-        if key not in evaluation.partitions:
-            evaluation.partitions[key] = partition_series(expression, frame, program, evaluation)
-        return evaluation.partitions[key]
+        return _evaluate_partition(expression, frame, program, evaluation or FrameEvaluation())
     if isinstance(expression, ValueSlot):
         columns = (
             program.input_schema.values
@@ -474,10 +478,11 @@ def evaluate_frame(
     inputs: tuple[pd.DataFrame, ...],
     *,
     second_filter_columns: tuple[str, ...] | None = None,
+    memoize: bool = True,
 ) -> pd.DataFrame:
     """Evaluate a Frame operation with a fresh current-input memo."""
     source = inputs[0].reset_index(drop=True)
-    evaluation = FrameEvaluation()
+    evaluation = FrameEvaluation(memoize=memoize)
     if second_filter_columns is not None:
         operation = program.operation
         assert isinstance(operation, FilterValues)
@@ -509,23 +514,6 @@ def _true_mask(
         .astype("boolean")
         .fillna(False)
     )
-
-
-def _group_index(source: pd.DataFrame, columns: tuple[DataColumn, ...]) -> FrameGroupIndex:
-    if not columns:
-        return FrameGroupIndex(np.zeros(len(source), dtype=np.intp), (range(len(source)),), [])
-    row_to_group = np.empty(len(source), dtype=np.intp)
-    group_ids: dict[FrozenKey, int] = {}
-    members: list[list[int]] = []
-    representatives: list[int] = []
-    for position, key in enumerate(frozen_key_rows(source, columns)):
-        group = group_ids.setdefault(key, len(members))
-        if group == len(members):
-            members.append([])
-            representatives.append(position)
-        members[group].append(position)
-        row_to_group[position] = group
-    return FrameGroupIndex(row_to_group, tuple(members), representatives)
 
 
 def _evaluate_frame(
@@ -653,23 +641,25 @@ def _prepare_pair(
     # A missing counterpart cannot hide a strict child arithmetic error.
     endpoints = (statistic.left, statistic.right)
     keys = tuple(expression_key(endpoint) for endpoint in endpoints)
+    endpoint_series = evaluation.endpoint_series if evaluation.memoize else {}
+    converted = evaluation.endpoints if evaluation.memoize else {}
     for key, endpoint in zip(keys, endpoints, strict=True):
-        if key not in evaluation.endpoint_series:
-            evaluation.endpoint_series[key] = expression_series(
+        if key not in endpoint_series:
+            endpoint_series[key] = expression_series(
                 endpoint, source, program, evaluation=evaluation
             )
     for side, key, endpoint, dtype in zip(("left", "right"), keys, endpoints, types, strict=True):
         cache_key = (key, dtype)
-        if cache_key not in evaluation.endpoints:
-            evaluation.endpoints[cache_key] = _pair_values(
-                evaluation.endpoint_series[key],
+        if cache_key not in converted:
+            converted[cache_key] = _pair_values(
+                endpoint_series[key],
                 dtype,
                 endpoint=f"{side} operand {endpoint!r}",
                 location=statistic.location,
             )
     return (keys[0], keys[1], types), (
-        evaluation.endpoints[(keys[0], types[0])],
-        evaluation.endpoints[(keys[1], types[1])],
+        converted[(keys[0], types[0])],
+        converted[(keys[1], types[1])],
     )
 
 
@@ -732,14 +722,15 @@ def _reduce(
                 statistic.value, source, program, evaluation=evaluation
             )
     group_key = tuple(sorted(operation.positions))
-    if group_key not in evaluation.group_indices:
+    group_indices = evaluation.group_indices if evaluation.memoize else {}
+    if group_key not in group_indices:
         columns = tuple(
             column
             for position in group_key
             for column in program.input_schema.axes[position].columns
         )
-        evaluation.group_indices[group_key] = _group_index(source, columns)
-    groups = evaluation.group_indices[group_key]
+        group_indices[group_key] = group_index(source, columns)
+    groups = group_indices[group_key]
     rows: list[dict[str, object]] = []
     for positions in groups.members:
         row: dict[str, object] = {}
@@ -759,7 +750,7 @@ def _reduce(
                     pair_key,
                     left_values,
                     right_values,
-                    active_pairs,
+                    active_pairs if evaluation.memoize else {},
                 )
             elif statistic.method == "row_count":
                 value = len(positions)

@@ -84,7 +84,7 @@ def has_deferred_day_keys(expression: ir.Expr) -> bool:
     return bool(expression.op().find(_DeferredDayKey))
 
 
-def lower_day_keys(expression: ir.Expr) -> ir.Expr:
+def lower_day_keys(expression: ir.Expr, *, lift_aggregates: bool = True) -> ir.Expr:
     """Group on raw source days and restore UTC keys on the aggregate results."""
 
     def lift(node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object) -> ops.Node:
@@ -111,7 +111,8 @@ def lower_day_keys(expression: ir.Expr) -> ir.Expr:
             }
         ).op()
 
-    lifted = expression.op().map(lift)[expression.op()]
+    root = expression.op()
+    lifted = root.map(lift)[root] if lift_aggregates else root
 
     def inline(node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object) -> ops.Node:
         value = node.copy(**kwargs)

@@ -32,7 +32,12 @@ from marivo.analysis.model.data_types import DataColumn, DataType
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_attribute_merge import AttributeMergeProgram
 from marivo.analysis.model.kernels import QUERY_COMBINE_KERNEL
+from marivo.analysis.model.optimization_policy import (
+    DEFAULT_OPTIMIZATION_POLICY,
+    OptimizationPolicy,
+)
 from marivo.analysis.model.optimization_rules import FusionLawId, OptimizationRuleId
+from marivo.analysis.model.slot_roles import StageObligations
 from marivo.analysis.model.time_authority import SourceTimeAuthority
 from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.datasource.spi import DEFAULT_BACKEND_TYPE
@@ -331,6 +336,10 @@ class SourceReadStage:
             self, "unique_keys", self.unique_keys.project(tuple(c.slot_id for c in self.columns))
         )
 
+    @property
+    def obligations(self) -> StageObligations:
+        return StageObligations.from_aliases(tuple(c.slot_id for c in self.columns), self.keys)
+
 
 def read_reduction(stage: SourceReadStage) -> ReductionInput | None:
     program = stage.program
@@ -553,6 +562,7 @@ class QueryPlan:
     required_slots: tuple[RequiredSlots, ...] = ()
     fusion_groups: tuple[FusionGroup, ...] = ()
     optimization_decisions: tuple[RuleDecision, ...] = ()
+    optimization_policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY
 
     def consumers_of(self, stage_id: str) -> tuple[str, ...]:
         return dict(self.consumers).get(stage_id, ())
