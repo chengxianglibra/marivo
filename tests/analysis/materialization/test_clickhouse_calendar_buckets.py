@@ -110,9 +110,8 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
             session.catalog, "sales.events.event_time", kind="time_dimension"
         )
         category = catalog_value(session.catalog, "sales.events.category", kind="dimension")
-        assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-            event_time, (ms.RowExpression, ms.MetricExpression)
-        )
+        assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
+        assert isinstance(event_time, (ms.RowExpression, ms.MetricExpression))
         metric = amount.sum(time=event_time)
         scope = session.time_scope(start="2026-01-01", end="2026-01-04")
         trace = capture_source(monkeypatch)

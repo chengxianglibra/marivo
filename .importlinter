@@ -1,6 +1,6 @@
 [importlinter]
 root_package = marivo
-exclude_type_checking_imports = true
+exclude_type_checking_imports = false
 include_external_packages = true
 
 [importlinter:contract:datasource-is-leaf]
@@ -99,3 +99,59 @@ source_modules =
 forbidden_modules =
     marivo.analysis.materialization
     marivo.analysis.session
+
+[importlinter:contract:ontology-isolation]
+name = Ontology must not depend on analysis or application entrypoints
+type = forbidden
+source_modules =
+    marivo.ontology
+forbidden_modules =
+    marivo.analysis
+    marivo.server
+    marivo.cli
+    marivo.doctor
+
+[importlinter:contract:ontology-no-direct-datasource]
+name = Ontology must not import datasource directly
+type = forbidden
+source_modules =
+    marivo.ontology
+forbidden_modules =
+    marivo.datasource
+# The semantic catalog owns datasource resolution for ontology.
+allow_indirect_imports = true
+
+[importlinter:contract:telemetry-is-leaf]
+name = Telemetry must not depend on domain implementations or server
+type = forbidden
+source_modules =
+    marivo.telemetry
+forbidden_modules =
+    marivo.datasource
+    marivo.semantic
+    marivo.analysis
+    marivo.ontology
+    marivo.server
+
+[importlinter:contract:core-domains-no-app-shell]
+name = Core domains must not depend on application entrypoints
+type = forbidden
+source_modules =
+    marivo.datasource
+    marivo.semantic
+    marivo.analysis
+    marivo.ontology
+forbidden_modules =
+    marivo.server
+    marivo.cli
+    marivo.doctor
+
+[importlinter:contract:engines-independent]
+name = Datasource engine implementations are independent
+type = independence
+modules =
+    marivo.datasource.engines.duckdb
+    marivo.datasource.engines.postgres
+    marivo.datasource.engines.mysql
+    marivo.datasource.engines.trino
+    marivo.datasource.engines.clickhouse

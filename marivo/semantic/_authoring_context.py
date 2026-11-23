@@ -248,7 +248,7 @@ def _entity_lookup(value: Entity | EntitySymbol, *, parameter: str) -> Ref[Entit
 
 
 def _require_non_empty_column(column: str, *, semantic_id: str) -> str:
-    if isinstance(column, str) and column:
+    if isinstance(column, str) and column:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         return column
     _raise(
         ErrorKind.INVALID_REF,

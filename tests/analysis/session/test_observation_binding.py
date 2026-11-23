@@ -162,7 +162,8 @@ def test_execute_checks_every_repeated_field_anchor(
     session = bound_catalog(versioned=True)
     entity = catalog_get(session.catalog, "entity:sales.customers", kind="entity")
     region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
-    assert isinstance(entity, Entity) and isinstance(region, RowExpression)
+    assert isinstance(entity, Entity)
+    assert isinstance(region, RowExpression)
     direct = region == "APAC"
     anchored = region.at(session.instant("2026-01-01")) == "APAC"
     condition = anchored & direct if anchored_first else direct & anchored
@@ -258,7 +259,8 @@ def test_explicit_field_routes_and_during_none_are_frozen(
         where=routed == "APAC",
     )
     binding = _captured_observation(query)
-    assert binding is not None and binding.period is None
+    assert binding is not None
+    assert binding.period is None
     assert binding.contributions[0].period is None
     assert _captured_graph(query).fingerprint == _captured_graph(explicit_none).fingerprint
     assert binding.contributions[0].reads[-1].path == (buyer._parameter.ref,)
@@ -360,7 +362,8 @@ def test_exact_boundaries_calendar_and_host_independence(
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("clock", timezone="America/New_York")
     scope = session.time_scope(start="2026-03-07T12:00:00", end="2026-03-10T12:00:00")
-    assert isinstance(scope.start, InstantAnchor) and isinstance(scope.end, InstantAnchor)
+    assert isinstance(scope.start, InstantAnchor)
+    assert isinstance(scope.end, InstantAnchor)
     assert scope.start == datetime(2026, 3, 7, 17, tzinfo=timezone.utc)
     axis = scope.by(mv.grain("day"))
     assert axis.scope is scope

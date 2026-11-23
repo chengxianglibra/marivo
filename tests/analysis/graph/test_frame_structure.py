@@ -394,7 +394,7 @@ def test_complete_identity_requires_nonnullable_components_and_nonnull_rows(
     assert caught.value.repair.help_target.surface == "analysis"
     assert caught.value.repair.help_target.canonical_id == "analysis_frame.compute"
     pending = tuple(PendingDataColumn(c.slot_id, c.name, "string", False) for c in columns)
-    assert PendingDataAxis(
+    PendingDataAxis(
         "axis.0", "customer", "identity", tuple(replace(c, nullable=None) for c in pending)
     )
 
@@ -404,7 +404,7 @@ def test_nullable_field_coordinates_remain_valid_categories() -> None:
     axis = DataAxis("axis.0", (key,), name="region")
     owned = CompletedFrameData(DataSchema((axis,), ()), pd.DataFrame({"key.0": [None, "West"]}))
     assert owned.row_count == 2 and owned.copy_rows()["key.0"].isna().tolist() == [True, False]
-    assert PendingDataAxis(
+    PendingDataAxis(
         "axis.0", "region", "field", (PendingDataColumn("key.0", "region", "string", True),)
     )
 

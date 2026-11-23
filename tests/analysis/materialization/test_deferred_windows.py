@@ -1310,7 +1310,8 @@ def test_direct_shift_comparison_reopens_in_fresh_process_without_source(
     months = session.time_scope(start="2026-10-01", end="2026-11-01").by(mv.grain("month"))
     current = session.observe(revenue, by=(months,)).persist()
     previous = session.observe(revenue, by=(months.shift(mv.offset(periods=-1)),)).persist()
-    assert current.artifact_id is not None and previous.artifact_id is not None
+    assert current.artifact_id is not None
+    assert previous.artifact_id is not None
     expected = current.compare(previous).compute().to_pandas()
     assert expected["reference.absolute.revenue"].tolist() == [-80]
     (tmp_path / "models").rename(tmp_path / "models.offline")

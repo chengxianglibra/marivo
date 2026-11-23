@@ -354,6 +354,7 @@ def test_remote_weighted_native_boundary_and_fixed_wide_mean(
         expression = (table.amount * table.weight).sum() / table.weight.sum()
         # This overall observation uses native Int64 accumulation: Trino errors,
         # while ClickHouse wraps. The fixed Frame below owns the exact wide mean.
+        native: object = None
         if backend == "trino":
             with pytest.raises(TrinoUserError) as native_failure:
                 case.session._backend.execute(expression)
@@ -361,7 +362,7 @@ def test_remote_weighted_native_boundary_and_fixed_wide_mean(
             assert native_failure.value.error_code == 19
         else:
             assert backend == "clickhouse"
-            native: object = case.session._backend.execute(expression)
+            native = case.session._backend.execute(expression)
             assert native == -float(2**62)
         before_runs = terminal_runs(session)
         before_publication = publication_counts(session)

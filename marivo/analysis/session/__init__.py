@@ -78,7 +78,7 @@ def get_or_create(
     Example: ``session = mv.session.get_or_create('revenue-review', timezone='UTC')``.
     Constraints: None means unspecified: use creation defaults for a new name and retain saved values for an existing name. No current Session is set; saved question, timezone and domains are never rewritten. A recovery with no pending work leaves updated_at unchanged. Explicit conflicts raise SessionStateError before recovery. Recovery uses the same writer guard as resume and never replays sources. Earlier Stores remain independent and unchanged; creation may initialize the current generation in the same project. Older Store paths trigger one warning per observed set per process, without reading or migrating them.
     """
-    if not isinstance(name, str) or not name.strip() or name != name.strip():
+    if not isinstance(name, str) or not name.strip() or name != name.strip():  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         raise _invalid(
             "a nonempty exact Session name without surrounding whitespace", "empty or invalid name"
         )
@@ -90,9 +90,9 @@ def get_or_create(
     if domains is not None:
         names = (domains,) if isinstance(domains, str) else domains
         if (
-            not isinstance(names, Sequence)
+            not isinstance(names, Sequence)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or not names
-            or any(not isinstance(name, str) or not name or name != name.strip() for name in names)
+            or any(not isinstance(name, str) or not name or name != name.strip() for name in names)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         ):
             raise SessionStateError(
                 message="domains must be a nonempty exact domain name or sequence of names.",
@@ -171,7 +171,7 @@ def _resume(session_id: str, *, help_target: str) -> Session:
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.session import _lazy_history
 
-    if not isinstance(session_id, str) or not session_id.strip():
+    if not isinstance(session_id, str) or not session_id.strip():  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         raise _invalid("an exact existing Session ID", "empty or invalid identity")
     root = resolve_project_root()
     store = SessionStore.find_existing(root)

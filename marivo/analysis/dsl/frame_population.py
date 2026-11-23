@@ -69,7 +69,7 @@ def population_from(
     on: tuple[tuple[FrameAxis, Deferred | Entity | EntityObject | FieldExpression], ...],
 ) -> Population:
     """Capture explicit joint coordinate bindings without preparing or reading data."""
-    if not isinstance(frame, AnalysisFrame) or frame._local.owner != local.owner:
+    if not isinstance(frame, AnalysisFrame) or frame._local.owner != local.owner:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         reject(
             "an AnalysisFrame from the receiving Store and Session",
             repr(frame),

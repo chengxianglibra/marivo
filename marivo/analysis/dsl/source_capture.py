@@ -103,7 +103,7 @@ def _metric_inputs(
             if name is not None
             else f"Session.observe.metrics[{index}]"
         )
-        if not isinstance(metric, MetricExpression) or metric._role != "numeric":
+        if not isinstance(metric, MetricExpression) or metric._role != "numeric":  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             reject(
                 "a numeric Metric expression",
                 type(metric).__name__,
@@ -151,7 +151,7 @@ def capture_read(
             "Read the domain through its owning Session.",
             "Session.read",
         )
-    if not isinstance(fields, Mapping) or not fields:
+    if not isinstance(fields, Mapping) or not fields:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         reject(
             "a nonempty named Field mapping",
             type(fields).__name__,
@@ -221,7 +221,7 @@ def capture_values(
             "Reuse calendars through Population, rather than hand-writing calendar keys.",
             "Session.values",
         )
-    if not columns or not isinstance(rows, tuple) or not rows:
+    if not columns or not isinstance(rows, tuple) or not rows:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         reject(
             "named columns and finite typed literal rows",
             repr((columns, rows)),
@@ -397,7 +397,7 @@ def capture_metrics(
         ):
             captured.append(item._binding)
         elif isinstance(item, Deferred) or (
-            isinstance(item, Grouping) and isinstance(item._binding, AxisBinding)
+            isinstance(item, Grouping) and isinstance(item._binding, AxisBinding)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         ):
             captured.extend(_axes((item,)))
         else:
@@ -460,7 +460,7 @@ def capture_metrics(
             _validate_report_timezone(axis, timezone, location=f"Session.observe.by[{index}]")
             time_axes += 1
             source_axes.append(axis)
-        elif isinstance(axis, AxisBinding) and (
+        elif isinstance(axis, AxisBinding) and (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             axis.field is None or axis.field.ref.kind.value != "time_dimension"
         ):
             source_axes.append(axis)

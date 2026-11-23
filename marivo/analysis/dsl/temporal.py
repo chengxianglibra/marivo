@@ -26,7 +26,7 @@ def exact_instant(
 ) -> InstantAnchor:
     """Resolve a boundary once, rejecting ambiguous clocks and naive datetimes."""
     original = value
-    if not isinstance(timezone, str) or not timezone:
+    if not isinstance(timezone, str) or not timezone:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         reject(
             "a nonempty timezone name",
             repr(timezone),

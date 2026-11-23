@@ -275,7 +275,7 @@ def validate_semantic_live_surface() -> None:
         assert all(
             requirement.family in INPUT_FAMILIES for requirement in descriptor.input_requirements
         )
-        assert all(target.surface and target.canonical_id for target in descriptor.see_also)
+        assert all(target.surface and target.canonical_id for target in descriptor.see_also)  # type: ignore[redundant-expr]  # Preserve the runtime check.
         if descriptor.callable_path is None and descriptor.kind == "method":
             assert descriptor.public_entrypoint is not None
             assert descriptor.minimal_example is not None

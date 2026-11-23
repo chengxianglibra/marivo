@@ -150,6 +150,7 @@ lint:
 			rm -f "$$lint_log"; \
 			exit "$$lint_status"; \
 		fi
+	@$(VENV_PYTHON) scripts/check_architecture.py
 
 format:
 	@./scripts/require-venv.sh ruff

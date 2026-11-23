@@ -350,7 +350,7 @@ def _comparison_values(
     x: pd.Series, y: pd.Series, absolute_type: DataType
 ) -> tuple[pd.Series, pd.Series]:
     """Apply the existing nullable numeric policies after coordinate presence."""
-    from marivo.analysis.core.data_validation import typed_null_mask
+    from marivo.analysis.methods.numeric_state import typed_null_mask
 
     x_missing, y_missing = typed_null_mask(x), typed_null_mask(y)
     valid = ~(x_missing | y_missing)
@@ -377,7 +377,7 @@ def _comparison_values(
             .to_pylist(),
             dtype=object,
         ).mask(~valid, pd.NA)
-        denominator = yt.map(lambda v: abs(v) if pd.notna(v) else pd.NA)
+        denominator = yt.map(lambda v: abs(v) if pd.notna(v) else pd.NA)  # type: ignore[redundant-expr]  # Preserve the runtime check.
         relative = nullable_arithmetic(
             "divide",
             ticks,
@@ -519,7 +519,7 @@ def _unmapped_time_details(
         definition = frozen.definition
         grain = (
             f"{definition.unit} step={definition.step}"
-            if isinstance(definition, BuiltinCalendarData)
+            if isinstance(definition, BuiltinCalendarData)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             else "calendar"
         )
         timezone = baseline.axis.timezone

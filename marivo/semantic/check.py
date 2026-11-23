@@ -129,8 +129,8 @@ def _parser() -> argparse.ArgumentParser:
 
 def _print_text(payload: dict[str, object]) -> None:
     print(f"Semantic check: {payload['status']}")
-    errors: list[dict[str, object]] = payload.get("errors", [])  # type: ignore[assignment]
-    warnings: list[dict[str, object]] = payload.get("warnings", [])  # type: ignore[assignment]
+    errors: list[dict[str, object]] = payload.get("errors", [])  # type: ignore[assignment]  # Report producers write error records here.
+    warnings: list[dict[str, object]] = payload.get("warnings", [])  # type: ignore[assignment]  # Report producers write warning records here.
     if errors:
         print("Errors:")
         for error in errors:

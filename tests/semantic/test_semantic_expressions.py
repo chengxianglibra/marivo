@@ -396,7 +396,8 @@ def test_declared_constructors_capture_catalog_versions_without_business_reads(
         assert _reference(value) == _reference(loaded)
     amount = _resolved_field(finalized, ms.ref.measure("sales.orders.amount"))
     paid_at = _resolved_field(finalized, ms.ref.time_dimension("sales.orders.paid_at"))
-    assert isinstance(amount, Deferred) and isinstance(paid_at, Deferred)
+    assert isinstance(amount, Deferred)
+    assert isinstance(paid_at, Deferred)
     assert computation_fingerprint(
         _node_facts(amount.sum(time=paid_at)).node
     ) == computation_fingerprint(
@@ -427,6 +428,7 @@ def test_constructor_snapshots_bind_explicit_time_in_either_declaration_order(
                 source=md.table("orders"),
                 primary_key=["order_id"],
             )
+            paid_at_ref = None
             if field_first:
                 paid_at_ref = ms.time_dimension_column(
                     name="paid_at",
@@ -449,6 +451,7 @@ def test_constructor_snapshots_bind_explicit_time_in_either_declaration_order(
             )
             state = captured_catalog()
             amount = _resolved_field(state, amount_ref)
+            assert paid_at_ref is not None
             paid_at = _resolved_field(state, paid_at_ref)
             cost = _resolved_field(state, cost_ref)
         errors, _ = assembly_validate(state._state.registry, state._state.sidecar)
@@ -615,7 +618,8 @@ def test_pure_measure_uses_its_row_coordinate_definitions(catalog: SemanticCatal
         return amount
 
     current_status = _resolved_field(state, ms.ref.dimension("sales.orders.status"))
-    assert current_status is not None and _reference(current_status) != _reference(old_status)
+    assert current_status is not None
+    assert _reference(current_status) != _reference(old_status)
     assert _measure_facts(granted).permission == SumAxes((_reference(current_status),))
     assert (
         _row_facts(granted).root == _row_facts(amount).root
@@ -1508,7 +1512,7 @@ def test_invalid_predicates_and_truth_conversion_fail(catalog: SemanticCatalog) 
     with pytest.raises(TypeError):
         bool(paid)
     with pytest.raises(TypeError):
-        _ = paid and paid
+        _ = paid and paid  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
     with pytest.raises(SemanticExpressionError) as container:
         _ = _consume_value(status == ["paid"])
     assert container.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value

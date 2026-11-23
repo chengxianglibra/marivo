@@ -166,7 +166,8 @@ def test_date_boundaries_composition_preserves_raw_projection_and_exact_equality
     entity = _entity(session.catalog, "entity:sales.facts")
     day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
     amount = _measure(session.catalog, "measure:sales.facts.amount")
-    assert isinstance(day, ms.TimeDimension) and isinstance(amount, ms.Measure)
+    assert isinstance(day, ms.TimeDimension)
+    assert isinstance(amount, ms.Measure)
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     interval = (day >= scope.start) & (day < scope.end)
     second_start = session.instant("2026-07-02", timezone="Asia/Tokyo")
@@ -202,7 +203,8 @@ def test_date_boundaries_accept_partial_days_using_business_day_starts(
     entity = _entity(session.catalog, "entity:sales.facts")
     day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
     clock = _time_dimension(session.catalog, "time_dimension:sales.facts.clock")
-    assert isinstance(day, ms.TimeDimension) and isinstance(clock, ms.TimeDimension)
+    assert isinstance(day, ms.TimeDimension)
+    assert isinstance(clock, ms.TimeDimension)
     scope = session.time_scope(start="2026-07-01T14:00Z", end="2026-07-01T16:00Z")
     selected = session.members(entity, where=((day >= scope.start) & (day < scope.end)))
     assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [2]
@@ -297,7 +299,8 @@ def test_date_boundaries_through_versioned_relationship_retain_field_read(
     day = _time_dimension(session.catalog, "time_dimension:sales.profiles.day")
     relationship = _relationship(session.catalog, "relationship:sales.profile")
     amount = _measure(session.catalog, "measure:sales.facts.amount")
-    assert isinstance(day, ms.TimeDimension) and isinstance(amount, ms.Measure)
+    assert isinstance(day, ms.TimeDimension)
+    assert isinstance(amount, ms.Measure)
     assert isinstance(relationship, ms.Relationship)
     historical_day = day.via(
         mv.path(

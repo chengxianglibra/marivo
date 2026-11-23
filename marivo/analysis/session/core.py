@@ -42,7 +42,7 @@ def _predicate_input(
 
     if value is None:
         return None
-    if not isinstance(value, RowExpression) or value._role != "boolean":
+    if not isinstance(value, RowExpression) or value._role != "boolean":  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         reject(
             "a row Predicate",
             type(value).__name__,
@@ -65,7 +65,7 @@ def _field_input(
     from marivo.analysis.core.model import reject
     from marivo.semantic._consumption import bind_field
 
-    if not isinstance(value, RowExpression) or value._role not in ("dimension", "time", "numeric"):
+    if not isinstance(value, RowExpression) or value._role not in ("dimension", "time", "numeric"):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         reject(
             "a semantic field expression",
             type(value).__name__,
@@ -257,7 +257,7 @@ class Session:
                 "Use a field condition from the identity Entity.",
                 "session.members",
             )
-        if at is not None and (not isinstance(at, InstantAnchor) or at.utcoffset() is None):
+        if at is not None and (not isinstance(at, InstantAnchor) or at.utcoffset() is None):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             reject(
                 "an exact InstantAnchor",
                 type(at).__name__,
@@ -454,7 +454,7 @@ class Session:
                         canonical_id="session.observe",
                     )
                 scope = term
-            elif isinstance(term, RowExpression) and term._role == "boolean":
+            elif isinstance(term, RowExpression) and term._role == "boolean":  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                 predicates.append(term)
             else:
                 reject(
@@ -579,7 +579,7 @@ class Session:
                 "Session.read.population",
                 canonical_id="session.read",
             )
-        if not isinstance(fields, Mapping) or not fields:
+        if not isinstance(fields, Mapping) or not fields:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             reject(
                 "a nonempty named Field mapping",
                 type(fields).__name__,
@@ -756,8 +756,12 @@ class Session:
             )
         from marivo.semantic._consumption import bind_entity
 
-        if not isinstance(on, tuple) or any(
-            not isinstance(pair, tuple) or len(pair) != 2 for pair in on
+        if not isinstance(on, tuple) or any(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            (
+                not isinstance(pair, tuple)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+                or len(pair) != 2
+            )
+            for pair in on
         ):
             reject(
                 "a tuple of (FrameAxis, semantic field or Entity) pairs",

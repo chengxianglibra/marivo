@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import Generic
 
 from marivo._definition.query import (
     PairStatistic,
@@ -72,29 +72,27 @@ from marivo.analysis.core.frame_expression import (
 )
 from marivo.analysis.core.frame_structure import PendingDataSchema, require_complete_structure
 from marivo.analysis.core.model import reject
-
-if TYPE_CHECKING:
-    from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.core.stage_contracts import CheckedStageInputT
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledSourceFrame:
+class CompiledSourceFrame(Generic[CheckedStageInputT]):
     lowered: LoweredQuery
     schema: DataSchema
     native: bool = False
     native_reads: tuple[SourceReadStage, ...] = ()
     native_value_slots: tuple[str, ...] = ()
-    checked_inputs: tuple[tuple[str, StageOutput], ...] = ()
+    checked_inputs: tuple[tuple[str, CheckedStageInputT], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledFramePlan:
+class CompiledFramePlan(Generic[CheckedStageInputT]):
     lowered: LoweredQuery
     schema: DataSchema
     source_stages: tuple[tuple[str, str], ...]
     source_outputs: tuple[tuple[str, str], ...]
     frame_operations: tuple[tuple[str, FrameOperation], ...]
-    checked_inputs: tuple[tuple[str, StageOutput], ...] = ()
+    checked_inputs: tuple[tuple[str, CheckedStageInputT], ...] = ()
 
 
 def _name(names: Mapping[str, str], identifier: str, namespace: str) -> str:
@@ -234,10 +232,10 @@ def frame_program(
 
 def plan_frame(
     root: FrameExpression,
-    source_plans: Mapping[str, CompiledSourceFrame],
+    source_plans: Mapping[str, CompiledSourceFrame[CheckedStageInputT]],
     *,
     frame_inputs: Mapping[str, FrameExpression] | None = None,
-) -> CompiledFramePlan:
+) -> CompiledFramePlan[CheckedStageInputT]:
     stages: list[QueryStage] = []
     reads: list[LoweredRead] = []
     groups: list[FusionGroup] = []
@@ -247,11 +245,11 @@ def plan_frame(
     leaves: dict[str, tuple[str, DataSchema]] = {}
     identities: dict[str, SourceFrameInput | FixedFrameInput] = {}
     projections: dict[str, str] = {}
-    native_sources: dict[str, CompiledSourceFrame] = {}
+    native_sources: dict[str, CompiledSourceFrame[CheckedStageInputT]] = {}
     operations: dict[int, tuple[str, DataSchema]] = {}
     operation_nodes: dict[int, FrameOperation] = {}
     attribute_preparations: list[FrameCompute] = []
-    checked_inputs: list[tuple[str, StageOutput]] = []
+    checked_inputs: list[tuple[str, CheckedStageInputT]] = []
 
     def visit(node: FrameExpression) -> tuple[str, DataSchema]:
         if isinstance(node, (SourceFrameInput, FixedFrameInput)) and node.input_id in leaves:

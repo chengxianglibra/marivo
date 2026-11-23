@@ -55,7 +55,7 @@ def _data(boundary: str = "ordinary") -> SourceData:
             "NULL"
             if row["amount"] is None
             else "CAST('NaN' AS DOUBLE)"
-            if isinstance(row["amount"], float) and pd.isna(row["amount"])
+            if isinstance(row["amount"], float) and pd.isna(row["amount"])  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
             else "CAST('Infinity' AS DOUBLE)"
             if row["amount"] == float("inf")
             else str(row["amount"])

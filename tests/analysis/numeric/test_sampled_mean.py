@@ -1687,6 +1687,8 @@ def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
         category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         samples = amount.sum(time=point).per(point)
+        result = None
+        rows = None
         for by, where, expected_means, count, size in (
             (
                 (scope.by(mv.grain("hour")), category),
@@ -1724,6 +1726,8 @@ def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
                 assert sql.count("sum(") == 1
                 if backend == "clickhouse":
                     assert "quantilesexactinclusive" in sql
+        assert result is not None
+        assert rows is not None
         stored = result.persist()
 
         def offline(*args: object, **kwargs: object) -> None:

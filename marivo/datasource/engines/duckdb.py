@@ -643,6 +643,7 @@ PROFILE = EngineProfile(
     authoring_func="duckdb",
     required_modules=("ibis.backends.duckdb",),
     connect=connect,
+    connect_owned=connect_owned,
     connection_conflict=connection_conflict,
     identifier_quote='"',
     table_name_parts=default_table_name_parts,

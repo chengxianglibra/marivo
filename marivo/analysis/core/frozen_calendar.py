@@ -506,7 +506,7 @@ def _array(rows: pd.DataFrame, column: DataColumn) -> pa.Array:
 
 
 def _layout(schema: DataSchema, rows: pd.DataFrame) -> None:
-    if not isinstance(rows, pd.DataFrame) or tuple(rows.columns) != tuple(
+    if not isinstance(rows, pd.DataFrame) or tuple(rows.columns) != tuple(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         column.slot_id for column in schema.columns
     ):
         _fail("complete coordinate table in exact slot order", repr(tuple(rows.columns)))
@@ -670,7 +670,7 @@ def read_calendar_records(
         _label(label, axis)
         assert axis.frozen is not None
         definition = axis.frozen.definition
-        if isinstance(
+        if isinstance(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             definition, BuiltinCalendarData
         ) and nominal_ordinal != builtin_nominal_ordinal(
             definition.unit, definition.step, datetime.fromisoformat(label)
@@ -955,7 +955,7 @@ def require_calendar_match_rule(axis: CalendarDataAxis, rule: CalendarCorrespond
     if type(rule) is not CalendarCorrespondence:
         _fail("a closed calendar correspondence rule", repr(rule), match=True)
     if rule.kind != "ordinal" and (
-        not isinstance(definition, BuiltinCalendarData)
+        not isinstance(definition, BuiltinCalendarData)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         or definition.unit not in ("day", "week", "month", "quarter", "year")
     ):
         _fail("supported builtin civil grains for this match rule", repr(definition), match=True)

@@ -465,7 +465,7 @@ def read_frame_periods(
             )
         target_key = ("axis", target.token)
     elif (
-        isinstance(target, FrameComparison)
+        isinstance(target, FrameComparison)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         and target.input_id == input_id
         and target in capture_comparisons(input_id, schema)
     ):

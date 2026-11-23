@@ -357,7 +357,7 @@ class AnalysisFrame:
         location: str = "frame.axis",
         canonical_id: str | None = None,
     ) -> int:
-        if not isinstance(axis, FrameAxis) or (
+        if not isinstance(axis, FrameAxis) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             axis._input_id != self._input_id or axis._frame._local.owner != self._local.owner
         ):
             reject(
@@ -418,7 +418,7 @@ class AnalysisFrame:
         location: str = "frame.column",
         canonical_id: str | None = None,
     ) -> None:
-        if not isinstance(column, Column) or (
+        if not isinstance(column, Column) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             column._input_id != self._input_id
             or column._frame is None
             or column._frame._local.owner != self._local.owner
@@ -902,7 +902,7 @@ class AnalysisFrame:
                 canonical_id="analysis_frame.correlate",
             )
         for label, column in (("x", x), ("y", y)):
-            if not isinstance(column, Column) or (
+            if not isinstance(column, Column) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                 column._input_id != self._input_id
                 or column._frame is None
                 or column._frame._local.owner != self._local.owner
@@ -923,7 +923,7 @@ class AnalysisFrame:
                 canonical_id="analysis_frame.correlate",
             )
         for axis in by:
-            if not isinstance(axis, FrameAxis) or (
+            if not isinstance(axis, FrameAxis) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                 axis._input_id != self._input_id or axis._frame._local.owner != self._local.owner
             ):
                 reject(
@@ -969,13 +969,13 @@ class AnalysisFrame:
         location: str,
         canonical_id: str,
     ) -> tuple[tuple[int, int], ...]:
-        if (match is not None and not isinstance(match, CalendarCorrespondence)) or (
+        if (match is not None and not isinstance(match, CalendarCorrespondence)) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             on is not None
             and (
                 type(on) is not tuple
                 or any(
                     type(pair) is not tuple
-                    or len(pair) != 2
+                    or len(pair) != 2  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     or any(not isinstance(axis, FrameAxis) for axis in pair)
                     for pair in on
                 )
@@ -988,7 +988,7 @@ class AnalysisFrame:
                 location,
                 canonical_id=canonical_id,
             )
-        if not isinstance(other, AnalysisFrame) or other._local.owner != self._local.owner:
+        if not isinstance(other, AnalysisFrame) or other._local.owner != self._local.owner:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             reject(
                 "Frame inputs from the same Store and Session",
                 repr(other),
@@ -1178,7 +1178,7 @@ class AnalysisFrame:
         declarations: tuple[tuple[str, ComparisonBaseline], ...]
         if isinstance(baselines, AnalysisFrame):
             declarations = (("reference", declare_baseline(baselines, on=on, match=match)),)
-        elif isinstance(baselines, Mapping) and baselines:
+        elif isinstance(baselines, Mapping) and baselines:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             if on is not None or match is not None:
                 reject(
                     "correspondence rules inside each named baseline declaration",
@@ -1457,7 +1457,7 @@ class AnalysisFrame:
             matches = [
                 i
                 for i, axis in enumerate(self.axes)
-                if isinstance(selector, str) and selector in (axis.name, axis.token)
+                if isinstance(selector, str) and selector in (axis.name, axis.token)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             ]
             if len(matches) != 1 or matches[0] in assigned:
                 guidance = f"Choose a full name or token from {tuple((a.name, a.token) for a in self.axes)!r}."

@@ -87,7 +87,7 @@ def baseline(
         type(on) is not tuple
         or any(
             type(pair) is not tuple
-            or len(pair) != 2
+            or len(pair) != 2  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or any(not isinstance(axis, FrameAxis) for axis in pair)
             for pair in on
         )

@@ -96,7 +96,7 @@ def assert_comparison(result: mv.AnalysisFrame, operation: Operation) -> None:
         ScalarDataType("int64"),
     ]
     if operation == "nested":
-        assert {key: None if pd.isna(value) else value for key, value in values.items()} == DEFINED
+        assert {key: None if pd.isna(value) else value for key, value in values.items()} == DEFINED  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
         assert set(values) == COMPLETE
     elif operation == "union":
         assert set(values) == {

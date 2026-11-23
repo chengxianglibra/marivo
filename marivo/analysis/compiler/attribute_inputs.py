@@ -247,10 +247,12 @@ def bundle_attribute_plan(
             population_stage.columns,
         )
     native_bindings: dict[int, tuple[str, DataColumn]] = {}
+    native_keys: tuple[str, ...] = ()
     aliases: dict[str, str] = {}
     bundles: dict[str, SourceReadStage] = {}
     for root, members in roots.items():
         first = members[0]
+        native_keys = first.keys
         leaves: list[AttributeLeafInput] = []
         columns = {
             column.slot_id: column
@@ -480,7 +482,7 @@ def bundle_attribute_plan(
                 if value.occurrence[0] not in selected_native
             ]
             for index, (stage_id, column) in selected_native.items():
-                values.append(FormulaInput((index,), stage_id, column, False, keys=first.keys))
+                values.append(FormulaInput((index,), stage_id, column, False, keys=native_keys))
             program = replace(
                 stage.program,
                 values=tuple(values),

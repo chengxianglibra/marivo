@@ -214,11 +214,9 @@ def test_named_objects_and_observe_containers_capture_independent_results(
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     orders = catalog_get(session.catalog, "metric:sales.order_count", kind="metric")
     profit = catalog_get(session.catalog, "metric:sales.profit", kind="metric")
-    assert (
-        isinstance(revenue, ms.Metric)
-        and isinstance(orders, ms.Metric)
-        and isinstance(profit, ms.Metric)
-    )
+    assert isinstance(revenue, ms.Metric)
+    assert isinstance(orders, ms.Metric)
+    assert isinstance(profit, ms.Metric)
     metrics: list[MetricExpression[Literal["numeric"]]] = [revenue, orders, profit]
     pending = session.observe(metrics)
     metrics[:] = [orders]
@@ -275,7 +273,8 @@ def test_loaded_wrappers_keep_project_and_axes_do_not_gain_selection_owner(
     first = mv.session.get_or_create("first")
     entity = catalog_get(first.catalog, "entity:sales.facts", kind="entity")
     region = first.catalog.get("dimension:sales.facts.region")
-    assert isinstance(entity, ms.Entity) and isinstance(region, ms.Dimension)
+    assert isinstance(entity, ms.Entity)
+    assert isinstance(region, ms.Dimension)
     grouping = mv.identity(entity)
     literal = mv.coordinates(by=(grouping,), keys=(((1,),),))
     fields = mv.coordinates(by=(region,), keys=(("east",),))

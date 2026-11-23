@@ -92,7 +92,7 @@ class BoundSourceParametersV1:
         self._validate()
 
     def _validate(self) -> None:
-        if type(self.entity_ref) is not Ref or self.entity_ref.kind is not SemanticKind.ENTITY:
+        if type(self.entity_ref) is not Ref or self.entity_ref.kind is not SemanticKind.ENTITY:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise _error("exact Entity ref", "invalid captured Entity")
         names = self.ordered_parameter_names
         values = self.private_canonical_typed_values
@@ -234,7 +234,7 @@ class SourceParameterScopes:
         normalized: list[BoundSourceParametersV1] = []
         entities = {entity.ref.path: entity for entity in self._entities}
         for entity_ref, values in bindings.items():
-            if type(entity_ref) is not Ref or entity_ref.kind is not SemanticKind.ENTITY:
+            if type(entity_ref) is not Ref or entity_ref.kind is not SemanticKind.ENTITY:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                 raise _error("exact current Entity ref key", "invalid binding Entity key")
             entity = entities.get(entity_ref.path)
             if entity is None:

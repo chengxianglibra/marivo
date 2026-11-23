@@ -36,6 +36,7 @@ from ibis.common.deferred import (
 )
 from ibis.util import PseudoHashable
 
+from marivo._ai_context import AiContextValue
 from marivo._definition.types import (
     ExactRef,
     FieldRead,
@@ -65,7 +66,6 @@ from marivo.refs import DomainKind, Ref, SemanticKind, SemanticKindTag
 
 if TYPE_CHECKING:
     from marivo._definition.relations import PopulationParameter
-    from marivo.datasource.typing import AiContextValue
 
 RECIPE_RULE_VERSION: Final = 2
 _LITERAL_TYPES: Final = (str, bool, int, float, Decimal, date, datetime, InstantAnchor)

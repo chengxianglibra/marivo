@@ -526,7 +526,7 @@ def acquire_snapshot(
         except (DatasourceCredentialError, DatasourceCredentialScopeError):
             raise
         except Exception as exc:
-            exc = cr.safe_backend_exception(exc, session._backend if session is not None else None)
+            exc = cr.safe_backend_exception(exc, session._backend if session is not None else None)  # type: ignore[redundant-expr]  # Preserve the runtime check.
             failure = _backend_failure_summary(exc)
             raise _acquisition_error(
                 code="acquisition_source_failed",
@@ -567,7 +567,7 @@ def acquire_snapshot(
         except (DatasourceCredentialError, DatasourceCredentialScopeError):
             raise
         except Exception as exc:
-            exc = cr.safe_backend_exception(exc, session._backend if session is not None else None)
+            exc = cr.safe_backend_exception(exc, session._backend if session is not None else None)  # type: ignore[redundant-expr]  # Preserve the runtime check.
             failure = _backend_failure_summary(exc)
             if not timeout_entered:
                 raise _acquisition_error(

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
+from marivo._ai_context import AiContextValue as AiContextValue
 from marivo.datasource.table_source import TableLookupBackend
-from marivo.datasource.typing import AiContextValue as AiContextValue
 
 if TYPE_CHECKING:
     import ibis

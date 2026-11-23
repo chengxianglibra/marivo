@@ -41,7 +41,7 @@ class FrameKeyInput:
     def __post_init__(self) -> None:
         from marivo.analysis.dsl.frame import AnalysisFrame
 
-        if not isinstance(self.frame, AnalysisFrame) or self.input_id != self.frame._input_id:
+        if not isinstance(self.frame, AnalysisFrame) or self.input_id != self.frame._input_id:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             reject(
                 "a Frame key input with its exact input identity",
                 repr(self.input_id),

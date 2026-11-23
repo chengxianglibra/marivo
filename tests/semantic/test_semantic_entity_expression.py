@@ -57,7 +57,7 @@ def _pending_entity_bodies(ctx: LoaderContext) -> dict[str, ExpressionBody]:
         pending.definition.name: pending.expression_body
         for pending in ctx.pending_definitions
         if pending.expression_body is not None
-        and type(pending.ref) is Ref
+        and type(pending.ref) is Ref  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
         and pending.ref.kind is ms.SemanticKind.ENTITY
     }
 

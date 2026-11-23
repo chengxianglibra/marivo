@@ -13,7 +13,7 @@ from marivo.analysis.compiler.frame_plan import (
     CompiledSourceFrame,
     frame_expression_schema,
 )
-from marivo.analysis.compiler.graph_lowering import lower_query
+from marivo.analysis.compiler.graph_lowering import LoweredQuery, lower_query
 from marivo.analysis.compiler.graph_plan import (
     QueryPlan,
     QueryStage,
@@ -73,7 +73,7 @@ class PreparedFrameSources:
     """Preparation products consumed together by this invocation's schedule."""
 
     prepared: dict[str, PreparedSources]
-    plans: dict[str, CompiledSourceFrame]
+    plans: dict[str, CompiledSourceFrame[StageOutput]]
     schemas: dict[str, DataSchema]
     inputs: tuple[EvaluationInput, ...]
     operations: tuple[FrameOperationName, ...]
@@ -83,10 +83,10 @@ class PreparedFrameSources:
 RunIntervalDomain: TypeAlias = Callable[
     [
         str,
-        CompiledSourceFrame,
+        CompiledSourceFrame[StageOutput],
         BoundGraph,
         PreparedSources | None,
-        dict[str, CompiledSourceFrame],
+        dict[str, CompiledSourceFrame[StageOutput]],
         dict[str, DataSchema],
         dict[str, BoundGraph],
         dict[str, PreparedSources],
@@ -196,7 +196,7 @@ def prepare_frame_sources(
     connection_services: dict[tuple[Path, int], DatasourceConnectionService] = {}
     json_responses: dict[tuple[Path, int], dict[str, JsonResponseCache]] = {}
     prepared_by_input: dict[str, PreparedSources] = {}
-    source_plans: dict[str, CompiledSourceFrame] = {}
+    source_plans: dict[str, CompiledSourceFrame[StageOutput]] = {}
     source_schemas: dict[str, DataSchema] = {}
     source_graphs: dict[str, BoundGraph] = {}
     key_schema_cache: dict[int, DataSchema] = {}
@@ -353,6 +353,8 @@ def prepare_frame_sources(
             require_finite_attribution_scope(active_graph)
         native_reads: tuple[SourceReadStage, ...] = ()
         native_value_slots: list[str] = []
+        lowered: LoweredQuery | None = None
+        plan: QueryPlan | None = None
         if sample_windows:
             assert prepared is not None and isinstance(binding, SourceFrameBinding)
             lowered, prepared = prepare_sample_window_plan(
@@ -449,7 +451,8 @@ def prepare_frame_sources(
                 plan = share_frequency_reads(replace(plan, stages=tuple(qualified_stages)))
             if not checked_inputs:
                 plan = optimize_query(plan)
-        if sparse_window is None and not sample_windows:
+        if lowered is None:
+            assert plan is not None
             lowered = lower_query(
                 plan,
                 {} if prepared is None else prepared.relations,

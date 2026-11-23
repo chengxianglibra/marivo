@@ -71,7 +71,7 @@ if TYPE_CHECKING:
 
 
 def _attribute_associations(
-    compiled: CompiledFramePlan,
+    compiled: CompiledFramePlan[StageOutput],
     explicit_inputs: tuple[tuple[str, FrameExpression], ...],
 ) -> tuple[tuple[tuple[str, str, int, bool], ...], frozenset[str]]:
     """Detach stage/input/index/final associations and reachability from the plan."""
@@ -257,7 +257,7 @@ def _evaluate_frame(
     )
 
     def checkpoint_operations(
-        plan: CompiledFramePlan,
+        plan: CompiledFramePlan[StageOutput],
     ) -> Callable[[LocalCompute | FrameCompute | SourceReadStage, StageOutput], None]:
         operation_stages = {
             stage: operation_inputs[id(expression)]
@@ -288,10 +288,10 @@ def _evaluate_frame(
 
         def run_domain(
             input_id: str,
-            domain_plan: CompiledSourceFrame,
+            domain_plan: CompiledSourceFrame[StageOutput],
             domain_graph: BoundGraph,
             domain_sources: PreparedSources | None,
-            plans: dict[str, CompiledSourceFrame],
+            plans: dict[str, CompiledSourceFrame[StageOutput]],
             schemas: dict[str, DataSchema],
             graphs: dict[str, BoundGraph],
             sources: dict[str, PreparedSources],

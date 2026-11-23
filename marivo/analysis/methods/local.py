@@ -685,7 +685,7 @@ def _combine_program(
         if keys:
             marked = frame.assign(**{"__present": True})
             match_keys = [key for key in keys if key in frame]
-            merged = (
+            aligned = (
                 domain.merge(
                     marked,
                     on=match_keys,
@@ -698,12 +698,12 @@ def _combine_program(
                 if match_keys
                 else domain.merge(marked, how="cross")
             )
-            value = merged[slot]
+            value = aligned[slot]
             if binding.zero_when_absent:
                 value = value.mask(
-                    merged["__numeric_present"].astype("boolean").fillna(False).eq(False)
-                    if "__numeric_present" in merged.columns
-                    else merged["__present"].isna(),
+                    aligned["__numeric_present"].astype("boolean").fillna(False).eq(False)
+                    if "__numeric_present" in aligned.columns
+                    else aligned["__present"].isna(),
                     pd.Series(
                         [Decimal(0) if isinstance(binding.column.dtype, DecimalDataType) else 0]
                         * len(value),
@@ -712,7 +712,8 @@ def _combine_program(
                     ),
                 )
         else:
-            value = frame[slot].reset_index(drop=True).iloc[: len(domain)]
+            aligned = frame.reset_index(drop=True).iloc[: len(domain)]
+            value = aligned[slot]
         if not isinstance(value.dtype, pd.ArrowDtype):
             # Untyped internal/test inputs still need the captured NULL/type
             # binding. Already typed stages keep their native carrier throughout.
@@ -728,7 +729,6 @@ def _combine_program(
         )
         physical[name] = value
         checks = []
-        aligned = merged if keys else frame.reset_index(drop=True).iloc[: len(domain)]
         for key, (column_name, expected, received) in zip(check_names, binding.checks, strict=True):
             physical[key] = aligned[column_name].astype("boolean").fillna(False).astype(object)
             checks.append(NumericCheck(table[key], expected, received))

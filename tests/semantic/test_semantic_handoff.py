@@ -59,7 +59,8 @@ def test_project_handoff_separates_static_and_physical_evidence(
     revenue = catalog.get("metric:sales.revenue")
     amount = catalog.get("measure:sales.orders.amount")
     revenue_identity = catalog.get(revenue.id)
-    assert revenue_identity is not None and as_ref(revenue_identity) == as_ref(revenue)
+    assert revenue_identity is not None
+    assert as_ref(revenue_identity) == as_ref(revenue)
 
     baseline = catalog.readiness(refs=[amount])
     assert baseline._analysis_ready_inputs == (as_ref(amount),)

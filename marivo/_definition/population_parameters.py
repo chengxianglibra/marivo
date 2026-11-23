@@ -432,7 +432,7 @@ def validate_parameter(
                     path=(*path, "factor", str(index)),
                 )
     elif (
-        isinstance(value, ContainsParameter)
+        isinstance(value, ContainsParameter)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         and parameter_role(resolver_of(value.population)) != "population"
     ):
         invalid("in_population requires a Population parameter", path=path)

@@ -57,7 +57,9 @@ def test_saved_scalar_values_and_physical_types(
     result = mv.read_dataframe(reference)
     rows = result.to_pandas()
     assert isinstance(result, mv.DataFrameResult)
-    assert result.kind == "dataframe" and result.ref == reference and result.row_count == 3
+    assert result.kind == "dataframe"
+    assert result.ref == reference
+    assert result.row_count == 3
     assert result.ref.project_root == tmp_path.resolve()
     assert result.schema.names == ["value"] and result.schema.field("value").type == dtype
     assert result.schema.metadata is None

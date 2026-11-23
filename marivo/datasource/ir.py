@@ -11,9 +11,9 @@ from pathlib import PurePosixPath
 from typing import Any, Literal, TypeAlias
 from zoneinfo import ZoneInfoNotFoundError
 
+from marivo._ai_context import _normalize_aliases
 from marivo._timezones import normalize_timezone
 from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceObservedEffects, repair
-from marivo.datasource.typing import _normalize_aliases
 
 __all__ = [
     "AiContextIR",
@@ -605,12 +605,12 @@ class JsonSourceIR:
                 raise ValueError("JsonSourceIR.body_json must contain a JSON object.")
             seen_paths: set[tuple[JsonBodyPathPart, ...]] = set()
             for entry in self.body_params:
-                if not isinstance(entry, tuple) or len(entry) != 2:
+                if not isinstance(entry, tuple) or len(entry) != 2:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     raise TypeError(
                         "JsonSourceIR.body_params entries must be (path, SourceParamIR) tuples."
                     )
                 path, param = entry
-                if not isinstance(path, tuple) or not path:
+                if not isinstance(path, tuple) or not path:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     raise TypeError("JsonSourceIR.body_params paths must be non-empty tuples.")
                 if path in seen_paths:
                     raise ValueError(f"JsonSourceIR.body_params contains duplicate path {path!r}.")

@@ -302,6 +302,17 @@ class _ExpressionCarrier(RenderableResult):
                 received=f"{type(self).__name__}[{self._role}]",
             )
 
+    def _require_numeric_operand(self, other: object) -> None:
+        self._require("numeric")
+        stage_type = RowExpression if isinstance(self, RowExpression) else MetricExpression
+        if isinstance(other, _ExpressionCarrier) and (
+            not isinstance(other, stage_type) or other._role != "numeric"
+        ):
+            _stage_error(
+                "Arithmetic requires numeric expressions from the same stage.",
+                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
+            )
+
     def _require_boolean_operand(self, other: object) -> None:
         self._require("boolean")
         if isinstance(other, bool):
@@ -432,14 +443,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         other: RowExpression[Literal["numeric"]] | NumericLiteral,
     ) -> RowExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, RowExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return RowExpression(
@@ -452,14 +456,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         other: RowExpression[Literal["numeric"]] | NumericLiteral,
     ) -> RowExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, RowExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return RowExpression(
@@ -472,14 +469,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         other: RowExpression[Literal["numeric"]] | NumericLiteral,
     ) -> RowExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, RowExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return RowExpression(
@@ -492,14 +482,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         other: RowExpression[Literal["numeric"]] | NumericLiteral,
     ) -> RowExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, RowExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return RowExpression(
@@ -512,14 +495,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         other: RowExpression[Literal["numeric"]] | NumericLiteral,
     ) -> RowExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, RowExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return RowExpression(
@@ -532,14 +508,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         other: RowExpression[Literal["numeric"]] | NumericLiteral,
     ) -> RowExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, RowExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return RowExpression(
@@ -552,14 +521,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         other: RowExpression[Literal["numeric"]] | NumericLiteral,
     ) -> RowExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, RowExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return RowExpression(
@@ -572,14 +534,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         other: RowExpression[Literal["numeric"]] | NumericLiteral,
     ) -> RowExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, RowExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return RowExpression(
@@ -592,14 +547,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         other: RowExpression[Literal["numeric"]] | NumericLiteral,
     ) -> RowExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, RowExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return RowExpression(
@@ -612,14 +560,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         other: RowExpression[Literal["numeric"]] | NumericLiteral,
     ) -> RowExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, RowExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return RowExpression(
@@ -632,14 +573,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         other: RowExpression[Literal["numeric"]] | NumericLiteral,
     ) -> RowExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, RowExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return RowExpression(
@@ -652,14 +586,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         other: RowExpression[Literal["numeric"]] | NumericLiteral,
     ) -> RowExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, RowExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return RowExpression(
@@ -1725,14 +1652,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["numeric"]],
         other: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, MetricExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return MetricExpression(
@@ -1745,14 +1665,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["numeric"]],
         other: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, MetricExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return MetricExpression(
@@ -1765,14 +1678,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["numeric"]],
         other: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, MetricExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return MetricExpression(
@@ -1785,14 +1691,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["numeric"]],
         other: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, MetricExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return MetricExpression(
@@ -1805,14 +1704,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["numeric"]],
         other: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, MetricExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return MetricExpression(
@@ -1825,14 +1717,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["numeric"]],
         other: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, MetricExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return MetricExpression(
@@ -1845,14 +1730,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["numeric"]],
         other: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, MetricExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return MetricExpression(
@@ -1865,14 +1743,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["numeric"]],
         other: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, MetricExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return MetricExpression(
@@ -1885,14 +1756,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["numeric"]],
         other: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, MetricExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return MetricExpression(
@@ -1905,14 +1769,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["numeric"]],
         other: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, MetricExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return MetricExpression(
@@ -1925,14 +1782,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["numeric"]],
         other: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, MetricExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return MetricExpression(
@@ -1945,14 +1795,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["numeric"]],
         other: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]:
-        self._require("numeric")
-        if isinstance(other, _ExpressionCarrier) and (
-            not isinstance(other, MetricExpression) or other._role != "numeric"
-        ):
-            _stage_error(
-                "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
+        self._require_numeric_operand(other)
         if isinstance(other, bool):
             _error("Boolean literals are not numeric operands.")
         return MetricExpression(

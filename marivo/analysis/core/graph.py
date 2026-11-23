@@ -22,7 +22,7 @@ class BoundGraph:
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.root, (ObserveQuery, ReadQuery, ResultQuery))
+            not isinstance(self.root, (ObserveQuery, ReadQuery, ResultQuery))  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or type(self.signature) is not BoundSignature
         ):
             _fail("an observation definition and multi-output signature", type(self).__name__)

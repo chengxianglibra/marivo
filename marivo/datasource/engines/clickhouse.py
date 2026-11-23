@@ -996,12 +996,20 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
             params["max_execution_time"] = previous
 
 
+def _validate_query(backend: BaseBackend, sql: str) -> None:
+    validate_temporal_parsers(backend, sql)
+    validate_query_size(backend, sql)
+
+
 PROFILE = EngineProfile(
     name="clickhouse",
     aliases=(),
     authoring_func="clickhouse",
     required_modules=("ibis.backends.clickhouse",),
     connect=connect,
+    table_engine=table_engine,
+    table_join_issue=table_join_issue,
+    validate_query=_validate_query,
     identifier_quote="`",
     table_name_parts=table_name_parts,
     inspect_partition_values=inspect_partition_values,

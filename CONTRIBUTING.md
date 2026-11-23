@@ -70,7 +70,7 @@ scripts/         # 开发与检查脚本
 .venv/bin/pre-commit run --all-files
 ```
 
-提交 hooks 执行 Ruff、通用文件检查，以及针对 Python 文件的 import-linter 和 mypy。
+提交 hooks 执行 Ruff、通用文件检查、导入契约、架构守卫和 mypy。
 修改 `marivo/` 或 `tests/` 中的 Python 文件时，mypy hook 通过 `make typecheck` 默认检查
 整个库和测试目录；`TYPECHECK_TARGETS` 可缩小本地检查范围，也适用于 hook。普通提交
 依据暂存文件决定 hook 是否运行，`--all-files` 则依据全部受跟踪文件。当前配置不包含
@@ -97,6 +97,14 @@ make format
 # 检查代码问题
 make lint
 ```
+
+即使通过 `LINT_TARGETS` 缩小 Ruff 范围，`make lint` 仍会对整个库检查导入契约
+和架构基线。导入契约包含 `TYPE_CHECKING`。架构守卫检查跨包私有导入、引擎分支、
+动态执行、依赖环、类型与代码规模，以及公开模块的冷启动。
+
+移除存量违规后，使用 `.venv/bin/python scripts/check_architecture.py --ratchet-down`
+同步基线。PR 检查会拒绝新增导入豁免、放宽受保护的 Ruff 和 Mypy 配置以及增加
+架构基线额度。
 
 ### 类型检查
 ```bash

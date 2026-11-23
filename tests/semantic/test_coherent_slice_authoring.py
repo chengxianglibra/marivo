@@ -59,7 +59,8 @@ def test_coherent_slice_loads_once_and_resolves_every_authored_ref(
     assert calls == 1
     for ref in (*physical, *published):
         identity = catalog.get(ref.id)
-        assert identity is not None and as_ref(identity) == as_ref(ref)
+        assert identity is not None
+        assert as_ref(identity) == as_ref(ref)
     published_refs = tuple(as_ref(ref) for ref in published)
     assert all(ref is not None for ref in published_refs)
     assert tuple(entry.id for entry in catalog.search(kind="metric").items) == tuple(

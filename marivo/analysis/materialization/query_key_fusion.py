@@ -1150,7 +1150,7 @@ def native_query_relation(
             else:
                 coordinates = tuple(expression[group[0]] for group in program.key_groups)
             if isinstance(operation, FilterValues):
-                if not isinstance(operation.predicate, ValueExpression) or not _safe_expression(
+                if not isinstance(operation.predicate, ValueExpression) or not _safe_expression(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     operation.predicate,
                     native_float=owner.provider.name in ("duckdb", "trino", "clickhouse"),
                     native_arithmetic=arithmetic,

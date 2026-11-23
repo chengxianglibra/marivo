@@ -574,7 +574,7 @@ def search_documents(
     and are rejected when their binding or cached ranking changes. ``limit`` only
     controls the returned page, not recall, fusion, gating, or candidate count.
     """
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         raise CatalogSearchError(
             stage="arguments",
             message="Invalid search page size.",

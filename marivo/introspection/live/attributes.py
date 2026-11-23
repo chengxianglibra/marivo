@@ -53,7 +53,7 @@ def public_attributes(type_obj: type) -> dict[str, AttributeHelp]:
         if isinstance(annotations, dict):
             for name, annotation in annotations.items():
                 if (
-                    isinstance(name, str)
+                    isinstance(name, str)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     and not name.startswith("_")
                     and str(get_origin(annotation)) != "typing.ClassVar"
                     and not (isinstance(annotation, str) and annotation.startswith("ClassVar["))

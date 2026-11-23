@@ -203,7 +203,7 @@ def bind_observation(
     pending_interval: int | None = None,
     empty_interval: bool = False,
 ) -> ObservationBinding:
-    if not isinstance(by, tuple) or any(
+    if not isinstance(by, tuple) or any(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         not isinstance(
             field, (FieldRead, EntityIdentityRead, CalendarCoordinate, IntervalCoordinate)
         )
@@ -332,7 +332,7 @@ def bind_observation(
             inner_axes = tuple(
                 axis
                 for axis in inner_domain_axes
-                if isinstance(
+                if isinstance(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     axis,
                     (AxisBinding, CalendarCoordinate, IntervalCoordinate, BuiltinSampleCoordinate),
                 )

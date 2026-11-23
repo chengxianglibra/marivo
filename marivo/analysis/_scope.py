@@ -79,7 +79,7 @@ def _observation_summary(observation: ObservationBinding) -> str:
     for occurrence, sample in observation.calendar_samples[:6]:
         field = (
             sample.sample.field.field
-            if isinstance(sample, BuiltinSampleCoordinate)
+            if isinstance(sample, BuiltinSampleCoordinate)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             and isinstance(sample.sample, FieldCalendarSample)
             else None
         )
@@ -139,7 +139,7 @@ def _node_summary(node: DefinitionNode) -> str:
     if isinstance(node, LiteralPopulation):
         keys = ", ".join(_bounded(repr(key), 160) for key in node.keys[:3])
         more = "; keys omitted" if len(node.keys) > 3 else ""
-        axes = tuple(_axis_summary(axis) for axis in node.axes if isinstance(axis, AxisBinding))
+        axes = tuple(_axis_summary(axis) for axis in node.axes if isinstance(axis, AxisBinding))  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         return f"LiteralPopulation axes={axes}; coordinates={len(node.keys)}; keys=[{keys}]{more}"
     if isinstance(node, FrameKeys):
         bindings = tuple(

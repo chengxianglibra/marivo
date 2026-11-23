@@ -65,7 +65,7 @@ def domain(
     """
     ctx = _require_ctx()
     ref = ref_factory.domain(name)
-    if not isinstance(owner, str) or not owner.strip():
+    if not isinstance(owner, str) or not owner.strip():  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         _raise(
             ErrorKind.INVALID_DOMAIN_OWNER,
             f"{name!r}: owner must be a non-empty string; got {owner!r}.",

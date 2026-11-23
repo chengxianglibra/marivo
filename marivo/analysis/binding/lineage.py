@@ -343,7 +343,8 @@ def observation_contexts(
                 grain = rule.grain
                 from marivo.analysis.core.frame_calendar import _UNITS
 
-                assert grain.unit is not None and grain.count is not None
+                assert grain.unit is not None
+                assert grain.count is not None
                 window = FrameToDateWindow(FrameBuiltinGrain(_UNITS[grain.unit], grain.count))
         result.append((quantity.name, FrameObservationContext(subject, time, window)))
     return tuple(result)

@@ -438,11 +438,11 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
     )
     source = source.where(source["amount"] > 0)
     fixed = source.compute()
-    schedules: list[CompiledFramePlan] = []
+    schedules: list[CompiledFramePlan[StageOutput]] = []
     from marivo.analysis.materialization.graph_source_execution import run_frame_plan as original
 
     def run(
-        compiled: CompiledFramePlan,
+        compiled: CompiledFramePlan[StageOutput],
         *,
         source_prepared: Mapping[str, PreparedSources],
         read_fixed: Callable[[FrameInput], CompletedFrameData],

@@ -52,7 +52,7 @@ def recipes(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
         2 / 3,
     ]
     ranks = current.value.rank(method="dense", ascending=False).astype("Int64")
-    assert [None if pd.isna(value) else value for value in ranks.tolist()] == [2, None, 1]
+    assert [None if pd.isna(value) else value for value in ranks.tolist()] == [2, None, 1]  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
     standardized = 0.0
     for row in groups.itertuples():
         assert isinstance(row.value, (int, float))
@@ -85,10 +85,10 @@ def recipes(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
     assert empty.empty
     penetration = len(cohort) / len(current)
     assert math.isclose(penetration, 2 / 3)
-    empty_penetration = None if empty.empty else len(empty) / len(empty)
+    empty_penetration = None if empty.empty else len(empty) / len(empty)  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
     assert empty_penetration is None
     return {
-        "ranks": [None if pd.isna(value) else value for value in ranks.tolist()],
+        "ranks": [None if pd.isna(value) else value for value in ranks.tolist()],  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
         "cohort": [list(key) for key in cohort],
         "cohort_two": [],
         "penetration": penetration,

@@ -21,6 +21,7 @@ from marivo.analysis.compiler.source_predicates import string_bytes
 from marivo.analysis.core.data_schema import DataAxis, DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_expression import SourceFrameInput
+from marivo.analysis.core.stage_contracts import CheckedStageInputT
 from marivo.semantic._numeric_lowering import NumericCheck
 
 
@@ -146,8 +147,8 @@ def _bounded_read(
 
 
 def bound_pending_frame_top(
-    compiled: CompiledFramePlan, providers: Mapping[str, str]
-) -> CompiledFramePlan:
+    compiled: CompiledFramePlan[CheckedStageInputT], providers: Mapping[str, str]
+) -> CompiledFramePlan[CheckedStageInputT]:
     """Admit direct integer-field reads with one complete consumer."""
     plan = compiled.lowered.plan
     by_id = {stage.stage_id: stage for stage in plan.stages}
@@ -186,7 +187,7 @@ def bound_pending_frame_top(
                     if (
                         schema.axes
                         and all(
-                            isinstance(axis, DataAxis) and axis.kind == "member"
+                            isinstance(axis, DataAxis) and axis.kind == "member"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                             for axis in schema.axes
                         )
                         and all(

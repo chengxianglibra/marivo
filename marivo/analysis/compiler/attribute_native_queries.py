@@ -18,6 +18,7 @@ from marivo.analysis.compiler.graph_plan import (
     read_reduction,
 )
 from marivo.analysis.compiler.observation import _reduction_axes, lower_observation, temporal_bound
+from marivo.analysis.core.stage_contracts import CheckedStageInput
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.semantic._numeric_lowering import NumericCheck
 
@@ -42,7 +43,7 @@ def native_game_stage(
     inputs: tuple[str, ...],
     program: AttributeGameProgram,
     endpoint_ids: tuple[str, str],
-    source_plans: Mapping[str, CompiledSourceFrame],
+    source_plans: Mapping[str, CompiledSourceFrame[CheckedStageInput]],
 ) -> SourceReadStage:
     """Capture original leaf reads without carrying source handles into a core program."""
     endpoints = []

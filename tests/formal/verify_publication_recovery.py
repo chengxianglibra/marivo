@@ -205,6 +205,8 @@ def test_publication_cutpoints_are_atomic_to_an_independent_reader(
             raise OSError(event)
 
     monkeypatch.setattr(terminal_publication, "_event", fault)
+    stored = None
+    failure = None
     if cut.committed:
         stored = memory.persist(description="formal candidate")
         assert stored.description == "formal candidate"
@@ -212,13 +214,16 @@ def test_publication_cutpoints_are_atomic_to_an_independent_reader(
     else:
         with pytest.raises(MaterializationError) as error:
             memory.persist()
+        failure = error.value
     (at_cut,) = observed
     original = _check_delta(at_cut, case.initial, session, cut)
     if cut.committed:
+        assert stored is not None
         assert stored.artifact_id == original.artifact
         final = _check_delta(_observe(session), case.initial, session, cut)
     else:
-        assert not isinstance(error.value, RecoveryPendingError)
+        assert failure is not None
+        assert not isinstance(failure, RecoveryPendingError)
         final = _check_delta(_observe(session), case.initial, session, _ROLLED_BACK, failed=True)
     assert original.id == final.id
     pd.testing.assert_frame_equal(memory.to_pandas(), table)

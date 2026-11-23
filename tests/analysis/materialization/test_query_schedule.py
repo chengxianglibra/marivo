@@ -542,9 +542,8 @@ def _numeric_inputs(session: Session) -> tuple[ms.Measure, ms.Measure]:
         connection.close()
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     weight = catalog_value(session.catalog, "sales.orders.weight", kind="measure")
-    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        weight, (ms.RowExpression, ms.MetricExpression)
-    )
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(weight, (ms.RowExpression, ms.MetricExpression))
     return amount, weight
 
 
@@ -859,9 +858,8 @@ def test_metric_preview_batch_reuses_scoped_reductions(warehouse_session: Sessio
     _numeric_inputs(session)
     revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
     refund = catalog_value(session.catalog, "sales.refund_total", kind="metric")
-    assert isinstance(revenue, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        refund, (ms.RowExpression, ms.MetricExpression)
-    )
+    assert isinstance(revenue, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(refund, (ms.RowExpression, ms.MetricExpression))
     scope = tuple(
         (
             catalog_value(session.catalog, root.ref.path, kind="entity"),

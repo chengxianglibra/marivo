@@ -94,7 +94,7 @@ def _normalize_sample_interval_value(
     if sample_interval is None:
         return None
     try:
-        if not isinstance(sample_interval, tuple) or len(sample_interval) != 2:
+        if not isinstance(sample_interval, tuple) or len(sample_interval) != 2:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise ValueError("sample_interval must be a (count, unit) tuple")
         count, unit = sample_interval
         sample = SampleIntervalIR(count=count, unit=unit)

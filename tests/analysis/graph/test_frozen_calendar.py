@@ -97,9 +97,7 @@ def directory(
                 [
                     builtin_nominal_ordinal(definition.unit, definition.step, start)
                     for start in starts
-                ]
-                if isinstance(definition, BuiltinCalendarData)
-                else range(len(labels)),
+                ],
                 dtype="int64[pyarrow]",
             ),
             "selection": pd.Series(["full"] * len(labels), dtype="string[pyarrow]"),

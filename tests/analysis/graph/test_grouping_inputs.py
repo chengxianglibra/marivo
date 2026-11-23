@@ -69,7 +69,8 @@ def test_calendar_grouping_is_the_unique_output_time_scope(
     metric = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     calendar_scope = session.time_scope(start="2026-08-01", end="2026-10-01")
     calendar = calendar_scope.by(mv.grain("month"))
-    assert isinstance(calendar, mv.Grouping) and calendar.kind == "calendar"
+    assert isinstance(calendar, mv.Grouping)
+    assert calendar.kind == "calendar"
     members = session.members(catalog_get(session.catalog, "entity:sales.customer", kind="entity"))
     captured_calendar = mv.product(members, calendar).axes[1]
     direct = session.observe({"value": metric}, by=(calendar_scope.by(mv.grain("month")),))

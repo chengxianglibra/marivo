@@ -355,7 +355,7 @@ def rerank_documents(
             [[query, text] for text in texts], convert_to_numpy=True, show_progress_bar=False
         )
         if (
-            not isinstance(raw, np.ndarray)
+            not isinstance(raw, np.ndarray)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or raw.shape != (len(documents),)
             or not np.isfinite(raw).all()
         ):

@@ -613,7 +613,7 @@ def _sample_domain(
                 expected="resolved field",
                 received=type(axis).__name__,
             )
-        assert isinstance(axis, RowFacts) and axis.field is not None
+        assert isinstance(axis, RowFacts) and axis.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         axis_read = axis.field.field_read
         if axis_read is not None and axis_read.path:
             _fail(
@@ -756,7 +756,7 @@ def _time(recipe: Resolver | None, row: RowFacts) -> ContributionClockBinding | 
             expected="a resolved TimeField",
             received=type(value).__name__,
         )
-    assert isinstance(value, RowFacts) and value.field is not None
+    assert isinstance(value, RowFacts) and value.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
     read = value.field.field_read
     if read is not None and isinstance(read.at, RowAttributeTime):
         _fail(
@@ -863,7 +863,7 @@ def _reduce(
                         expected="resolved TimeField",
                         received=type(ordering).__name__,
                     )
-                assert isinstance(ordering, RowFacts) and ordering.field is not None
+                assert isinstance(ordering, RowFacts) and ordering.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                 order_by = ordering.field.reference
             else:
                 times = tuple(
@@ -1172,7 +1172,7 @@ def _consume(recipe: Resolver) -> _Facts:
                         expected="Metric.window(mv.all_history() or another window rule)",
                         received="invalid receiver or rule",
                     )
-                assert isinstance(receiver, MetricFacts) and isinstance(
+                assert isinstance(receiver, MetricFacts) and isinstance(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     rule, (AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods)
                 )
                 definitions = dict(receiver._declared)
@@ -1221,7 +1221,7 @@ def _consume(recipe: Resolver) -> _Facts:
                             else "a computed expression without a native field identity",
                             action="Declare the derived time as a fact-root TimeDimension, without via/at, or use session.instant(...) for a fixed attribute time.",
                         )
-                    assert isinstance(control, RowFacts) and control.field is not None
+                    assert isinstance(control, RowFacts) and control.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     anchor = RowAttributeTime(control.field.reference, control.field.root)
                 if (
                     not isinstance(receiver, RowFacts)
@@ -1241,8 +1241,8 @@ def _consume(recipe: Resolver) -> _Facts:
                         received="invalid field or anchor",
                     )
                 assert (
-                    isinstance(receiver, RowFacts)
-                    and receiver.field is not None
+                    isinstance(receiver, RowFacts)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+                    and receiver.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     and isinstance(anchor, (InstantAnchor, RowAttributeTime))
                 )
                 native = receiver.field.field_read or FieldRead(
@@ -1287,7 +1287,7 @@ def _consume(recipe: Resolver) -> _Facts:
                         expected="Field.via(mv.path(relationship, ...))",
                         received="invalid receiver or arguments",
                     )
-                assert isinstance(receiver, RowFacts) and receiver.field is not None
+                assert isinstance(receiver, RowFacts) and receiver.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                 if receiver.field.field_read is not None and receiver.field.field_read.path:
                     _fail(
                         "via is already bound on this field.",
@@ -1566,7 +1566,7 @@ def consume_field(value: Deferred | _ExpressionCarrier) -> SemanticInput:
             expected="a resolved field or valid via path",
             received=type(result).__name__,
         )
-    assert isinstance(result, RowFacts) and result.field is not None
+    assert isinstance(result, RowFacts) and result.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
     return result.field
 
 

@@ -477,7 +477,7 @@ class FrameAdditiveMethod(_FactRecord):
     support: tuple[FrameMethodSupport, ...]
 
     def __post_init__(self) -> None:
-        if self.kind != "additive" or type(self.kind) is not str:
+        if self.kind != "additive" or type(self.kind) is not str:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             _fail("kind='additive'", repr(self.kind))
         _totals(self.left, self.right, self.change)
         _supports(self.support)
@@ -513,7 +513,7 @@ class FrameRatioMethod(_FactRecord):
     boundary_policy: Literal["zero_mass_entry_exit/v1"] = "zero_mass_entry_exit/v1"
 
     def __post_init__(self) -> None:
-        if self.kind != "ratio_component" or type(self.kind) is not str:
+        if self.kind != "ratio_component" or type(self.kind) is not str:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             _fail("kind='ratio_component'", repr(self.kind))
         if (self.rule_version, self.component_policy, self.boundary_policy) != (
             "symmetric_rate_mix/v1",
@@ -568,12 +568,12 @@ class FrameShapleyGame(_FactRecord):
 
     def __post_init__(self) -> None:
         if (
-            self.kind != "group_replacement"
-            or self.semantics_version != "group_replacement/v1"
-            or self.player_domain != "joint_key_union/v1"
-            or self.domain_policy != "finite_interval_demand/v1"
+            self.kind != "group_replacement"  # type: ignore[redundant-expr]  # Preserve the runtime check.
+            or self.semantics_version != "group_replacement/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            or self.player_domain != "joint_key_union/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            or self.domain_policy != "finite_interval_demand/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or self.metric_approximation not in ("exact_metric/v1", "summary_reconstruction/v1")
-            or self.standard_error != "permutation_mean/v1"
+            or self.standard_error != "permutation_mean/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or self.closure_policy != "typed_marginal_float64_sum/v1"
         ):
             _fail(
@@ -613,13 +613,13 @@ class FrameShapleyQueryGame(_FactRecord):
 
     def __post_init__(self) -> None:
         if (
-            self.kind != "group_replacement"
-            or self.semantics_version != "group_replacement/v1"
-            or self.player_domain != "joint_key_union/v1"
-            or self.input_consistency != "independent_reads/v1"
-            or self.domain_policy != "evaluated_coalitions/v1"
+            self.kind != "group_replacement"  # type: ignore[redundant-expr]  # Preserve the runtime check.
+            or self.semantics_version != "group_replacement/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            or self.player_domain != "joint_key_union/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            or self.input_consistency != "independent_reads/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            or self.domain_policy != "evaluated_coalitions/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or self.metric_approximation not in ("exact_metric/v1", "native_approximate_metric/v1")
-            or self.standard_error != "observed_marginal_mean/v1"
+            or self.standard_error != "observed_marginal_mean/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or self.closure_policy != "typed_marginal_float64_sum/v1"
         ):
             _fail(
@@ -650,7 +650,7 @@ class FrameShapleyReduction(_FactRecord):
     ]
 
     def __post_init__(self) -> None:
-        if self.kind != "aggregate" or self.reducer not in (
+        if self.kind != "aggregate" or self.reducer not in (  # type: ignore[redundant-expr]  # Preserve the runtime check.
             "sum",
             "count",
             "entity_count",
@@ -681,7 +681,7 @@ class FrameShapleyQuantile(_FactRecord):
     finisher: Literal["rank_bounds", "duckdb_native", "postgres_native"]
 
     def __post_init__(self) -> None:
-        if self.kind != "quantile" or self.reducer not in ("median", "quantile"):
+        if self.kind != "quantile" or self.reducer not in ("median", "quantile"):  # type: ignore[redundant-expr]  # Preserve the runtime check.
             _fail("an exact median or quantile reducer", repr(self.reducer))
         if type(self.q) is not float or not isfinite(self.q) or not 0 <= self.q <= 1:
             _fail("a finite captured Float64 quantile in [0, 1]", repr(self.q))
@@ -708,7 +708,7 @@ class FrameShapleyNativeQuantile(_FactRecord):
     algorithm_version: Literal["original_native_reducer/v1"]
 
     def __post_init__(self) -> None:
-        if self.kind != "native_quantile" or self.reducer not in (
+        if self.kind != "native_quantile" or self.reducer not in (  # type: ignore[redundant-expr]  # Preserve the runtime check.
             "median",
             "quantile",
             "approx_median",
@@ -973,7 +973,7 @@ class FrameShapleyMethod(_FactRecord):
     captures: tuple[FrameShapleyCapture | FrameShapleyQuery, ...]
 
     def __post_init__(self) -> None:
-        if self.kind != "shapley" or self.algorithm_version != "permutation/v1":
+        if self.kind != "shapley" or self.algorithm_version != "permutation/v1":  # type: ignore[redundant-expr]  # Preserve the runtime check.
             _fail("the versioned permutation sampling rule", repr(self.kind))
         _totals(self.left, self.right, self.change)
         if type(self.permutations) is not int or self.permutations < 2:
@@ -1237,7 +1237,7 @@ class FrameLinearMethod(_FactRecord):
     terms: tuple[FrameLinearTerm, ...]
 
     def __post_init__(self) -> None:
-        if self.kind != "linear" or type(self.kind) is not str:
+        if self.kind != "linear" or type(self.kind) is not str:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             _fail("kind='linear'", repr(self.kind))
         _totals(self.left, self.right, self.change)
         if (

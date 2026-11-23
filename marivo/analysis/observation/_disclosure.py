@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable
 
 from marivo._temporal import Grain, TimeScope
-from marivo.analysis import grain
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
     DisclosureProvider,
@@ -20,7 +20,7 @@ from marivo.analysis._capabilities.dataset_model import (
 )
 
 
-def provider() -> DisclosureProvider:
+def provider(grain: Callable[..., Grain]) -> DisclosureProvider:
     parameters: tuple[P, ...]
     value: object
     descriptors: list[Descriptor] = []

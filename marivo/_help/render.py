@@ -1,10 +1,9 @@
 """Public print boundary for unified Marivo help."""
 
 import re
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from typing_extensions import TypeAliasType
-
+from marivo._help._typing import PublicHelpTarget as PublicHelpTarget
 from marivo._help.model import (
     MarivoHelpSurfaceError,
     MarivoHelpTargetError,
@@ -26,10 +25,8 @@ from marivo.introspection.live.model import HelpSurface
 from marivo.introspection.live.targets import canonical_target
 from marivo.telemetry import track_operation
 
-PublicHelpTarget = TypeAliasType(
-    "PublicHelpTarget",
-    str | Callable[..., object] | type[object] | None,
-)
+if TYPE_CHECKING:
+    from marivo._help._typing import PublicHelp
 
 
 def _target_kind(target: object | None) -> str:
@@ -197,6 +194,10 @@ def help(target: PublicHelpTarget = None) -> None:
     >>> marivo.help("analysis.session.members")
     """
     _print_help(target)
+
+
+if TYPE_CHECKING:
+    _public_help_signature: PublicHelp = help
 
 
 def _cli_help_text(text: str) -> str:

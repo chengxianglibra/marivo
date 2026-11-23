@@ -81,7 +81,7 @@ def decode_method_payload(saved: SavedFrameMethodFacts, rows: pd.DataFrame) -> F
     """Decode checked physical rows and validate their entire closed logical value."""
     if (
         type(saved) is not SavedFrameMethodFacts
-        or not isinstance(rows, pd.DataFrame)
+        or not isinstance(rows, pd.DataFrame)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         or tuple(rows.columns) != ("entry", "kind", "record")
         or len(rows) != saved.parent_count + saved.coordinate_count
     ):

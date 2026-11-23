@@ -62,7 +62,7 @@ def _effective_kwargs(datasource: DatasourceIR, profile: Any) -> EffectiveDataso
     resolver = cr.current_resolver()
     injected: dict[str, cr.SecretValue] = {}
     for stem, env_var in datasource.env_refs.items():
-        if not isinstance(env_var, str) or not env_var:
+        if not isinstance(env_var, str) or not env_var:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise DatasourceFieldInvalidError(
                 message=(
                     f"datasource {datasource.name!r} field {stem} must be a non-empty env var name"
@@ -179,10 +179,8 @@ def _build_backend_from_effective(
     if datasource.backend_type == "trino":
         kwargs["timezone"] = "UTC"
     try:
-        if datasource.backend_type == "duckdb":
-            from marivo.datasource.engines.duckdb import connect_owned
-
-            backend = connect_owned(
+        if profile.connect_owned is not None:
+            backend = profile.connect_owned(
                 profile.connect, datasource.name, kwargs, scoped_credentials=bool(secret_metadata)
             )
         else:

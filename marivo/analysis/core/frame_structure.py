@@ -135,7 +135,7 @@ class PendingDataColumn:
             or not self.name
             or self.kind
             not in ("numeric", "boolean", "string", "date", "timestamp", "duration", "unresolved")
-            or (self.nullable is not None and type(self.nullable) is not bool)
+            or (self.nullable is not None and type(self.nullable) is not bool)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or (self.unit is not None and (type(self.unit) is not str or not self.unit))
         ):
             reject(

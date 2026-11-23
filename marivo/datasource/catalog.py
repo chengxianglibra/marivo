@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-from marivo._symbolic import DatasourceSymbol
+from marivo._symbolic import DatasourceIdentityHandle, DatasourceSymbol
 from marivo.datasource import store as _store
 from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
 from marivo.datasource.credential_inputs import credential_labels
@@ -22,9 +21,6 @@ from marivo.datasource.manage import (
 )
 from marivo.project import resolve_project_root
 from marivo.render import Card, RenderableResult
-
-if TYPE_CHECKING:
-    from marivo.semantic.catalog import Datasource
 
 
 def _format_mapping(mapping: dict[str, object]) -> str:
@@ -110,7 +106,7 @@ class DatasourceCatalog(RenderableResult):
 
     def test(
         self,
-        name: str | DatasourceSymbol | Datasource,
+        name: str | DatasourceSymbol | DatasourceIdentityHandle,
         *,
         timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
     ) -> DatasourceTestResult:

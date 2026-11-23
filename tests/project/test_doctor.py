@@ -487,8 +487,6 @@ def test_doctor_statically_checks_custom_http_header_credentials(
         "{"
         + ", ".join(f"{name!r}: md.env({reference!r})" for name, reference in headers.items())
         + "}"
-        if isinstance(headers, dict)
-        else repr(headers)
     )
     (directory / "api.py").write_text(
         "import marivo.datasource as md\n"

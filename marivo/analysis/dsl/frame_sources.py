@@ -222,7 +222,7 @@ def _source_by(
             if value._role != "dimension":
                 candidates = (
                     partition_hour_candidates(state.registry, value.path)
-                    if isinstance(value, TimeDimension)
+                    if isinstance(value, TimeDimension)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     else ()
                 )
                 repair = "Use a Dimension for classification or scope.by(grain) for report time."
@@ -397,7 +397,7 @@ def frame(
 
 
 def _validate_value_columns(columns: Mapping[str, str | None], rows: tuple[ValueRow, ...]) -> None:
-    if not isinstance(columns, Mapping) or not columns:
+    if not isinstance(columns, Mapping) or not columns:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         reject(
             "named columns and finite typed literal rows",
             repr((columns, rows)),

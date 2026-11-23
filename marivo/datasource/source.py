@@ -155,7 +155,7 @@ def _invalid_scope(
 
 
 def _require_positive(value: int, *, field: str, target: str) -> None:
-    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         raise _invalid_scope(
             target=target,
             expected=f"a positive integer for {field}",
@@ -379,9 +379,9 @@ def _normalize_source_columns(
     if not columns:
         raise invalid("at least one projected column when supplied", "an empty mapping")
     for name, source in columns.items():
-        if not isinstance(name, str) or not name:
+        if not isinstance(name, str) or not name:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise invalid("non-empty string output names", repr(name))
-        if not isinstance(source, str) or not source:
+        if not isinstance(source, str) or not source:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise invalid(f"a non-empty string source field for {name!r}", repr(source))
     return tuple(columns.items())
 

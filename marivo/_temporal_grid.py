@@ -440,7 +440,7 @@ def builtin_nominal_ordinal(unit: str, step: int, start: datetime) -> int:
 
 def _floor(value: datetime, grain: Grain) -> datetime:
     unit, count = grain.unit, grain.count
-    if unit is None or count is None:
+    if unit is None or count is None:  # type: ignore[redundant-expr]  # Preserve the runtime check.
         raise _invalid("builtin grain has no unit or count")
     if unit in ("second", "minute", "hour"):
         width = {"second": 1, "minute": 60, "hour": 3600}[unit] * count
@@ -468,7 +468,7 @@ def _floor(value: datetime, grain: Grain) -> datetime:
 
 def _next(value: datetime, grain: Grain) -> datetime:
     unit, count = grain.unit, grain.count
-    if unit is None or count is None:
+    if unit is None or count is None:  # type: ignore[redundant-expr]  # Preserve the runtime check.
         raise _invalid("builtin grain has no unit or count")
     seconds = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}
     if unit in seconds:
@@ -483,7 +483,7 @@ def bind_grid(
     grain: Grain,
 ) -> BoundTimeGrid:
     """Freeze a finite grid; no source, host clock or calendar store is consulted."""
-    if not isinstance(during, TimeScope) or not isinstance(grain, Grain):
+    if not isinstance(during, TimeScope) or not isinstance(grain, Grain):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         raise _invalid("grid requires a TimeScope and Grain")
     boundary = during.boundary_timezone
     scope_zone = during.boundary_timezone

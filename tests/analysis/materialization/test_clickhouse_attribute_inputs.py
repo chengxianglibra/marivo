@@ -87,8 +87,10 @@ def test_clickhouse_attribute_input_carriers(
             tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
             event = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
             day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
-            assert isinstance(entity, ms.Entity) and isinstance(day, ms.TimeDimension)
-            assert isinstance(tenant, ms.Dimension) and isinstance(event, ms.Dimension)
+            assert isinstance(entity, ms.Entity)
+            assert isinstance(day, ms.TimeDimension)
+            assert isinstance(tenant, ms.Dimension)
+            assert isinstance(event, ms.Dimension)
             metric = entity.count(time=day).where(event.isin(("z_finish", "a_exception")))
             current = session.observe(
                 {"n": metric}, where=session.time_scope(start="2026-10-25", end="2026-10-29")

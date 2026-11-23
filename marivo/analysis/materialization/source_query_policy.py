@@ -91,7 +91,7 @@ def qualify_query_source(
             and (
                 isinstance(node, SourceWeightedMean)
                 or (
-                    isinstance(node, SourceAggregate)
+                    isinstance(node, SourceAggregate)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     and node.reducer in ("sum", "min", "max", "mean")
                 )
             )

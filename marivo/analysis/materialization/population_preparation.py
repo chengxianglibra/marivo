@@ -94,7 +94,7 @@ def population_entities(
 ) -> tuple[str, ...]:
     """Return the declared source closure needed for domain schema and reads."""
     entities = (
-        {axis.entity.ref.path for axis in definition.axes if isinstance(axis, AxisBinding)}
+        {axis.entity.ref.path for axis in definition.axes if isinstance(axis, AxisBinding)}  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         if not isinstance(definition, PopulationProgram)
         else set()
     )

@@ -93,6 +93,15 @@ def _backend_failure_summary(
     )
 
 
+def _execution_error_fields(error: Exception) -> dict[str, str | None]:
+    summary = _backend_failure_summary(error)
+    return {
+        "error_message": summary.message,
+        "backend_code": summary.backend_code,
+        "backend_name": summary.backend_name,
+    }
+
+
 class DatasourceObservedEffects(BaseModel):
     """Facts observed before or during one datasource operation."""
 

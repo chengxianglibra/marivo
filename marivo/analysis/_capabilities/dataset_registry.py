@@ -484,13 +484,14 @@ def assemble(providers: tuple[DisclosureProvider, ...]) -> DatasetDisclosureRegi
 
 def prepare() -> DatasetDisclosureRegistry:
     """Assemble the three current native disclosure owners without I/O."""
+    from marivo.analysis import grain
     from marivo.analysis.observation import _disclosure as observation
     from marivo.analysis.operators import _disclosure as operators
     from marivo.analysis.session import _disclosure as runtime
 
     return assemble(
         (
-            observation.provider(),
+            observation.provider(grain),
             operators.provider(),
             runtime.provider(),
         )

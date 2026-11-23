@@ -127,7 +127,7 @@ class SavedFrameMethodFacts:
         )
         if (
             type(self.kind) is not str
-            or self.kind != "attribute"
+            or self.kind != "attribute"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or type(self.output_schema) is not DataSchema
             or any(type(value) is not int or value < 0 for value in counts)
             or type(self.payload) is not SavedAttachment
@@ -238,7 +238,7 @@ class ArtifactManifest:
             type(self.data) is not ArtifactData
             or type(self.metadata) is not StoredFrameMetadata
             or (self.description is not None and type(self.description) is not str)
-            or self.semantics_version != "frame.v17"
+            or self.semantics_version != "frame.v17"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or type(self.method_facts) is not tuple
             or any(type(item) is not SavedFrameMethodFacts for item in self.method_facts)
         ):

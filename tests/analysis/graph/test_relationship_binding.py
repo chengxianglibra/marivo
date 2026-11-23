@@ -311,7 +311,8 @@ def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory)
         for axis in source_graph(explicit).signature.axes
         if isinstance(axis, AxisBinding) and axis.role == "field"
     )
-    assert isinstance(automatic_axis, AxisBinding) and isinstance(explicit_axis, AxisBinding)
+    assert isinstance(automatic_axis, AxisBinding)
+    assert isinstance(explicit_axis, AxisBinding)
     assert automatic_axis.entity == explicit_axis.entity
     assert automatic_axis.field == explicit_axis.field
     assert automatic_axis.role == explicit_axis.role == "field"

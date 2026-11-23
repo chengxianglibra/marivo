@@ -672,7 +672,7 @@ def attribute(
             "frame.attribute",
             canonical_id="analysis_frame.attribute",
         )
-    if not isinstance(by, (tuple, Population)) or (isinstance(by, tuple) and not by):
+    if not isinstance(by, (tuple, Population)) or (isinstance(by, tuple) and not by):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         reject(
             "a nonempty classification tuple or complete Population",
             repr(by),
@@ -737,7 +737,7 @@ def attribute(
                 else tuple(
                     axis
                     for item in by
-                    if isinstance(item, (Deferred, RowExpression, Grouping))
+                    if isinstance(item, (Deferred, RowExpression, Grouping))  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     for axis in (
                         tuple(field_axis(read) for read in item._binding.fields)
                         if isinstance(item, Grouping)

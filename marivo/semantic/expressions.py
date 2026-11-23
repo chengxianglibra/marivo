@@ -518,7 +518,7 @@ def declare_measure(
     if (
         isinstance(permission, (SumAxes, SumAllExcept))
         and type(permission) is type(value.permission)
-        and isinstance(value.permission, (SumAxes, SumAllExcept))
+        and isinstance(value.permission, (SumAxes, SumAllExcept))  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         and frozenset(permission.axes) == frozenset(value.permission.axes)
     ):
         permission = value.permission

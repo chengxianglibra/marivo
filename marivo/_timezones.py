@@ -68,7 +68,7 @@ def normalize_timezone(value: str) -> NormalizedTimezone:
     retain their given names; no host clock or source data is consulted.
     """
     if (
-        not isinstance(value, str)
+        not isinstance(value, str)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         or not value
         or value != value.strip()
         or value == "localtime"

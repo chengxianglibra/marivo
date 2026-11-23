@@ -18,7 +18,9 @@ from importlib.metadata import version as _metadata_version
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from marivo._help import help as help
+    from marivo._help._typing import PublicHelp
+
+    help: PublicHelp
 
 __version__ = _metadata_version("marivo")
 

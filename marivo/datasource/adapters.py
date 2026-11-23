@@ -33,6 +33,7 @@ from marivo.datasource.engines import (
 )
 from marivo.datasource.errors import (
     DatasourceSourceCapabilityError,
+    _execution_error_fields,
     repair,
 )
 from marivo.datasource.ir import (
@@ -132,6 +133,7 @@ def _probe_backend(backend_name: str, backend: BaseBackend) -> None:
         backend=backend_name,
         purpose="datasource.connectivity",
         sensitive=bool(cr.injected_values(backend)),
+        format_error=_execution_error_fields,
     )
     try:
         result = backend.execute(expression, params={}, limit=None)
@@ -323,12 +325,11 @@ class SourceSession:
     def _mysql_key_capacity(self) -> int:
         """Qualify invocation-local key payloads against the active MySQL session."""
         self._ensure_open()
-        if self.provider.name != "mysql":
+        packet_limit = self.provider.query_packet_limit
+        if packet_limit is None:
             raise _invalid("MySQL key request capacity", self.provider.name)
         if self._key_request_limit is None:
-            from marivo.datasource.engines.mysql import query_packet_limit
-
-            self._key_request_limit = query_packet_limit(self._backend)
+            self._key_request_limit = packet_limit(self._backend)
         return self._key_request_limit[0]
 
     def bind(
@@ -498,9 +499,9 @@ class SourceSession:
         self._ensure_open()
         if binding._owner is not self._token:
             raise _invalid("a source bound by this session", "foreign source binding")
-        if self.provider.name != "clickhouse" or not isinstance(binding.source, TableSourceIR):
+        table_engine = self.provider.table_engine
+        if table_engine is None or not isinstance(binding.source, TableSourceIR):
             raise _invalid("a named ClickHouse table or view", repr(binding.source))
-        from marivo.datasource.engines.clickhouse import table_engine
 
         identity = binding.facts.source_identity
         if identity not in self._clickhouse_engines:
@@ -515,9 +516,9 @@ class SourceSession:
         self._ensure_open()
         if binding._owner is not self._token:
             raise _invalid("a source bound by this session", "foreign source binding")
-        if self.provider.name != "clickhouse" or not isinstance(binding.source, TableSourceIR):
+        table_join_issue = self.provider.table_join_issue
+        if table_join_issue is None or not isinstance(binding.source, TableSourceIR):
             raise _invalid("a named ClickHouse table or view", repr(binding.source))
-        from marivo.datasource.engines.clickhouse import table_join_issue
 
         identity = binding.facts.source_identity
         if identity not in self._clickhouse_join_issues:
@@ -623,16 +624,10 @@ class SourceSession:
             sql = compile_distributed_query(expression.as_table(), supplied)
         else:
             sql = self._backend.compile(expression.as_table(), params=supplied, limit=None)
-        if not isinstance(sql, str) or not sql:
+        if not isinstance(sql, str) or not sql:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise _invalid("nonempty Ibis compiled SQL", type(sql).__name__)
-        if self.provider.name == "clickhouse":
-            from marivo.datasource.engines.clickhouse import (
-                validate_query_size,
-                validate_temporal_parsers,
-            )
-
-            validate_temporal_parsers(self._backend, sql)
-            validate_query_size(self._backend, sql)
+        if self.provider.validate_query is not None:
+            self.provider.validate_query(self._backend, sql)
         if self._key_request_limit is not None:
             limit, encoding = self._key_request_limit
             # PyMySQL encodes the SQL with connection.encoding. COM_QUERY adds
@@ -719,11 +714,13 @@ class SourceSession:
             backend=self.provider.name,
             purpose=proof.purpose,
             sensitive=bool(cr.injected_values(self._backend)),
+            format_error=_execution_error_fields,
             project_root=self._log_root,
             datasource=self.datasource.name,
             source_identity=proof.source_identity,
         )
         self._query_logs[id(submission)] = query
+        result: object = None
         try:
             with cr.backend_errors(self._backend), self._compilation_memo.activate():
                 for attempt, delay in enumerate((*_SOURCE_RETRY_DELAYS_SECONDS, None), start=1):
@@ -843,7 +840,7 @@ class SourceSession:
                             "query.retry",
                             context=query.context,
                             severity="WARNING",
-                            fields=_execution_log.error_fields(error, sensitive=query.sensitive),
+                            fields=query.failure_fields(error),
                             attempt=attempt,
                             delay_seconds=round(waited, 3),
                         )

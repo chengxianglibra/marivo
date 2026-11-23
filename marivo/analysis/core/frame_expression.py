@@ -875,7 +875,7 @@ def _infer_frame_combine_schema(
 ) -> DataSchema | PendingDataSchema:
     """Derive one complete binary layout from captured current structures only."""
     if type(operation.pairs) is not tuple or any(
-        type(pair) is not tuple or len(pair) != 2 or any(type(i) is not int for i in pair)
+        type(pair) is not tuple or len(pair) != 2 or any(type(i) is not int for i in pair)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         for pair in operation.pairs
     ):
         reject(

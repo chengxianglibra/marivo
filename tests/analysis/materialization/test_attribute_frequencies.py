@@ -165,7 +165,7 @@ def test_native_frequency_read_preserves_groups_counts_and_decimal_carrier(
             for key, value in output.table.itertuples(index=False, name=None)
         } == (
             {"A": 1, "B": 2, None: 1}
-            if distinct
+            if distinct  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
             else {"A": Decimal("5.00"), "B": Decimal("20.00"), None: Decimal("40.00")}
         )
         assert capture.state_entries == 5 and capture.returned_rows == 5
@@ -174,7 +174,7 @@ def test_native_frequency_read_preserves_groups_counts_and_decimal_carrier(
         assert costs.stage_id == capture.stage_id and costs.provider == backend
         assert costs.returned_rows == capture.returned_rows
         assert costs.decoded_arrow_bytes == capture.decoded_arrow_bytes
-        assert costs.state_route == ("typed_membership" if distinct else "typed_frequencies")
+        assert costs.state_route == ("typed_membership" if distinct else "typed_frequencies")  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
         assert costs.state_entries == capture.state_entries
         assert len(case.session.submissions) == 1
 
@@ -409,7 +409,7 @@ def test_original_native_quantile_finisher_matches_fixed_frequency_endpoints(
 ) -> None:
     import math
 
-    from marivo.analysis.core.data_validation import typed_null_mask
+    from marivo.analysis.methods.numeric_state import typed_null_mask
 
     cases: dict[str, list[int | float | None]] = {
         "finite_extremes": [-1e308, 1e308],

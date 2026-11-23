@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias
 
 import ibis.expr.types as ir
 from ibis.backends import BaseBackend
@@ -21,6 +21,19 @@ BackendDatetimeDecodePolicy: TypeAlias = Literal["local_naive_label", "utc_naive
 PartitionValueSource: TypeAlias = Literal["metadata", "system_catalog"]
 NativeQueryTimeout: TypeAlias = Callable[[BaseBackend, int], AbstractContextManager[None]]
 MetadataResolutionFailure: TypeAlias = Literal["metadata_unavailable"]
+ConnectBackend: TypeAlias = Callable[[str, Mapping[str, object]], BaseBackend]
+ReadTableFact: TypeAlias = Callable[[BaseBackend, DatasourceIR, TableSourceIR], str | None]
+
+
+class ConnectOwned(Protocol):
+    def __call__(
+        self,
+        connect_backend: ConnectBackend,
+        name: str,
+        kwargs: Mapping[str, object],
+        *,
+        scoped_credentials: bool,
+    ) -> BaseBackend: ...
 
 
 def fail_closed_metadata_resolution(_exc: Exception) -> MetadataResolutionFailure | None:
@@ -127,7 +140,7 @@ class EngineProfile:
     aliases: tuple[str, ...]
     authoring_func: str
     required_modules: tuple[str, ...]
-    connect: Callable[[str, Mapping[str, object]], BaseBackend]
+    connect: ConnectBackend
     identifier_quote: str
     table_name_parts: Callable[[TableRefRequest], tuple[str, ...]]
     inspect_partition_values: Callable[[PartitionProbeRequest], PartitionProbeResult] | None
@@ -140,6 +153,12 @@ class EngineProfile:
     # Native failures that resubmitting the same issued read can clear.
     transient_failure: Callable[[Exception], bool] = no_transient_failure
     install_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
+    connect_owned: ConnectOwned | None = None
+    query_packet_limit: Callable[[BaseBackend], tuple[int, str]] | None = None
+    verify_named_timezone: Callable[[BaseBackend, str], None] | None = None
+    table_engine: ReadTableFact | None = None
+    table_join_issue: ReadTableFact | None = None
+    validate_query: Callable[[BaseBackend, str], None] | None = None
 
     def __post_init__(self) -> None:
         timeout_enforced = self.native_query_timeout is not None

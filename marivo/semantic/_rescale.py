@@ -55,7 +55,7 @@ def rescale(
         No unit conversion is inferred; divisor=1 is a valid explicit assertion.
         Stage and input-unit checks occur when the recipe is bound or consumed.
     """
-    if not isinstance(expr, (Deferred, RowExpression, MetricExpression)) or (
+    if not isinstance(expr, (Deferred, RowExpression, MetricExpression)) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         isinstance(expr, (RowExpression, MetricExpression)) and expr._role != "numeric"
     ):
         raise SemanticExpressionError(

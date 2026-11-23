@@ -389,7 +389,7 @@ def test_registry_covers_all_public_callables() -> None:
     for name in ms.__all__:
         exported = getattr(ms, name)
         if inspect.isroutine(exported) and not isinstance(exported, type):
-            assert REGISTRY.by_callable(exported), (
+            assert REGISTRY.by_callable(exported) is not None, (
                 f"{name} is not registered in the semantic registry"
             )
 

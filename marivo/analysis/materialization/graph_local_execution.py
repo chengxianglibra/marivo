@@ -56,7 +56,8 @@ def run_local(
         if stage.filter_fusion is None:
             stage = effective_frame(stage, inputs)
         # The schedule admits a fused program only on its exact compiled input schema.
-        required = required_attachments(stage.program.output_schema)
+        resolved_schema = stage.program.output_schema
+        required = required_attachments(resolved_schema)
 
         def retained_input_attachments() -> tuple[OutputAttachment, ...]:
             retained: dict[str, OutputAttachment] = {}
@@ -357,13 +358,13 @@ def run_local(
             )
         else:
             frame = kernel(stage, views)
-    if not isinstance(frame, pd.DataFrame) or any(
+    if not isinstance(frame, pd.DataFrame) or any(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         frame is item.table or frame is view for item, view in zip(inputs, views, strict=True)
     ):
         raise MaterializationError(
             expected=f"{stage.kernel}: a new pandas DataFrame",
             received=type(frame).__name__
-            if not isinstance(frame, pd.DataFrame)
+            if not isinstance(frame, pd.DataFrame)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             else "an input table",
             repair="Return a new frame from the registered kernel; inputs are shared stage data.",
             stage="local_compute",

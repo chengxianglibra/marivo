@@ -431,6 +431,7 @@ def test_independent_roots_and_temporal_fold(
             assert actual.loc["b"] == (0.0 if ratio else amounts[4])
         if numeric_type == "decimal" and linear:
             assert isinstance(actual.loc["a"], Decimal) and isinstance(actual.loc["b"], Decimal)
+        ratio_total = None
         if ratio:
             ratio_total = (Fraction(amounts[0]) + Fraction(amounts[1])) / sum(
                 (Fraction(value) for value in amounts[2:]), Fraction()
@@ -478,7 +479,7 @@ def test_independent_roots_and_temporal_fold(
                 "b": None if spatial_fold else "0.0" if ratio else str(amounts[4]),
                 "spatial_samples": [15, 21] if spatial_fold else None,
                 "sample_counts": [2, 2] if spatial_fold else None,
-                "ratio_total": str(ratio_total) if ratio else None,
+                "ratio_total": str(ratio_total) if ratio_total is not None else None,
             },
             result,
             (subject.session, left.session, right.session),

@@ -46,6 +46,7 @@ def _run_make(
     *,
     format_failure: bool = False,
     tests: str = "",
+    lint_targets: str = ".",
     pytest_workers: int | None = None,
     runtime_workers: int | None = None,
     pytest_native_threads: int | None = None,
@@ -95,7 +96,13 @@ def _run_make(
         MARIVO_CHECK_TEST_LOG=str(log),
         MARIVO_CHECK_FORMAT_FAILURE=str(int(format_failure)),
     )
-    arguments = ["make", "--no-print-directory", target, f"TESTS={tests}"]
+    arguments = [
+        "make",
+        "--no-print-directory",
+        target,
+        f"TESTS={tests}",
+        f"LINT_TARGETS={lint_targets}",
+    ]
     if pytest_workers is not None:
         arguments.append(f"PYTEST_WORKERS={pytest_workers}")
     if runtime_workers is not None:
@@ -138,6 +145,9 @@ def test_daily_checks_exclude_runtime_and_release(tmp_path: Path) -> None:
     assert {"ruff", "lint-imports", "mypy", "sphinx-build"} <= {command[0] for command in commands}
     assert commands[0] == ["ruff", "format", "--check", "."]
     assert ["ruff", "check", "--output-format", "concise", "."] in commands
+    assert commands.index(["lint-imports"]) < commands.index(
+        ["python", "scripts/check_architecture.py"]
+    )
     sphinx_command = next(command for command in commands if command[0] == "sphinx-build")
     assert sphinx_command[1:6] == ["-q", "-N", "-W", "--keep-going", "-b"]
     assert not {"pip", "twine"} & {command[0] for command in commands}
@@ -147,6 +157,17 @@ def test_format_failure_stops_before_expensive_checks(tmp_path: Path) -> None:
     result, commands = _run_make(tmp_path, "check", format_failure=True)
     assert result.returncode != 0
     assert commands == [["ruff", "format", "--check", "."]]
+
+
+def test_focused_lint_still_checks_the_full_architecture(tmp_path: Path) -> None:
+    result, commands = _run_make(tmp_path, "lint", lint_targets="marivo/refs.py")
+    assert result.returncode == 0, result.stderr
+    assert commands == [
+        ["ruff", "format", "--check", "marivo/refs.py"],
+        ["ruff", "check", "--output-format", "concise", "marivo/refs.py"],
+        ["lint-imports"],
+        ["python", "scripts/check_architecture.py"],
+    ]
 
 
 def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) -> None:

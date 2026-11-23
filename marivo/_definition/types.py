@@ -210,7 +210,7 @@ class PathParameter:
 def check_path_anchor(value: InstantAnchor | None, entity: ExactRef, versioned: bool) -> None:
     if value is None:
         return
-    if not isinstance(value, InstantAnchor) or value.utcoffset() is None:
+    if not isinstance(value, InstantAnchor) or value.utcoffset() is None:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         invalid(f"Use session.instant(...) to anchor {entity.ref.key} in mv.path.")
     if not versioned:
         invalid(f"Remove the version anchor for unversioned node {entity.ref.key}.")

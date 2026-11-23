@@ -79,7 +79,7 @@ def axes(values: tuple[ComparisonAxis, ...]) -> tuple[ComparisonAxis, ...]:
 
 
 def anchor(value: InstantAnchor | None) -> None:
-    if value is not None and (not isinstance(value, InstantAnchor) or value.utcoffset() is None):
+    if value is not None and (not isinstance(value, InstantAnchor) or value.utcoffset() is None):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         invalid("an identity version selection requires an exact InstantAnchor")
 
 

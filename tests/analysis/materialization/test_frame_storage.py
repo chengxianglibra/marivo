@@ -265,6 +265,7 @@ def test_comparison_preview_closes_direct_and_fact_references(
     assert literal.schema.comparisons == ()
     nested = report.align(report).compute()
     assert all(fact.namespace for fact in nested._schema.comparisons)
+    saved = None
     for memory in (baseline, report, literal, nested):
         saved = memory.persist()
         value = manifest(saved)
@@ -282,6 +283,7 @@ def test_comparison_preview_closes_direct_and_fact_references(
 
     with monkeypatch.context() as patch:
         patch.setattr(OutputRead, "_open", forbidden)
+        assert saved is not None
         assert local.preview(_stored_backing(saved), 0).attachments == ()
 
 
@@ -2949,16 +2951,20 @@ def test_small_page_detaches_large_primary_and_scans_coordinates_in_fixed_batche
             complete.metadata,
         ),
     )
+    sparse_page = None
     for frame in (sparse, sparse.persist()):
-        page = frame.read_page(limit=1, time_details=True)
-        assert page.total_count == 1 and page.read_stats.coordinate_rows_read == directory_count
-        assert page.read_stats.data_rows_read == 1
-        assert len(page) == 1 and len(page.coordinates["bucket"]) == 1
-        assert page.to_pandas()["day.label"].tolist() == [
+        sparse_page = frame.read_page(limit=1, time_details=True)
+        assert sparse_page.total_count == 1
+        assert sparse_page.read_stats.coordinate_rows_read == directory_count
+        assert sparse_page.read_stats.data_rows_read == 1
+        assert len(sparse_page) == 1
+        assert len(sparse_page.coordinates["bucket"]) == 1
+        assert sparse_page.to_pandas()["day.label"].tolist() == [
             (datetime(2024, 1, 1) + timedelta(days=directory_count - 1)).date().isoformat()
         ]
     # A new copy also owns page-sized Arrow storage, rather than a parent view.
-    assert pa.array(detached_rows(page.to_pandas())["amount"]).get_total_buffer_size() <= 16
+    assert sparse_page is not None
+    assert pa.array(detached_rows(sparse_page.to_pandas())["amount"]).get_total_buffer_size() <= 16
 
 
 def test_data_pages_preserve_decimal_and_extreme_date_keys(local: LocalFrameServices) -> None:

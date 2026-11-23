@@ -25,7 +25,7 @@ from marivo.analysis.core.data_types import (
     DurationDataType,
     ScalarDataType,
 )
-from marivo.analysis.core.data_validation import stage_arrow_type, typed_null_mask
+from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_fix import FixFrameValues, validate_fixed_key
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
 from marivo.analysis.core.model import reject
@@ -40,6 +40,7 @@ from marivo.analysis.methods.numeric_state import (
     finish_division,
     finish_float64,
     sum_values,
+    typed_null_mask,
 )
 from marivo.analysis.methods.physical import DurationType
 from marivo.analysis.methods.query_values import expression_series

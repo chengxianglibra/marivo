@@ -30,9 +30,9 @@ from marivo._definition.query import (
 from marivo.analysis.compiler.graph_plan import LocalCompute, local_result
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.core.data_validation import typed_null_mask
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.frame_evaluation import FrameEvaluation, expression_key
+from marivo.analysis.methods.numeric_state import typed_null_mask
 from marivo.semantic._numeric_lowering import numeric_failure
 
 _ORDERED_COMPARISONS = {"lt": "less", "le": "less_equal", "gt": "greater", "ge": "greater_equal"}

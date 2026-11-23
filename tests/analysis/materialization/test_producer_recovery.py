@@ -115,7 +115,7 @@ def producer_recovery(
                 for owner in source_trace.owners
                 if owner is not case.session
                 for item in owner.submissions
-                if item.sql is not None
+                if item.sql is not None  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
             ]
             assert sum(view_name in str(item.sql) for item in submissions) >= 2
         source_trace.save(

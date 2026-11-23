@@ -89,7 +89,9 @@ def dependencies(extra: str) -> dict[str, object]:
     from marivo.datasource.engines import SUPPORTED_BACKEND_TYPES, require_profile_for_backend_type
 
     assert importlib.metadata.version("sqlglot") == "30.8.0"
-    assert callable(md.register) and callable(ms.entity) and callable(mv.session.resume)
+    assert callable(md.register)
+    assert callable(ms.entity)
+    assert callable(mv.session.resume)
     for backend in SUPPORTED_BACKEND_TYPES:
         assert require_profile_for_backend_type(backend).name == backend
     assert not any(

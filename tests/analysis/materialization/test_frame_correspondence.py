@@ -655,7 +655,7 @@ def test_actual_source_plus_fixed_uses_one_binary_plan(
     schedules: list[tuple[type[object], ...]] = []
 
     def run(
-        compiled: CompiledFramePlan,
+        compiled: CompiledFramePlan[StageOutput],
         *,
         source_prepared: Mapping[str, PreparedSources],
         read_fixed: Callable[[FrameInput], CompletedFrameData],

@@ -429,7 +429,7 @@ def _ordinary_sample_formula(stage: QueryStage) -> bool:
             or (
                 isinstance(node.samples, tuple)
                 and all(
-                    isinstance(axis, AxisBinding)
+                    isinstance(axis, AxisBinding)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     and axis.field is not None
                     and axis.field.ref.kind is SemanticKind.DIMENSION
                     for axis in node.samples

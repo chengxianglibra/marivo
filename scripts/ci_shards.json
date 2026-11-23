@@ -237,6 +237,7 @@
       "tests/surface/test_analysis_disclosure_content.py",
       "tests/surface/test_analysis_errors.py",
       "tests/surface/test_analysis_population_help_contract.py",
+      "tests/surface/test_architecture_guard.py",
       "tests/surface/test_dataframe_read_disclosure.py",
       "tests/surface/test_fuzzy.py",
       "tests/surface/test_help_attributes.py",

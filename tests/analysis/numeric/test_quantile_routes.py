@@ -148,7 +148,7 @@ def test_native_quantiles_keep_strict_null_checks_and_nonfinite_values(bad: floa
         connection = ibis.duckdb.connect(threads=1)
         try:
             # SQL literals preserve NaN instead of a pandas conversion to NULL.
-            literal = "NULL" if bad is None else "'NaN'" if pd.isna(bad) else "'Infinity'"
+            literal = "NULL" if bad is None else "'NaN'" if pd.isna(bad) else "'Infinity'"  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
             table = connection.sql(f"SELECT CAST({literal} AS DOUBLE) AS x UNION ALL SELECT 10.0")
             reduction = _reduction("duckdb", 0.95, strict=True)
             expression, checks = lower_observation(reduction, table, {"sales.facts.x": "x"}, ())

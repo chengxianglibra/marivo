@@ -35,11 +35,11 @@ from ibis.common.deferred import Deferred, Resolver
 from marivo._definition.deferred import RelationshipParameter, _RelationshipValue, root_declaration
 from marivo._definition.types import InputContext
 from marivo._symbolic import (
+    DatasourceIdentityHandle,
     DatasourceSymbol,
     DomainSymbol,
     LookupSymbol,
     _DatasourceIdentity,
-    _DatasourceInput,
     native_symbol_ref,
     symbol_factory,
     symbol_from_ref,
@@ -783,7 +783,7 @@ class Domain(_SemanticObject[DomainKind]):
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class Datasource(_SemanticObject[DatasourceKind], _DatasourceInput):
+class Datasource(_SemanticObject[DatasourceKind], DatasourceIdentityHandle):
     """Immutable datasource catalog entry."""
 
     @property
@@ -1346,7 +1346,7 @@ def _freeze_semantic_inputs(
     *,
     operation: str,
 ) -> tuple[_SemanticInput, ...]:
-    if not isinstance(values, Sequence) or isinstance(values, str | bytes) or not values:
+    if not isinstance(values, Sequence) or isinstance(values, str | bytes) or not values:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         _raise(
             ErrorKind.INVALID_REF,
             f"catalog.{operation}(refs) requires a non-empty sequence of named semantic objects.",
@@ -1354,7 +1354,7 @@ def _freeze_semantic_inputs(
             expected="a non-empty sequence of named semantic objects",
             received=(
                 f"an empty {type(values).__name__}"
-                if isinstance(values, Sequence) and not values
+                if isinstance(values, Sequence) and not values  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                 else type(values).__name__
             ),
             repair_value=repair(

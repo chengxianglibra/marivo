@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 def _table(
     schema: DataSchema, rows: pd.DataFrame, unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS
 ) -> pd.DataFrame:
-    if not isinstance(rows, pd.DataFrame) or tuple(rows.columns) != tuple(
+    if not isinstance(rows, pd.DataFrame) or tuple(rows.columns) != tuple(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         column.slot_id for column in schema.columns
     ):
         reject(

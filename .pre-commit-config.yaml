@@ -26,7 +26,13 @@ repos:
         name: lint-imports
         entry: .venv/bin/lint-imports
         language: system
-        types: [python]
+        files: '(\.py$|^\.importlinter$)'
+        pass_filenames: false
+      - id: check-architecture
+        name: check-architecture
+        entry: .venv/bin/python scripts/check_architecture.py
+        language: system
+        files: '^(marivo/.*\.py|scripts/(check_architecture\.py|architecture_baseline\.json)|\.importlinter|pyproject\.toml)$'
         pass_filenames: false
       - id: typecheck
         name: typecheck (mypy marivo and tests)

@@ -434,7 +434,7 @@ def attribute_contribution_data(
     report_operation = program.operation
     assert report_operation.target is not None
     report_output = program.output_schema
-    level = report_operation.target is not None and report_operation.target.mode == "level"
+    level = report_operation.target is not None and report_operation.target.mode == "level"  # type: ignore[redundant-expr]  # Preserve the runtime check.
     if report_operation.target is not None:
         from marivo.analysis.core.attribute import contribution_schema
 

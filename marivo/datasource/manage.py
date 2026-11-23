@@ -14,7 +14,12 @@ from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 from marivo import _execution_log
 from marivo._authoring.model import AuthoringRepair
 from marivo._data_render import _DataCard, _DataResult
-from marivo._symbolic import DatasourceSymbol, native_symbol_ref, symbol_factory
+from marivo._symbolic import (
+    DatasourceIdentityHandle,
+    DatasourceSymbol,
+    native_symbol_ref,
+    symbol_factory,
+)
 from marivo.datasource import credentials as cr
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
@@ -38,6 +43,7 @@ from marivo.datasource.errors import (
     DatasourceObservedEffects,
     DatasourceRawSqlError,
     _backend_failure_summary,
+    _execution_error_fields,
     _RawSqlFailureCode,
     repair,
 )
@@ -53,7 +59,6 @@ from marivo.render import Card, RenderableResult
 if TYPE_CHECKING:
     import pandas as pd
 
-    from marivo.semantic.catalog import Datasource
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
 """Default requested native timeout for connection and probe settings.
@@ -382,7 +387,7 @@ def _describe_in_project(name: str, *, project_root: Path) -> DatasourceDescript
 
 
 def _datasource_name(
-    value: str | DatasourceSymbol | Datasource, *, project_root: Path | None = None
+    value: str | DatasourceSymbol | DatasourceIdentityHandle, *, project_root: Path | None = None
 ) -> str:
     if isinstance(value, str):
         return _storage_name(value)
@@ -530,7 +535,7 @@ def _run_roundtrip(
 
 
 def _test_in_project(
-    name: str | DatasourceSymbol | Datasource,
+    name: str | DatasourceSymbol | DatasourceIdentityHandle,
     *,
     timeout_seconds: int,
     project_root: Path | None,
@@ -577,7 +582,7 @@ def _test_in_project(
 
 
 def test_no_persist(
-    name: str | DatasourceSymbol | Datasource,
+    name: str | DatasourceSymbol | DatasourceIdentityHandle,
     *,
     timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
     project_root: Path | None = None,
@@ -616,10 +621,10 @@ def test_no_persist(
 
 
 def _require_raw_sql_reason(reason: str) -> str:
-    if not isinstance(reason, str) or not reason.strip():
+    if not isinstance(reason, str) or not reason.strip():  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         raise _invalid_raw_sql(
             "a non-empty reason",
-            type(reason).__name__ if not isinstance(reason, str) else "an empty reason",
+            type(reason).__name__ if not isinstance(reason, str) else "an empty reason",  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             "Pass a non-empty reason for the terminal SQL query.",
         )
     return reason.strip()
@@ -627,10 +632,10 @@ def _require_raw_sql_reason(reason: str) -> str:
 
 def _require_nonempty_sql(sql: str) -> str:
     """Validate presence without parsing or rewriting the caller's SQL."""
-    if not isinstance(sql, str) or not sql.strip():
+    if not isinstance(sql, str) or not sql.strip():  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         raise _invalid_raw_sql(
             "a non-empty SQL statement",
-            type(sql).__name__ if not isinstance(sql, str) else "an empty SQL statement",
+            type(sql).__name__ if not isinstance(sql, str) else "an empty SQL statement",  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             "Pass the non-empty SQL statement to execute.",
         )
     return sql
@@ -785,7 +790,7 @@ def _raw_sql_failure(
 
 
 def raw_sql(
-    datasource: DatasourceSymbol | Datasource,
+    datasource: DatasourceSymbol | DatasourceIdentityHandle,
     sql: str,
     *,
     reason: str,
@@ -850,7 +855,7 @@ def raw_sql(
         contains the complete query result as Python records.
     """
     if (
-        not isinstance(timeout_seconds, int)
+        not isinstance(timeout_seconds, int)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         or isinstance(timeout_seconds, bool)
         or timeout_seconds < 1
     ):
@@ -914,6 +919,7 @@ def raw_sql(
                         project_root=project_root,
                         datasource=datasource_id,
                         sensitive=bool(cr.injected_values(backend)),
+                        format_error=_execution_error_fields,
                     ) as query,
                 ):
                     cursor = backend.raw_sql(statement)

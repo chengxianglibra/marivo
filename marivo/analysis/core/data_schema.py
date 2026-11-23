@@ -90,7 +90,7 @@ class FrozenCalendarData:
     def __post_init__(self) -> None:
         if (
             type(self.definition) not in (BuiltinCalendarData,)
-            or self.rule_version != "calendar.v3"
+            or self.rule_version != "calendar.v3"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or (self.direct is not None and type(self.direct) is not FrozenCalendarOrigin)
         ):
             reject(

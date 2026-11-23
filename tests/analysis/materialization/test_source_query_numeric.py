@@ -54,7 +54,7 @@ def _data(boundary: str = "ordinary") -> SourceData:
             "NULL"
             if row["amount"] is None
             else "nan()"
-            if isinstance(row["amount"], float) and pd.isna(row["amount"])
+            if isinstance(row["amount"], float) and pd.isna(row["amount"])  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
             else str(row["amount"])
         )
         + ","
@@ -261,7 +261,7 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
                 "amount": None
                 if row["amount"] is None
                 else Decimal("3.75")
-                if isinstance(row["amount"], float) and pd.isna(row["amount"])
+                if isinstance(row["amount"], float) and pd.isna(row["amount"])  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
                 else Decimal(str(row["amount"])),
             }
             for row in data.rows

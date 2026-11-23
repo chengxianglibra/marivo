@@ -319,7 +319,7 @@ class _SpecBase(RenderableResult):
             literal_fields[key] = _validate_jsonable_field(self.name, key, value)
 
         if self.extra is not None:
-            if not isinstance(self.extra, dict) or not all(
+            if not isinstance(self.extra, dict) or not all(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                 isinstance(key, str) for key in self.extra
             ):
                 raise invalid(

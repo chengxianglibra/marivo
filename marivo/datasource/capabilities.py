@@ -18,7 +18,11 @@ from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, runtime_checkabl
 
 from marivo import _execution_log
 from marivo.datasource import credentials as cr
-from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
+from marivo.datasource.errors import (
+    DatasourceSourceCapabilityError,
+    _execution_error_fields,
+    repair,
+)
 
 if TYPE_CHECKING:
     from ibis.backends import BaseBackend
@@ -245,6 +249,7 @@ def execute_provider_statement(
         backend=profile.name,
         purpose=purpose,
         sensitive=statement.parameterized or bool(cr.injected_values(backend)),
+        format_error=_execution_error_fields,
         statement_id=statement_id,
     )
     try:

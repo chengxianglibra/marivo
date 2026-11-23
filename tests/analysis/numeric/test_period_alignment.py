@@ -124,7 +124,8 @@ def test_period_outer_keeps_time_missing_and_original_keys(
         frame = aligned.to_pandas()
         mapping, left_directory, right_directory = paired_tables(aligned)
         assert len(frame) == 12
-        assert set(temporal_keys(aligned)) == set(mapping.iloc[:, 0])
+        keys = temporal_keys(aligned)
+        assert set(keys) == set(mapping.iloc[:, 0])
         for side, length, directory in zip(
             ("left", "right"), lengths, (left_directory, right_directory), strict=True
         ):
@@ -139,6 +140,7 @@ def test_period_outer_keeps_time_missing_and_original_keys(
         presence = ("left_present", "right_present")
     else:
         fixed = comparison.compute()
+        keys = temporal_keys(fixed)
         frame = fixed.to_pandas()
         assert len(frame) == 12
         assert [axis.role for axis in fixed.schema.axes] == ["calendar", "identity"]
@@ -164,7 +166,6 @@ def test_period_outer_keeps_time_missing_and_original_keys(
     left_ordinals = dict(zip(left_directory.iloc[:, 0], left_directory["ordinal"], strict=True))
     right_ordinals = dict(zip(right_directory.iloc[:, 0], right_directory["ordinal"], strict=True))
     pairs = mapping.set_index(mapping.columns[0])
-    keys = temporal_keys(aligned if lengths[1] > lengths[0] else fixed)
     for key, (index, row) in zip(keys, frame.iterrows(), strict=True):
         pair = pairs.loc[key]
         left = key if current_column == mapping.columns[0] else pair[current_column]

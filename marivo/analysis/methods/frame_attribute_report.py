@@ -438,6 +438,7 @@ def report_attribute(
         totals.append(_scalar(_report_value(fresh, output[total_path]), 0))
     contribution_column = source_columns(rows, (old[("contribution", "target")],))[0]
     contributions = _Value(rows[contribution_column.slot_id], contribution_column)
+    denominator: _Value | None = None
     if target.mode == "relative":
         baselines = [paired_methods[index].right.value for index in fine_indices]
         baseline_column = paired_methods[0].right.column if paired_methods else contribution_column
@@ -482,7 +483,7 @@ def report_attribute(
             )
         source_column = source_columns(rows, (old[(source_role, "target")],))[0]
         emitted = _Value(rows[source_column.slot_id], source_column)
-        if path[0] == "effect" and target.mode == "relative":
+        if path[0] == "effect" and denominator is not None:
             emitted = _numeric_binary("div", emitted, denominator, output=output[path].dtype)
         result[output[path].slot_id] = _report_value(emitted, output[path]).values
     for column, source in zip(report_schema.presence, program.output_schema.presence, strict=False):

@@ -78,7 +78,8 @@ def require_finite_attribution_scope(graph: BoundGraph) -> None:
 def _previous(value: datetime, grain: Grain) -> datetime:
     """The predecessor in civil calendar space, without epsilon arithmetic."""
     unit, count = grain.unit, grain.count
-    assert unit is not None and count is not None
+    assert unit is not None
+    assert count is not None
     if unit in ("day", "week"):
         return value - timedelta(days=(1 if unit == "day" else 7) * count)
     months = {"month": 1, "quarter": 3, "year": 12}[unit] * count

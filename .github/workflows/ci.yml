@@ -27,6 +27,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Architecture governance diff
+        if: github.event_name == 'pull_request' && matrix.python-version == '3.12'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"
+          guard="scripts/check_governance_diff.py"
+          if git cat-file -e "$PR_BASE_SHA:$guard"; then
+            git show "$PR_BASE_SHA:$guard" > "$RUNNER_TEMP/check_governance_diff.py"
+            guard="$RUNNER_TEMP/check_governance_diff.py"
+          fi
+          python3 "$guard" --base "$PR_BASE_SHA" --head HEAD
+
       - uses: ./.github/actions/bootstrap
         with:
           python-version: ${{ matrix.python-version }}

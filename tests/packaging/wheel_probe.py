@@ -110,7 +110,8 @@ def surface_snapshot() -> list[dict[str, object]]:
 
     assert set(names) == set(exports) == set(ANALYSIS_PUBLIC)
     assert not hasattr(mv, "Query")
-    assert callable(mv.Population.show) and not hasattr(mv.Population, "execute")
+    assert callable(mv.Population.show)
+    assert not hasattr(mv.Population, "execute")
     for method_name in ("compute", "persist", "show", "to_pandas", "where", "compare", "reduce"):
         assert callable(getattr(mv.AnalysisFrame, method_name))
     assert all(

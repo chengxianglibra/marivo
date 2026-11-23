@@ -61,7 +61,8 @@ def _civil(value: object, point: datetime) -> str:
 
 def _bucket_step(grain: Grain) -> ir.IntervalScalar:
     unit, count = grain.unit, grain.count
-    assert unit is not None and count is not None
+    assert unit is not None
+    assert count is not None
     seconds = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}
     if unit in seconds:
         return ibis.interval(seconds=seconds[unit] * count)
@@ -98,7 +99,7 @@ def _actual_positions(
             ),
         )
         for slot, rule in native_windows.items()
-        if isinstance(rule, (TrailingPeriods, ToDate))
+        if isinstance(rule, (TrailingPeriods, ToDate))  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
     }
     expression = lower_temporal(
         keys.select(
@@ -150,7 +151,8 @@ def _source_output_calendar(
     selected_positions: dict[int, tuple[datetime, ...]]
     position_count = 1
     first = datetime.fromisoformat(coordinate.civil_bounds[0][0]).replace(tzinfo=None)
-    assert grain.unit is not None and grain.count is not None
+    assert grain.unit is not None
+    assert grain.count is not None
     seconds = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}
     if grain.unit in seconds:
         width = seconds[grain.unit] * grain.count
@@ -343,7 +345,8 @@ def _pandas_output_calendar(coordinate: CalendarCoordinate) -> CalendarCoordinat
     first = datetime.fromisoformat(coordinate.civil_bounds[0][0]).replace(tzinfo=None)
     last = datetime.fromisoformat(coordinate.civil_bounds[-1][0]).replace(tzinfo=None)
     unit, count = grain.unit, grain.count
-    assert unit is not None and count is not None
+    assert unit is not None
+    assert count is not None
     step = (
         pd.DateOffset(
             seconds={"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}[unit]

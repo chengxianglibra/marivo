@@ -110,7 +110,8 @@ def test_grouping_is_the_public_observation_family() -> None:
 
 
 def test_time_binding_has_one_public_entry_per_operation() -> None:
-    assert callable(mv.Session.time_scope) and callable(mv.Session.instant)
+    assert callable(mv.Session.time_scope)
+    assert callable(mv.Session.instant)
     parameters = inspect.signature(mv.Session.observe).parameters
     assert tuple(parameters) == ("self", "metrics", "by", "where")
     by = str(parameters["by"].annotation)

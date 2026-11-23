@@ -1466,7 +1466,7 @@ def _validate_projected_source_aliases(
         source = entity.source
         if isinstance(source, TableSourceIR | CsvSourceIR | JsonSourceIR):
             aliases = {output_name for output_name, _source in source.columns}
-        elif isinstance(source, ParquetSourceIR) and source.columns is not None:
+        elif isinstance(source, ParquetSourceIR) and source.columns is not None:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             aliases = set(source.columns)
         else:
             return
@@ -1525,7 +1525,7 @@ def _validate_projected_source_aliases(
         source = entity.source
         if isinstance(source, TableSourceIR | CsvSourceIR | JsonSourceIR):
             aliases = tuple(output_name for output_name, _source in source.columns)
-        elif isinstance(source, ParquetSourceIR) and source.columns is not None:
+        elif isinstance(source, ParquetSourceIR) and source.columns is not None:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             aliases = source.columns
         else:
             continue

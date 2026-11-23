@@ -51,7 +51,7 @@ class _DatasourceIdentity:
     project_root: Path
 
 
-class _DatasourceInput:
+class DatasourceIdentityHandle:
     """Nominal neutral bridge implemented by the loaded datasource object."""
 
     __slots__ = ()
@@ -63,7 +63,7 @@ class _DatasourceInput:
 
 def datasource_identity(value: object) -> _DatasourceIdentity | None:
     """Read only the controlled loaded-datasource bridge, never arbitrary attributes."""
-    return value._datasource_identity if isinstance(value, _DatasourceInput) else None
+    return value._datasource_identity if isinstance(value, DatasourceIdentityHandle) else None
 
 
 if TYPE_CHECKING:

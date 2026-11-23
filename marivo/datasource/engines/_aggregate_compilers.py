@@ -85,7 +85,7 @@ def _reject(backend: str, node: ops.Node) -> NoReturn:
 
 # Ibis compiler classes are untyped. These subclasses retain its complete relational
 # compiler and override aggregate admission and private calendar operations on owned instances.
-class _PostgresCompiler(PostgresCompiler):  # type: ignore[misc]
+class _PostgresCompiler(PostgresCompiler):  # type: ignore[misc]  # Ibis compiler bases lack typing stubs.
     def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
         return compile_calendar_range(op, "postgres")
 
@@ -98,7 +98,7 @@ class _PostgresCompiler(PostgresCompiler):  # type: ignore[misc]
         _reject("postgres", op)
 
 
-class _MySQLCompiler(MySQLCompiler):  # type: ignore[misc]
+class _MySQLCompiler(MySQLCompiler):  # type: ignore[misc]  # Ibis compiler bases lack typing stubs.
     SIMPLE_OPS: ClassVar[dict[type[ops.Node], str]] = {
         op: name for op, name in MySQLCompiler.SIMPLE_OPS.items() if op is not ops.IntervalMultiply
     }
@@ -142,7 +142,7 @@ class _MySQLCompiler(MySQLCompiler):  # type: ignore[misc]
         _reject("mysql", op)
 
 
-class _TrinoCompiler(TrinoCompiler):  # type: ignore[misc]
+class _TrinoCompiler(TrinoCompiler):  # type: ignore[misc]  # Ibis compiler bases lack typing stubs.
     def visit_IntervalFromInteger(
         self, op: ops.IntervalFromInteger, *, arg: sge.Expr, unit: object
     ) -> sge.Expr:
@@ -187,7 +187,7 @@ def _native_name(backend: str, reducer: str) -> str:
     return name
 
 
-class _ClickHouseCompiler(ClickHouseCompiler):  # type: ignore[misc]
+class _ClickHouseCompiler(ClickHouseCompiler):  # type: ignore[misc]  # Ibis compiler bases lack typing stubs.
     def visit_JoinChain(
         self,
         op: ops.JoinChain,
@@ -388,7 +388,7 @@ _RENDERED_DUCKDB_SQL_MAX = 2048
 _RENDERED_DUCKDB_LOCK = threading.Lock()
 
 
-class _DuckDBCompiler(DuckDBCompiler):  # type: ignore[misc]
+class _DuckDBCompiler(DuckDBCompiler):  # type: ignore[misc]  # Ibis compiler bases lack typing stubs.
     def visit_IsNull(self, op: ops.IsNull, *, arg: sge.Expr) -> sge.Expr:
         # DuckDB parses NOT x IS NULL as NOT (x IS NULL), not (NOT x) IS NULL.
         if isinstance(arg, sge.Not):

@@ -21,10 +21,24 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo.analysis.core.data_types import DataType, DurationDataType, ScalarDataType
-from marivo.analysis.core.data_validation import typed_null_mask
 from marivo.analysis.methods.physical import DecimalType, DurationType, ValueType
 
 Number: TypeAlias = int | float | Decimal
+
+
+def typed_null_mask(values: pd.Series) -> pd.Series:
+    """Read validity without treating valid floating NaN as a missing value.
+
+    Stage inputs carry Arrow validity. Local object intermediates use explicit
+    null sentinels; untyped pandas carriers retain their ingress convention.
+    """
+    if values.dtype != object:
+        return values.isna()
+    return pd.Series(
+        [value is None or value is pd.NA or value is pd.NaT for value in values],
+        dtype=bool,
+        index=values.index,
+    )
 
 
 def _decimal_context() -> Context:
@@ -73,14 +87,13 @@ def finish_decimal(values: pd.Series, precision: int, scale: int) -> pd.Series:
 
 def finish_division(numerator: Number, denominator: Number, output: ValueType) -> Number:
     """Finish retained components in their captured output carrier."""
-    if isinstance(output, (DurationType, DecimalType)):
-        exact = Fraction(numerator) / Fraction(denominator)
     if isinstance(output, DurationType):
-        ticks = round(exact)
+        ticks = round(Fraction(numerator) / Fraction(denominator))
         if not -(2**63) <= ticks < 2**63:
             raise OverflowError("Duration finish tick overflow")
         return ticks
     if isinstance(output, DecimalType):
+        exact = Fraction(numerator) / Fraction(denominator)
         with localcontext(_decimal_context()):
             value = (Decimal(exact.numerator) / Decimal(exact.denominator)).quantize(
                 Decimal(1).scaleb(-output.scale), rounding=ROUND_HALF_UP

@@ -426,7 +426,7 @@ class SampleIntervalIR:
     unit: Literal["minute", "hour"]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.count, int) or isinstance(self.count, bool):
+        if not isinstance(self.count, int) or isinstance(self.count, bool):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise TypeError(f"SampleIntervalIR.count must be int, got {type(self.count).__name__}.")
         if self.count < 1:
             raise ValueError(f"SampleIntervalIR.count must be positive, got {self.count}.")

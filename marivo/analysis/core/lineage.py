@@ -140,7 +140,7 @@ class FrameLineage:
                 type(entries) is not tuple
                 or any(
                     type(entry) is not tuple
-                    or len(entry) != 2
+                    or len(entry) != 2  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     or type(entry[0]) is not str
                     or not entry[0]
                     or type(entry[1]) is not ColumnLineage

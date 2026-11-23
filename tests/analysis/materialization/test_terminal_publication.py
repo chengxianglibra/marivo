@@ -393,9 +393,8 @@ def test_real_source_repeat_execution_and_nullable_local_combination(
     session = source_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
-    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        region, (ms.RowExpression, ms.MetricExpression)
-    )
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(region, (ms.RowExpression, ms.MetricExpression))
     query = session.observe(
         {"total": amount.sum(), "mean": amount.mean(), "ratio": amount.sum() / (amount.sum() * 0)},
         by=(region,),
@@ -493,9 +492,8 @@ def test_read_evidence_preserves_nested_predicate_groups(source_session: Session
     session = source_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
-    assert isinstance(region, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        amount, (ms.RowExpression, ms.MetricExpression)
-    )
+    assert isinstance(region, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
     with duckdb.connect(str(session.project_root / "warehouse.duckdb")) as conn:
         conn.execute("UPDATE orders SET amount=10 WHERE id=1")
     predicates = (

@@ -17,14 +17,14 @@ import sqlglot as sg
 import sqlglot.expressions as sge
 
 
-class CalendarData(ops.PhysicalTable):  # type: ignore[misc]
+class CalendarData(ops.PhysicalTable):  # type: ignore[misc]  # Ibis operation bases lack typing stubs.
     """A closed query literal, never an independently readable physical source."""
 
     schema: sch.Schema
     payload: str
 
 
-class CalendarRange(ops.PhysicalTable):  # type: ignore[misc]
+class CalendarRange(ops.PhysicalTable):  # type: ignore[misc]  # Ibis operation bases lack typing stubs.
     """An invocation's finite output positions, never a source membership table."""
 
     schema: sch.Schema

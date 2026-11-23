@@ -165,7 +165,7 @@ def _execute(
     run = run_frame_plan
 
     def observe(
-        compiled: CompiledFramePlan,
+        compiled: CompiledFramePlan[StageOutput],
         *,
         source_prepared: Mapping[str, PreparedSources],
         read_fixed: Callable[[FrameInput], CompletedFrameData],

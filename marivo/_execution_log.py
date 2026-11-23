@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -23,6 +23,7 @@ from marivo.project import resolve_project_root
 
 LogValue: TypeAlias = str | int | float | bool | None
 QueryState: TypeAlias = Literal["succeeded", "failed"]
+ErrorFormatter: TypeAlias = Callable[[Exception], Mapping[str, LogValue]]
 
 
 class _RuntimeIdentity(TypedDict):
@@ -163,23 +164,18 @@ def emit(
             _WARNED.discard((root, "cleanup"))
 
 
-def error_fields(error: BaseException, *, sensitive: bool = False) -> dict[str, LogValue]:
+def error_fields(
+    error: BaseException, *, sensitive: bool = False, format_error: ErrorFormatter | None = None
+) -> dict[str, LogValue]:
     fields: dict[str, LogValue] = {"error_type": type(error).__name__}
     for name in ("stage", "code", "kind", "constraint_id", "timeout_seconds"):
         with suppress(Exception):
             value = getattr(error, name, None)
             if isinstance(value, (str, int, float, bool)):
                 fields[f"error_{name}"] = value
-    if isinstance(error, Exception) and not sensitive:
-        from marivo.datasource.errors import _backend_failure_summary
-
+    if isinstance(error, Exception) and not sensitive and format_error is not None:
         with suppress(Exception):
-            summary = _backend_failure_summary(error)
-            fields.update(
-                error_message=summary.message,
-                backend_code=summary.backend_code,
-                backend_name=summary.backend_name,
-            )
+            fields.update(format_error(error))
     return fields
 
 
@@ -194,6 +190,7 @@ class QueryLog:
         purpose: str,
         project_root: Path | None = None,
         sensitive: bool = False,
+        format_error: ErrorFormatter | None = None,
         **fields: LogValue,
     ) -> None:
         self.context = snapshot(project_root)
@@ -204,6 +201,7 @@ class QueryLog:
         self.rows = 0
         self.error: BaseException | None = None
         self.sensitive = sensitive
+        self._format_error = format_error
         self.finished = False
         emit("query.submitted", context=self.context, sql=sql)
 
@@ -225,7 +223,7 @@ class QueryLog:
         if self.finished:
             return
         self.finished = True
-        failure = error_fields(self.error, sensitive=self.sensitive) if self.error else {}
+        failure = self.failure_fields(self.error) if self.error else {}
         emit(
             "query.completed",
             context=self.context,
@@ -236,9 +234,14 @@ class QueryLog:
             fields={**failure, **fields},
         )
 
+    def failure_fields(self, error: BaseException) -> dict[str, LogValue]:
+        return error_fields(error, sensitive=self.sensitive, format_error=self._format_error)
+
 
 @contextmanager
-def stage(name: str) -> Iterator[dict[str, LogValue]]:
+def stage(
+    name: str, *, format_error: ErrorFormatter | None = None
+) -> Iterator[dict[str, LogValue]]:
     fields: dict[str, LogValue] = {}
     entered = monotonic()
     with scope(stage=name) as context:
@@ -252,7 +255,7 @@ def stage(name: str) -> Iterator[dict[str, LogValue]]:
                 severity="ERROR",
                 state="failed",
                 duration_ms=int((monotonic() - entered) * 1000),
-                fields=error_fields(error),
+                fields=error_fields(error, format_error=format_error),
             )
             raise
         else:

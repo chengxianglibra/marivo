@@ -70,6 +70,7 @@ def test_scalar_relationship_prefixes_keep_exact_matches(
         ),
     }
     tables: dict[str, str] = {}
+    customer_table: str | None = None
     monkeypatch.chdir(tmp_path)
     with ExitStack() as stack:
         if backend == "duckdb":
@@ -84,6 +85,7 @@ def test_scalar_relationship_prefixes_keep_exact_matches(
             datasource = f"import marivo.datasource as md\nmd.duckdb(name='warehouse',path={str(database)!r},wall_clock_timezone='UTC')\n"
             customer_table = "customers"
         else:
+            case = None
             for name, (columns, rows) in records.items():
                 names = [item.split()[0] for item in columns.split(",")]
                 data = SourceData(
@@ -109,6 +111,7 @@ def test_scalar_relationship_prefixes_keep_exact_matches(
                 tables[name] = f"md.table({case.source.table!r},database={case.source.database!r})"
                 if name == "customers":
                     customer_table = case.source.table
+            assert case is not None
             datasource = _datasource_model(backend, case, monkeypatch)
         model = "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         for name, (columns, _) in records.items():
@@ -188,6 +191,7 @@ other=ms.relationship(name='other',from_entity=customers,to_entity=countries,key
             expected, key=repr
         )
         ast = sqlglot.parse_one(source_trace.native_sql[-1], read=backend)
+        assert customer_table is not None
         assert sum(item.name == customer_table for item in ast.find_all(sge.Table)) == (
             2 if order == "other_role" else 1
         )

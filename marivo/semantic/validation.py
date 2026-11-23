@@ -272,7 +272,7 @@ class FreshnessSourceCheck:
         object.__setattr__(self, "_field", ref_factory.time_dimension(reference.path))
         object.__setattr__(self, "max_age", max_age)
         object.__setattr__(self, "kind", "freshness")
-        if not isinstance(self.max_age, timedelta) or self.max_age <= timedelta(0):
+        if not isinstance(self.max_age, timedelta) or self.max_age <= timedelta(0):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise ValueError("freshness max_age must be a positive timedelta.")
 
     @property
@@ -716,7 +716,7 @@ def _normalize_checks(
     selected_entities: frozenset[str],
     catalog: SemanticCatalog,
 ) -> tuple[SourceCheck, ...]:
-    if not isinstance(checks, Sequence) or isinstance(checks, str | bytes):
+    if not isinstance(checks, Sequence) or isinstance(checks, str | bytes):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         _raise(
             ErrorKind.INVALID_PARAMETER,
             "checks must be a sequence of source checks.",

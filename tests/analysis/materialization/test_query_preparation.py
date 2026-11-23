@@ -182,11 +182,9 @@ def test_paths_anchors_and_computed_fields(prepared_session: Session) -> None:
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
     doubled = catalog_value(session.catalog, "sales.orders.doubled", kind="dimension")
-    assert (
-        isinstance(amount, (ms.RowExpression, ms.MetricExpression))
-        and isinstance(region, (ms.RowExpression, ms.MetricExpression))
-        and isinstance(doubled, (ms.RowExpression, ms.MetricExpression))
-    )
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(region, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(doubled, (ms.RowExpression, ms.MetricExpression))
     buyer = catalog_value(session.catalog, "sales.buyer", kind="relationship")
     seller = catalog_value(session.catalog, "sales.seller", kind="relationship")
     old = region.via(
@@ -218,9 +216,8 @@ def test_parsed_and_civil_time_periods(prepared_session: Session, field: str) ->
     session = prepared_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     time = catalog_value(session.catalog, f"sales.orders.{field}", kind="time_dimension")
-    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        time, (ms.RowExpression, ms.MetricExpression)
-    )
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(time, (ms.RowExpression, ms.MetricExpression))
     calendar = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     output = compute(session, {"sum": amount.sum(time=time)}, during=calendar)
     assert output.table["key.0"].tolist() == [
@@ -258,9 +255,8 @@ def test_native_and_anchored_occurrences_are_distinct(prepared_session: Session)
     session = prepared_session
     region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
     customers = catalog_value(session.catalog, "sales.customers", kind="entity")
-    assert isinstance(region, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        customers, Entity
-    )
+    assert isinstance(region, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(customers, Entity)
     predicate = (region == "new") & (region.at(session.instant("2026-01-15")) == "old")
     result = compute(session, {"count": customers.count()}, where=predicate)
     assert result.table["value.0"].tolist() == [1]
@@ -275,9 +271,8 @@ def test_window_excludes_unrelated_bad_mapping(prepared_session: Session) -> Non
         connection.close()
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
-    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        region, (ms.RowExpression, ms.MetricExpression)
-    )
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(region, (ms.RowExpression, ms.MetricExpression))
     buyer = catalog_value(session.catalog, "sales.buyer", kind="relationship")
     group = region.via(
         mv.path(
@@ -449,9 +444,8 @@ def test_independent_roots_across_datasources(
     session = mv.session.get_or_create("cross-source", timezone="UTC")
     one = catalog_value(session.catalog, "sales.one.amount", kind="measure")
     two = catalog_value(session.catalog, "sales.two.amount", kind="measure")
-    assert isinstance(one, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        two, (ms.RowExpression, ms.MetricExpression)
-    )
+    assert isinstance(one, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(two, (ms.RowExpression, ms.MetricExpression))
     result = compute(session, {"net": one.sum() - two.sum()})
     assert result.table["value.0"].tolist() == [7]
 
@@ -460,9 +454,8 @@ def test_civil_date_rejects_partial_business_day_boundary(prepared_session: Sess
     session = prepared_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.orders.day", kind="time_dimension")
-    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        day, (ms.RowExpression, ms.MetricExpression)
-    )
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(day, (ms.RowExpression, ms.MetricExpression))
     with pytest.raises(AnalysisError) as caught:
         compute(
             session,
@@ -478,9 +471,8 @@ def test_snapshot_attribute_uses_exact_date(prepared_session: Session) -> None:
     session = prepared_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
-    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        region, (ms.RowExpression, ms.MetricExpression)
-    )
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(region, (ms.RowExpression, ms.MetricExpression))
     buyer = catalog_value(session.catalog, "sales.buyer", kind="relationship")
     group = region.via(
         mv.path(
@@ -543,9 +535,8 @@ def test_calendar_bucket_keeps_nullable_timestamp_and_unmatched_rows(
     end = start + timedelta(days=bucket_count)
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.orders.day", kind="time_dimension")
-    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        day, (ms.RowExpression, ms.MetricExpression)
-    )
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(day, (ms.RowExpression, ms.MetricExpression))
     grid_scope = session.time_scope(
         start=start.isoformat(), end=(start + timedelta(days=max(1, bucket_count))).isoformat()
     )
@@ -675,9 +666,8 @@ def test_calendar_selection_preserves_membership_without_boolean_seeds(
     session = prepared_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.orders.day", kind="time_dimension")
-    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        day, (ms.RowExpression, ms.MetricExpression)
-    )
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(day, (ms.RowExpression, ms.MetricExpression))
     grid_scope = session.time_scope(start="2026-01-01", end="2026-01-04")
     graph = _source_graph(
         session.observe({"total": amount.sum(time=day)}, by=(grid_scope.by(mv.grain("day")),))
@@ -755,9 +745,8 @@ def test_open_start_native_period_keeps_only_upper_bound(prepared_session: Sessi
     session = prepared_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.orders.day", kind="time_dimension")
-    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
-        day, (ms.RowExpression, ms.MetricExpression)
-    )
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
+    assert isinstance(day, (ms.RowExpression, ms.MetricExpression))
     graph = _source_graph(session.observe({"total": amount.sum(time=day)}))
     observation = graph.signature.observation
     assert observation is not None

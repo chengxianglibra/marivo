@@ -153,8 +153,9 @@ def server(
             process.kill()
             process.communicate()
             pytest.fail("Read service did not shut down")
-        assert not stdout
-        assert token not in stderr
+        else:
+            assert not stdout
+            assert token not in stderr
         assert process.returncode in (0, -15)
 
 

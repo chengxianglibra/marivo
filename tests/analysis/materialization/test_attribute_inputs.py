@@ -16,6 +16,7 @@ from marivo.analysis.binding.frame_attribute_inputs import AttributeInputRequest
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan, CompiledSourceFrame, plan_frame
 from marivo.analysis.compiler.graph_plan import SourceReadStage, read_attribute, require_reduction
 from marivo.analysis.core.frame_expression import FrameExpression
+from marivo.analysis.core.stage_contracts import CheckedStageInputT
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import Population
 from marivo.analysis.materialization.frame_evaluation import evaluate_attribute_inputs
@@ -581,10 +582,10 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
 
     def plan(
         root: FrameExpression,
-        source_plans: Mapping[str, CompiledSourceFrame],
+        source_plans: Mapping[str, CompiledSourceFrame[CheckedStageInputT]],
         *,
         frame_inputs: Mapping[str, FrameExpression] | None = None,
-    ) -> CompiledFramePlan:
+    ) -> CompiledFramePlan[CheckedStageInputT]:
         compiled = compile_plan(root, source_plans, frame_inputs=frame_inputs)
         captured.append(compiled)
         return compiled

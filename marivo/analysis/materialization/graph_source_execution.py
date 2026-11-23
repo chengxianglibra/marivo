@@ -407,7 +407,7 @@ def qualify_original_source(
         operands: tuple[RowNode, ...]
         if isinstance(node, SourceWeightedMean):
             operands = (node.value, node.weight)
-        elif isinstance(node, SourceAggregate) and (
+        elif isinstance(node, SourceAggregate) and (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             node.reducer
             in (
                 "sum",
@@ -1749,13 +1749,13 @@ def complete_attribute_frequencies(
 
     from marivo._definition.expressions import SourceAggregate
     from marivo.analysis.compiler.attribute_frequencies import AttributeFrequencyCapture
-    from marivo.analysis.core.data_validation import typed_null_mask
     from marivo.analysis.methods.attribute_quantiles import (
         FrequencyRankIndex,
         FrequencyState,
         FrequencyValue,
         frequency_state,
     )
+    from marivo.analysis.methods.numeric_state import typed_null_mask
 
     assert isinstance(stage.program, AttributeFrequencyRead)
     reduction = stage.program.reduction
@@ -2495,7 +2495,7 @@ def execute_numeric_query(
             if observe_frame is not None:
                 observe_frame(step, output)
             inputs = (output,)
-        return output
+        return inputs[0]
 
     def finish(stage: QueryStage, output: StageOutput) -> StageOutput:
         if source_outputs is not None and stage.stage_id in source_outputs:
@@ -2539,7 +2539,7 @@ def execute_numeric_query(
 
 
 def run_frame_plan(
-    compiled: CompiledFramePlan,
+    compiled: CompiledFramePlan[StageOutput],
     *,
     source_prepared: Mapping[str, PreparedSources],
     read_fixed: Callable[[FrameInput], CompletedFrameData],
@@ -2859,6 +2859,8 @@ def prepare_attribute_sources(
             # Parent selection is a typed complete-key relation. Temporal keys are
             # not legal ordinary predicates and must retain their joint fibers here.
             parent_scope = observation.coordinates.parent_scope
+            parameter_relation: ir.Table | None = None
+            parent_pairs: list[tuple[str, str]] = []
             if parent_scope is not None:
                 from marivo._definition.graph import computation_fingerprint
                 from marivo._definition.relations import AttributeKeys, PopulationProgram
@@ -2872,7 +2874,6 @@ def prepare_attribute_sources(
                     "population-parameter:" + computation_fingerprint(parent_scope)
                 ]
                 parent_predicates: list[ir.BooleanValue] = []
-                parent_pairs: list[tuple[str, str]] = []
                 source_columns: tuple[str, ...]
                 for axis, group in zip(
                     parent_scope.axes, frame_key_groups(parent_scope.root), strict=True
@@ -2939,7 +2940,7 @@ def prepare_attribute_sources(
                     fine = fine.filter(
                         *(lower_condition(p, fine_fields).value for p in source_predicates)
                     )
-                if parent_scope is not None:
+                if parameter_relation is not None:
                     fine_parent_columns = {
                         column: assigned_map[path] for path, column in scoped.columns
                     }
@@ -2987,7 +2988,7 @@ def prepare_attribute_sources(
                 parameter
                 for schema in prepared.schemas
                 for parameter in schema.parameters
-                if isinstance(parameter, FrameParameter)
+                if isinstance(parameter, FrameParameter)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             )
             for parameter in parameters:
                 relation = prepared.entities.get(

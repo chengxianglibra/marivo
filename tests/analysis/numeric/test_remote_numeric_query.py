@@ -156,7 +156,8 @@ def test_postgres_sparse_calendar_keeps_window_contributions(
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
-        assert isinstance(amount, ms.Measure) and isinstance(category, ms.Dimension)
+        assert isinstance(amount, ms.Measure)
+        assert isinstance(category, ms.Dimension)
         assert isinstance(day, ms.TimeDimension)
         calendar = (
             session.time_scope(start="2019-12-23", end="2020-01-06")
@@ -293,7 +294,8 @@ def test_clickhouse_dst_fold_uses_native_calendar_and_half_open_boundaries(
         session = mv.session.get_or_create("clickhouse_dst", timezone="America/New_York")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         happened = catalog_value(session.catalog, "sales.facts.happened", kind="time_dimension")
-        assert isinstance(amount, ms.Measure) and isinstance(happened, ms.TimeDimension)
+        assert isinstance(amount, ms.Measure)
+        assert isinstance(happened, ms.TimeDimension)
         scope = session.time_scope(
             start="2026-11-01T01:00:00-04:00",
             end="2026-11-01T02:00:00-05:00",

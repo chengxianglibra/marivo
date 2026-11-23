@@ -30,7 +30,7 @@ class EnvRef(RenderableResult):
     name: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.name, str) or not self.name.strip():
+        if not isinstance(self.name, str) or not self.name.strip():  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise invalid("name", "a non-empty credential name", self.name, 'Use md.env("NAME").')
 
     def _repr_identity(self) -> str:
@@ -163,7 +163,7 @@ class HttpHeadersSecret(_Secret):
 
     def __post_init__(self) -> None:
         self._validate_scope()
-        if not isinstance(self.headers, Mapping) or not self.headers:
+        if not isinstance(self.headers, Mapping) or not self.headers:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise invalid(
                 "headers",
                 "a non-empty mapping of header names to EnvRef",
@@ -171,7 +171,7 @@ class HttpHeadersSecret(_Secret):
                 'Use headers={"x-api-key": md.env("API_KEY")}.',
             )
         for name, value in self.headers.items():
-            if not isinstance(name, str) or not re.fullmatch(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+", name):
+            if not isinstance(name, str) or not re.fullmatch(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+", name):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                 raise invalid(
                     "headers", "valid HTTP header names", name, "Use a non-empty HTTP header token."
                 )
@@ -290,7 +290,7 @@ def secret_metadata(secret: DuckDBSecret) -> dict[str, object]:
 
 
 def normalize_secrets(value: Sequence[DuckDBSecret]) -> tuple[DuckDBSecret, ...]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         raise invalid(
             "secrets",
             "a sequence of secret variants",

@@ -74,7 +74,7 @@ def trailing_duration(*, duration: timedelta) -> ObservationWindow:
     Example: ``revenue.window(mv.trailing_duration(duration=timedelta(hours=24)))``.
     Constraints: Civil day lengths may differ across timezone transitions.
     """
-    if not isinstance(duration, timedelta) or duration <= timedelta(0):
+    if not isinstance(duration, timedelta) or duration <= timedelta(0):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         invalid(f"Expected a positive timedelta; received {duration!r}. Pass timedelta(hours=24).")
     return TrailingDuration(duration)
 
@@ -102,7 +102,7 @@ def since(*, start: datetime) -> ObservationWindow:
     Example: ``revenue.window(mv.since(start=session.instant('2026-01-01')))``.
     Constraints: Start must precede every consumed endpoint.
     """
-    if not isinstance(start, datetime) or start.utcoffset() is None:
+    if not isinstance(start, datetime) or start.utcoffset() is None:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         invalid(
             f"Expected an aware datetime or InstantAnchor; received {start!r}. Pass session.instant(...)."
         )

@@ -14,11 +14,14 @@ from marivo.analysis.core.local_laws import (
     query_selection_fusion_issue,
     selection_predicate_columns,
 )
+from marivo.analysis.core.stage_contracts import CheckedStageInputT
 
 
 def fuse_frame_filters(
-    compiled: CompiledFramePlan, *, protected_inputs: frozenset[int] = frozenset()
-) -> CompiledFramePlan:
+    compiled: CompiledFramePlan[CheckedStageInputT],
+    *,
+    protected_inputs: frozenset[int] = frozenset(),
+) -> CompiledFramePlan[CheckedStageInputT]:
     """Remove one intermediate selection per disjoint qualified pair."""
     plan = compiled.lowered.plan
     protected = {

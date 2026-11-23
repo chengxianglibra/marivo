@@ -41,9 +41,9 @@ from marivo.refs import DatasourceKind, Ref, RefPayloadV1
 EVIDENCE_FORMAT_VERSION = 4
 SNAPSHOT_TTL = timedelta(hours=24)
 
-JsonValue = TypeAliasType(  # type: ignore[misc]
+JsonValue = TypeAliasType(  # type: ignore[misc]  # The recursive alias is a runtime type object.
     "JsonValue",
-    str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None,  # type: ignore[misc]
+    str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None,  # type: ignore[misc]  # Recursive references are resolved by TypeAliasType.
 )
 CacheMissStatus: TypeAlias = Literal["fresh", "stale", "mismatched"]
 

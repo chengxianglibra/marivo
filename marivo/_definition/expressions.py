@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from ibis.common.deferred import Resolver
 
+from marivo._ai_context import AiContextValue
 from marivo._definition.types import (
     NUMERIC_RULE_VERSION,
     RULE_VERSION,
@@ -38,7 +39,6 @@ if TYPE_CHECKING:
         PopulationProgram,
         SampleDomain,
     )
-    from marivo.datasource.typing import AiContextValue
 
 _FIELD_KINDS = frozenset(
     {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION, SemanticKind.MEASURE}

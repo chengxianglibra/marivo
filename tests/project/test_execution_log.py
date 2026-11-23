@@ -14,6 +14,7 @@ import marivo
 from marivo import _execution_log as log
 from marivo import _jsonl
 from marivo._compat import UTC
+from marivo.datasource.errors import _execution_error_fields
 from marivo.introspection.live.model import EnvironmentFingerprint
 from tests.support.execution_logs import execution_records
 
@@ -65,7 +66,11 @@ def test_errors_are_bounded_and_parameterized_failures_disclose_no_message(tmp_p
             with (
                 pytest.raises(RuntimeError),
                 log.QueryLog(
-                    "SELECT ?", backend="duckdb", purpose="test.error", sensitive=sensitive
+                    "SELECT ?",
+                    backend="duckdb",
+                    purpose="test.error",
+                    sensitive=sensitive,
+                    format_error=_execution_error_fields,
                 ),
             ):
                 raise RuntimeError("authorization='canary-secret' " + "x" * 1000)

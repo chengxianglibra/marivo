@@ -124,7 +124,11 @@ class GraniteCache:
     def store(self, key: str, row_keys: tuple[bytes, ...], matrix: npt.NDArray[np.float32]) -> None:
         """Publish a complete fingerprint and matrix pair with atomic replacement."""
         if any(
-            not isinstance(row_key, bytes) or len(row_key) != _ROW_KEY_BYTES for row_key in row_keys
+            (
+                not isinstance(row_key, bytes)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+                or len(row_key) != _ROW_KEY_BYTES
+            )
+            for row_key in row_keys
         ) or len(set(row_keys)) != len(row_keys):
             raise ValueError("Expected a unique 32-byte fingerprint for each Granite vector.")
         if (

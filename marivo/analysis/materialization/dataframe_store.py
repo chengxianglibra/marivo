@@ -82,7 +82,7 @@ def _table(frame: pd.DataFrame) -> pa.Table:
     names: list[str] = []
     arrays: list[pa.Array] = []
     for index, name in enumerate(frame.columns):
-        if not isinstance(name, str) or not name or name in names:
+        if not isinstance(name, str) or not name or name in names:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise _unencodable(f"columns[{index}]", "expected a unique nonempty string column name")
         try:
             # Column conversion preserves Arrow-backed validity without serializing attrs.

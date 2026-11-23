@@ -489,6 +489,8 @@ def population_keys(
 
         return tuple(row for row in source if matches(row))
 
+    left: tuple[tuple[CoordinateValue, ...], ...] | None = None
+    right: tuple[tuple[CoordinateValue, ...], ...] | None = None
     if isinstance(node, PopulationSet):
         left, right = population_keys(node.left), population_keys(node.right)
         if left is None or right is None:

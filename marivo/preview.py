@@ -231,7 +231,7 @@ def validate_preview_limit(
     min_limit: int = _PREVIEW_MIN_LIMIT,
     max_limit: int = PREVIEW_MAX_LIMIT,
 ) -> int:
-    if not isinstance(limit, int) or isinstance(limit, bool):
+    if not isinstance(limit, int) or isinstance(limit, bool):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         raise PreviewLimitError(limit, min_limit=min_limit, max_limit=max_limit)
     if limit < min_limit or limit > max_limit:
         raise PreviewLimitError(limit, min_limit=min_limit, max_limit=max_limit)

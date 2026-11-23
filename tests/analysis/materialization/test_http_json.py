@@ -384,7 +384,8 @@ def test_http_error_response_is_closed_while_exception_is_retained(
         assert isinstance(cause, HTTPError)
         try:
             assert cause.code == 503
-            assert cause.fp is not None and cause.fp.closed
+            assert cause.fp is not None
+            assert cause.fp.closed
             assert len(api.requests) == 1
         finally:
             cause.close()

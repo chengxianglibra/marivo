@@ -36,7 +36,7 @@ def _count(value: int) -> None:
 def _page_fields(items: tuple[object, ...], limit: int, has_more: bool, cursor: str | None) -> None:
     if type(items) is not tuple or type(limit) is not int or not 1 <= limit <= 100:
         raise invalid("invalid immutable page collection or limit")
-    if type(has_more) is not bool or len(items) > limit:
+    if type(has_more) is not bool or len(items) > limit:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         raise invalid("invalid bounded page state")
     if cursor is not None and (type(cursor) is not str or not cursor or len(cursor) > 16_384):
         raise invalid("invalid bounded page cursor")

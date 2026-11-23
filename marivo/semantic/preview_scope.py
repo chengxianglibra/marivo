@@ -247,10 +247,10 @@ def _validate_scope(
     elif isinstance(scope, PartitionScope):
         invalid = not scope.values or any(
             type(entry) is not tuple
-            or len(entry) != 2
-            or not isinstance(entry[0], str)
+            or len(entry) != 2  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            or not isinstance(entry[0], str)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or not entry[0]
-            or not isinstance(entry[1], str)
+            or not isinstance(entry[1], str)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or not entry[1]
             for entry in scope.values
         )
@@ -305,7 +305,7 @@ def _normalize_scopes(
         )
     by_entity: dict[str, AuthoringScope] = {}
     for pair in scope:
-        if not isinstance(pair, tuple) or len(pair) != 2:
+        if not isinstance(pair, tuple) or len(pair) != 2:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             blocked(
                 preview_ref,
                 "Scope entries must be (Entity object, AuthoringScope) pairs.",
@@ -369,7 +369,7 @@ def _normalize_source_parameters(
         )
 
     if source_parameters is not None and (
-        not isinstance(source_parameters, Sequence) or isinstance(source_parameters, str | bytes)
+        not isinstance(source_parameters, Sequence) or isinstance(source_parameters, str | bytes)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
     ):
         blocked(
             preview_ref,
@@ -378,7 +378,7 @@ def _normalize_source_parameters(
         )
     supplied: dict[str, Mapping[str, QueryParamScalar | QueryParamScalarList]] = {}
     for pair in source_parameters or ():
-        if not isinstance(pair, tuple) or len(pair) != 2:
+        if not isinstance(pair, tuple) or len(pair) != 2:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             blocked(
                 preview_ref,
                 "Source parameter entries must be (Entity object, parameter mapping) pairs.",

@@ -151,9 +151,9 @@ def ai_context(
     location = _caller_location()
 
     if aliases is not None and (
-        not isinstance(aliases, _Sequence)
+        not isinstance(aliases, _Sequence)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         or isinstance(aliases, str | bytes | bytearray)
-        or not all(isinstance(item, str) and item.strip() for item in aliases)
+        or not all(isinstance(item, str) and item.strip() for item in aliases)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
     ):
         _raise(
             ErrorKind.INVALID_AI_CONTEXT,

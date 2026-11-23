@@ -1069,7 +1069,7 @@ def load_project(
             filtered_domains=filtered_models_tuple,
             graph=compilation_graph,
         )
-        if status != "errored" and registry is not None and expression_sidecar is not None
+        if status != "errored" and registry is not None and expression_sidecar is not None  # type: ignore[redundant-expr]  # Preserve the runtime check.
         else None
     )
     return LoadResult(

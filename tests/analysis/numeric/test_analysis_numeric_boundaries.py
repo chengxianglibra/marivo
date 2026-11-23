@@ -85,7 +85,7 @@ def test_native_float_nonzero_denominator_survives_cancellation(
     fixed = logical.persist()
     rows = fixed.to_pandas()
     defined = dict(zip(rows.iloc[:, 0], rows["value"], strict=True))
-    defined = {key: value for key, value in defined.items() if not pd.isna(value)}
+    defined = {key: value for key, value in defined.items() if not pd.isna(value)}  # type: ignore[redundant-expr]  # Exercise the runtime behavior.
     expected = (
         {"A": 1.0 / 1e16, "B": -1.0 / 1e16, "C": 1.0 / 16.0}
         if split and kind == "ratio"

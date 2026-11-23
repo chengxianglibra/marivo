@@ -133,4 +133,4 @@ def validate_datasource_live_surface() -> None:
         if isinstance(exported, type):
             assert exported in TYPE_CONTRACTS or exported in ERROR_TYPES.values()
         if callable(exported) and not isinstance(exported, type):
-            assert REGISTRY.by_callable(exported)
+            assert REGISTRY.by_callable(exported) is not None

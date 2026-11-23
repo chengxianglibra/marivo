@@ -79,7 +79,8 @@ contract = ForbiddenContract(
 )
 graph = grimp.build_graph(
     'marivo', include_external_packages=True,
-    exclude_type_checking_imports=True, cache_dir=None,
+    exclude_type_checking_imports=config['importlinter'].getboolean('exclude_type_checking_imports'),
+    cache_dir=None,
 )
 baseline = contract.check(deepcopy(graph), verbose=False)
 assert baseline.kept and not baseline.warnings, baseline.metadata
@@ -129,7 +130,8 @@ def test_analysis_keeps_typed_correspondence_and_member_values() -> None:
     assert isinstance(mv.ordinal(), mv.CalendarCorrespondence)
     assert isinstance(mv.offset(periods=1), mv.CalendarCorrespondence)
     assert isinstance(mv.offset(years=-1), mv.CalendarCorrespondence)
-    assert callable(mv.identity) and isinstance(mv.Grouping, type)
+    assert callable(mv.identity)
+    assert isinstance(mv.Grouping, type)
     assert callable(mv.Population.count)
     assert callable(mv.row_count)
 

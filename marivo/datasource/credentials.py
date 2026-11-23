@@ -38,7 +38,7 @@ class SecretValue:
     __slots__ = ("__value",)
 
     def __init__(self, value: str) -> None:
-        if not isinstance(value, str) or not value:
+        if not isinstance(value, str) or not value:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise ValueError("SecretValue requires a non-empty string.")
         self.__value = value
 

@@ -64,7 +64,7 @@ def convert_mysql_frame(frame: pd.DataFrame, schema: sch.Schema) -> pd.DataFrame
 
 
 # Ibis SQLBackend has no typing metadata. All driver-facing methods are typed here.
-class MySQLBackend(SQLBackend):  # type: ignore[misc]
+class MySQLBackend(SQLBackend):  # type: ignore[misc]  # The Ibis SQL backend base has no typing stubs.
     name = "mysql"
     compiler = compiler
     supports_create_or_replace = False
@@ -81,7 +81,7 @@ class MySQLBackend(SQLBackend):  # type: ignore[misc]
         try:
             # PyMySQL validates the authored JSON kwargs at this single driver
             # boundary; their value types depend on the actual option names.
-            self.con = Connection(  # type: ignore[call-overload]
+            self.con = Connection(  # type: ignore[call-overload]  # The stub cannot express forwarded driver options.
                 host="127.0.0.1" if host == "localhost" else host,
                 user=user or getpass.getuser(),
                 password=password or "",
@@ -127,7 +127,7 @@ class MySQLBackend(SQLBackend):  # type: ignore[misc]
     @cached_property
     def version(self) -> str:
         # PyMySQL's stubs leave this native string-returning extension untyped.
-        return str(self.con.get_server_info())  # type: ignore[no-untyped-call]
+        return str(self.con.get_server_info())  # type: ignore[no-untyped-call]  # PyMySQL leaves this method untyped.
 
     def get_schema(
         self, name: str, *, catalog: str | None = None, database: str | None = None

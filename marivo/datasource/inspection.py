@@ -8,11 +8,16 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import ibis
 
-from marivo._symbolic import DatasourceSymbol, native_symbol_ref, symbol_factory
+from marivo._symbolic import (
+    DatasourceIdentityHandle,
+    DatasourceSymbol,
+    native_symbol_ref,
+    symbol_factory,
+)
 from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
@@ -61,9 +66,6 @@ from marivo.project import resolve_project_root
 from marivo.refs import DatasourceKind, Ref, SemanticKind
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
-
-if TYPE_CHECKING:
-    from marivo.semantic.catalog import Datasource
 
 _PARTITION_VALUE_LIMIT = 100
 
@@ -765,7 +767,7 @@ def _validate_scope_values(scope: AuthoringScope) -> None:
         if type(entry) is not tuple or len(entry) != 2:
             raise TypeError("PartitionScope.values entries must be tuple[str, str].")
         name, partition_value = entry
-        if not isinstance(name, str) or not isinstance(partition_value, str):
+        if not isinstance(name, str) or not isinstance(partition_value, str):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             raise TypeError("PartitionScope.values entries must be tuple[str, str].")
         if not name or not partition_value:
             raise ValueError("PartitionScope partition names and values must be non-empty.")
@@ -1508,7 +1510,7 @@ def _structured_inspection_warnings(
 
 
 def inspect(
-    datasource: DatasourceSymbol | Datasource,
+    datasource: DatasourceSymbol | DatasourceIdentityHandle,
     source: TableSource,
     *,
     workspace_dir: str | Path | None = None,
@@ -1590,7 +1592,7 @@ def _inspect_bound_source(
     connections: DatasourceConnectionService,
 ) -> SourceInspection:
     """Inspect one source against an already-resolved project root."""
-    if type(datasource) is not Ref or datasource.kind is not SemanticKind.DATASOURCE:
+    if type(datasource) is not Ref or datasource.kind is not SemanticKind.DATASOURCE:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         received = type(datasource).__name__
         if isinstance(datasource, str):
             raise TypeError(

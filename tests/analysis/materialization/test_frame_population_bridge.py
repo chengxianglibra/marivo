@@ -277,10 +277,10 @@ def test_one_final_schedule_resolves_every_compiler_leaf(
     import marivo.analysis.materialization.frame_evaluation as evaluator
     from marivo.analysis.materialization.graph_source_execution import run_frame_plan as original
 
-    plans: list[CompiledFramePlan] = []
+    plans: list[CompiledFramePlan[StageOutput]] = []
 
     def run(
-        compiled: CompiledFramePlan,
+        compiled: CompiledFramePlan[StageOutput],
         *,
         source_prepared: Mapping[str, PreparedSources],
         read_fixed: Callable[[FrameInput], CompletedFrameData],

@@ -310,7 +310,7 @@ class Column:
         )
 
     # DSL comparisons deliberately build predicates instead of Python booleans.
-    def __eq__(self, other: object) -> Column:  # type: ignore[override]
+    def __eq__(self, other: object) -> Column:  # type: ignore[override]  # Column equality builds an expression.
         """Compare compatible values for equality.
 
         Args: other: Same-input Column or compatible immutable literal.
@@ -319,7 +319,7 @@ class Column:
         """
         return self._compare(other, "eq", canonical_id="column.__eq__")
 
-    def __ne__(self, other: object) -> Column:  # type: ignore[override]
+    def __ne__(self, other: object) -> Column:  # type: ignore[override]  # Column inequality builds an expression.
         """Compare compatible values for inequality.
 
         Args: other: Same-input Column or compatible immutable literal.

@@ -80,7 +80,8 @@ def _window(
         grain = rule.grain
         from marivo.analysis.core.frame_calendar import _UNITS
 
-        assert grain.unit is not None and grain.count is not None
+        assert grain.unit is not None
+        assert grain.count is not None
         return FrameToDateWindow(FrameBuiltinGrain(_UNITS[grain.unit], grain.count))
     return None
 
@@ -178,7 +179,8 @@ def observation_time_semantics(
                     grain = sample.grain if isinstance(sample, FieldCalendarSample) else sample
                     from marivo.analysis.core.frame_calendar import _UNITS
 
-                    assert grain.unit is not None and grain.count is not None
+                    assert grain.unit is not None
+                    assert grain.count is not None
                     captured = FrameBuiltinGrain(_UNITS[grain.unit], grain.count)
                     # Builtin sample bindings own the Session's frozen timezone.
                     binding = (

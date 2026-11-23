@@ -1414,7 +1414,7 @@ def _discovery_members(descriptor: SemanticHelpDescriptor) -> tuple[LiveHelpTarg
                 for target in _SUPPORT_DISCOVERY_OWNERS.get(descriptor.semantic_kind, ())
             ),
         )
-    if isinstance(descriptor, AuthoringCapability) and descriptor.canonical_id in {
+    if isinstance(descriptor, AuthoringCapability) and descriptor.canonical_id in {  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         "ref",
         "source_check",
     }:
@@ -1481,7 +1481,7 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
                 f"invalid semantic Help render class for {descriptor.canonical_id}: {render_class}"
             )
         if isinstance(descriptor, _SEMANTIC_NAVIGATION_DESCRIPTOR_TYPES) and (
-            descriptor.public_entrypoint is not None or descriptor.callable_path is not None
+            descriptor.public_entrypoint is not None or descriptor.callable_path is not None  # type: ignore[redundant-expr]  # Preserve the runtime check.
         ):
             raise ValueError(
                 f"semantic navigation descriptor must not be invokable: {descriptor.canonical_id}"
@@ -3915,7 +3915,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "SemanticKind",
         (),
     )
-    from marivo.datasource.typing import AiContextValue
+    from marivo._ai_context import AiContextValue
 
     add(
         AiContextValue,

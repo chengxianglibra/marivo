@@ -25,7 +25,7 @@ def literal_schemas(
     if not isinstance(graph.root, ResultQuery):
         return ()
     result: tuple[SourceSchema, ...] = ()
-    if not isinstance(graph.root.operation, LiteralValues) or not graph.signature.axes:
+    if not isinstance(graph.root.operation, LiteralValues) or not graph.signature.axes:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         return result
     keys: list[SourceField] = []
     groups = []
