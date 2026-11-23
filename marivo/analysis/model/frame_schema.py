@@ -20,7 +20,14 @@ from marivo.analysis.model.data_schema import (
     IntervalDataAxis,
     PairedDataAxis,
 )
-from marivo.analysis.model.data_types import DataColumn, require_data_text
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+    require_data_text,
+)
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_facts import FrameDataType as FrameDataType
 from marivo.analysis.model.frame_facts import FrameField as FrameField
@@ -523,3 +530,17 @@ def capture_comparisons(input_id: str, schema: LogicalSchema) -> tuple[FrameComp
             )
         )
     return tuple(result)
+
+
+def column_type_summary(column: DataColumn | PendingDataColumn) -> str:
+    if isinstance(column, PendingDataColumn):
+        return f"pending({column.kind})"
+    dtype = column.dtype
+    if isinstance(dtype, ScalarDataType):
+        return dtype.name
+    if isinstance(dtype, DecimalDataType):
+        return f"decimal({dtype.precision},{dtype.scale})"
+    if isinstance(dtype, TimestampDataType):
+        return f"timestamp({dtype.unit}, timezone={dtype.timezone!r})"
+    assert isinstance(dtype, DurationDataType)
+    return f"duration({dtype.unit})"

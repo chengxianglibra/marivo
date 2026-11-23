@@ -229,8 +229,21 @@ def test_arch005_counts_escape_hatches_and_enforces_local_sizes(tmp_path: Path) 
 
 @pytest.fixture
 def miniature_package(tmp_path: Path) -> Path:
-    for package in ("", "analysis/", "datasource/", "ontology/", "semantic/"):
+    for package in ("analysis/", "datasource/", "ontology/", "semantic/"):
         _write(tmp_path, f"marivo/{package}__init__.py", "")
+    _write(
+        tmp_path,
+        "marivo/__init__.py",
+        """
+import sys
+from types import ModuleType
+
+def help(target):
+    owner = target.split(".")[0]
+    name = f"marivo.{owner}._help_specs.manifest"
+    sys.modules[name] = ModuleType(name)
+""",
+    )
     return tmp_path
 
 
@@ -240,6 +253,33 @@ def test_arch006_detects_a_forbidden_domain_in_a_fresh_process(miniature_package
     assert guard.check_cold_imports(miniature_package) == [
         "ARCH006 marivo.ontology cold import loaded marivo.server"
     ]
+
+
+def test_arch006_rejects_an_eager_registry_and_a_foreign_help_provider(
+    miniature_package: Path,
+) -> None:
+    _write(miniature_package, "marivo/semantic/_capabilities/__init__.py", "")
+    _write(miniature_package, "marivo/semantic/_capabilities/registry.py", "")
+    _write(
+        miniature_package,
+        "marivo/semantic/__init__.py",
+        "from marivo.semantic._capabilities import registry\n",
+    )
+    init = miniature_package / "marivo/__init__.py"
+    init.write_text(
+        init.read_text()
+        + '    foreign = "marivo.datasource._help_specs.manifest"\n'
+        + "    sys.modules[foreign] = ModuleType(foreign)\n"
+    )
+    errors = guard.check_cold_imports(miniature_package)
+    assert (
+        "ARCH006 marivo.semantic cold import loaded marivo.semantic._capabilities.registry"
+        in errors
+    )
+    assert (
+        "ARCH006 semantic.load loaded foreign Help module marivo.datasource._help_specs.manifest"
+        in errors
+    )
 
 
 def test_ratchet_down_refuses_growth_and_writes_only_a_reduction(miniature_package: Path) -> None:

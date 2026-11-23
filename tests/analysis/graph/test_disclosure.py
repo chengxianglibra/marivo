@@ -3,7 +3,7 @@
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis._capabilities.dataset_registry import prepare
+from marivo.analysis._help_specs.manifest import prepare
 from marivo.analysis.errors import HelpTargetError
 from marivo.analysis.model.disclosure import (
     CallableInput,

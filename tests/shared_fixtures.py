@@ -705,11 +705,13 @@ def rendered_help(target: PublicHelpTarget = None, *, owner: str | None = None) 
     """
     if owner is not None and target is None:
         if owner == "datasource":
-            from marivo.datasource._capabilities.render import render_root_help
+            from marivo.datasource._help_specs.render import render_root_help
         elif owner == "semantic":
-            from marivo.semantic._capabilities.render import render_root_help
+            from marivo.semantic._help_specs.render import render_root_help
         elif owner == "analysis":
-            from marivo.analysis._capabilities.render import render_root_help
+            from marivo.analysis.help_spi import PROVIDER
+
+            return PROVIDER.root()
         else:
             raise ValueError(f"unknown help owner: {owner!r}")
         return render_root_help()
@@ -1089,7 +1091,7 @@ def numeric_program_frame(
     from marivo.analysis.core.frame_data import LiteralFrameBinding
     from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.dsl.frame_sources import pending_schema
-    from marivo.analysis.dsl.population import _interval_coordinate
+    from marivo.analysis.dsl.temporal import interval_coordinate
 
     owner = Owner(session.id, session._runtime.store.store_id)
     metrics = tuple(outputs.items())
@@ -1101,7 +1103,7 @@ def numeric_program_frame(
             if during is None
             else (grouping_binding(during),)
             if isinstance(during, CalendarAxis)
-            else (_interval_coordinate(during),)
+            else (interval_coordinate(during),)
         ),
         where=None,
         timezone=session.timezone,

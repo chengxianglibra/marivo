@@ -8,8 +8,10 @@ from types import MappingProxyType
 from typing import Literal, TypeAlias
 
 from marivo._kernel.errors import MarivoError
-from marivo.introspection.live.model import HelpSurface, ResolvableHelpDescriptor
-from marivo.introspection.live.resolve import ResolvedLiveTarget
+from marivo.introspection.capabilities.provider import BoundHelp
+from marivo.introspection.capabilities.resolve import ResolvedLiveTarget
+from marivo.introspection.capabilities.spec import CapabilitySpec
+from marivo.introspection.live.model import HelpSurface
 
 GlobalTopic = Literal["root", "authoring"]
 GlobalHelpRenderClass = Literal["root", "decision_hub"]
@@ -42,8 +44,11 @@ class NativeHelpRoute:
     """One target resolved by exactly one native help surface."""
 
     owner: HelpSurface
-    resolved: ResolvedLiveTarget[ResolvableHelpDescriptor]
-    original_target: object
+    page: BoundHelp
+
+    @property
+    def resolved(self) -> ResolvedLiveTarget[CapabilitySpec]:
+        return self.page.resolved
 
 
 @dataclass(frozen=True)

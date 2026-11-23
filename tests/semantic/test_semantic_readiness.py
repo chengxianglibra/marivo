@@ -82,7 +82,7 @@ def test_semantic_readiness_help_example_accepts_physical_selection(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     from marivo._authoring.model import AuthoringCapability
-    from marivo.semantic._capabilities.registry import REGISTRY
+    from marivo.semantic._help_specs.manifest import REGISTRY
 
     catalog = ms.SemanticCatalog(_ready_project(semantic_project_factory))
     descriptor = REGISTRY.by_canonical_id("readiness")

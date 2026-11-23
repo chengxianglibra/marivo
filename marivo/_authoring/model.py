@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from dataclasses import dataclass
+from typing import ClassVar, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict
 
+from marivo._kernel.errors import StructuredRepair
 from marivo.introspection.live.model import HelpSurface, LiveHelpTarget
 
 DataAccessEffect = Literal[
@@ -42,6 +44,20 @@ class AuthoringEffects(BaseModel):
     connection: ConnectionEffect
     mutations: tuple[MutationEffect, ...] = ()
     flags: tuple[EffectFlag, ...] = ()
+
+
+def authoring_effects(
+    data_access: DataAccessEffect = "none",
+    connection: ConnectionEffect = "none",
+    mutations: tuple[MutationEffect, ...] = (),
+    flags: tuple[EffectFlag, ...] = (),
+) -> AuthoringEffects:
+    """Declare authoring effects with the project-state effect of a connection."""
+    if connection == "opens_connection" and "project_state" not in mutations:
+        mutations = (*mutations, "project_state")
+    return AuthoringEffects(
+        data_access=data_access, connection=connection, mutations=mutations, flags=flags
+    )
 
 
 AuthoringInputRole = Literal[
@@ -85,17 +101,24 @@ RepairKind = Literal[
 ]
 
 
-class AuthoringRepair(BaseModel):
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AuthoringRepair(StructuredRepair[RepairKind]):
     """Closed typed repair shared by datasource and semantic values."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    kinds: ClassVar[tuple[str, ...]] = get_args(RepairKind)
 
-    kind: RepairKind
-    help_target: LiveHelpTarget
-    action: str
-    snippet: str | None = None
-    candidates: tuple[str, ...] = ()
     preserves_evidence: bool | None = None
+
+    def __post_init__(self) -> None:
+        StructuredRepair.__post_init__(self)
+        if self.preserves_evidence is not None and not isinstance(self.preserves_evidence, bool):
+            raise ValueError("preserves_evidence must be a bool or None")
+
+    def model_dump(self, *, mode: Literal["python", "json"] = "python") -> dict[str, object]:
+        return {
+            **StructuredRepair.model_dump(self, mode=mode),
+            "preserves_evidence": self.preserves_evidence,
+        }
 
 
 AuthoringCapabilityKind = Literal[

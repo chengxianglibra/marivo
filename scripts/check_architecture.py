@@ -56,6 +56,12 @@ COLD_IMPORTS = {
     "marivo.analysis": frozenset({"analysis"}),
     "marivo.ontology": frozenset({"datasource", "semantic", "ontology"}),
 }
+COLD_HELP = {
+    "marivo.datasource": ("datasource.env", "datasource.datasource_catalog"),
+    "marivo.semantic": ("semantic.load", "semantic.semantic_catalog"),
+    "marivo.analysis": ("analysis.session.observe", "analysis.analysis_frame"),
+    "marivo.ontology": ("ontology.influences", "ontology.ontology_catalog"),
+}
 DOMAIN_NAMES = {
     "datasource",
     "semantic",
@@ -148,10 +154,20 @@ class ModuleScan(ast.NodeVisitor):
                 self.findings["ARCH001"][edge] += 1
             if self.engine_scope and engine_import(target):
                 self.findings["ARCH002"][self.path] += 1
-        if self.scope and any(
-            module == "marivo" or module.startswith("marivo.") for module, _ in targets
-        ):
+        if self.scope and any(self._counts_as_local_import(target) for target in targets):
             self.findings["ARCH005"][f"{self.path}: local Marivo imports"] += 1
+
+    def _counts_as_local_import(self, target: ImportTarget) -> bool:
+        module, _ = target
+        if module != "marivo" and not module.startswith("marivo."):
+            return False
+        # ARCH006 requires this optional sink to stay unloaded at cold import
+        # and while Help runs with usage telemetry disabled.
+        return not (
+            self.module == "marivo.telemetry.context"
+            and self.scope == ["_Operation", "_emit"]
+            and target == ("marivo.telemetry.sink", "emit_event")
+        )
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         self.visit_Import(node)
@@ -305,34 +321,75 @@ import sys
 root = Path.cwd()
 sys.path.insert(0, str(root))
 import_module(sys.argv[1])
-if Path(sys.modules["marivo"].__file__).resolve() != root / "marivo" / "__init__.py":
+marivo = sys.modules["marivo"]
+if Path(marivo.__file__).resolve() != root / "marivo" / "__init__.py":
     raise RuntimeError("cold probe imported a different checkout")
-print(json.dumps(sorted(name for name in sys.modules if name.startswith("marivo."))))
+def modules():
+    return sorted(name for name in sys.modules if name.startswith("marivo."))
+
+before = modules()
+after = []
+for target in sys.argv[2:]:
+    marivo.help(target)
+    after.append(modules())
+print(json.dumps([before, after]))
 """
 
 
 def _cold_import(root: Path, surface: str) -> list[str]:
+    help_targets = COLD_HELP.get(surface, ())
     try:
         result = subprocess.run(
-            [sys.executable, "-I", "-c", _COLD_PROBE, surface],
+            [sys.executable, "-I", "-c", _COLD_PROBE, surface, *help_targets],
             cwd=root,
             capture_output=True,
             text=True,
             timeout=30,
             check=False,
-            env={**os.environ, "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1"},
+            env={
+                **os.environ,
+                "MARIVO_TELEMETRY": "off",
+                "OPENBLAS_NUM_THREADS": "1",
+                "OMP_NUM_THREADS": "1",
+            },
         )
     except subprocess.TimeoutExpired:
         return [f"ARCH006 {surface} cold import timed out"]
     if result.returncode != 0:
         return [f"ARCH006 {surface} cold import failed:\n{result.stderr.strip()}"]
-    modules: list[str] = json.loads(result.stdout.splitlines()[-1])
+    before: list[str]
+    after: list[list[str]]
+    before, after = json.loads(result.stdout.splitlines()[-1])
     forbidden = DOMAIN_NAMES - COLD_IMPORTS[surface]
-    return [
+    errors = [
         f"ARCH006 {surface} cold import loaded {module}"
-        for module in modules
+        for module in before
         if module.split(".")[1] in forbidden
+        or _help_module(module)
+        or module == "marivo.telemetry.sink"
     ]
+    for help_target, loaded in zip(help_targets, after, strict=True):
+        expected = f"{surface}._help_specs.manifest"
+        if expected not in loaded:
+            errors.append(f"ARCH006 {help_target} did not load {expected}")
+        errors.extend(
+            f"ARCH006 {help_target} loaded foreign Help module {module}"
+            for module in loaded
+            if _domain_help_module(module) and not module.startswith(surface + ".")
+        )
+        if "marivo.telemetry.sink" in loaded:
+            errors.append(f"ARCH006 {help_target} loaded the disabled telemetry sink")
+    return errors
+
+
+def _domain_help_module(module: str) -> bool:
+    return any(name in {"_capabilities", "_help_specs", "help_spi"} for name in module.split("."))
+
+
+def _help_module(module: str) -> bool:
+    return _domain_help_module(module) or module.startswith(
+        ("marivo._help", "marivo.introspection.capabilities")
+    )
 
 
 def check_cold_imports(root: Path) -> list[str]:

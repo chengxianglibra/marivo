@@ -6,8 +6,8 @@ owns the business question, evidence interpretation and conclusions.
 
 ## One public Help coordinator
 
-Python marivo.help(target) and CLI marivo help [target ...] use the same native
-registry. Root Help introduces concepts and routes only to authoring or analysis.
+Python marivo.help(target) and CLI marivo help [target ...] use the same surface
+providers. Root Help introduces concepts and routes to authoring and analysis.
 Targets are exact lowercase snake_case semantic paths, independent of Python
 symbols. Named pages disclose Target and Kind: topic, object, callable,
 attribute, expression or error.
@@ -261,8 +261,18 @@ Packaged skills retain workflow ownership and their explicit edit-authorization
 rule. Character/page budgets are proxies rather than measured model efficiency;
 journey correctness and failed lookups/repairs also matter.
 
-[marivo/_help](../../marivo/_help/) coordinates public Help;
-[introspection/live](../../marivo/introspection/live/) owns shared reflection,
-resolution and rendering. Domain-native registries live in the datasource,
-semantic, analysis and ontology _capabilities packages. Public export snapshots and
-behavior tests are independent of rendered output.
+[marivo/_help](../../marivo/_help/) coordinates public Help. The shared indexes,
+resolution and page dispatch live in
+[introspection/capabilities](../../marivo/introspection/capabilities/).
+[introspection/live](../../marivo/introspection/live/) owns reflection and
+attribute formatting. The datasource, semantic, analysis and ontology domains
+provide their specifications through their Help SPIs. Importing a public domain
+leaves Help manifests unloaded. A successful qualified lookup loads its owning
+manifest. Callable ownership checks and repairs for unknown names may consult
+other manifests. Public export snapshots and behavior tests are independent
+of rendered output.
+
+Analysis and authoring errors share the immutable fields of
+[StructuredRepair](../../marivo/_kernel/errors.py). Each domain owns its repair
+kinds. The exact Help address and candidate strings are part of the repair
+payload.

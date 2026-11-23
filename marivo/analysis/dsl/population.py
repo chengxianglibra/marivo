@@ -57,6 +57,7 @@ from marivo._kernel.temporal import CalendarAxis, TimeScope
 from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.frame_data import FrameKeyDependency
 from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
+from marivo.analysis.dsl.temporal import interval_coordinate
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_contracts import merge_frame_key_inputs
 from marivo.semantic import (
@@ -76,6 +77,7 @@ from marivo.semantic.spi import (
     consume_predicate,
     validate_context,
 )
+from marivo.telemetry import traced
 
 if TYPE_CHECKING:
     from pathlib import Path as FilesystemPath
@@ -255,7 +257,7 @@ def _axes(
     axes: list[ComparisonAxis] = []
     for item in by:
         if isinstance(item, TimeScope):
-            axes.append(_interval_coordinate(item))
+            axes.append(interval_coordinate(item))
         elif isinstance(item, Grouping):
             binding = grouping_binding(item)
             if isinstance(binding, MembershipBinding):
@@ -327,6 +329,7 @@ def identity(target: Entity | Path) -> Grouping: ...
 def identity(target: EntitySymbol | PathSymbol) -> Deferred: ...
 
 
+@traced(surface="analysis", operation="identity", capture="short")
 def identity(target: Entity | EntitySymbol | Path | PathSymbol) -> Grouping | Deferred:
     """Capture grouping by one complete Entity identity, without selecting members.
 
@@ -419,6 +422,7 @@ class Population(PopulationParameter):
             for axis in self._definition.axes
         )
 
+    @traced(surface="analysis", operation="population.count", capture="short")
     def count(self) -> NumericMetric:
         """Capture the cardinality of this complete coordinate domain.
 
@@ -500,6 +504,7 @@ class Population(PopulationParameter):
             print(f"axes_omitted={len(self._definition.axes) - 6}; complete axes: population.axes")
         print("Help: analysis.population")
 
+    @traced(surface="analysis", operation="population.project", capture="short")
     def project(
         self, *, by: tuple[Deferred | FieldExpression | Grouping, ...]
     ) -> Population | Deferred:
@@ -539,14 +544,17 @@ class Population(PopulationParameter):
             _identity_keys=_identity_keys(self, other),
         )
 
+    @traced(surface="analysis", operation="population.union", capture="short")
     def union(self, other: Population | Deferred) -> Population | Deferred:
         """Union matching complete domains; keys remain lazy and deduplicated."""
         return self._set(other, "union")
 
+    @traced(surface="analysis", operation="population.intersection", capture="short")
     def intersection(self, other: Population | Deferred) -> Population | Deferred:
         """Intersect matching complete domains without reading additional fields."""
         return self._set(other, "intersection")
 
+    @traced(surface="analysis", operation="population.difference", capture="short")
     def difference(self, other: Population | Deferred) -> Population | Deferred:
         """Subtract matching complete domain keys from this domain."""
         return self._set(other, "difference")
@@ -564,6 +572,7 @@ class Population(PopulationParameter):
         on: Deferred | Grouping | None = None,
     ) -> Population | Deferred: ...
 
+    @traced(surface="analysis", operation="population.classify", capture="short")
     def classify(
         self,
         *,
@@ -605,6 +614,7 @@ class Population(PopulationParameter):
     @overload
     def identities(self, *, on: Deferred) -> Deferred: ...
 
+    @traced(surface="analysis", operation="population.identities", capture="short")
     def identities(self, *, on: Grouping | Deferred) -> Population | Deferred:
         """Project the captured complete keys of one identity role as direct identities."""
         if isinstance(on, Deferred):
@@ -619,6 +629,7 @@ class Population(PopulationParameter):
             _identity_keys=_identity_keys(self, on),
         )
 
+    @traced(surface="analysis", operation="population.where", capture="short")
     def where(self, predicate: Deferred | RowPredicate) -> Population | Deferred:
         """Filter complete coordinates using predicates over their captured values.
 
@@ -655,6 +666,7 @@ class Population(PopulationParameter):
         self, *, via: Path | PathSymbol, on: Grouping | Deferred | None = None
     ) -> Population | Deferred: ...
 
+    @traced(surface="analysis", operation="population.image", capture="short")
     def image(
         self, *, via: Path | PathSymbol, on: Grouping | Deferred | None = None
     ) -> Population | Deferred:
@@ -698,6 +710,7 @@ class Population(PopulationParameter):
         on: Grouping | Deferred | None = None,
     ) -> Population | Deferred: ...
 
+    @traced(surface="analysis", operation="population.preimage", capture="short")
     def preimage(
         self,
         targets: Population | Deferred,
@@ -746,6 +759,7 @@ def in_population(population: Population) -> RowPredicate: ...
 def in_population(population: Deferred) -> Deferred: ...
 
 
+@traced(surface="analysis", operation="in_population", capture="short")
 def in_population(population: Population | Deferred) -> Deferred | RowPredicate:
     """Match complete coordinates projected onto a Population's bound axes.
 
@@ -778,32 +792,10 @@ def in_population(population: Population | Deferred) -> Deferred | RowPredicate:
     return RowExpression(PopulationContainsResolver(population), population._context, "boolean")
 
 
-def _interval_coordinate(scope: TimeScope) -> IntervalCoordinate:
-    from marivo._kernel.temporal import TimeScope, anchor_from_datetime
-    from marivo.analysis.model.time_grid import instant
-
-    if not isinstance(scope, TimeScope):
-        reject(
-            "a TimeScope with a frozen timezone",
-            repr(scope),
-            "Construct the scope with session.time_scope(...).",
-            "population.interval",
-        )
-    zone = scope.boundary_timezone
-    start = anchor_from_datetime(instant(scope.start, zone))
-    end = anchor_from_datetime(instant(scope.end, zone))
-    return IntervalCoordinate(
-        f"interval:{start.isoformat()}:{end.isoformat()}:{zone}",
-        start,
-        end,
-        zone,
-    )
-
-
 def _interval_population(scope: TimeScope) -> Population:
     from marivo._definition.relations import IntervalKeys
 
-    coordinate = _interval_coordinate(scope)
+    coordinate = interval_coordinate(scope)
     return Population(PopulationProgram(IntervalKeys(coordinate), None, (coordinate,)))
 
 
@@ -830,6 +822,7 @@ def membership(
 ) -> Grouping | Deferred: ...
 
 
+@traced(surface="analysis", operation="membership", capture="short")
 def membership(
     by: Deferred | FieldExpression | tuple[Deferred | FieldExpression, ...],
     *,
@@ -889,6 +882,7 @@ def coordinates(
 ) -> Population | Deferred: ...
 
 
+@traced(surface="analysis", operation="coordinates", capture="short")
 def coordinates(
     *,
     by: tuple[Deferred | FieldExpression | Grouping, ...],
@@ -948,6 +942,7 @@ def product(
 ) -> Population | Deferred: ...
 
 
+@traced(surface="analysis", operation="product", capture="short")
 def product(*factors: Population | Deferred | CalendarAxis | TimeScope) -> Population | Deferred:
     """Form a lazy Cartesian product of disjoint coordinate domains.
 

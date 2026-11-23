@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+from functools import wraps
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
 
 import marivo.ontology as mo
+from marivo._help.model import MarivoHelpTargetError
 from marivo._help.render import render_help_text
 from tests.shared_fixtures import bootstrap_sales_project
+
+
+def test_ontology_help_requires_the_registered_callable() -> None:
+    @wraps(mo.load)
+    def same_name() -> None:
+        raise AssertionError("Help must not execute the callable")
+
+    with pytest.raises(MarivoHelpTargetError):
+        render_help_text(same_name)
 
 
 @pytest.mark.parametrize("target", ("influences", "related_to"))

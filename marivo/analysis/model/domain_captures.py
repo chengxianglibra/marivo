@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import NoReturn
 
-from marivo._kernel.repair import RepairHelpTarget, StructuredRepair
-from marivo.analysis.model.errors import AnalysisError
+from marivo._kernel.errors import LiveHelpTarget
+from marivo.analysis.model.errors import AnalysisError, AnalysisRepair
 
 
 class DomainPreparationError(AnalysisError):
@@ -19,8 +19,8 @@ class DomainPreparationError(AnalysisError):
             expected=expected,
             received=received,
             location=f"analysis.{stage}.{constraint_id}",
-            repair=StructuredRepair(
-                kind="retry", action=repair, help_target=RepairHelpTarget(surface="analysis")
+            repair=AnalysisRepair(
+                kind="retry", action=repair, help_target=LiveHelpTarget(surface="analysis")
             ),
         )
 

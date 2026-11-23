@@ -20,6 +20,7 @@ from marivo.semantic.static_check.source_timezone import (
     require_source_timezone,
     source_timezone_axis,
 )
+from marivo.telemetry import traced
 
 if TYPE_CHECKING:
     from marivo.datasource.spi import DatasourceIR
@@ -50,6 +51,7 @@ class ReadinessIssue:
     details: Mapping[str, object] = field(default_factory=dict)
     catalog_definition_fingerprint: str | None = None
 
+    @traced(surface="semantic", operation="readiness_issue.to_dict", kind="method")
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
             "kind": self.kind,
@@ -70,6 +72,7 @@ class ReadinessInputSummary:
     refs: tuple[str, ...]
     tables: tuple[str, ...]
 
+    @traced(surface="semantic", operation="readiness_input_summary.to_dict", kind="method")
     def to_dict(self) -> dict[str, object]:
         return {
             "datasources": list(self.datasources),
@@ -159,6 +162,7 @@ class ReadinessReport(RenderableResult):
             card = card.listing("checked tables", self.input_summary.tables)
         return card.field(label="checked_at", value=self.checked_at)
 
+    @traced(surface="semantic", operation="readiness_report.to_dict", kind="method")
     def to_dict(self) -> dict[str, object]:
         return {
             "requested_ids": list(self.requested_ids),

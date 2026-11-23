@@ -23,6 +23,7 @@ from marivo.datasource.ir import (
     TableSourceIR,
     normalize_json_body,
 )
+from marivo.telemetry import traced
 
 if TYPE_CHECKING:
     import ibis.expr.types as ir
@@ -164,6 +165,7 @@ def _require_positive(value: int, *, field: str, target: str) -> None:
         )
 
 
+@traced(surface="datasource", operation="partition")
 def partition(values: Mapping[str, str], *, max_rows: int, timeout_seconds: int) -> PartitionScope:
     """Build an explicitly partitioned authoring acquisition scope.
 
@@ -234,6 +236,7 @@ def _normalize_time_bound(value: date | datetime | str, *, field_name: str) -> d
         ) from exc
 
 
+@traced(surface="datasource", operation="time_range")
 def time_range(
     column: str,
     /,
@@ -330,6 +333,7 @@ def time_range(
     return scope
 
 
+@traced(surface="datasource", operation="unpruned")
 def unpruned(*, max_rows: int, timeout_seconds: int) -> UnprunedScope:
     """Build an explicitly unpruned authoring acquisition scope.
 
@@ -399,6 +403,7 @@ def _normalize_query_params(
     return tuple(query_params.items())
 
 
+@traced(surface="datasource", operation="source_param")
 def source_param(name: str, /) -> SourceParamIR:
     """Declare one required runtime request parameter for a physical source.
 
@@ -418,6 +423,7 @@ def source_param(name: str, /) -> SourceParamIR:
     return SourceParamIR(name=name)
 
 
+@traced(surface="datasource", operation="table")
 def table(
     name: str,
     /,
@@ -459,6 +465,7 @@ def table(
     return TableSourceIR(table=name, database=database, columns=normalized_columns)
 
 
+@traced(surface="datasource", operation="parquet")
 def parquet(
     path: str,
     /,
@@ -490,6 +497,7 @@ def parquet(
     )
 
 
+@traced(surface="datasource", operation="csv")
 def csv(
     path: str,
     /,
@@ -526,6 +534,7 @@ def csv(
     )
 
 
+@traced(surface="datasource", operation="json")
 def json(
     path: str,
     /,

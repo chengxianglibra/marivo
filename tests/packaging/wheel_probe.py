@@ -98,7 +98,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 def surface_snapshot() -> list[dict[str, object]]:
     import marivo.analysis as mv
     from marivo._help.render import render_help_text
-    from marivo.analysis._capabilities.registry import REGISTRY
+    from marivo.analysis._help_specs.manifest import REGISTRY
 
     exports = {entry.name: entry for provider in REGISTRY.providers for entry in provider.exports}
     result: list[dict[str, object]] = []
@@ -125,9 +125,7 @@ def surface_snapshot() -> list[dict[str, object]]:
     for name in names:
         value: object = getattr(mv, name)
         entry = exports[name]
-        # Public telemetry wrappers preserve the native export's ownership.
-        implementation = inspect.unwrap(value) if callable(value) else value
-        assert implementation is entry.implementation
+        assert value is entry.implementation
         signatures = (
             {"__call__": str(inspect.signature(value))}
             if callable(value) and not inspect.isclass(value)

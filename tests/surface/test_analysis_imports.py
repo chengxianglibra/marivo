@@ -11,7 +11,7 @@ def test_public_bindings_stay_stable_across_private_imports() -> None:
     script = """
 import importlib
 import marivo.analysis as mv
-from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis._help_specs.manifest import REGISTRY
 names = ('Population', 'AnalysisFrame', 'FrameAxis', 'Column',
          'FrameMethodFacts')
 bindings = tuple(getattr(mv, name) for name in names)
@@ -63,6 +63,7 @@ from pkgutil import walk_packages
 import sys
 
 from marivo.analysis import model
+from marivo.analysis.errors import AnalysisRepair
 
 for info in walk_packages(model.__path__, model.__name__ + '.'):
     import_module(info.name)

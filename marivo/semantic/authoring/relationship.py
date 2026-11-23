@@ -35,10 +35,12 @@ from marivo.semantic.ir import (
     RelationshipIR,
 )
 from marivo.semantic.typing import AiContextValue
+from marivo.telemetry import traced
 
 _register_authoring_file(__file__)
 
 
+@traced(surface="semantic", operation="relationship.define")
 def relationship(
     *,
     name: str,

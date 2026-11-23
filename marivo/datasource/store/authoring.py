@@ -554,7 +554,7 @@ _DATASOURCE_CTX: ContextVar[DatasourceLoaderContext | None] = ContextVar(
 
 
 _DECLARATION_WRAPPERS = frozenset(
-    {__name__, "marivo.datasource.store.builders", "marivo.telemetry"}
+    {__name__, "marivo.datasource.store.builders", "marivo.telemetry.decorator"}
 )
 
 

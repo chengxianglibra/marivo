@@ -10,7 +10,7 @@ import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability
 from marivo._help import help as show_help
 from marivo.semantic import Entity
-from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
+from marivo.semantic._help_specs.manifest import REGISTRY as SEMANTIC_REGISTRY
 from tests.shared_fixtures import DslCaseFactory, rendered_help
 
 

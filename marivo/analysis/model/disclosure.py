@@ -9,7 +9,6 @@ from typing import Literal
 
 from marivo._kernel.refs import SemanticKind
 from marivo.analysis.model.errors import DatasetRegistrationError
-from marivo.analysis.model.help_contracts import ReadCapability
 
 
 def invalid(expected: str, received: str) -> DatasetRegistrationError:
@@ -232,7 +231,7 @@ class NavigationInput:
     callable_path: None = field(default=None, init=False)
 
 
-Descriptor = CallableInput | TypeInput | NavigationInput | ReadCapability
+Descriptor = CallableInput | TypeInput | NavigationInput
 
 
 def with_sealed_variants(

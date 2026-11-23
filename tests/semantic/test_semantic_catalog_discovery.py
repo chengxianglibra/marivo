@@ -144,7 +144,7 @@ def test_browse_pagination_is_complete_stable_and_snapshot_bound(
     assert len(payload["items"]) == 3
     assert payload["matches"] == {}
     assert len(first.render(max_output_bytes=1600).encode()) <= 1600
-    assert first.show(max_output_bytes=700) is None  # type: ignore[func-returns-value]  # Verify runtime contract.
+    assert first.show(max_output_bytes=700) is None
     assert len(capsys.readouterr().out.encode("utf-8")) <= 700
     for display in (first.show, first.render):
         with pytest.raises(ValueError):

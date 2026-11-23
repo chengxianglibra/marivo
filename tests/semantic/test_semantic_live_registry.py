@@ -16,14 +16,19 @@ from marivo._authoring.model import AuthoringCapability
 from marivo._kernel.refs import SemanticKind
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.targets import canonical_target
-from marivo.semantic._capabilities.model import (
+from marivo.semantic._help_specs.manifest import (
+    ERROR_TYPES,
+    REGISTRY,
+    finalize_registry,
+)
+from marivo.semantic._help_specs.model import (
     SEMANTIC_HELP_RENDER_BUDGETS,
     ConstructionMode,
     SemanticBuilderTopic,
-    SemanticCapabilityRegistry,
     SemanticCheckRoute,
     SemanticCheckTopic,
     SemanticHelpDescriptor,
+    SemanticManifest,
     SemanticNavigationRoute,
     SemanticNavigationTopic,
     SemanticObjectContract,
@@ -32,14 +37,10 @@ from marivo.semantic._capabilities.model import (
     SemanticObjectRelationship,
     SemanticRootSection,
 )
-from marivo.semantic._capabilities.registry import (
-    ERROR_TYPES,
-    REGISTRY,
-    TYPE_CONTRACTS,
-    _finalize_registry,
-)
-from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+from marivo.semantic._help_specs.type_specs import TYPE_CONTRACTS
 from marivo.semantic.error_repairs import SemanticRepairContract
+from marivo.semantic.help_spi import SEMANTIC_LIVE_SURFACE
+from tests.semantic.help_invariants import validate_registry
 
 
 def _authoring(canonical_id: str) -> AuthoringCapability:
@@ -59,7 +60,7 @@ def _finalize_fixture(
     object_contracts: tuple[SemanticObjectContract, ...] | None = None,
     root_sections: tuple[SemanticRootSection, ...] | None = None,
     repair_contracts: Mapping[str, SemanticRepairContract] | None = None,
-) -> SemanticCapabilityRegistry:
+) -> SemanticManifest:
     active_descriptors = REGISTRY.descriptors if descriptors is None else descriptors
     active_objects = REGISTRY.object_contracts if object_contracts is None else object_contracts
     if help_descriptors is None:
@@ -93,8 +94,7 @@ def _finalize_fixture(
             navigation_rows.append(descriptor)
         navigation = tuple(navigation_rows)
         help_descriptors = (*active_descriptors, *navigation, *active_objects)
-    return _finalize_registry(
-        active_descriptors,
+    registry = finalize_registry(
         root_sections=(REGISTRY.root_sections if root_sections is None else root_sections),
         source_contracts=REGISTRY._source_contracts,
         repair_contracts=(
@@ -104,6 +104,8 @@ def _finalize_fixture(
         object_contracts=active_objects,
         render_budgets=SEMANTIC_HELP_RENDER_BUDGETS,
     )
+    validate_registry(registry)
+    return registry
 
 
 def test_semantic_surface_uses_the_native_registry_without_copying() -> None:
@@ -396,7 +398,7 @@ def test_registry_covers_all_public_callables() -> None:
 
 def test_ref_factory_namespace_and_every_exact_method_share_registry_contracts() -> None:
     import marivo.semantic as ms
-    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     resolved = resolve_live_target("ref", SEMANTIC_LIVE_SURFACE)
     assert resolved.descriptor is REGISTRY.by_canonical_id("ref")
@@ -426,7 +428,7 @@ def test_ref_factory_namespace_and_every_exact_method_share_registry_contracts()
 
 def test_source_check_namespace_and_every_exact_method_share_registry_contracts() -> None:
     import marivo.semantic as ms
-    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     expected_outputs = {
         "not_null": "NotNullSourceCheck",
@@ -449,7 +451,7 @@ def test_source_check_namespace_and_every_exact_method_share_registry_contracts(
     )
     for method_name, output_family in expected_outputs.items():
         method = getattr(ms.source_check, method_name)
-        descriptor = REGISTRY.by_canonical_id(f"source_check.{method_name}")
+        descriptor = _authoring(f"source_check.{method_name}")
         assert REGISTRY.by_callable(method) is descriptor
         assert resolve_live_target(method, SEMANTIC_LIVE_SURFACE).descriptor is descriptor
         assert (
@@ -488,7 +490,7 @@ def test_registry_covers_all_public_types() -> None:
 
 def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
     from marivo.datasource.runtime.preview import PreviewResult
-    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     for type_obj, contract in TYPE_CONTRACTS.items():
         if contract.name == "ref":
@@ -517,7 +519,7 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
     from marivo._help.model import NativeHelpRoute
     from marivo._help.route import route_help_target
     from marivo.datasource.runtime.preview import PreviewResult
-    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.introspection.capabilities.resolve import resolve_live_target
     from marivo.semantic.dtos import PreviewBatchResult
     from marivo.semantic.readiness import ReadinessReport
     from marivo.semantic.runtime_check.results import (

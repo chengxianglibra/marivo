@@ -644,3 +644,24 @@ def _raise(
         expected=str(expected) if expected is not None else None,
         received=str(received) if received is not None else None,
     )
+
+
+def _error(message: str) -> NoReturn:
+    raise SemanticExpressionError.from_definition(
+        DefinitionGraphError(message, kind="invalid_value"), operation="expression capture"
+    )
+
+
+def _stage_error(
+    message: str,
+    *,
+    received: str = "an incompatible expression role",
+    expected: str = "expressions with the required semantic stage and role",
+) -> NoReturn:
+    raise SemanticExpressionError(
+        kind=ErrorKind.INVALID_EXPRESSION_STAGE,
+        message=message,
+        expected=expected,
+        received=received,
+        action="Use Measure row expressions before reduction and completed Metric expressions afterwards; keep boolean conditions in their matching stage.",
+    )

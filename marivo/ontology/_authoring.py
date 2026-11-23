@@ -22,6 +22,7 @@ from marivo.ontology.types import (
     _make_semantic_edge_ref,
 )
 from marivo.semantic.spi import SourceLocation
+from marivo.telemetry import traced
 
 _EDGE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$")
 _ENDPOINT_KINDS = {SemanticKind.ENTITY, SemanticKind.MEASURE, SemanticKind.METRIC}
@@ -189,6 +190,7 @@ def _edge(
     return ref
 
 
+@traced(surface="ontology", operation="influences")
 def influences(
     *,
     name: str,
@@ -235,6 +237,7 @@ def influences(
     )
 
 
+@traced(surface="ontology", operation="related_to")
 def related_to(
     *,
     name: str,

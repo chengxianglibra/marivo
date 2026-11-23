@@ -7,34 +7,6 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
-
-@dataclass(frozen=True)
-class ReadCapability:
-    """A bounded semantic catalog read used to construct analysis inputs."""
-
-    id: str
-    public_entrypoint: str
-    help_target: str
-    summary: str
-    constraint_ids: tuple[str, ...] = ()
-    callable_path: str | None = None
-    kind: Literal["read"] = "read"
-    receiver_family: str = ""
-    result_kind: Literal["terminal_text", "immutable_metadata", "defensive_copy"] = (
-        "immutable_metadata"
-    )
-    read_bound: Literal["bounded", "terminal"] = "bounded"
-    produced_input_family: Literal["TimeScopeInput"] | None = None
-    output_type: str = ""
-    example: str = ""
-    acquisition: str = ""
-    related: tuple[str, ...] = ()
-
-    @property
-    def canonical_id(self) -> str:
-        return self.id
-
-
 AnalysisHelpRenderClass = Literal[
     "root",
     "decision_hub",

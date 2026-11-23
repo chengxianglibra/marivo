@@ -243,26 +243,3 @@ __all__ = [
     "trailing_duration",
     "trailing_periods",
 ]
-
-
-def _install_telemetry() -> None:
-    import sys
-    from dataclasses import replace
-
-    from marivo.analysis._capabilities.registry import REGISTRY
-    from marivo.analysis.model.disclosure import CallableInput
-    from marivo.telemetry import install_surface_instrumentation
-
-    # Each native binding owns its exact implementation, including inherited methods.
-    descriptors = tuple(
-        replace(descriptor, bindings=(binding,))
-        for descriptor in REGISTRY.descriptors
-        if isinstance(descriptor, CallableInput) and descriptor.telemetry
-        for binding in descriptor.bindings
-    )
-    install_surface_instrumentation(
-        surface="analysis", descriptors=descriptors, root_module=sys.modules[__name__]
-    )
-
-
-_install_telemetry()

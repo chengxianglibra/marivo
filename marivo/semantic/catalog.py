@@ -4,8 +4,6 @@ Public entrypoint: ms.load() -> SemanticCatalog"""
 
 from __future__ import annotations
 
-import base64
-import json
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack
 from dataclasses import replace
@@ -74,6 +72,8 @@ from marivo.semantic.catalog_entries import (
     MetricContributionTimeRole,
     MetricDefinition,
     RelationshipDefinition,
+    _decode_related_cursor,
+    _encode_related_cursor,
 )
 from marivo.semantic.catalog_model.index import (
     _CatalogIndex,
@@ -144,6 +144,7 @@ from marivo.semantic.search.models import (
     SearchDocument,
 )
 from marivo.semantic.search.settings import load_search_config
+from marivo.telemetry import traced
 
 if TYPE_CHECKING:
     from _thread import LockType
@@ -195,31 +196,6 @@ EntityVersioning = EntityVersioningIR
 
 
 KindT = TypeVar("KindT", bound=SemanticKindTag)
-
-
-def _encode_related_cursor(snapshot_digest: str, level: str, offset: int) -> str:
-    payload = json.dumps([snapshot_digest, level, offset], separators=(",", ":")).encode()
-    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
-
-
-def _decode_related_cursor(cursor: str | None, *, snapshot_digest: str, level: str) -> int:
-    if cursor is None:
-        return 0
-    if type(cursor) is not str or not cursor:
-        raise ValueError("period cursor must be an opaque non-empty string or None")
-    try:
-        padded = cursor + "=" * (-len(cursor) % 4)
-        raw_digest, raw_level, raw_offset = json.loads(base64.urlsafe_b64decode(padded))
-    except (ValueError, TypeError, json.JSONDecodeError) as exc:
-        raise ValueError("period cursor is invalid") from exc
-    if (
-        raw_digest != snapshot_digest
-        or raw_level != level
-        or type(raw_offset) is not int
-        or raw_offset < 0
-    ):
-        raise ValueError("related cursor does not match the current Catalog snapshot and relation")
-    return raw_offset
 
 
 _PreviewCell: TypeAlias = str | int | float | bool | None
@@ -434,6 +410,7 @@ class SemanticCatalog(RenderableResult):
                 hint="Choose an id from catalog.search().items.",
             )
 
+    @traced(surface="semantic", operation="semantic_catalog.get", kind="method")
     def get(self, id: str | LookupSymbol, /) -> SemanticObject:
         """Get one directly usable named object by its exact canonical identity.
 
@@ -716,6 +693,7 @@ class SemanticCatalog(RenderableResult):
         cursor: str | None = None,
     ) -> CatalogPage[SemanticObject]: ...
 
+    @traced(surface="semantic", operation="semantic_catalog.search", kind="method")
     def search(
         self,
         query: str = "",
@@ -1016,6 +994,7 @@ class SemanticCatalog(RenderableResult):
             refs=(target.key,),
         )
 
+    @traced(surface="semantic", operation="readiness", kind="method")
     def readiness(
         self,
         refs: Sequence[_SemanticInput] | None = None,
@@ -1111,6 +1090,7 @@ class SemanticCatalog(RenderableResult):
             checked_ids=tuple(sorted(item.key for item in checked)),
         )
 
+    @traced(surface="semantic", operation="validate", kind="method", stage="connect")
     def validate(
         self,
         refs: Sequence[_SemanticInput],
@@ -1215,6 +1195,7 @@ class SemanticCatalog(RenderableResult):
             source_bindings=source_bindings,
         )
 
+    @traced(surface="semantic", operation="preview", kind="method", stage="connect")
     def preview(
         self,
         ref: _SemanticInput,
@@ -1290,6 +1271,7 @@ class SemanticCatalog(RenderableResult):
                 context_columns=context_columns,
             )
 
+    @traced(surface="semantic", operation="preview_many", kind="method", stage="connect")
     def preview_many(
         self,
         refs: Sequence[_SemanticInput],

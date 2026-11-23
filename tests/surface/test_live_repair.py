@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 
 from marivo._authoring.model import AuthoringRepair
 from marivo.introspection.live.model import LiveHelpTarget
@@ -34,7 +33,7 @@ def test_authoring_repair_with_candidates_and_evidence_invalidation() -> None:
 
 
 def test_authoring_repair_rejects_unknown_kind() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValueError):
         AuthoringRepair(
             kind="guess",  # type: ignore[arg-type]  # Verify rejection of an unknown kind.
             help_target=LiveHelpTarget(surface="semantic"),

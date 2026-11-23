@@ -27,7 +27,7 @@ from marivo._kernel.environment import MARIVO_VERSION
 from marivo.cli import doctor
 from marivo.server.command import serve
 from marivo.server.wire import DEFAULT_MIB, DEFAULT_SECONDS, Limits
-from marivo.telemetry import track_operation, tracked_capability
+from marivo.telemetry import traced, track_operation
 
 
 def _skills_source_dir() -> Path:
@@ -152,7 +152,7 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
         print(f"  Installed skills for {agent_label} ({agent_dir_name}/)")
 
 
-@tracked_capability(surface="cli", capability_id="init", capability_kind="command")
+@traced(surface="cli", operation="init", kind="command")
 def init_project(force: bool = False, project_dir: Path | None = None) -> None:
     """Materialize optional Marivo project scaffolding and record local usage telemetry."""
     _init_project_impl(force=force, project_dir=project_dir or Path.cwd())

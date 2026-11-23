@@ -20,6 +20,7 @@ from marivo._definition.types import DefinitionGraphError, LiteralValue, check_l
 from marivo.analysis.core.value_types import literal_kind
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_structure import ValueKind as ValueKind
+from marivo.telemetry import traced
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -223,6 +224,7 @@ class Column:
             self._frame,
         )
 
+    @traced(surface="analysis", operation="column.__add__", capture="short")
     def __add__(self, other: Column | LiteralValue) -> Column:
         """Add two nullable values pointwise.
 
@@ -232,6 +234,7 @@ class Column:
         """
         return self._binary(other, "add", canonical_id="column.__add__")
 
+    @traced(surface="analysis", operation="column.__radd__", capture="short")
     def __radd__(self, other: LiteralValue) -> Column:
         """Add a literal to each nullable value.
 
@@ -241,6 +244,7 @@ class Column:
         """
         return self._binary(other, "add", canonical_id="column.__radd__", reverse=True)
 
+    @traced(surface="analysis", operation="column.__sub__", capture="short")
     def __sub__(self, other: Column | LiteralValue) -> Column:
         """Subtract two nullable values pointwise.
 
@@ -250,6 +254,7 @@ class Column:
         """
         return self._binary(other, "sub", canonical_id="column.__sub__")
 
+    @traced(surface="analysis", operation="column.__rsub__", capture="short")
     def __rsub__(self, other: LiteralValue) -> Column:
         """Subtract each nullable value from a literal.
 
@@ -259,6 +264,7 @@ class Column:
         """
         return self._binary(other, "sub", canonical_id="column.__rsub__", reverse=True)
 
+    @traced(surface="analysis", operation="column.__mul__", capture="short")
     def __mul__(self, other: Column | LiteralValue) -> Column:
         """Multiply nullable values pointwise.
 
@@ -268,6 +274,7 @@ class Column:
         """
         return self._binary(other, "mul", canonical_id="column.__mul__")
 
+    @traced(surface="analysis", operation="column.__rmul__", capture="short")
     def __rmul__(self, other: LiteralValue) -> Column:
         """Multiply a literal by nullable values.
 
@@ -277,6 +284,7 @@ class Column:
         """
         return self._binary(other, "mul", canonical_id="column.__rmul__", reverse=True)
 
+    @traced(surface="analysis", operation="column.__truediv__", capture="short")
     def __truediv__(self, other: Column | LiteralValue) -> Column:
         """Divide nullable values with null at a zero denominator.
 
@@ -286,6 +294,7 @@ class Column:
         """
         return self._binary(other, "div", canonical_id="column.__truediv__")
 
+    @traced(surface="analysis", operation="column.__rtruediv__", capture="short")
     def __rtruediv__(self, other: LiteralValue) -> Column:
         """Divide a literal by nullable values, with null at zero.
 
@@ -295,6 +304,7 @@ class Column:
         """
         return self._binary(other, "div", canonical_id="column.__rtruediv__", reverse=True)
 
+    @traced(surface="analysis", operation="column.__neg__", capture="short")
     def __neg__(self) -> Column:
         """Negate nullable numeric values pointwise.
 
@@ -310,6 +320,7 @@ class Column:
         )
 
     # DSL comparisons deliberately build predicates instead of Python booleans.
+    @traced(surface="analysis", operation="column.__eq__", capture="short")
     def __eq__(self, other: object) -> Column:  # type: ignore[override]  # Column equality builds an expression.
         """Compare compatible values for equality.
 
@@ -319,6 +330,7 @@ class Column:
         """
         return self._compare(other, "eq", canonical_id="column.__eq__")
 
+    @traced(surface="analysis", operation="column.__ne__", capture="short")
     def __ne__(self, other: object) -> Column:  # type: ignore[override]  # Column inequality builds an expression.
         """Compare compatible values for inequality.
 
@@ -348,6 +360,7 @@ class Column:
             )
         return self._binary(other, operation, canonical_id=canonical_id)
 
+    @traced(surface="analysis", operation="column.__lt__", capture="short")
     def __lt__(self, other: Column | LiteralValue) -> Column:
         """Compare compatible values in ascending order.
 
@@ -357,6 +370,7 @@ class Column:
         """
         return self._binary(other, "lt", canonical_id="column.__lt__")
 
+    @traced(surface="analysis", operation="column.__le__", capture="short")
     def __le__(self, other: Column | LiteralValue) -> Column:
         """Compare compatible values in ascending order, including equality.
 
@@ -366,6 +380,7 @@ class Column:
         """
         return self._binary(other, "le", canonical_id="column.__le__")
 
+    @traced(surface="analysis", operation="column.__gt__", capture="short")
     def __gt__(self, other: Column | LiteralValue) -> Column:
         """Compare compatible values in descending order.
 
@@ -375,6 +390,7 @@ class Column:
         """
         return self._binary(other, "gt", canonical_id="column.__gt__")
 
+    @traced(surface="analysis", operation="column.__ge__", capture="short")
     def __ge__(self, other: Column | LiteralValue) -> Column:
         """Compare compatible values in descending order, including equality.
 
@@ -384,6 +400,7 @@ class Column:
         """
         return self._binary(other, "ge", canonical_id="column.__ge__")
 
+    @traced(surface="analysis", operation="column.__and__", capture="short")
     def __and__(self, other: Column) -> Column:
         """Combine two nullable boolean predicates.
 
@@ -393,6 +410,7 @@ class Column:
         """
         return self._binary(other, "and", canonical_id="column.__and__")
 
+    @traced(surface="analysis", operation="column.__or__", capture="short")
     def __or__(self, other: Column) -> Column:
         """Combine two nullable boolean alternatives.
 
@@ -402,6 +420,7 @@ class Column:
         """
         return self._binary(other, "or", canonical_id="column.__or__")
 
+    @traced(surface="analysis", operation="column.__invert__", capture="short")
     def __invert__(self) -> Column:
         """Negate a nullable boolean predicate.
 
@@ -424,6 +443,7 @@ class Column:
             self._frame,
         )
 
+    @traced(surface="analysis", operation="column.is_null", capture="short")
     def is_null(self) -> Column:
         """Test nullable values; returns a same-input predicate without execution.
 
@@ -439,6 +459,7 @@ class Column:
             self._frame,
         )
 
+    @traced(surface="analysis", operation="column.share", capture="short")
     def share(
         self,
         *,
@@ -489,6 +510,7 @@ class Column:
         column = schema.values[0]
         return Column(self._input_id, expression, column.unit, column_kind(column), frame)
 
+    @traced(surface="analysis", operation="column.sum", capture="short")
     def sum(self) -> _Statistic:
         """Request an ignore-NA sum, completed by AnalysisFrame.reduce or over.
 
@@ -504,6 +526,7 @@ class Column:
         """
         return self._statistic("sum", canonical_id="column.sum")
 
+    @traced(surface="analysis", operation="column.mean", capture="short")
     def mean(self) -> _Statistic:
         """Request an ignore-NA mean, completed by AnalysisFrame.reduce or over.
 
@@ -513,6 +536,7 @@ class Column:
         """
         return self._statistic("mean", canonical_id="column.mean")
 
+    @traced(surface="analysis", operation="column.corr", capture="short")
     def corr(self, other: Column, *, method: Literal["pearson", "spearman"]) -> _Statistic:
         """Request one paired correlation coefficient, completed by Frame.reduce or over.
 
@@ -540,6 +564,7 @@ class Column:
             other, method, location="Column.corr", canonical_id="column.corr"
         )
 
+    @traced(surface="analysis", operation="column.pair_count", capture="short")
     def pair_count(self, other: Column) -> _Statistic:
         """Count common non-NA endpoint values, completed by Frame.reduce or over.
 
@@ -655,6 +680,7 @@ class _Statistic:
         return f"<ValueStatistic unit={unit}; use marivo.help('analysis.value_statistic')>"
 
 
+@traced(surface="analysis", operation="row_count", capture="short")
 def row_count() -> _Statistic:
     """Request the count of current coordinates, completed by AnalysisFrame.reduce or over.
 

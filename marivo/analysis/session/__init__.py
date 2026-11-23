@@ -21,6 +21,7 @@ from marivo.analysis.model.errors import DatasetConstructionError
 from marivo.analysis.session._lazy_read_model import SessionSummary, SessionSummaryPage
 from marivo.analysis.session.core import Session
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.telemetry import traced
 
 __all__ = ["get_or_create", "inspect", "recent", "resume"]
 
@@ -55,6 +56,7 @@ def _validate_project_manifest(root: Path) -> None:
         ) from exc
 
 
+@traced(surface="analysis", operation="session.get_or_create")
 def get_or_create(
     name: str,
     *,
@@ -156,6 +158,7 @@ def get_or_create(
     return _resume(record.session_ref, help_target="session.get_or_create")
 
 
+@traced(surface="analysis", operation="session.resume")
 def resume(session_id: str) -> Session:
     """Recover one existing Session by its exact immutable ID.
 
@@ -241,18 +244,3 @@ def inspect(session_id: str) -> SessionSummary:
             MaterializationLayout(root), session_id, location="session.inspect"
         )
     return _lazy_history.inspect(store, session_id)
-
-
-def _install_telemetry() -> None:
-    from marivo.telemetry import tracked_capability
-
-    global get_or_create, resume
-    get_or_create = tracked_capability(
-        surface="analysis", capability_id="session.get_or_create", capability_kind="callable"
-    )(get_or_create)
-    resume = tracked_capability(
-        surface="analysis", capability_id="session.resume", capability_kind="callable"
-    )(resume)
-
-
-_install_telemetry()

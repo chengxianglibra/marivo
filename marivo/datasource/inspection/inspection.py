@@ -56,6 +56,7 @@ from marivo.datasource.source import (
 )
 from marivo.datasource.store import declarations as _store
 from marivo.datasource.store.authoring import _loaded_datasource_ref, _storage_name
+from marivo.telemetry import traced
 
 
 def _parquet_metadata(
@@ -117,6 +118,7 @@ def _structured_inspection_warnings(
     return warnings
 
 
+@traced(surface="datasource", operation="inspect", stage="connect")
 def inspect(
     datasource: DatasourceSymbol | DatasourceIdentityHandle,
     source: TableSource,

@@ -27,6 +27,7 @@ from marivo.semantic.runtime_check.source_checks import (
     ValidationCheckKind,
     ValidationStatus,
 )
+from marivo.telemetry import traced
 
 
 def _scope_dict(scope: AuthoringScope) -> dict[str, object]:
@@ -133,6 +134,7 @@ class ValidationCheckResult(RenderableResult):
             card = card.field("repair", _repair_summary(self.repair))
         return card.field("checked_at", self.checked_at)
 
+    @traced(surface="semantic", operation="validation_check_result.to_dict", kind="method")
     def to_dict(self) -> dict[str, object]:
         return {
             "kind": self.kind,
@@ -205,6 +207,7 @@ class ValidationReport(RenderableResult):
         )
         return card.field("checked_at", self.checked_at)
 
+    @traced(surface="semantic", operation="validation_report.to_dict", kind="method")
     def to_dict(self) -> dict[str, object]:
         return {
             "status": self.status,

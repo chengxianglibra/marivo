@@ -39,8 +39,10 @@ from marivo.semantic.errors import (
 from marivo.semantic.expressions.inputs import _as_deferred
 from marivo.semantic.ir import DomainIR
 from marivo.semantic.typing import AiContextValue
+from marivo.telemetry import traced
 
 
+@traced(surface="semantic", operation="domain.define")
 def domain(
     *,
     name: str,
@@ -118,6 +120,7 @@ def domain(
     "time_via",
     "fold",
 )
+@traced(surface="semantic", operation="metric.define")
 def metric(
     *,
     domain: DomainSymbol | None = None,

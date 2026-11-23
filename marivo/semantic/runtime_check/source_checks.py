@@ -33,6 +33,7 @@ from marivo.semantic.catalog_model.objects import (
     TimeDimension,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
+from marivo.telemetry import traced
 
 ValidationStatus = Literal["current", "failed", "unavailable", "unknown"]
 
@@ -311,6 +312,7 @@ FieldSourceCheck: TypeAlias = (
 class SourceCheckNamespace:
     """Closed constructors for explicit online validation expectations."""
 
+    @traced(surface="semantic", operation="source_check.not_null", kind="method")
     def not_null(self, field: FieldInput, /) -> NotNullSourceCheck:
         """Build an explicit no-NULL expectation for one field.
 
@@ -325,6 +327,7 @@ class SourceCheckNamespace:
         """
         return NotNullSourceCheck(field=field)
 
+    @traced(surface="semantic", operation="source_check.allowed_values", kind="method")
     def allowed_values(
         self,
         field: CategoricalInput,
@@ -346,6 +349,7 @@ class SourceCheckNamespace:
         """
         return AllowedValuesSourceCheck(field=field, values=tuple(values))
 
+    @traced(surface="semantic", operation="source_check.unique", kind="method")
     def unique(self, *, fields: Sequence[FieldInput]) -> UniqueSourceCheck:
         """Build an explicit uniqueness expectation for a field tuple.
 
@@ -361,6 +365,7 @@ class SourceCheckNamespace:
         """
         return UniqueSourceCheck(fields=tuple(fields))
 
+    @traced(surface="semantic", operation="source_check.freshness", kind="method")
     def freshness(
         self,
         field: TimeInput,
@@ -384,6 +389,7 @@ class SourceCheckNamespace:
         """
         return FreshnessSourceCheck(field=field, max_age=max_age)
 
+    @traced(surface="semantic", operation="source_check.relationship_matches", kind="method")
     def relationship_matches(
         self,
         relationship: RelationshipInput,
@@ -412,6 +418,7 @@ class SourceCheckNamespace:
         """
         return RelationshipMatchesSourceCheck(relationship=relationship, side=side)
 
+    @traced(surface="semantic", operation="source_check.relationship_cardinality", kind="method")
     def relationship_cardinality(
         self,
         relationship: RelationshipInput,

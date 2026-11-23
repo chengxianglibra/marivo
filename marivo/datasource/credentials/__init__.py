@@ -18,6 +18,7 @@ from marivo.datasource.errors import (
     _backend_failure_summary,
     repair,
 )
+from marivo.telemetry import traced
 
 
 class SecretValue:
@@ -42,6 +43,7 @@ class SecretValue:
             raise ValueError("SecretValue requires a non-empty string.")
         self.__value = value
 
+    @traced(surface="datasource", operation="secret_value.reveal", kind="method")
     def reveal(self) -> str:
         """Read the secret for a trusted adapter.
 
@@ -93,6 +95,7 @@ class CredentialRequest:
             f"datasource={self.datasource[:60]!r}; use .show()"
         )
 
+    @traced(surface="datasource", operation="credential_request.show", kind="method")
     def show(self) -> None:
         """Print bounded request facts, without resolving credentials.
 
@@ -112,6 +115,7 @@ class CredentialRequest:
 class CredentialResolver(Protocol):
     """Synchronous host adapter; owns authorization and service timeouts."""
 
+    @traced(surface="datasource", operation="credential_resolver.resolve", kind="method")
     def resolve(self, request: CredentialRequest) -> SecretValue:
         """Read one reference using the request's bound project and operation.
 
@@ -146,6 +150,7 @@ def bind_resolver(resolver: CredentialResolver | None) -> Iterator[None]:
         _RESOLVER.reset(token)
 
 
+@traced(surface="datasource", operation="credential_scope")
 def credential_scope(*, resolver: CredentialResolver) -> AbstractContextManager[None]:
     """Select a host credential resolver for new operations and runtimes.
 

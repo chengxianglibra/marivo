@@ -479,8 +479,10 @@ with their parent operation identity. For example, a successful `compute()` insi
 `to_pandas()` adds no events, while a failed evaluation can record both the nested
 failure and the export failure. Same-capability wrappers do not duplicate events.
 Lightweight instrumented reads emit failures only. Semantic references emit no events.
-Disabling telemetry preserves execution-log operation context and skips telemetry
-attribute preparation in public capability wrappers.
+Ontology authoring and loading record failures through the same operation schema.
+Public operations declare instrumentation at their callable definitions. Disabling
+telemetry preserves execution-log operation context and skips usage attribute
+preparation. The usage event sink loads on the first eligible event.
 
 The sinks share private append/rolling primitives while retaining separate content,
 directories and enablement. Execution logs roll by UTC day and approximately

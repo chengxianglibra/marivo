@@ -106,6 +106,7 @@ from marivo.semantic.static_check.ast_rules import (
     validate_entity_table_body_ast,
     validate_metric_body_ast,
 )
+from marivo.telemetry import traced
 
 if TYPE_CHECKING:
     from marivo.semantic.definition_resolution import Field
@@ -127,7 +128,6 @@ def _find_function_node(tree: ast.Module, fn_name: str) -> ast.FunctionDef:
 
 
 def _load_function_ast(fn: Callable[..., object]) -> tuple[ast.FunctionDef, int]:
-
     ctx = _LOADER_CTX.get()
     try:
         source = None
@@ -627,7 +627,6 @@ def construct_metric_expression(
 
 
 def _binding_field_ref(value: object) -> Ref[SemanticKindTag] | None:
-
     if isinstance(value, Deferred):
         native = native_symbol_ref(value)
         if native is not None:
@@ -649,6 +648,7 @@ def _binding_field_ref(value: object) -> Ref[SemanticKindTag] | None:
     return None
 
 
+@traced(surface="semantic", operation="bind")
 def bind(field: Deferred, entity_alias: ibis_ir.Table) -> ibis_ir.Value:
     """Apply a physical semantic field in a restricted Ibis field body.
 

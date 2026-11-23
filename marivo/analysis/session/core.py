@@ -17,7 +17,7 @@ from marivo._kernel.temporal import InstantAnchor, TimeScope
 from marivo.analysis.binding.observation import ObservationOwner
 from marivo.analysis.dsl.frame_reopening import reopen_frame
 from marivo.analysis.materialization.contracts import SessionRecord
-from marivo.analysis.session._lazy_sources import make_source_owner
+from marivo.analysis.session._lazy_sources import _field_input, _predicate_input, make_source_owner
 from marivo.semantic import Entity, RowExpression, SemanticCatalog, load
 from marivo.semantic.spi import (
     DimensionExpression,
@@ -25,14 +25,13 @@ from marivo.semantic.spi import (
     NumericMetric,
     RowPredicate,
     bind_entity,
-    bind_field,
     bind_metric,
-    bind_predicate,
     catalog_state,
     consume_predicate,
     entity_exact,
     validate_context,
 )
+from marivo.telemetry import traced
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame
@@ -41,45 +40,6 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.source_capture import ValueRow
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.session._lazy_read_model import PersistedFrameSummaryPage
-
-
-def _predicate_input(
-    value: RowPredicate | None, catalog: SemanticCatalog, owner: Owner, *, location: str
-) -> Deferred | None:
-    from marivo.analysis.model.errors import reject
-
-    if value is None:
-        return None
-    if not isinstance(value, RowExpression) or value._role != "boolean":  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        reject(
-            "a row Predicate",
-            type(value).__name__,
-            "Use a condition built from loaded fields or in_population(...).",
-            location,
-        )
-    if value._context.owner not in (None, owner):
-        reject(
-            "a Predicate owned by this Session",
-            "another Store or Session",
-            "Rebuild the predicate in its owning Session.",
-            location,
-        )
-    return bind_predicate(value, catalog, owner=owner)
-
-
-def _field_input(
-    value: FieldExpression, catalog: SemanticCatalog, owner: Owner, *, location: str
-) -> Deferred:
-    from marivo.analysis.model.errors import reject
-
-    if not isinstance(value, RowExpression) or value._role not in ("dimension", "time", "numeric"):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        reject(
-            "a semantic field expression",
-            type(value).__name__,
-            "Obtain a field from the receiving Catalog.",
-            location,
-        )
-    return bind_field(value, catalog, owner=owner)
 
 
 class Session:
@@ -198,6 +158,7 @@ class Session:
         assert self._catalog_value is not None
         return self._catalog_value
 
+    @traced(surface="analysis", operation="session.members", capture="short")
     def members(
         self,
         entity: Entity,
@@ -225,7 +186,7 @@ class Session:
             identities use mv.coordinates(by=(mv.identity(entity),), keys=...); compute keys with session.frame(population).
         """
         from marivo._definition.relations import PopulationProgram, SourceIdentities
-        from marivo._definition.types import AxisBinding, InputContext, Owner
+        from marivo._definition.types import AxisBinding, InputContext
         from marivo.analysis.dsl.population import (
             Population,
             _owner,
@@ -351,6 +312,7 @@ class Session:
 
         return exact_scope(start, end, self.timezone)
 
+    @traced(surface="analysis", operation="session.observe", capture="short")
     def observe(
         self,
         metrics: NumericMetric
@@ -488,6 +450,7 @@ class Session:
             _captured_frame_inputs=captured_frame_inputs,
         )
 
+    @traced(surface="analysis", operation="session.frame", capture="short")
     def frame(self, population: Population) -> AnalysisFrame:
         """Capture the complete key domain of a general Population as a Frame.
 
@@ -537,6 +500,7 @@ class Session:
             self._runtime.local, state, self._runtime.connection_config, population
         )
 
+    @traced(surface="analysis", operation="session.read", capture="short")
     def read(
         self,
         population: Population,
@@ -602,6 +566,7 @@ class Session:
             on=on,
         )
 
+    @traced(surface="analysis", operation="session.values", capture="short")
     def values(
         self,
         *,
@@ -707,6 +672,7 @@ class Session:
             )
         return reopen_frame(self._runtime.local, artifact_id)
 
+    @traced(surface="analysis", operation="session.population_from", capture="short")
     def population_from(
         self,
         frame: AnalysisFrame,

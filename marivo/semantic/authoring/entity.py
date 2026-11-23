@@ -52,6 +52,7 @@ from marivo.semantic.ir import (
     ValidityVersioningIR,
 )
 from marivo.semantic.typing import AiContextValue
+from marivo.telemetry import traced
 
 if TYPE_CHECKING:
     from marivo.semantic.ir import SourceLocation
@@ -184,6 +185,7 @@ def entity(
 ) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Table]], EntitySymbol]: ...
 
 
+@traced(surface="semantic", operation="entity.define")
 def entity(
     *,
     name: str | None = None,

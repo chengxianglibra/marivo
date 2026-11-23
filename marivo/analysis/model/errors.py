@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from typing import ClassVar, NoReturn, TypedDict
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import ClassVar, Literal, NoReturn, TypedDict, get_args
 
-from marivo._kernel.errors import MarivoError
-from marivo._kernel.repair import Repair, RepairHelpTarget, RepairKind, StructuredRepair
+from marivo._kernel.errors import LiveHelpTarget, MarivoError, StructuredRepair
 from marivo.introspection.live.targets import canonical_target
+
+RepairKind = Literal["retry", "inspect", "user_choice", "semantic_authoring", "environment"]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisRepair(StructuredRepair[RepairKind]):
+    """Typed repair instruction attached to an analysis failure.
+
+    The kind distinguishes retry, further inspection, a user choice,
+    semantic authoring, or environment repair. Read action for the next
+    step and help_target for its exact contract.
+    """
+
+    kinds: ClassVar[tuple[str, ...]] = get_args(RepairKind)
 
 
 class _DerivedFields(TypedDict, total=False):
@@ -19,7 +33,7 @@ class _DerivedFields(TypedDict, total=False):
     expected: str
     received: str
     location: str
-    repair: Repair
+    repair: AnalysisRepair
 
 
 class AnalysisError(MarivoError):
@@ -28,8 +42,6 @@ class AnalysisError(MarivoError):
     Base class for analysis errors. Read the structured fields and owning repair.
     """
 
-    _repair_factory: ClassVar[Callable[[StructuredRepair], Repair] | None] = None
-
     def __init__(
         self,
         *,
@@ -37,7 +49,7 @@ class AnalysisError(MarivoError):
         expected: str | None = None,
         received: str | None = None,
         location: str | None = None,
-        repair: Repair | None = None,
+        repair: AnalysisRepair | None = None,
         hint: str | None = None,
         context: Mapping[str, object] | None = None,
     ) -> None:
@@ -49,13 +61,7 @@ class AnalysisError(MarivoError):
         self.expected: str | None = expected if expected is not None else derived.get("expected")
         self.received: str | None = received if received is not None else derived.get("received")
         self.location: str | None = location if location is not None else derived.get("location")
-        selected_repair = repair if repair is not None else derived.get("repair")
-        factory = AnalysisError._repair_factory
-        self.repair: Repair | None = (
-            factory(selected_repair)
-            if factory is not None and isinstance(selected_repair, StructuredRepair)
-            else selected_repair
-        )
+        self.repair = repair if repair is not None else derived.get("repair")
 
         self.hint = hint
 
@@ -93,13 +99,7 @@ class AnalysisError(MarivoError):
                 lines.extend(f"  {line}" for line in self.repair.snippet.splitlines())
             if self.repair.candidates:
                 lines.append(f"  Candidates: {', '.join(self.repair.candidates)}")
-            target = self.repair.help_target
-            qualified = (
-                target.surface
-                if target.canonical_id is None
-                else f"{target.surface}.{target.canonical_id}"
-            )
-            lines.append(f"Help: marivo.help({qualified!r})")
+            lines.append(f"Help: marivo.help({self.repair.help_target.display!r})")
 
         return "\n".join(lines)
 
@@ -122,11 +122,11 @@ class CoreRuleError(AnalysisError):
             expected=expected,
             received=received,
             location=location,
-            repair=StructuredRepair(
+            repair=AnalysisRepair(
                 kind="retry",
                 action=repair,
                 candidates=candidates,
-                help_target=RepairHelpTarget(
+                help_target=LiveHelpTarget(
                     surface="analysis",
                     canonical_id=canonical_id,
                 ),
@@ -177,10 +177,10 @@ class DatasetConstructionError(AnalysisError):
             received=bounded_received,
             location=location[:160],
             hint=repair[:480],
-            repair=StructuredRepair(
+            repair=AnalysisRepair(
                 kind=repair_kind,
                 action=repair[:480],
-                help_target=RepairHelpTarget(
+                help_target=LiveHelpTarget(
                     surface="analysis",
                     canonical_id=canonical_target(help_target) if help_target is not None else None,
                 ),

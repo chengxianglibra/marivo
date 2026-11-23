@@ -17,6 +17,7 @@ from marivo.semantic._expression_values import (
 )
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.unit_algebra import render_unit, unit_state
+from marivo.telemetry import traced
 
 
 @overload
@@ -31,6 +32,7 @@ def rescale(expr: NumericMetric, *, divisor: int | float | Decimal, unit: str) -
 def rescale(expr: Deferred, *, divisor: int | float | Decimal, unit: str) -> Deferred: ...
 
 
+@traced(surface="semantic", operation="rescale")
 def rescale(
     expr: Deferred | NumericRow | NumericMetric, *, divisor: int | float | Decimal, unit: str
 ) -> Deferred | NumericRow | NumericMetric:

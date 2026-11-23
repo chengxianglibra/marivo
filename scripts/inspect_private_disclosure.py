@@ -12,11 +12,10 @@ import json
 import subprocess
 from pathlib import Path
 
-from marivo.analysis._capabilities.dataset_registry import prepare
-from marivo.analysis._capabilities.dataset_render import render
+from marivo.analysis._help_specs.manifest import prepare
+from marivo.analysis._help_specs.render import render_descriptor
 from marivo.analysis.model.disclosure import (
     CallableInput,
-    FamilyInput,
     NavigationInput,
     TypeInput,
 )
@@ -32,7 +31,7 @@ def capture(output: Path) -> None:
             "target": descriptor.canonical_id,
             "kind": descriptor.kind,
             "summary": descriptor.summary,
-            "help": render(registry, descriptor.canonical_id),
+            "help": render_descriptor(registry, descriptor),
         }
         if isinstance(descriptor, CallableInput):
             row.update(
@@ -57,7 +56,7 @@ def capture(output: Path) -> None:
                     "runtime": descriptor.example.runtime,
                 },
             )
-        elif isinstance(descriptor, (TypeInput, FamilyInput)):
+        elif isinstance(descriptor, TypeInput):
             row.update(
                 types=[
                     {
@@ -75,20 +74,15 @@ def capture(output: Path) -> None:
                 }
                 for v in descriptor.variants
             ]
-            if isinstance(descriptor, FamilyInput):
-                row["shapes"] = [str(s) for s in descriptor.registration.shape_ids]
         elif isinstance(descriptor, NavigationInput):
             row["members"] = descriptor.members
         rows.append(row)
+    exports = {e.name: e.target for p in registry.providers for e in p.exports}
     (output / "native-inputs.json").write_text(
         json.dumps(
             {
-                "exports": {e.name: e.target for p in registry.providers for e in p.exports},
+                "exports": exports,
                 "descriptors": rows,
-                "retained_catalog_inputs": [
-                    {"target": d.canonical_id, "callable_path": d.callable_path}
-                    for d in registry.retained_catalog_inputs
-                ],
             },
             indent=2,
         )
@@ -131,8 +125,7 @@ def capture(output: Path) -> None:
                 "file_count": len(fingerprints),
                 "sha256": record["sha256"],
                 "native_targets": len(rows),
-                "exports": 100,
-                "retained_catalog_inputs": len(registry.retained_catalog_inputs),
+                "exports": len(exports),
             }
         )
     )

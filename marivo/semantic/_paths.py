@@ -26,6 +26,7 @@ from marivo.semantic.catalog_model.objects import (
     _step,
 )
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
+from marivo.telemetry import traced
 
 _PATH_HELP = LiveHelpTarget(surface="analysis", canonical_id="path.define")
 
@@ -82,6 +83,7 @@ def path(
 ) -> Path | PathSymbol: ...
 
 
+@traced(surface="analysis", operation="path.define", capture="short")
 def path(
     *steps: Relationship | RelationshipStep | Deferred,
     source_at: InstantAnchor | None = None,

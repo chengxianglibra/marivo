@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
@@ -24,6 +25,7 @@ from marivo.semantic.search.models import (
     Retrieval,
     SearchHit,
 )
+from marivo.telemetry import traced
 
 JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 
@@ -320,6 +322,7 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
             card.listing("outside_scope", self.outside_scope)
         return card
 
+    @traced(surface="semantic", operation="catalog_page.show", kind="method")
     def show(self, *, max_output_bytes: int | None = 8192) -> None:
         """Print a current-page projection and its exact display counts.
 
@@ -335,6 +338,7 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
             raise ValueError("max_output_bytes must be a positive integer or None")
         print(self._card().render(max_output_bytes=max_output_bytes, _include_newline=True))
 
+    @traced(surface="semantic", operation="catalog_page.render", kind="method")
     def render(self, *, max_output_bytes: int | None = 8192) -> str:
         """Render this page without retrieving subsequent pages.
 
@@ -349,6 +353,7 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
             raise ValueError("max_output_bytes must be a positive integer or None")
         return self._card().render(max_output_bytes=max_output_bytes)
 
+    @traced(surface="semantic", operation="catalog_page.to_dict", kind="method")
     def to_dict(self) -> dict[str, JsonValue]:
         """Return the complete JSON-compatible page, independent of display limits.
 
@@ -373,6 +378,7 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
             "outside_scope": list(self.outside_scope),
         }
 
+    @traced(surface="semantic", operation="catalog_page.to_json", kind="method")
     def to_json(self) -> str:
         """Encode the complete result page as UTF-8-compatible JSON text.
 
@@ -398,3 +404,28 @@ def _page_summary(item: _EntryLike) -> str:
     elif isinstance(definition, EntityDefinition):
         extra = f" | datasource={definition.datasource}"
     return item.summary + extra
+
+
+def _encode_related_cursor(snapshot_digest: str, level: str, offset: int) -> str:
+    payload = json.dumps([snapshot_digest, level, offset], separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _decode_related_cursor(cursor: str | None, *, snapshot_digest: str, level: str) -> int:
+    if cursor is None:
+        return 0
+    if type(cursor) is not str or not cursor:
+        raise ValueError("period cursor must be an opaque non-empty string or None")
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        raw_digest, raw_level, raw_offset = json.loads(base64.urlsafe_b64decode(padded))
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("period cursor is invalid") from exc
+    if (
+        raw_digest != snapshot_digest
+        or raw_level != level
+        or type(raw_offset) is not int
+        or raw_offset < 0
+    ):
+        raise ValueError("related cursor does not match the current Catalog snapshot and relation")
+    return raw_offset

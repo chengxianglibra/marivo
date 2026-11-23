@@ -11,7 +11,7 @@ import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability
 from marivo._help.render import render_help_text
 from marivo.cli import main
-from marivo.semantic._capabilities.registry import REGISTRY
+from marivo.semantic._help_specs.manifest import REGISTRY
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 

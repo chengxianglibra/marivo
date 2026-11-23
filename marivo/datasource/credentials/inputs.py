@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from marivo._kernel.render import Card, RenderableResult
 from marivo.datasource.errors import DatasourceFieldInvalidError, repair
+from marivo.telemetry import traced
 
 
 def invalid(field: str, expected: str, value: object, action: str) -> DatasourceFieldInvalidError:
@@ -42,6 +43,7 @@ class EnvRef(RenderableResult):
         )
 
 
+@traced(surface="datasource", operation="env")
 def env(name: str) -> EnvRef:
     """Reference a credential without capturing its value.
 
@@ -182,6 +184,7 @@ class HttpHeadersSecret(_Secret):
 DuckDBSecret = S3Secret | HttpBearerSecret | HttpHeadersSecret
 
 
+@traced(surface="datasource", operation="s3_secret")
 def s3_secret(
     *,
     scope: str,
@@ -225,6 +228,7 @@ def s3_secret(
     )
 
 
+@traced(surface="datasource", operation="http_bearer_secret")
 def http_bearer_secret(*, scope: str, token: EnvRef) -> HttpBearerSecret:
     """Declare scoped HTTP bearer authentication.
 
@@ -242,6 +246,7 @@ def http_bearer_secret(*, scope: str, token: EnvRef) -> HttpBearerSecret:
     return HttpBearerSecret(scope=scope, token=token)
 
 
+@traced(surface="datasource", operation="http_headers_secret")
 def http_headers_secret(*, scope: str, headers: Mapping[str, EnvRef]) -> HttpHeadersSecret:
     """Declare scoped custom HTTP authentication headers.
 

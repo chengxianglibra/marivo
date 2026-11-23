@@ -25,13 +25,10 @@ Public surface::
 
 from __future__ import annotations
 
-import sys
-
 from marivo._kernel.refs import SemanticKind
 from marivo._kernel.symbolic import symbol_factory as ref
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
-from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._expression_values import MetricExpression, RowExpression
 from marivo.semantic.authoring import (
     additive_all,
@@ -124,7 +121,6 @@ from marivo.semantic.runtime_check.source_checks import (
     SourceCheck,
     source_check,
 )
-from marivo.telemetry import install_surface_instrumentation
 
 __all__ = [
     "CatalogFilters",
@@ -189,15 +185,3 @@ __all__ = [
     "typing",
     "validity",
 ]
-
-
-def _install_telemetry() -> None:
-
-    install_surface_instrumentation(
-        surface="semantic",
-        descriptors=REGISTRY._descriptors,
-        root_module=sys.modules[__name__],
-    )
-
-
-_install_telemetry()

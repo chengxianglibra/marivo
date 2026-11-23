@@ -10,8 +10,10 @@ from marivo.semantic.catalog import (
 )
 from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.reader import SemanticProject
+from marivo.telemetry import traced
 
 
+@traced(surface="semantic", operation="load", stage="resolve")
 def load(
     *,
     workspace_dir: str | Path | None = None,

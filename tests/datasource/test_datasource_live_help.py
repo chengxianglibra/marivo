@@ -58,8 +58,8 @@ def test_trino_help_matches_source_native_quantile_capability() -> None:
     ],
 )
 def test_help_resolves_supported_target_kinds(target: object, canonical_id: str) -> None:
-    from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
-    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.datasource.help_spi import DATASOURCE_LIVE_SURFACE
+    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     resolved = resolve_live_target(target, DATASOURCE_LIVE_SURFACE)
     assert canonical_id in {
@@ -122,8 +122,8 @@ def datasource_runtime_targets(tmp_path: Path) -> tuple[object, ...]:
 def test_runtime_help_accepts_only_registered_datasource_instances(
     datasource_runtime_targets: tuple[object, ...],
 ) -> None:
-    from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
-    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.datasource.help_spi import DATASOURCE_LIVE_SURFACE
+    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     for target in datasource_runtime_targets:
         assert resolve_live_target(type(target), DATASOURCE_LIVE_SURFACE).kind in {
@@ -133,8 +133,8 @@ def test_runtime_help_accepts_only_registered_datasource_instances(
 
 
 def test_error_help_kind_depends_on_concrete_repair_target() -> None:
-    from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
-    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.datasource.help_spi import DATASOURCE_LIVE_SURFACE
+    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     assert (
         resolve_live_target(DatasourceMissingError, DATASOURCE_LIVE_SURFACE).kind
@@ -160,7 +160,7 @@ def test_live_help_performs_no_datasource_effects(
 
 
 def test_datasource_task_tree_exposes_direct_sql_and_conditioned_native_routes() -> None:
-    from marivo.datasource._capabilities.registry import REGISTRY
+    from marivo.datasource._help_specs.manifest import REGISTRY
 
     root_routes = REGISTRY.navigation_routes()
     assert tuple(route.target.display for route in root_routes) == (

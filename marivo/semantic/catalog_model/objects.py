@@ -104,6 +104,7 @@ from marivo.semantic.static_check.source_timezone import (
     effective_source_timezone,
     source_timezone_axis,
 )
+from marivo.telemetry import traced
 
 if TYPE_CHECKING:
     from marivo._kernel.temporal import InstantAnchor
@@ -183,6 +184,7 @@ class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]
             self._catalog.definition_fingerprint,
         )
 
+    @traced(surface="semantic", operation="semantic_object.related", kind="method")
     def related(
         self, relation: RelatedRelation, /, *, limit: int = 10, cursor: str | None = None
     ) -> CatalogPage[SemanticObject]:
@@ -204,6 +206,7 @@ class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]
         """
         return self._catalog._related(self, relation, limit=limit, cursor=cursor)
 
+    @traced(surface="semantic", operation="semantic_object.to_dict", kind="method")
     def to_dict(self) -> dict[str, JsonValue]:
         """Return complete JSON-compatible definition and provenance data.
 
@@ -228,6 +231,7 @@ class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]
             "provenance": _json_value(self.provenance),
         }
 
+    @traced(surface="semantic", operation="semantic_object.to_json", kind="method")
     def to_json(self) -> str:
         """Encode this complete entry without an executable value or display budget.
 
@@ -242,6 +246,7 @@ class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]
         """
         return json.dumps(self.to_dict(), ensure_ascii=False, sort_keys=True)
 
+    @traced(surface="semantic", operation="semantic_object.show", kind="method")
     def show(
         self,
         *,
@@ -417,6 +422,7 @@ class Entity(_SemanticObject[EntityKind]):
         """
         return self.definition.primary_key
 
+    @traced(surface="semantic", operation="entity.count", kind="method")
     def count(self, *, time: TimeExpression | _OmittedTime | None = _OMITTED_TIME) -> NumericMetric:
         """Capture an anonymous Metric counting this Entity's contributing rows.
 
@@ -579,6 +585,7 @@ class Relationship(_SemanticObject[RelationshipKind], CatalogRelationshipInput):
     def cardinality(self) -> str:
         return self.definition.cardinality
 
+    @traced(surface="semantic", operation="relationship.at", kind="method")
     def at(self, anchor: InstantAnchor) -> RelationshipStep:
         """Select an exact version of this step's target Entity.
 

@@ -26,6 +26,7 @@ from marivo.semantic.policies import (
     NonAdditiveV1,
     NullInputPolicyV1,
 )
+from marivo.telemetry import traced
 
 CoordinateRef: TypeAlias = DimensionSymbol | TimeDimensionSymbol
 
@@ -144,6 +145,7 @@ def additive_except(*axes: CoordinateInput) -> AdditiveAllV1:
     return AdditiveAllV1(_coordinates(axes), _context=_axis_context(axes), _token=_TOKEN)
 
 
+@traced(surface="semantic", operation="non_additive")
 def non_additive() -> NonAdditiveV1:
     """Deny summing displayed values across native coordinates.
 

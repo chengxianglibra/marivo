@@ -46,6 +46,7 @@ from marivo.datasource.store import declarations as _store
 from marivo.datasource.store.authoring import (
     _loaded_datasource_ref,
 )
+from marivo.telemetry import traced
 
 
 @dataclass(frozen=True, repr=False)
@@ -102,6 +103,7 @@ class RawSqlResult(_DataResult):
             ),
         )
 
+    @traced(surface="datasource", operation="raw_sql_result.to_pandas", kind="method")
     def to_pandas(self) -> pd.DataFrame:
         """Return an isolated pandas DataFrame containing all retained query rows.
 
@@ -287,6 +289,7 @@ def _raw_sql_failure(
     )
 
 
+@traced(surface="datasource", operation="raw_sql", stage="connect")
 def raw_sql(
     datasource: DatasourceSymbol | DatasourceIdentityHandle,
     sql: str,

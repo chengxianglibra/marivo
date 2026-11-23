@@ -127,23 +127,21 @@ def test_track_operation_writes_correlated_v3_pair(telemetry_project: Path) -> N
 def test_default_mode_omits_successful_lightweight_calls_and_keeps_failures(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
     monkeypatch.setenv("MARIVO_TELEMETRY", "on")
 
-    @tracked_capability(surface="analysis", capability_id="grain", capability_kind="constructor")
+    @traced(surface="analysis", operation="grain", kind="constructor")
     def construct(*, project_root: Path, fail: bool = False) -> str:
         if fail:
             raise ValueError("constructor failure")
         return "grain"
 
-    @tracked_capability(surface="semantic", capability_id="ref.entity", capability_kind="method")
+    @traced(surface="semantic", operation="ref.entity", kind="method")
     def reference(*, project_root: Path) -> str:
         raise ValueError("reference failure")
 
-    @tracked_capability(
-        surface="analysis", capability_id="catalog.readiness", capability_kind="read"
-    )
+    @traced(surface="analysis", operation="catalog.readiness", kind="read")
     def read(*, project_root: Path, fail: bool = False) -> str:
         if fail:
             raise ValueError("private detail")
@@ -168,25 +166,21 @@ def test_default_mode_omits_successful_lightweight_calls_and_keeps_failures(
 def test_default_mode_short_and_long_operations_keep_only_actionable_events(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
     monkeypatch.setenv("MARIVO_TELEMETRY", "on")
 
-    @tracked_capability(
-        surface="analysis", capability_id="catalog.readiness", capability_kind="read"
-    )
+    @traced(surface="analysis", operation="catalog.readiness", kind="read")
     def delegated(*, project_root: Path, fail: bool = False) -> str:
         if fail:
             raise ValueError("nested failure")
         return "item"
 
-    @tracked_capability(surface="analysis", capability_id="observe", capability_kind="operator")
+    @traced(surface="analysis", operation="observe", kind="operator")
     def execute(*, project_root: Path, fail: bool = False) -> str:
         return delegated(project_root=project_root, fail=fail)
 
-    @tracked_capability(
-        surface="analysis", capability_id="session.resume", capability_kind="recovery"
-    )
+    @traced(surface="analysis", operation="session.resume", kind="recovery")
     def resume(*, project_root: Path) -> str:
         return "resumed"
 
@@ -209,15 +203,15 @@ def test_default_mode_short_and_long_operations_keep_only_actionable_events(
 def test_default_mode_records_datasource_connections_as_pairs(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
     monkeypatch.setenv("MARIVO_TELEMETRY", "on")
 
-    @tracked_capability(
+    @traced(
         surface="datasource",
-        capability_id="test",
-        capability_kind="callable",
-        default_stage="connect",
+        operation="test",
+        kind="callable",
+        stage="connect",
     )
     def connection_test(*, project_root: Path) -> bool:
         return True
@@ -256,25 +250,23 @@ def test_track_operation_records_structured_error_without_message(
 def test_nested_operations_link_parent_and_suppress_same_capability_delegate(
     telemetry_project: Path,
 ) -> None:
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
-    @tracked_capability(surface="analysis", capability_id="child", capability_kind="read")
+    @traced(surface="analysis", operation="child", kind="read")
     def child(*, project_root: Path, fail: bool = False) -> str:
         if fail:
             raise ValueError("nested failure")
         return "ok"
 
-    @tracked_capability(surface="analysis", capability_id="parent", capability_kind="operator")
+    @traced(surface="analysis", operation="parent", kind="operator")
     def parent(*, project_root: Path, fail: bool = False) -> str:
         return child(project_root=project_root, fail=fail)
 
-    @tracked_capability(surface="analysis", capability_id="same", capability_kind="operator")
+    @traced(surface="analysis", operation="same", kind="operator")
     def delegated(*, project_root: Path) -> None:
         return None
 
-    same_outer = tracked_capability(
-        surface="analysis", capability_id="same", capability_kind="operator"
-    )(delegated)
+    same_outer = traced(surface="analysis", operation="same", kind="operator")(delegated)
 
     assert parent(project_root=telemetry_project) == "ok"
     with pytest.raises(ValueError):
@@ -299,9 +291,9 @@ def test_load_tracks_project_root_without_internal_ref_events(
     telemetry_project: Path,
 ) -> None:
     import marivo.semantic as ms
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
-    @tracked_capability(surface="semantic", capability_id="load", capability_kind="callable")
+    @traced(surface="semantic", operation="load", kind="callable")
     def load(*, workspace_dir: Path) -> object:
         return ms.ref.entity("sales.orders")
 
@@ -317,9 +309,9 @@ def test_load_tracks_project_root_without_internal_ref_events(
 def test_explicitly_disabled_telemetry_skips_wrapped_capabilities(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
-    @tracked_capability(surface="semantic", capability_id="load", capability_kind="callable")
+    @traced(surface="semantic", operation="load", kind="callable")
     def load(*, workspace_dir: Path) -> Path:
         return workspace_dir
 
@@ -331,7 +323,7 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
     telemetry_project: Path,
 ) -> None:
     from marivo.analysis.materialization.store import SessionStore
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
     SessionStore(telemetry_project).create_session(
         "demo",
@@ -342,18 +334,18 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
         report_timezone_origin="explicit",
     )
 
-    @tracked_capability(
+    @traced(
         surface="semantic",
-        capability_id="measure_column",
-        capability_kind="declaration",
+        operation="measure_column",
+        kind="declaration",
     )
     def declaration(*, project_root: Path) -> str:
         return "declared"
 
-    @tracked_capability(
+    @traced(
         surface="datasource",
-        capability_id="trino",
-        capability_kind="callable",
+        operation="trino",
+        kind="callable",
     )
     def datasource_declaration(*, project_root: Path, fail: bool = False) -> str:
         if fail:
@@ -365,27 +357,27 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
         datasource_declaration(project_root=project_root, fail=fail)
         return "declared"
 
-    @tracked_capability(
+    @traced(
         surface="semantic",
-        capability_id="load",
-        capability_kind="callable",
-        default_stage="resolve",
+        operation="load",
+        kind="callable",
+        stage="resolve",
     )
     def load(*, project_root: Path) -> str:
         return load_project(project_root=project_root)
 
-    @tracked_capability(
+    @traced(
         surface="analysis",
-        capability_id="session.get_or_create",
-        capability_kind="lifecycle",
+        operation="session.get_or_create",
+        kind="lifecycle",
     )
     def resume(*, name: str, question: str, project_root: Path, fail: bool = False) -> str:
         return load_project(project_root=project_root, fail=fail)
 
-    @tracked_capability(
+    @traced(
         surface="analysis",
-        capability_id="session.resume",
-        capability_kind="lifecycle",
+        operation="session.resume",
+        kind="lifecycle",
     )
     def resume_by_id(*, session_id: str, project_root: Path) -> str:
         return load_project(project_root=project_root)
@@ -447,7 +439,7 @@ def test_session_creation_attributes_reads_only_current_generation(
 
     from marivo.analysis.materialization.layout import MaterializationLayout
     from marivo.analysis.materialization.store import SessionStore
-    from marivo.telemetry import _session_creation_attributes
+    from marivo.telemetry.sanitizer import _session_creation_attributes
 
     if generation == "current":
         SessionStore(tmp_path).create_session(
@@ -492,13 +484,13 @@ def test_session_creation_attributes_reads_only_current_generation(
 def test_sensitive_inputs_are_excluded_but_goal_and_identifiers_are_kept(
     telemetry_project: Path,
 ) -> None:
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
-    @tracked_capability(
+    @traced(
         surface="datasource",
-        capability_id="raw_sql",
-        capability_kind="boundary",
-        default_stage="execute",
+        operation="raw_sql",
+        kind="boundary",
+        stage="execute",
     )
     def diagnostic(
         datasource: object,
@@ -540,12 +532,12 @@ def test_sensitive_inputs_are_excluded_but_goal_and_identifiers_are_kept(
 def test_free_text_collections_are_shape_only_and_closed_options_are_kept(
     telemetry_project: Path,
 ) -> None:
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
-    @tracked_capability(
+    @traced(
         surface="semantic",
-        capability_id="ai_context",
-        capability_kind="declaration",
+        operation="ai_context",
+        kind="declaration",
     )
     def author(
         *,
@@ -738,6 +730,21 @@ def test_unified_help_failure_is_tracked_as_one_global_operation(
     assert completed["marivo.help.resolved_owner"] == "global"
 
 
+def test_ontology_load_failure_records_the_owned_repair(telemetry_project: Path) -> None:
+    import marivo.ontology as mo
+
+    with pytest.raises(mo.errors.InvalidOntologyRefError):
+        mo.load(semantic=None)  # type: ignore[arg-type]  # Exercise untyped caller validation.
+
+    (record,) = _capability_records(_event_path(telemetry_project), "authoring")
+    attributes = _attrs(record)
+    assert attributes["marivo.surface"] == attributes["marivo.error.domain"] == "ontology"
+    assert attributes["marivo.operation.status"] == "error"
+    assert attributes["marivo.repair.help_surface"] == "ontology"
+    assert attributes["marivo.repair.help_target"] == "authoring"
+    assert "mo.load requires an exact SemanticCatalog" not in json.dumps(record)
+
+
 def test_unified_help_surface_failure_is_tracked_separately(
     telemetry_project: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -766,7 +773,7 @@ def test_unified_help_surface_failure_is_tracked_separately(
 
 
 def test_result_summary_links_artifact_and_consumption(telemetry_project: Path) -> None:
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
     meta = SimpleNamespace(
         ref="frame_123",
@@ -782,11 +789,11 @@ def test_result_summary_links_artifact_and_consumption(telemetry_project: Path) 
     )
     frame = SimpleNamespace(meta=meta, ref="frame_123")
 
-    @tracked_capability(surface="analysis", capability_id="produce", capability_kind="operator")
+    @traced(surface="analysis", operation="produce", kind="operator")
     def produce(*, project_root: Path) -> object:
         return frame
 
-    @tracked_capability(surface="analysis", capability_id="consume", capability_kind="operator")
+    @traced(surface="analysis", operation="consume", kind="operator")
     def consume(source: object, *, project_root: Path) -> None:
         return None
 
@@ -807,7 +814,7 @@ def test_result_summary_links_artifact_and_consumption(telemetry_project: Path) 
 def test_method_consumption_records_receiver_artifact_identity(
     telemetry_project: Path,
 ) -> None:
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
     meta = SimpleNamespace(
         ref="frame_123",
@@ -824,10 +831,10 @@ def test_method_consumption_records_receiver_artifact_identity(
         def __init__(self) -> None:
             self.meta = meta
 
-        @tracked_capability(
+        @traced(
             surface="analysis",
-            capability_id="boundary.to_pandas",
-            capability_kind="boundary",
+            operation="boundary.to_pandas",
+            kind="boundary",
         )
         def to_pandas(self) -> str:
             return "materialized"
@@ -845,13 +852,13 @@ def test_method_consumption_records_receiver_artifact_identity(
 def test_failed_default_stage_is_recorded_without_exception_message(
     telemetry_project: Path,
 ) -> None:
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
-    @tracked_capability(
+    @traced(
         surface="semantic",
-        capability_id="load",
-        capability_kind="callable",
-        default_stage="resolve",
+        operation="load",
+        kind="callable",
+        stage="resolve",
     )
     def load(*, project_root: Path) -> None:
         raise TypeError("private invalid declaration")
@@ -943,11 +950,11 @@ def test_concurrent_appends_remain_valid_jsonl(telemetry_project: Path) -> None:
 
 def _emit_writer_event(event_name: str, *, family: str, intent: str, project_root: Path) -> None:
     """Exercise the writer directly; native operation coverage owns instrumentation."""
-    import marivo.telemetry as telemetry
+    from marivo.telemetry import sink
 
-    telemetry._write_entry(
+    sink._write_entry(
         project_root,
-        telemetry._log_entry(
+        sink._log_entry(
             event_name,
             status="ok",
             attributes={"marivo.capability.id": intent, "marivo.capability.kind": family},
@@ -958,7 +965,7 @@ def _emit_writer_event(event_name: str, *, family: str, intent: str, project_roo
 def test_event_files_roll_by_utc_day(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.telemetry as telemetry
+    from marivo.telemetry import sink
 
     timestamps = iter(
         [
@@ -966,7 +973,7 @@ def test_event_files_roll_by_utc_day(
             str(int(datetime(2026, 7, 30, 0, 0, tzinfo=UTC).timestamp() * 1_000_000_000)),
         ]
     )
-    monkeypatch.setattr(telemetry, "_now_unix_nano", lambda: next(timestamps))
+    monkeypatch.setattr(sink, "_now_unix_nano", lambda: next(timestamps))
 
     _emit_writer_event(
         "marivo.analysis.first_day",
@@ -991,9 +998,9 @@ def test_event_files_roll_by_utc_day(
 def test_event_files_roll_when_size_limit_would_be_exceeded(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.telemetry as telemetry
+    from marivo.telemetry import sink
 
-    monkeypatch.setattr(telemetry, "_MAX_EVENT_FILE_BYTES", 1)
+    monkeypatch.setattr(sink, "_MAX_EVENT_FILE_BYTES", 1)
     _emit_writer_event(
         "marivo.analysis.first_segment",
         family="read",
@@ -1019,7 +1026,7 @@ def test_event_files_roll_when_size_limit_would_be_exceeded(
 def test_historical_retention_prunes_managed_segments_only(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.telemetry as telemetry
+    from marivo.telemetry import sink
 
     directory = telemetry_project / ".marivo" / "telemetry"
     directory.mkdir(parents=True)
@@ -1030,7 +1037,7 @@ def test_historical_retention_prunes_managed_segments_only(
     retained.write_text("retained\n", encoding="utf-8")
     unmanaged.write_text("unmanaged\n", encoding="utf-8")
     timestamp = str(int(datetime(2026, 7, 29, 12, 0, tzinfo=UTC).timestamp() * 1_000_000_000))
-    monkeypatch.setattr(telemetry, "_now_unix_nano", lambda: timestamp)
+    monkeypatch.setattr(sink, "_now_unix_nano", lambda: timestamp)
 
     _emit_writer_event(
         "marivo.analysis.retention",
@@ -1047,7 +1054,7 @@ def test_historical_retention_prunes_managed_segments_only(
 def test_historical_files_are_pruned_to_size_limit(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.telemetry as telemetry
+    from marivo.telemetry import sink
 
     directory = telemetry_project / ".marivo" / "telemetry"
     directory.mkdir(parents=True)
@@ -1056,8 +1063,8 @@ def test_historical_files_are_pruned_to_size_limit(
     oldest.write_bytes(b"1234")
     newest.write_bytes(b"5678")
     timestamp = str(int(datetime(2026, 7, 29, 12, 0, tzinfo=UTC).timestamp() * 1_000_000_000))
-    monkeypatch.setattr(telemetry, "_now_unix_nano", lambda: timestamp)
-    monkeypatch.setattr(telemetry, "_MAX_HISTORICAL_TELEMETRY_BYTES", 4)
+    monkeypatch.setattr(sink, "_now_unix_nano", lambda: timestamp)
+    monkeypatch.setattr(sink, "_MAX_HISTORICAL_TELEMETRY_BYTES", 4)
 
     _emit_writer_event(
         "marivo.analysis.size_retention",
@@ -1072,22 +1079,22 @@ def test_historical_files_are_pruned_to_size_limit(
 def test_cleanup_failure_does_not_mark_written_event_as_dropped(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.telemetry as telemetry
+    from marivo.telemetry import sink
 
-    real_prune = telemetry._prune_historical_files
+    real_prune = sink._prune_historical_files
 
     def fail_prune(*args: object, **kwargs: object) -> None:
         del args, kwargs
         raise OSError("cleanup unavailable")
 
-    monkeypatch.setattr(telemetry, "_prune_historical_files", fail_prune)
+    monkeypatch.setattr(sink, "_prune_historical_files", fail_prune)
     _emit_writer_event(
         "marivo.analysis.cleanup_failed",
         family="read",
         intent="cleanup_failed",
         project_root=telemetry_project,
     )
-    monkeypatch.setattr(telemetry, "_prune_historical_files", real_prune)
+    monkeypatch.setattr(sink, "_prune_historical_files", real_prune)
     _emit_writer_event(
         "marivo.analysis.cleanup_recovered",
         family="read",
@@ -1169,58 +1176,37 @@ def test_telemetry_enablement_precedence(
             assert bool(paths) is enabled, f"MARIVO_TELEMETRY={environment!r}"
 
 
-def _expected_instrumented(descriptors: tuple[object, ...]) -> set[str]:
-    from marivo.introspection.live.reflect import import_registered_callable
-
-    expected: set[str] = set()
-    for descriptor in descriptors:
-        if getattr(descriptor, "telemetry", True) is False:
-            continue
-        path = getattr(descriptor, "callable_path", None)
-        if not isinstance(path, str):
-            continue
-        target = import_registered_callable(path)
-        if isinstance(target, (property, type)):
-            continue
-        capability_id: object = getattr(descriptor, "id", None)
-        if capability_id is None:
-            capability_id = getattr(descriptor, "canonical_id", None)
-        assert isinstance(capability_id, str)
-        expected.add(capability_id)
-    return expected
-
-
-def _instrumented_capabilities(module: object) -> tuple[str, ...]:
-    attribute = "__marivo_telemetry_capabilities__"
-    identifiers: object = getattr(module, attribute)
-    assert isinstance(identifiers, frozenset)
-    assert all(isinstance(value, str) for value in identifiers)
-    return tuple(value for value in identifiers if isinstance(value, str))
-
-
 def test_registry_callables_are_telemetry_covered() -> None:
-    import marivo.datasource as md
-    import marivo.semantic as ms
-    from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
-    from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
-    from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
+    from marivo.analysis._help_specs.manifest import REGISTRY as ANALYSIS_REGISTRY
+    from marivo.analysis.model.disclosure import CallableInput
+    from marivo.datasource._help_specs.manifest import REGISTRY as DATASOURCE_REGISTRY
+    from marivo.introspection.live.reflect import import_registered_callable
+    from marivo.ontology._help_specs.manifest import REGISTRY as ONTOLOGY_REGISTRY
+    from marivo.semantic._help_specs.manifest import REGISTRY as SEMANTIC_REGISTRY
 
-    assert set(_instrumented_capabilities(mv)) == _expected_instrumented(
-        tuple(d for d in ANALYSIS_REGISTRY.descriptors if hasattr(d, "telemetry"))
-    )
-    assert set(_instrumented_capabilities(md)) == _expected_instrumented(
-        DATASOURCE_REGISTRY._descriptors
-    )
-    assert set(_instrumented_capabilities(ms)) == _expected_instrumented(
-        SEMANTIC_REGISTRY._descriptors
-    )
+    for registry in (ANALYSIS_REGISTRY, DATASOURCE_REGISTRY, ONTOLOGY_REGISTRY, SEMANTIC_REGISTRY):
+        for spec in registry.specs:
+            if isinstance(spec, CallableInput):
+                paths = tuple(binding.path for binding in spec.bindings)
+            else:
+                paths = () if spec.callable_path is None else (spec.callable_path,)
+            expected = (registry.surface, spec.canonical_id)
+            for path in paths:
+                target = import_registered_callable(path)
+                if isinstance(target, (property, type)):
+                    continue
+                marker: object = getattr(target, "__marivo_trace__", None)
+                if getattr(spec, "telemetry", True) is False:
+                    assert marker != expected, path
+                else:
+                    assert marker == expected, path
     assert "analysis_purpose" not in inspect.signature(mv.Session.members).parameters
 
 
 def test_public_dsl_operators_emit_completion_events(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis._capabilities.registry import REGISTRY
+    from marivo.analysis._help_specs.manifest import REGISTRY
     from marivo.analysis.model.disclosure import NavigationInput
 
     monkeypatch.setenv("MARIVO_TELEMETRY", "on")
@@ -1529,6 +1515,7 @@ from marivo.analysis.session import resume
 session = resume(sys.argv[1])
 frame = session.values(columns={"value": None}, rows=(((), {"value": 5}),))
 assert frame.to_pandas()["value"].tolist() == [5]
+assert not any("._help_specs" in name or "._capabilities" in name for name in sys.modules)
 """,
             case.session.id,
         ],
@@ -1552,13 +1539,13 @@ def test_execution_logs_share_operation_identity_without_disclosing_sql_to_telem
     telemetry_project: Path,
 ) -> None:
     from marivo._kernel import execution_log as _execution_log
-    from marivo.telemetry import tracked_capability
+    from marivo.telemetry import traced
 
-    @tracked_capability(
+    @traced(
         surface="datasource",
-        capability_kind="boundary",
-        capability_id="raw_sql",
-        default_stage="execute",
+        kind="boundary",
+        operation="raw_sql",
+        stage="execute",
     )
     def diagnostic(*, project_root: Path) -> None:
         with _execution_log.QueryLog(
@@ -1576,8 +1563,10 @@ def test_execution_logs_share_operation_identity_without_disclosing_sql_to_telem
 def test_disabled_load_preserves_execution_context_and_resets_after_failure(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch, environment_off: bool
 ) -> None:
-    import marivo.telemetry as telemetry
     from marivo._kernel import execution_log as _execution_log
+    from marivo.telemetry import traced
+    from marivo.telemetry.config import _LOAD_POLICY
+    from marivo.telemetry.context import _CURRENT_OPERATION
     from tests.support.execution_logs import execution_records
 
     if environment_off:
@@ -1594,17 +1583,13 @@ def test_disabled_load_preserves_execution_context_and_resets_after_failure(
     other.mkdir()
     monkeypatch.chdir(telemetry_project)
 
-    @telemetry.tracked_capability(
-        surface="datasource", capability_id="raw_sql", capability_kind="boundary"
-    )
+    @traced(surface="datasource", operation="raw_sql", kind="boundary")
     def child() -> None:
         with _execution_log.QueryLog("SELECT 1", backend="duckdb", purpose="test"):
             pass
         raise ValueError("failure after logging")
 
-    @telemetry.tracked_capability(
-        surface="semantic", capability_id="load", capability_kind="callable"
-    )
+    @traced(surface="semantic", operation="load", kind="callable")
     def load(*, workspace_dir: Path) -> None:
         monkeypatch.chdir(other)
         child()
@@ -1615,15 +1600,15 @@ def test_disabled_load_preserves_execution_context_and_resets_after_failure(
     assert records and all(record["operation_id"] for record in records)
     assert all(record["parent_operation_id"] for record in records)
     assert all(record["capability"] == "raw_sql" for record in records)
-    assert telemetry._CURRENT_OPERATION.get() is None
-    assert telemetry._LOAD_POLICY.get() is None
+    assert _CURRENT_OPERATION.get() is None
+    assert _LOAD_POLICY.get() is None
 
 
 def test_operation_captures_execution_context_once(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo._kernel import execution_log as log
-    from marivo.telemetry import _Operation
+    from marivo.telemetry.context import _Operation
 
     snapshot = log.snapshot
     captured: list[log.ExecutionContext] = []
@@ -1647,7 +1632,7 @@ def test_operation_scope_preserves_root_parent_annotations_and_exception_cleanup
     telemetry_project: Path, enabled: bool, same_root: bool
 ) -> None:
     from marivo._kernel import execution_log as log
-    from marivo.telemetry import _CURRENT_OPERATION, _Operation
+    from marivo.telemetry.context import _CURRENT_OPERATION, _Operation
     from tests.support.execution_logs import execution_records
 
     root = telemetry_project if same_root else telemetry_project / "other"

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
 from marivo._kernel.environment import environment_identity
+from marivo._kernel.errors import HelpSurface as HelpSurface
+from marivo._kernel.errors import LiveHelpTarget as LiveHelpTarget
 
 
 @dataclass(frozen=True)
@@ -26,8 +27,6 @@ class SurfaceLimits:
 
 SURFACE_LIMITS = SurfaceLimits()
 
-HelpSurface = Literal["analysis", "datasource", "semantic", "ontology"]
-
 
 class EnvironmentFingerprint(BaseModel):
     """Snapshot of the installed package and interpreter identity."""
@@ -42,75 +41,3 @@ class EnvironmentFingerprint(BaseModel):
     def current(cls) -> EnvironmentFingerprint:
         """Construct a fingerprint from the current runtime environment."""
         return cls(**environment_identity())
-
-
-class LiveHelpTarget(BaseModel):
-    """Typed identity for a lookup on one live help surface."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    surface: HelpSurface
-    canonical_id: str | None = None
-
-    @property
-    def display(self) -> str:
-        """Return the stable display form used by help and repair text."""
-        if self.canonical_id is not None:
-            return f"{self.surface}.{self.canonical_id}"
-        return self.surface
-
-
-class ResolvableHelpDescriptor(Protocol):
-    """Minimal native-descriptor facts consumed by neutral resolution."""
-
-    @property
-    def canonical_id(self) -> str:
-        """Return the canonical target accepted by the owning help surface."""
-        ...
-
-    @property
-    def public_entrypoint(self) -> str | None:
-        """Return the public invocation shape, when the target is invokable."""
-        ...
-
-    @property
-    def callable_path(self) -> str | None:
-        """Return the registered callable path, when one exists."""
-        ...
-
-    @property
-    def summary(self) -> str:
-        """Return a bounded factual summary used for suggestions."""
-        ...
-
-
-DescriptorT_co = TypeVar(
-    "DescriptorT_co",
-    bound=ResolvableHelpDescriptor,
-    covariant=True,
-)
-
-
-class LiveSurfaceRegistry(Protocol[DescriptorT_co]):
-    """Read-only native registry view required by the neutral resolver."""
-
-    @property
-    def surface(self) -> HelpSurface:
-        """Return the owning help surface."""
-        ...
-
-    def canonical_ids(self) -> tuple[str, ...]:
-        """Return canonical help ids in deterministic registry order."""
-        ...
-
-    def discovery_ids(self) -> tuple[str, ...]:
-        """Return canonical ids intended for progressive public discovery."""
-        ...
-
-    def by_canonical_id(self, canonical_id: str) -> DescriptorT_co:
-        """Return the original native descriptor for a canonical id."""
-        ...
-
-    def by_callable(self, value: object) -> DescriptorT_co:
-        """Return the original descriptor for an exact callable identity."""
-        ...

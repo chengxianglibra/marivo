@@ -25,22 +25,30 @@ layers =
 name = Shared implementation packages have no sibling import cycles
 type = acyclic_siblings
 ancestors =
+    marivo._help
     marivo._kernel
     marivo._definition
     marivo._authoring
+    marivo.introspection
+    marivo.introspection.capabilities
+    marivo.telemetry
+    marivo.analysis._help_specs
     marivo.datasource
+    marivo.datasource._help_specs
     marivo.datasource.credentials
     marivo.datasource.engines
     marivo.datasource.inspection
     marivo.datasource.runtime
     marivo.datasource.store
     marivo.semantic
+    marivo.semantic._help_specs
     marivo.semantic.authoring
     marivo.semantic.catalog_model
     marivo.semantic.expressions
     marivo.semantic.runtime_check
     marivo.semantic.search
     marivo.semantic.static_check
+    marivo.ontology._help_specs
 
 [importlinter:contract:pure-layers-no-heavy-runtime]
 name = Pure analysis and shared primitives exclude execution dependencies
@@ -77,10 +85,11 @@ forbidden_modules =
     marivo.analysis
 
 [importlinter:contract:live-is-neutral-leaf]
-name = introspection.live must not depend on datasource, semantic, or analysis
+name = Shared Help must not depend on domain implementations
 type = forbidden
 source_modules =
     marivo.introspection.live
+    marivo.introspection.capabilities
 forbidden_modules =
     marivo.datasource
     marivo.semantic
@@ -219,7 +228,7 @@ name = Semantic implementation imports stay inside the owning domain
 type = protected
 protected_modules =
     marivo.semantic._aggregate_accuracy
-    marivo.semantic._capabilities
+    marivo.semantic._help_specs
     marivo.semantic._catalog_definition
     marivo.semantic._compiled_state
     marivo.semantic._consumption
@@ -280,7 +289,7 @@ allowed_importers =
 name = Datasource implementation imports stay inside the owning domain
 type = protected
 protected_modules =
-    marivo.datasource._capabilities
+    marivo.datasource._help_specs
     marivo.datasource._expression_fields
     marivo.datasource._lifetime
     marivo.datasource.arrow_types
@@ -302,7 +311,7 @@ allowed_importers =
 name = Analysis implementation imports stay inside the owning domain
 type = protected
 protected_modules =
-    marivo.analysis._capabilities
+    marivo.analysis._help_specs
     marivo.analysis._public
     marivo.analysis._scope
     marivo.analysis.binding
@@ -329,7 +338,7 @@ name = Ontology implementation imports stay inside the owning domain
 type = protected
 protected_modules =
     marivo.ontology._authoring
-    marivo.ontology._capabilities
+    marivo.ontology._help_specs
     marivo.ontology.catalog
     marivo.ontology.types
 allowed_importers =

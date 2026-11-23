@@ -10,7 +10,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._help.render import render_help_text
-from marivo.analysis._capabilities.dataset_registry import assemble, prepare
+from marivo.analysis._help_specs.manifest import assemble, prepare
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,

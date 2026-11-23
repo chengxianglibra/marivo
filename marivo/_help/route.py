@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from difflib import SequenceMatcher
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from marivo._help.model import (
     GlobalTopic,
@@ -15,61 +15,57 @@ from marivo._help.model import (
     SurfaceRootHelpRoute,
     TopicHelpRoute,
 )
-from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface, ResolvableHelpDescriptor
-from marivo.introspection.live.resolve import (
-    LiveSurface,
-    ResolvedLiveTarget,
+from marivo.introspection.capabilities.provider import SurfaceProvider
+from marivo.introspection.capabilities.resolve import (
+    LiveSurfaceAdapter,
     resolve_live_target,
-    try_resolve_live_target,
 )
+from marivo.introspection.capabilities.spec import CapabilitySpec
+from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface
 from marivo.introspection.live.targets import canonical_target
 
-_SURFACES: tuple[HelpSurface, ...] = ("datasource", "semantic", "analysis", "ontology")
 _GLOBAL_TOPICS = ("root", "authoring")
 
-if TYPE_CHECKING:
-    from marivo._authoring.model import AuthoringCapability
-    from marivo.analysis.help_spi import Descriptor
-    from marivo.ontology.help_spi import OntologyDescriptor
-    from marivo.semantic.help_spi import SemanticHelpDescriptor
+
+def _load_datasource() -> SurfaceProvider:
+    from marivo.datasource.help_spi import PROVIDER
+
+    return PROVIDER
 
 
-def _native_surface(
-    owner: HelpSurface,
-) -> LiveSurface[ResolvableHelpDescriptor]:
-    if owner == "datasource":
-        from marivo.datasource.help_spi import DATASOURCE_LIVE_SURFACE
+def _load_semantic() -> SurfaceProvider:
+    from marivo.semantic.help_spi import PROVIDER
 
-        return cast("LiveSurface[ResolvableHelpDescriptor]", DATASOURCE_LIVE_SURFACE)
-    if owner == "semantic":
-        from marivo.semantic.help_spi import SEMANTIC_LIVE_SURFACE
-
-        return cast("LiveSurface[ResolvableHelpDescriptor]", SEMANTIC_LIVE_SURFACE)
-    if owner == "ontology":
-        from marivo.ontology.help_spi import ONTOLOGY_LIVE_SURFACE
-
-        return cast("LiveSurface[ResolvableHelpDescriptor]", ONTOLOGY_LIVE_SURFACE)
-    from marivo.analysis.help_spi import ANALYSIS_LIVE_SURFACE
-
-    return cast("LiveSurface[ResolvableHelpDescriptor]", ANALYSIS_LIVE_SURFACE)
+    return PROVIDER
 
 
-def _native_target_error(owner: HelpSurface) -> type[Exception]:
-    if owner == "datasource":
-        from marivo.datasource.errors import DatasourceHelpTargetError
+def _load_analysis() -> SurfaceProvider:
+    from marivo.analysis.help_spi import PROVIDER
 
-        return DatasourceHelpTargetError
-    if owner == "semantic":
-        from marivo.semantic.errors import SemanticHelpTargetError
+    return PROVIDER
 
-        return SemanticHelpTargetError
-    if owner == "ontology":
-        from marivo.ontology.errors import OntologyHelpTargetError
 
-        return OntologyHelpTargetError
-    from marivo.analysis.errors import HelpTargetError
+def _load_ontology() -> SurfaceProvider:
+    from marivo.ontology.help_spi import PROVIDER
 
-    return HelpTargetError
+    return PROVIDER
+
+
+_SURFACE_PROVIDERS: dict[HelpSurface, Callable[[], SurfaceProvider]] = {
+    "datasource": _load_datasource,
+    "semantic": _load_semantic,
+    "analysis": _load_analysis,
+    "ontology": _load_ontology,
+}
+_SURFACES = tuple(_SURFACE_PROVIDERS)
+
+
+def _native_provider(owner: HelpSurface) -> SurfaceProvider:
+    return _SURFACE_PROVIDERS[owner]()
+
+
+def _native_surface(owner: HelpSurface) -> LiveSurfaceAdapter[CapabilitySpec]:
+    return _native_provider(owner).adapter
 
 
 def _suggestions(errors: Iterable[Exception]) -> tuple[str, ...]:
@@ -83,14 +79,17 @@ def _suggestions(errors: Iterable[Exception]) -> tuple[str, ...]:
 
 
 def _resolve_one(target: object, owner: HelpSurface) -> NativeHelpRoute | None:
-    resolved = try_resolve_live_target(target, _native_surface(owner))
-    if resolved is None:
-        return None
-    return NativeHelpRoute(
-        owner=owner,
-        resolved=resolved,
-        original_target=target,
-    )
+    page = _native_provider(owner).locate(target)
+    return None if page is None else NativeHelpRoute(owner, page)
+
+
+def _defining_surface(target: object) -> HelpSurface | None:
+    module = getattr(target, "__module__", None)
+    if isinstance(module, str) and module.startswith("marivo."):
+        owner = module.removeprefix("marivo.").partition(".")[0]
+        if owner in _SURFACES:
+            return owner
+    return None
 
 
 def _qualified_string(target: str) -> tuple[HelpSurface, str] | None:
@@ -105,23 +104,23 @@ def _owned_methods(
     type_obj: type,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Read method membership from the native type contract."""
-    if owner == "semantic":
-        from marivo.semantic.help_spi import TYPE_CONTRACTS
+    contract = _native_provider(owner).type_contracts.get(type_obj)
+    return ((), ()) if contract is None else (contract.public_methods, contract.type_page_methods)
 
-        semantic = TYPE_CONTRACTS[type_obj]
-        return semantic.public_methods, semantic.type_page_methods
-    if owner == "datasource":
-        from marivo.datasource.help_spi import TYPE_CONTRACTS as DATASOURCE_CONTRACTS
 
-        datasource = DATASOURCE_CONTRACTS[type_obj]
-        return datasource.public_methods, datasource.type_page_methods
-    if owner == "ontology":
-        from marivo.ontology.help_spi import TYPE_CONTRACTS as ONTOLOGY_CONTRACTS
-
-        ontology = ONTOLOGY_CONTRACTS[type_obj]
-        return ontology.public_methods, ontology.type_page_methods
-    # Analysis renders methods from its native callable bindings.
-    return (), ()
+def owned_method_target(owner: HelpSurface, type_obj: type, name: str) -> str | None:
+    """Read the method's authored link or resolve its installed callable."""
+    contract = _native_provider(owner).type_contracts[type_obj]
+    for member, target in contract.method_links:
+        if member == name:
+            return target.display
+    method = getattr(type_obj, name)
+    if _defining_surface(method) is None:
+        native = _resolve_one(method, owner)
+        if native is not None:
+            return native_route_target(native)
+    route = route_help_target(method)
+    return native_route_target(route) if isinstance(route, NativeHelpRoute) else None
 
 
 def _receiver_candidates(target: str, owner: HelpSurface) -> tuple[str, ...]:
@@ -138,9 +137,9 @@ def _receiver_candidates(target: str, owner: HelpSurface) -> tuple[str, ...]:
             continue
         methods, type_page_methods = _owned_methods(owner, type_obj)
         if member in methods and member not in type_page_methods:
-            method_route = route_help_target(getattr(type_obj, member))
-            if isinstance(method_route, NativeHelpRoute):
-                return (native_route_target(method_route), parent_target)
+            method_target = owned_method_target(owner, type_obj, member)
+            if method_target is not None:
+                return (method_target, parent_target)
     if any(
         candidate.rpartition(".")[0] == parent
         and SequenceMatcher(None, member, candidate.rpartition(".")[2]).ratio() >= 0.7
@@ -208,7 +207,7 @@ def route_help_target(target: object | None) -> HelpRoute:
                 qualified_errors: list[Exception] = []
                 try:
                     resolve_live_target(native_target, _native_surface(owner))
-                except _native_target_error(owner) as error:
+                except _native_provider(owner).target_error as error:
                     qualified_errors.append(error)
                 candidates = tuple(
                     dict.fromkeys(
@@ -238,10 +237,20 @@ def route_help_target(target: object | None) -> HelpRoute:
             outcome="unknown",
             candidates=_exact_cross_surface_candidates(target),
         )
-    if isinstance(target, str) or (not isinstance(target, type) and not callable(target)):
+    if not isinstance(target, type) and not callable(target):
         raise MarivoHelpTargetError(target=target, outcome="unknown")
+
+    # A defining owner already takes precedence over surfaces retaining the
+    # same object. Try it before importing foreign manifests for resolution.
+    defining_owner = _defining_surface(target)
+    if defining_owner is not None:
+        native = _resolve_one(target, defining_owner)
+        if native is not None:
+            return native
     routes: list[NativeHelpRoute] = []
     for owner in _SURFACES:
+        if owner == defining_owner:
+            continue
         route = _resolve_one(target, owner)
         if route is not None:
             routes.append(route)
@@ -249,20 +258,6 @@ def route_help_target(target: object | None) -> HelpRoute:
     if len(routes) == 1:
         return routes[0]
     if len(routes) > 1:
-        if callable(target):
-            # Shared catalog inputs can be retained by another surface. The
-            # callable's defining module still identifies its native owner.
-            module = getattr(target, "__module__", None)
-            native_routes = tuple(
-                route
-                for route in routes
-                if isinstance(module, str)
-                and (
-                    module == f"marivo.{route.owner}" or module.startswith(f"marivo.{route.owner}.")
-                )
-            )
-            if len(native_routes) == 1:
-                return native_routes[0]
         candidates = tuple(native_route_target(route) for route in routes)
         raise MarivoHelpTargetError(
             target=target,
@@ -273,7 +268,7 @@ def route_help_target(target: object | None) -> HelpRoute:
     for owner in _SURFACES:
         try:
             resolve_live_target(target, _native_surface(owner))
-        except _native_target_error(owner) as error:
+        except _native_provider(owner).target_error as error:
             for candidate in _suggestions((error,)):
                 route = _resolve_one(candidate, owner)
                 if route is not None:
@@ -286,58 +281,8 @@ def route_help_target(target: object | None) -> HelpRoute:
 
 
 def render_surface_root(route: SurfaceRootHelpRoute) -> str:
-    """Render one native root page through its owning surface."""
-    if route.owner == "datasource":
-        from marivo.datasource.help_spi import render_root_help
-
-        return render_root_help()
-    if route.owner == "semantic":
-        from marivo.semantic.help_spi import render_root_help
-
-        return render_root_help()
-    if route.owner == "ontology":
-        from marivo.ontology.help_spi import render_root_help
-
-        return render_root_help()
-    from marivo.analysis.help_spi import render_root_help
-
-    return render_root_help()
+    return _native_provider(route.owner).root()
 
 
 def render_native_route(route: NativeHelpRoute) -> str:
-    """Render through the owning native descriptor model."""
-    if route.owner == "datasource":
-        from marivo.datasource.help_spi import (
-            render_help_target as render_datasource_target,
-        )
-
-        return render_datasource_target(
-            cast("ResolvedLiveTarget[AuthoringCapability]", route.resolved),
-            original_target=route.original_target,
-        )
-    if route.owner == "semantic":
-        from marivo.semantic.help_spi import (
-            render_help_target as render_semantic_target,
-        )
-
-        return render_semantic_target(
-            cast("ResolvedLiveTarget[SemanticHelpDescriptor]", route.resolved),
-            original_target=route.original_target,
-        )
-    if route.owner == "ontology":
-        from marivo.ontology.help_spi import (
-            render_help_target as render_ontology_target,
-        )
-
-        return render_ontology_target(
-            cast("ResolvedLiveTarget[OntologyDescriptor]", route.resolved),
-            original_target=route.original_target,
-        )
-    from marivo.analysis.help_spi import (
-        render_help_target as render_analysis_target,
-    )
-
-    return render_analysis_target(
-        cast("ResolvedLiveTarget[Descriptor]", route.resolved),
-        original_target=route.original_target,
-    )
+    return route.page.render()

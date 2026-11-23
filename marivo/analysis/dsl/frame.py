@@ -55,11 +55,11 @@ from marivo.analysis.core.frame_expression import (
 )
 from marivo.analysis.core.frame_fix import FixFrameValues
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
+from marivo.analysis.dsl import frame_derivation
 from marivo.analysis.dsl.baseline import ComparisonBaseline
 from marivo.analysis.dsl.baseline import baseline as declare_baseline
 from marivo.analysis.dsl.column import Column, _Statistic
 from marivo.analysis.dsl.frame_axis import FrameAxis
-from marivo.analysis.dsl.frame_derivation import complete_declaration, derive_declaration
 from marivo.analysis.dsl.frame_disclosure import (
     _input_kind,
     _operation_summary,
@@ -71,10 +71,6 @@ from marivo.analysis.model.artifact_data import ArtifactData, SavedFrameMethodFa
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.data_types import (
     DataColumn,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-    TimestampDataType,
 )
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_contracts import FrameIdentity
@@ -84,7 +80,12 @@ from marivo.analysis.model.frame_metadata import (
     StoredFrameMetadata,
     StoredInput,
 )
-from marivo.analysis.model.frame_schema import FrameAxisSchema, FrameSchema, capture_schema
+from marivo.analysis.model.frame_schema import (
+    FrameAxisSchema,
+    FrameSchema,
+    capture_schema,
+    column_type_summary,
+)
 from marivo.analysis.model.frame_source_reads import FrameSourceRead
 from marivo.analysis.model.frame_structure import (
     PendingDataColumn,
@@ -97,6 +98,7 @@ from marivo.analysis.model.layout_facts import FrameComparison
 from marivo.analysis.model.lineage import FrameLineage
 from marivo.analysis.model.lineage import validate as validate_lineage
 from marivo.analysis.model.result_reference import FrameReference
+from marivo.telemetry import traced
 
 CapturedSchema: TypeAlias = DataSchema | PendingDataSchema
 
@@ -155,7 +157,7 @@ class AnalysisFrame(FrameIdentity):
             schema,
             ExpressionFrameBacking(root),
             "frame_" + uuid4().hex,
-            derive_declaration(schema, root),
+            frame_derivation.derive_declaration(schema, root),
         )
 
     @classmethod
@@ -297,6 +299,7 @@ class AnalysisFrame(FrameIdentity):
             for axis in schema.axes
         )
 
+    @traced(surface="analysis", operation="analysis_frame.axis", capture="short")
     def axis(self, name: str) -> FrameAxis:
         """Resolve one exact current display name to its bound complete axis.
 
@@ -316,6 +319,7 @@ class AnalysisFrame(FrameIdentity):
             )
         return matches[0]
 
+    @traced(surface="analysis", operation="analysis_frame.__getitem__", capture="short")
     def __getitem__(self, name: str) -> Column:
         """Return a bound value or presence Column by its exact current path.
 
@@ -382,6 +386,7 @@ class AnalysisFrame(FrameIdentity):
             canonical_id=canonical_id,
         )
 
+    @traced(surface="analysis", operation="analysis_frame.coord", capture="short")
     def coord(self, axis: FrameAxis) -> Column:
         """Return a coordinate Column for one complete single-component axis.
 
@@ -476,6 +481,7 @@ class AnalysisFrame(FrameIdentity):
             self._local, structure, OperationFrameBinding(operation, (self,))
         )
 
+    @traced(surface="analysis", operation="analysis_frame.where", capture="short")
     def where(self, predicate: Column) -> AnalysisFrame:
         """Filter current rows by a same-input boolean Column.
 
@@ -495,6 +501,7 @@ class AnalysisFrame(FrameIdentity):
             )
         return self._derive(FilterValues(predicate._expression))
 
+    @traced(surface="analysis", operation="analysis_frame.fix", capture="short")
     def fix(self, axis: FrameAxis, key: LiteralValue | tuple[LiteralValue, ...]) -> AnalysisFrame:
         """Fix one complete ordinary coordinate and remove its axis without aggregation.
 
@@ -526,6 +533,7 @@ class AnalysisFrame(FrameIdentity):
             )
         )
 
+    @traced(surface="analysis", operation="analysis_frame.select", capture="short")
     def select(self, values: Mapping[str, Column | LiteralValue]) -> AnalysisFrame:
         """Name current Columns or non-null supported literals, preserving the row domain.
 
@@ -586,6 +594,7 @@ class AnalysisFrame(FrameIdentity):
             expressions.append((name, expression))
         return self._derive(SelectValues(tuple(expressions)))
 
+    @traced(surface="analysis", operation="analysis_frame.top", capture="short")
     def top(self, n: int, *, by: Column, descending: bool = True) -> AnalysisFrame:
         """Select global Top-N current rows with complete-key tie breaking.
 
@@ -616,6 +625,7 @@ class AnalysisFrame(FrameIdentity):
         self._require_column(by, location="frame.top", canonical_id="analysis_frame.top")
         return self._derive(TopValues(n, by._expression, descending))
 
+    @traced(surface="analysis", operation="analysis_frame.reduce", capture="short")
     def reduce(
         self,
         values: _Statistic | tuple[_Statistic, ...] | Mapping[str, _Statistic],
@@ -728,6 +738,7 @@ class AnalysisFrame(FrameIdentity):
             statistics.append((name, bound._definition))
         return self._derive(ReduceValues(tuple(statistics), positions))
 
+    @traced(surface="analysis", operation="analysis_frame.attribute", capture="short")
     def attribute(
         self,
         *,
@@ -814,6 +825,7 @@ class AnalysisFrame(FrameIdentity):
 
         return attribute(self, by=by, permutations=permutations, seed=seed)
 
+    @traced(surface="analysis", operation="analysis_frame.over", capture="short")
     def over(self, statistic: _Statistic, *, by: tuple[FrameAxis, ...] = ()) -> Column:
         """Reduce each current partition and broadcast its statistic to the same rows.
 
@@ -863,6 +875,7 @@ class AnalysisFrame(FrameIdentity):
             self,
         )
 
+    @traced(surface="analysis", operation="analysis_frame.correlate", capture="short")
     def correlate(
         self,
         x: Column,
@@ -1084,6 +1097,7 @@ class AnalysisFrame(FrameIdentity):
             for a, b in on
         )
 
+    @traced(surface="analysis", operation="analysis_frame.align", capture="short")
     def align(
         self,
         other: AnalysisFrame,
@@ -1134,6 +1148,7 @@ class AnalysisFrame(FrameIdentity):
     @_public_overload
     def compare(self, baselines: Mapping[str, ComparisonBaseline]) -> AnalysisFrame: ...
 
+    @traced(surface="analysis", operation="analysis_frame.compare", capture="short")
     def compare(
         self,
         baselines: AnalysisFrame | Mapping[str, ComparisonBaseline],
@@ -1236,6 +1251,7 @@ class AnalysisFrame(FrameIdentity):
         schema = infer_frame_compare_schema(tuple(frame._schema for frame in inputs), operation)
         return self._from_expression(self._local, schema, OperationFrameBinding(operation, inputs))
 
+    @traced(surface="analysis", operation="analysis_frame.compute", stage="execute", capture="long")
     def compute(self) -> AnalysisFrame:
         """Complete explicit inputs without publishing or returning partial data.
 
@@ -1266,20 +1282,12 @@ class AnalysisFrame(FrameIdentity):
         from marivo.analysis.materialization.frame_evaluation import evaluate_frame
 
         keys: dict[str, CompletedFrameData] = {}
-        needs_key_checkpoint = self._derivation is not None and any(
-            output.target.current.binding.frame_key_inputs
-            or (
-                output.target.baseline is not None
-                and output.target.baseline.binding.frame_key_inputs
-            )
-            for output in self._derivation.outputs
+        needs_keys = frame_derivation.uses_frame_keys(self._derivation)
+        result = evaluate_frame(self, declaration_keys=keys if needs_keys else None)
+        declaration = frame_derivation.complete_declaration(
+            self._derivation, keys, result.metadata, _bind_key_input
         )
-        result = evaluate_frame(self, declaration_keys=keys if needs_key_checkpoint else None)
-        return self._from_memory(
-            self._local,
-            result,
-            complete_declaration(self._derivation, keys, result.metadata, _bind_key_input),
-        )
+        return self._from_memory(self._local, result, declaration)
 
     @property
     def method_facts(self) -> tuple[FrameMethodFacts, ...]:
@@ -1307,6 +1315,7 @@ class AnalysisFrame(FrameIdentity):
             return self._backing.method_facts
         return self._local.read_method_facts(self._backing)
 
+    @traced(surface="analysis", operation="analysis_frame.persist", stage="execute", capture="long")
     def persist(self, *, description: str | None = None) -> AnalysisFrame:
         """Publish a completed result; exact stored roots return themselves.
 
@@ -1603,6 +1612,9 @@ class AnalysisFrame(FrameIdentity):
             cursor=cursor,
         )
 
+    @traced(
+        surface="analysis", operation="analysis_frame.to_pandas", stage="execute", capture="long"
+    )
     def to_pandas(
         self, *, axis_names: Mapping[str, str] | None = None, time_details: bool = False
     ) -> pd.DataFrame:
@@ -1701,7 +1713,7 @@ class AnalysisFrame(FrameIdentity):
         card.listing(
             "values (type, nullable, unit)",
             (
-                f"{column.name!r}: {_column_type_summary(column)}, "
+                f"{column.name!r}: {column_type_summary(column)}, "
                 f"{column.nullable!r}, {column.unit!r}"
                 for column in value_columns[:3]
             ),
@@ -1903,20 +1915,6 @@ class AnalysisFrame(FrameIdentity):
             )
             card.field("data", "\n" + table.to_string(max_rows=None, max_cols=None))
         print(card.render(max_output_bytes=None))
-
-
-def _column_type_summary(column: DataColumn | PendingDataColumn) -> str:
-    if isinstance(column, PendingDataColumn):
-        return f"pending({column.kind})"
-    dtype = column.dtype
-    if isinstance(dtype, ScalarDataType):
-        return dtype.name
-    if isinstance(dtype, DecimalDataType):
-        return f"decimal({dtype.precision},{dtype.scale})"
-    if isinstance(dtype, TimestampDataType):
-        return f"timestamp({dtype.unit}, timezone={dtype.timezone!r})"
-    assert isinstance(dtype, DurationDataType)
-    return f"duration({dtype.unit})"
 
 
 def _bind_key_input(

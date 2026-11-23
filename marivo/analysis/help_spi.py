@@ -1,12 +1,20 @@
-"""Native Help bindings for the cross-surface coordinator."""
+"""Analysis Help manifest and renderer for the public coordinator."""
 
-from marivo.analysis._capabilities.render import render_help_target, render_root_help
-from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
-from marivo.analysis.model.disclosure import Descriptor
+from functools import partial
 
-__all__ = [
-    "ANALYSIS_LIVE_SURFACE",
-    "Descriptor",
-    "render_help_target",
-    "render_root_help",
-]
+from marivo.analysis._help_specs.manifest import REGISTRY
+from marivo.analysis._help_specs.render import render_descriptor, render_error
+from marivo.analysis.errors import HelpTargetError
+from marivo.introspection.capabilities.provider import SurfaceRenderer, bind_provider
+
+ANALYSIS_LIVE_SURFACE = REGISTRY.live_surface()
+PROVIDER = bind_provider(
+    ANALYSIS_LIVE_SURFACE,
+    SurfaceRenderer(
+        root=partial(render_descriptor, REGISTRY, REGISTRY.by_canonical_id("")),
+        descriptor=partial(render_descriptor, REGISTRY),
+        type_page=lambda name: render_descriptor(REGISTRY, REGISTRY.by_canonical_id(name)),
+        error_page=render_error,
+    ),
+    target_error=HelpTargetError,
+)

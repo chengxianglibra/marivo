@@ -33,6 +33,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_publication, terminal_store
 from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.contracts import decode_failure, failure_payload
 from marivo.analysis.materialization.graph_reading import open_manifest
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.terminal_protocol import decode, encode
@@ -71,6 +72,31 @@ def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Session:
 
 def constant(session: Session, value: int = 7) -> AnalysisFrame:
     return session.values(by=(), columns={"answer": None}, rows=(((), {"answer": value}),))
+
+
+def test_saved_run_failure_repair_retains_its_json_shape() -> None:
+    payload = {
+        "phase": "publication",
+        "kind": "execution_failed",
+        "safe_message": "Publication failed.",
+        "safe_location": None,
+        "expected": "an exact saved result",
+        "received": "publication interrupted",
+        "repair": {
+            "kind": "inspect",
+            "action": "Resume the owning Session.",
+            "help_target": {"surface": "analysis", "canonical_id": "session.resume"},
+            "snippet": "session = mv.session.resume(session_id)",
+            "candidates": ["session-a", "session-b"],
+        },
+        "backend_class": None,
+        "retry_disposition": "retryable",
+    }
+    failure = decode_failure(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+    assert failure.repair is not None
+    assert failure.repair.help_target.display == "analysis.session.resume"
+    assert failure.repair.candidates == ("session-a", "session-b")
+    assert failure_payload(failure) == payload
 
 
 def committed(frame: AnalysisFrame) -> ArtifactManifest:
@@ -974,7 +1000,7 @@ def test_public_produce_and_cold_read_are_independent_processes(source_session: 
 import os, sys
 import marivo.analysis as mv
 from marivo.analysis.model.disclosure import CallableInput
-from marivo.analysis._capabilities.dataset_registry import prepare
+from marivo.analysis._help_specs.manifest import prepare
 from tests.shared_fixtures import catalog_value
 
 os.chdir(sys.argv[1])

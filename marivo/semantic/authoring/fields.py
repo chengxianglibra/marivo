@@ -80,8 +80,10 @@ from marivo.semantic.policies import (
     NonAdditiveV1,
 )
 from marivo.semantic.typing import AiContextValue
+from marivo.telemetry import traced
 
 
+@traced(surface="semantic", operation="dimension.from_column")
 def dimension_column(
     *,
     name: str,
@@ -155,6 +157,7 @@ def dimension_column(
     return symbol_factory.dimension(ref.path)
 
 
+@traced(surface="semantic", operation="dimension.define")
 def dimension(
     *,
     name: str | None = None,
@@ -245,6 +248,7 @@ def dimension(
 
 
 @reject_parameters("status_time_fold", "fold", "empty", "time_via")
+@traced(surface="semantic", operation="measure.from_column")
 def measure_column(
     *,
     name: str,
@@ -362,6 +366,7 @@ def measure_column(
     "time_via",
     "fanout_policy",
 )
+@traced(surface="semantic", operation="measure.define")
 def measure(
     *,
     unit: str | None = None,
@@ -475,6 +480,7 @@ def measure(
     return decorator
 
 
+@traced(surface="semantic", operation="time_dimension.from_column")
 def time_dimension_column(
     *,
     name: str,
@@ -563,6 +569,7 @@ def time_dimension_column(
     return symbol_factory.time_dimension(ref.path)
 
 
+@traced(surface="semantic", operation="time_dimension.define")
 def time_dimension(
     *,
     name: str | None = None,

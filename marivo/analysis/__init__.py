@@ -172,7 +172,7 @@ if not TYPE_CHECKING:
             raise AttributeError(
                 "The analysis catalog is session-bound; acquire session = mv.session.get_or_create(name), then use catalog = session.catalog."
             )
-        if name.startswith("__") and name not in ("__all__", "__marivo_telemetry_capabilities__"):
+        if name.startswith("__") and name != "__all__":
             raise AttributeError(name)
         if name == "model":
             # A from-list import can resolve the pure package directly.

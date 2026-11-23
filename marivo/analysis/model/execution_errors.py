@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from marivo._kernel.repair import RepairKind
-from marivo.analysis.model.errors import DatasetConstructionError
+from marivo.analysis.model.errors import DatasetConstructionError, RepairKind
 
 if TYPE_CHECKING:
     from marivo.analysis.model.attribute_failures import AttributeFailureContext

@@ -9,10 +9,15 @@ from importlib import import_module
 from types import ModuleType
 
 
+def callable_function(value: object) -> object:
+    """Read the implementation of a bound method or registered property."""
+    property_getter = getattr(value, "fget", None)
+    return property_getter if property_getter is not None else getattr(value, "__func__", value)
+
+
 def callable_identity(value: object) -> str:
     """Return the stable dotted identity for a callable or bound method."""
-    property_getter = getattr(value, "fget", None)
-    function = property_getter if property_getter is not None else getattr(value, "__func__", value)
+    function = callable_function(value)
     module = getattr(function, "__module__", None)
     qualname = getattr(function, "__qualname__", None)
     if not isinstance(module, str) or not isinstance(qualname, str):
@@ -146,3 +151,14 @@ def required_arguments(parameters: Iterable[inspect.Parameter]) -> tuple[str, ..
         for parameter in parameters
         if parameter.default is inspect.Parameter.empty
     )
+
+
+def signature_line(path: str, *, hide_receiver: bool = False) -> str:
+    value = import_registered_callable(path)
+    if not callable(value):
+        raise RuntimeError(f"non-callable Help binding: {path}")
+    signature = inspect.signature(value)
+    parameters = tuple(signature.parameters.values())
+    if hide_receiver and parameters and parameters[0].name in {"self", "cls"}:
+        signature = signature.replace(parameters=parameters[1:])
+    return f"  Signature: {signature}"

@@ -9,8 +9,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, TypeAlias, cast, get_args
 
+from marivo._kernel.errors import HelpSurface, LiveHelpTarget
 from marivo._kernel.render import Card, RenderableResult
-from marivo.analysis.errors import AnalysisRepair
+from marivo.analysis.errors import AnalysisRepair, RepairKind
 from marivo.analysis.model.receipts import FileEntry, LocalReceipt, _int, canonical_json, invalid
 
 
@@ -230,6 +231,33 @@ def failure_payload(value: RunFailure) -> dict[str, object]:
     }
 
 
+def _decode_repair(value: object) -> AnalysisRepair:
+    obj = _obj(value, "kind action help_target snippet candidates")
+    _failure_json(obj)
+    target = obj["help_target"]
+    if not isinstance(target, dict) or set(target) not in (
+        {"surface"},
+        {"surface", "canonical_id"},
+    ):
+        raise invalid("invalid structured Run repair")
+    kind = obj["kind"]
+    surface: object = target["surface"]
+    if kind not in get_args(RepairKind) or surface not in get_args(HelpSurface):
+        raise invalid("invalid structured Run repair")
+    canonical_id: object = target.get("canonical_id")
+    snippet = obj["snippet"]
+    return AnalysisRepair(
+        kind=cast("RepairKind", kind),  # Checked against the closed kinds above.
+        action=_text(obj["action"], empty=True),
+        help_target=LiveHelpTarget(
+            surface=cast("HelpSurface", surface),  # Checked against the closed surfaces above.
+            canonical_id=None if canonical_id is None else _text(canonical_id, empty=True),
+        ),
+        snippet=None if snippet is None else _text(snippet, empty=True),
+        candidates=tuple(_text(item, empty=True) for item in _array(obj["candidates"])),
+    )
+
+
 def decode_failure(text: str) -> RunFailure:
     obj = _obj(
         parse_json(text),
@@ -239,14 +267,7 @@ def decode_failure(text: str) -> RunFailure:
     disposition = obj["retry_disposition"]
     if phase not in _PHASES or disposition not in ("retryable", "not_retryable"):
         raise invalid("unsupported failure variant")
-    repair = None
-    if obj["repair"] is not None:
-        repair_obj = _obj(obj["repair"], "kind action help_target snippet candidates")
-        _failure_json(repair_obj)
-        try:
-            repair = AnalysisRepair.model_validate(repair_obj)
-        except ValueError:
-            raise invalid("invalid structured Run repair") from None
+    repair = None if obj["repair"] is None else _decode_repair(obj["repair"])
     if len(canonical_json((obj["expected"], obj["received"], obj["repair"])).encode()) > 8192:
         raise invalid("Run failure diagnostic byte bound exceeded")
     return RunFailure(

@@ -91,7 +91,7 @@ def _is_internal_caller_frame(frame: Any) -> bool:
     """Return whether a frame belongs to authoring or transparent instrumentation."""
     return (
         frame.f_code.co_filename in _AUTHORING_FILES
-        or frame.f_globals.get("__name__") == "marivo.telemetry"
+        or frame.f_globals.get("__name__") == "marivo.telemetry.decorator"
     )
 
 

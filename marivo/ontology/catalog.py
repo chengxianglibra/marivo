@@ -23,6 +23,7 @@ from marivo.ontology.types import SemanticEdgeIR
 from marivo.semantic import SemanticCatalog
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.spi import SourceLocation, require_catalog_ref
+from marivo.telemetry import traced
 
 _ONTOLOGY_SOURCE = Path("models") / "ontology.py"
 _EDGE_PREVIEW_LIMIT = 8
@@ -168,6 +169,7 @@ class OntologyCatalog(RenderableResult):
         print(self.render(max_output_bytes=max_output_bytes))
 
 
+@traced(surface="ontology", operation="authoring")
 def load(*, semantic: SemanticCatalog) -> OntologyCatalog:
     """Load and validate the optional project ontology against a semantic catalog.
 

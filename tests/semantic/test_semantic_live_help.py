@@ -19,7 +19,7 @@ def test_registry_graph_reaches_every_required_semantic_leaf_within_four_edges()
     from collections import deque
 
     from marivo._authoring.model import AuthoringCapability
-    from marivo.semantic._capabilities.registry import REGISTRY
+    from marivo.semantic._help_specs.manifest import REGISTRY
 
     required = {
         descriptor.canonical_id
@@ -78,8 +78,8 @@ def test_registry_graph_reaches_every_required_semantic_leaf_within_four_edges()
     ("preview",),
 )
 def test_registered_preview_string_paths_resolve_to_one_descriptor(target: str) -> None:
-    from marivo.introspection.live.resolve import resolve_live_target
-    from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+    from marivo.introspection.capabilities.resolve import resolve_live_target
+    from marivo.semantic.help_spi import SEMANTIC_LIVE_SURFACE
 
     resolved = resolve_live_target(target, SEMANTIC_LIVE_SURFACE)
     assert resolved.kind == "descriptor"
@@ -124,8 +124,8 @@ def test_temporal_catalog_error_instances_route_to_the_exact_next_help(
 
 
 def test_error_help_preserves_instances_with_and_without_repair() -> None:
-    from marivo.introspection.live.resolve import resolve_live_target
-    from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+    from marivo.introspection.capabilities.resolve import resolve_live_target
+    from marivo.semantic.help_spi import SEMANTIC_LIVE_SURFACE
 
     with_repair = SemanticLoadError(
         kind="invalid_project",
@@ -147,9 +147,9 @@ def test_error_help_preserves_instances_with_and_without_repair() -> None:
 
 def test_expression_error_help_has_one_owner_and_preserves_repairs() -> None:
     from marivo._help.render import help as public_help
-    from marivo.introspection.live.resolve import resolve_live_target
-    from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+    from marivo.introspection.capabilities.resolve import resolve_live_target
     from marivo.semantic.errors import SemanticExpressionError
+    from marivo.semantic.help_spi import SEMANTIC_LIVE_SURFACE
 
     with pytest.raises(SemanticExpressionError) as caught:
         ms.aggregate(name="old_revenue")
@@ -166,7 +166,7 @@ def test_field_null_predicate_has_one_resolvable_reachable_help_contract() -> No
     assert callable(marivo.help)
     from collections import deque
 
-    from marivo.semantic._capabilities.registry import REGISTRY
+    from marivo.semantic._help_specs.manifest import REGISTRY
 
     descriptor = REGISTRY.by_canonical_id("dimension.isnull")
     assert descriptor.callable_path == "marivo.semantic._expression_values.RowExpression.isnull"
@@ -189,7 +189,7 @@ def test_field_null_predicate_has_one_resolvable_reachable_help_contract() -> No
 def test_native_lookup_factories_have_owned_help_without_finalization_routes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.semantic._capabilities.registry import REGISTRY
+    from marivo.semantic._help_specs.manifest import REGISTRY
 
     assert callable(marivo.help)
     for target in ("ref.entity", "ref.metric"):
@@ -200,7 +200,7 @@ def test_native_lookup_factories_have_owned_help_without_finalization_routes(
 
 
 def test_expression_display_has_one_owner_for_all_receiver_forms() -> None:
-    from marivo.semantic._capabilities.registry import REGISTRY
+    from marivo.semantic._help_specs.manifest import REGISTRY
 
     owners = [
         row.canonical_id
@@ -215,7 +215,7 @@ def test_closed_definition_display_routes_remain_bounded_and_reachable(
 ) -> None:
     from collections import deque
 
-    from marivo.semantic._capabilities.registry import REGISTRY
+    from marivo.semantic._help_specs.manifest import REGISTRY
 
     assert callable(marivo.help)
     marivo.help("semantic.semantic_object.show")
@@ -240,7 +240,7 @@ def test_closed_definition_display_routes_remain_bounded_and_reachable(
 def test_advertised_semantic_native_methods_have_exact_public_help_routes() -> None:
     from marivo._help.model import NativeHelpRoute
     from marivo._help.route import route_help_target
-    from marivo.semantic._capabilities.registry import TYPE_CONTRACTS
+    from marivo.semantic._help_specs.type_specs import TYPE_CONTRACTS
 
     for result_type, contract in TYPE_CONTRACTS.items():
         for method_name in contract.public_methods:
@@ -267,16 +267,12 @@ def test_type_method_navigation_uses_the_actual_documentation_owner(
 
     from marivo._help.model import NativeHelpRoute
     from marivo._help.route import route_help_target
-    from marivo.datasource._capabilities.model import DatasourceTypeContract
-    from marivo.datasource._capabilities.registry import TYPE_CONTRACTS as DATASOURCE_TYPES
-    from marivo.ontology._capabilities.registry import TYPE_CONTRACTS as ONTOLOGY_TYPES
-    from marivo.ontology._capabilities.registry import OntologyTypeContract
-    from marivo.semantic._capabilities.model import SemanticTypeContract
-    from marivo.semantic._capabilities.registry import TYPE_CONTRACTS as SEMANTIC_TYPES
+    from marivo.datasource._help_specs.manifest import TYPE_CONTRACTS as DATASOURCE_TYPES
+    from marivo.introspection.capabilities.registry import TypeContractSpec
+    from marivo.ontology._help_specs.manifest import TYPE_CONTRACTS as ONTOLOGY_TYPES
+    from marivo.semantic._help_specs.type_specs import TYPE_CONTRACTS as SEMANTIC_TYPES
 
-    contracts: tuple[
-        tuple[type, SemanticTypeContract | DatasourceTypeContract | OntologyTypeContract], ...
-    ] = (
+    contracts: tuple[tuple[type, TypeContractSpec], ...] = (
         *SEMANTIC_TYPES.items(),
         *DATASOURCE_TYPES.items(),
         *ONTOLOGY_TYPES.items(),
@@ -309,7 +305,7 @@ def test_focused_expression_help_keeps_only_the_receivers_contract(
 @pytest.mark.parametrize("method", ("first", "last"))
 def test_ordered_sample_help_discloses_inference_and_null_default(method: str) -> None:
     from marivo._authoring.model import AuthoringCapability
-    from marivo.semantic._capabilities.registry import REGISTRY
+    from marivo.semantic._help_specs.manifest import REGISTRY
 
     target = f"metric_samples.{method}"
     descriptor = REGISTRY.by_canonical_id(target)
@@ -325,7 +321,7 @@ def test_ordered_sample_help_discloses_inference_and_null_default(method: str) -
 
 def test_semantic_task_tree_keeps_definition_and_proof_choices_direct() -> None:
     from marivo._help.render import render_help_text
-    from marivo.semantic._capabilities.registry import REGISTRY
+    from marivo.semantic._help_specs.manifest import REGISTRY
 
     assert tuple(
         target.canonical_id for section in REGISTRY.root_sections for target in section.members

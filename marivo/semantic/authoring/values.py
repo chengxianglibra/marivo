@@ -41,8 +41,10 @@ from marivo.semantic.policies import (
     AdditiveOverV1,
 )
 from marivo.semantic.time_format import normalize_strptime
+from marivo.telemetry import traced
 
 
+@traced(surface="semantic", operation="additive_over")
 def additive_over(*axes: CoordinateInput) -> AdditiveOverV1:
     """Declare the existing field coordinates on which a Measure may be summed.
 
@@ -64,6 +66,7 @@ def additive_over(*axes: CoordinateInput) -> AdditiveOverV1:
     return _additive_over(*axes)
 
 
+@traced(surface="semantic", operation="additive_all")
 def additive_all() -> AdditiveAllV1:
     """Grant summing across all native coordinates.
 
@@ -80,6 +83,7 @@ def additive_all() -> AdditiveAllV1:
     return _additive_all()
 
 
+@traced(surface="semantic", operation="additive_except")
 def additive_except(*axes: CoordinateInput) -> AdditiveAllV1:
     """Grant summing across native coordinates except explicitly fixed axes.
 
@@ -100,6 +104,7 @@ def additive_except(*axes: CoordinateInput) -> AdditiveAllV1:
     return _additive_except(*axes)
 
 
+@traced(surface="semantic", operation="ai_context")
 def ai_context(
     *,
     business_definition: str | None = None,
@@ -193,6 +198,7 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
         _raise(ErrorKind.INVALID_AI_CONTEXT, str(error), cls=SemanticDecoratorError)
 
 
+@traced(surface="semantic", operation="snapshot")
 def snapshot(
     *,
     partition_field: Deferred,
@@ -220,6 +226,7 @@ def snapshot(
     )
 
 
+@traced(surface="semantic", operation="validity")
 def validity(
     *,
     valid_from: Deferred,
@@ -288,6 +295,7 @@ def validity(
     )
 
 
+@traced(surface="semantic", operation="join_on")
 def join_on(
     from_key: Deferred,
     to_key: Deferred,
@@ -326,6 +334,7 @@ def join_on(
     )
 
 
+@traced(surface="semantic", operation="date")
 def date(*, timezone: str | None = None) -> DateParse:
     """Declare a native DATE with an optional business-day source timezone.
 
@@ -339,6 +348,7 @@ def date(*, timezone: str | None = None) -> DateParse:
     return DateParse(timezone=_validate_timezone(timezone) if timezone is not None else None)
 
 
+@traced(surface="semantic", operation="timestamp")
 def timestamp(
     *,
     timezone: str | None = None,
@@ -377,6 +387,7 @@ def timestamp(
     )
 
 
+@traced(surface="semantic", operation="strptime")
 def strptime(
     format: str,
     /,
@@ -440,6 +451,7 @@ def strptime(
     )
 
 
+@traced(surface="semantic", operation="hour_prefix")
 def hour_prefix(
     prefix: Deferred,
     /,

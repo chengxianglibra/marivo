@@ -23,15 +23,10 @@ from ibis.common.deferred import Attr, BinaryOperator, Call, Deferred, Just, Res
 from ibis.common.deferred import Sequence as RecipeSequence
 
 from marivo._definition.deferred import (
-    CapturedDefaultTimeResolver,
-    DeclarationResolver,
     NamedResolver,
     RelationshipParameter,
-    RescaleResolver,
-    SemanticResolver,
     _captured_field_kind,
     _captured_scalar_path,
-    attribute_name,
     inspect_capture,
     resolver_of,
 )
@@ -50,7 +45,6 @@ from marivo._kernel.grouping import Grouping
 from marivo._kernel.paths import _PathValue as Path
 from marivo._kernel.refs import SemanticKind
 from marivo._kernel.render import Card, RenderableResult
-from marivo._kernel.symbolic import SymbolResolver
 from marivo._kernel.temporal import CalendarAxis, Grain, InstantAnchor, TimeScope
 from marivo.semantic._deferred_semantics import (
     capture_source_time,
@@ -58,8 +52,9 @@ from marivo.semantic._deferred_semantics import (
     consume_metric,
     validate_closed_time_operation,
 )
+from marivo.semantic._formula_display import render_recipe_formula
 from marivo.semantic._metric_time_disclosure import add_metric_time
-from marivo.semantic.errors import ErrorKind, SemanticExpressionError
+from marivo.semantic.errors import ErrorKind, SemanticExpressionError, _error, _stage_error
 from marivo.semantic.expressions.inputs import (
     _OMITTED_TIME,
     CatalogInput,
@@ -68,6 +63,7 @@ from marivo.semantic.expressions.inputs import (
     _OmittedTime,
 )
 from marivo.semantic.metric_time_bindings import metric_time_bindings
+from marivo.telemetry import traced
 
 if TYPE_CHECKING:
     from marivo._kernel.symbolic import PathSymbol
@@ -104,27 +100,6 @@ def _source_arguments(
     elif (default := capture_source_time(receiver, None)) is not None:
         kwargs["time"] = Deferred(default)
     return kwargs
-
-
-def _error(message: str) -> NoReturn:
-    raise SemanticExpressionError.from_definition(
-        DefinitionGraphError(message, kind="invalid_value"), operation="expression capture"
-    )
-
-
-def _stage_error(
-    message: str,
-    *,
-    received: str = "an incompatible expression role",
-    expected: str = "expressions with the required semantic stage and role",
-) -> NoReturn:
-    raise SemanticExpressionError(
-        kind=ErrorKind.INVALID_EXPRESSION_STAGE,
-        message=message,
-        expected=expected,
-        received=received,
-        action="Use Measure row expressions before reduction and completed Metric expressions afterwards; keep boolean conditions in their matching stage.",
-    )
 
 
 def _parameter(value: object) -> Resolver:
@@ -199,61 +174,6 @@ def _merge(*values: object) -> InputContext:
         raise SemanticExpressionError.from_definition(
             error, operation="expression capture"
         ) from error
-
-
-def _formula(recipe: Resolver, depth: int = 0) -> str:
-    """Render captured recipe syntax, without interpreting business facts."""
-
-    if depth > 5:
-        return "..."
-
-    def child(value: Resolver) -> str:
-        return _formula(value, depth + 1)
-
-    if isinstance(recipe, NamedResolver):
-        return recipe.reference.ref.key
-    if isinstance(recipe, SymbolResolver):
-        return recipe.reference.key
-    if isinstance(recipe, CapturedDefaultTimeResolver):
-        return recipe.field.ref.key if recipe.field is not None else "(no Entity default)"
-    if isinstance(recipe, SemanticResolver):
-        return recipe.input.reference.ref.key
-    if isinstance(recipe, DeclarationResolver):
-        return child(recipe.recipe)
-    if isinstance(recipe, RescaleResolver):
-        return f"rescale({child(recipe.recipe)}, divisor={recipe.divisor!r}, unit={recipe.unit!r})"
-    if isinstance(recipe, BinaryOperator):
-        symbols = (
-            (operator.add, "+"),
-            (operator.sub, "-"),
-            (operator.mul, "*"),
-            (operator.truediv, "/"),
-            (operator.mod, "%"),
-            (operator.pow, "**"),
-            (operator.eq, "=="),
-            (operator.ne, "!="),
-            (operator.lt, "<"),
-            (operator.le, "<="),
-            (operator.gt, ">"),
-            (operator.ge, ">="),
-            (operator.and_, "&"),
-            (operator.or_, "|"),
-        )
-        symbol = next((label for function, label in symbols if recipe.func is function), "operator")
-        return f"({child(recipe.left)} {symbol} {child(recipe.right)})"
-    if isinstance(recipe, UnaryOperator):
-        return f"{'~' if recipe.func is operator.invert else '-'}{child(recipe.arg)}"
-    if isinstance(recipe, Attr):
-        return f"{child(recipe.obj)}.{attribute_name(recipe)}"
-    if isinstance(recipe, Call):
-        args = [child(value) for value in recipe.args[:4]]
-        args.extend(f"{key}={child(value)}" for key, value in tuple(recipe.kwargs.items())[:4])
-        return f"{child(recipe.func)}({', '.join(args)})"
-    if isinstance(recipe, RecipeSequence):
-        return "(" + ", ".join(child(value) for value in recipe.values[:4]) + ")"
-    if isinstance(recipe, Just):
-        return repr(recipe.value)[:80]
-    return type(recipe).__name__
 
 
 class _ExpressionCarrier(RenderableResult, RecipeInput):
@@ -375,7 +295,7 @@ class _ExpressionCarrier(RenderableResult, RecipeInput):
         card = (
             Card(identity=self._repr_identity(), available=(".show()",))
             .field("role", self._role)
-            .field("formula", _formula(self._recipe)[:400])
+            .field("formula", render_recipe_formula(self._recipe)[:400])
             .field(
                 "dependencies",
                 ", ".join(item.ref.key for item in inspection.dependencies) or "(none)",
@@ -708,6 +628,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self._require("boolean")
         return RowExpression(UnaryOperator(operator.invert, self._recipe), self._context, "boolean")
 
+    @traced(surface="semantic", operation="dimension.isnull", kind="method")
     def isnull(self) -> RowPredicate:
         """Capture a boolean test for NULL at the current expression stage.
 
@@ -724,6 +645,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         """
         return RowExpression(self._method("isnull"), self._context, "boolean")
 
+    @traced(surface="semantic", operation="row.notnull", kind="method")
     def notnull(self) -> RowPredicate:
         """Capture a boolean test for non-NULL values at the current stage.
 
@@ -740,6 +662,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         """
         return RowExpression(self._method("notnull"), self._context, "boolean")
 
+    @traced(surface="semantic", operation="row.abs", kind="method")
     def abs(self: RowExpression[Literal["numeric"]]) -> RowExpression[Literal["numeric"]]:
         """Capture the absolute value of a numeric expression.
 
@@ -757,6 +680,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self._require("numeric")
         return RowExpression(self._method("abs"), self._context, "numeric")
 
+    @traced(surface="semantic", operation="row.sqrt", kind="method")
     def sqrt(self: RowExpression[Literal["numeric"]]) -> RowExpression[Literal["numeric"]]:
         """Capture the square root of a numeric expression.
 
@@ -774,6 +698,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self._require("numeric")
         return RowExpression(self._method("sqrt"), self._context, "numeric")
 
+    @traced(surface="semantic", operation="row.exp", kind="method")
     def exp(self: RowExpression[Literal["numeric"]]) -> RowExpression[Literal["numeric"]]:
         """Capture the exponential of a numeric expression.
 
@@ -791,6 +716,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self._require("numeric")
         return RowExpression(self._method("exp"), self._context, "numeric")
 
+    @traced(surface="semantic", operation="row.round", kind="method")
     def round(
         self: RowExpression[Literal["numeric"]], digits: int = 0
     ) -> RowExpression[Literal["numeric"]]:
@@ -812,6 +738,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self._require("numeric")
         return RowExpression(self._method("round", (digits,)), self._context, "numeric")
 
+    @traced(surface="semantic", operation="row.cast", kind="method")
     def cast(
         self: RowExpression[Literal["numeric"]], target_type: str
     ) -> RowExpression[Literal["numeric"]]:
@@ -833,6 +760,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self._require("numeric")
         return RowExpression(self._method("cast", (target_type,)), self._context, "numeric")
 
+    @traced(surface="semantic", operation="row.log", kind="method")
     def log(
         self: RowExpression[Literal["numeric"]], base: NumericLiteral | None = None
     ) -> RowExpression[Literal["numeric"]]:
@@ -854,6 +782,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self._require("numeric")
         return RowExpression(self._method("log", (base,)), self._context, "numeric")
 
+    @traced(surface="semantic", operation="row.clip", kind="method")
     def clip(
         self: RowExpression[Literal["numeric"]],
         lower: RowExpression[Literal["numeric"]] | NumericLiteral | None = None,
@@ -909,6 +838,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["time"]], *others: TimeExpression | date | datetime
     ) -> RowExpression[Literal["time"]]: ...
 
+    @traced(surface="semantic", operation="row.coalesce", kind="method")
     def coalesce(self, *others: RowExpression[RowRole] | LiteralValue) -> RowExpression[RowRole]:
         """Capture the first non-NULL value while retaining its semantic role.
 
@@ -929,6 +859,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             self._method("coalesce", others), _merge(self, others), cast("RowRole", self._role)
         )
 
+    @traced(surface="semantic", operation="row.least", kind="method")
     def least(
         self: RowExpression[Literal["numeric"]],
         *others: RowExpression[Literal["numeric"]] | NumericLiteral,
@@ -951,6 +882,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self._require("numeric")
         return RowExpression(self._method("least", others), _merge(self, others), "numeric")
 
+    @traced(surface="semantic", operation="row.greatest", kind="method")
     def greatest(
         self: RowExpression[Literal["numeric"]],
         *others: RowExpression[Literal["numeric"]] | NumericLiteral,
@@ -994,6 +926,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["time"]], other: TimeExpression | date | datetime
     ) -> RowExpression[Literal["time"]]: ...
 
+    @traced(surface="semantic", operation="row.nullif", kind="method")
     def nullif(self, other: RowExpression[RowRole] | LiteralValue) -> RowExpression[RowRole]:
         """Capture NULL when this expression equals the supplied value.
 
@@ -1040,6 +973,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         else_: TimeExpression | date | datetime,
     ) -> RowExpression[Literal["time"]]: ...
 
+    @traced(surface="semantic", operation="row.cases", kind="method")
     def cases(
         self,
         *branches: tuple[LiteralValue, RowExpression[RowRole] | LiteralValue],
@@ -1117,6 +1051,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         false: TimeExpression | date | datetime,
     ) -> RowExpression[Literal["time"]]: ...
 
+    @traced(surface="semantic", operation="row.ifelse", kind="method")
     def ifelse(
         self: RowPredicate,
         true: RowExpression[RowRole] | LiteralValue,
@@ -1159,6 +1094,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             cast("RowRole", branch_role),
         )
 
+    @traced(surface="semantic", operation="field.isin", kind="method")
     def isin(self, values: list[LiteralValue] | tuple[LiteralValue, ...]) -> RowPredicate:
         """Capture a row membership condition over a frozen literal collection.
 
@@ -1179,6 +1115,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             _error("isin requires an immutable literal tuple or a list captured at this call.")
         return RowExpression(self._method("isin", (tuple(values),)), self._context, "boolean")
 
+    @traced(surface="semantic", operation="field.via", kind="method")
     def via(self, path: Path | PathSymbol) -> RowExpression[_RowRoleT]:
         """Capture a field through one explicit directed relationship path.
 
@@ -1210,6 +1147,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             consume_field(result)
         return result
 
+    @traced(surface="semantic", operation="field.at", kind="method")
     def at(self, anchor: InstantAnchor | TimeExpression) -> RowExpression[_RowRoleT]:
         """Capture a versioned attribute at a fixed instant or each fact's time.
 
@@ -1233,6 +1171,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         """
         return self._bind_field_version("at", anchor)
 
+    @traced(surface="semantic", operation="row.sum", kind="method")
     def sum(
         self: RowExpression[Literal["numeric"]],
         *,
@@ -1265,6 +1204,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             "numeric",
         )
 
+    @traced(surface="semantic", operation="row.mean", kind="method")
     def mean(
         self: RowExpression[Literal["numeric"]],
         *,
@@ -1297,6 +1237,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             "numeric",
         )
 
+    @traced(surface="semantic", operation="row.min", kind="method")
     def min(
         self: RowExpression[Literal["numeric"]],
         *,
@@ -1329,6 +1270,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             "numeric",
         )
 
+    @traced(surface="semantic", operation="row.max", kind="method")
     def max(
         self: RowExpression[Literal["numeric"]],
         *,
@@ -1361,6 +1303,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             "numeric",
         )
 
+    @traced(surface="semantic", operation="row.median", kind="method")
     def median(
         self: RowExpression[Literal["numeric"]],
         *,
@@ -1393,6 +1336,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             "numeric",
         )
 
+    @traced(surface="semantic", operation="row.count", kind="method")
     def count(
         self,
         *,
@@ -1425,6 +1369,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             "numeric",
         )
 
+    @traced(surface="semantic", operation="row.count_distinct", kind="method")
     def count_distinct(
         self,
         *,
@@ -1458,6 +1403,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             "numeric",
         )
 
+    @traced(surface="semantic", operation="row.approx_nunique", kind="method")
     def approx_nunique(
         self,
         *,
@@ -1491,6 +1437,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             "numeric",
         )
 
+    @traced(surface="semantic", operation="row.approx_median", kind="method")
     def approx_median(
         self: RowExpression[Literal["numeric"]],
         *,
@@ -1524,6 +1471,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             "numeric",
         )
 
+    @traced(surface="semantic", operation="row.quantile", kind="method")
     def quantile(
         self: RowExpression[Literal["numeric"]],
         q: float,
@@ -1558,6 +1506,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             "numeric",
         )
 
+    @traced(surface="semantic", operation="row.approx_quantile", kind="method")
     def approx_quantile(
         self: RowExpression[Literal["numeric"]],
         q: float,
@@ -1594,6 +1543,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             "numeric",
         )
 
+    @traced(surface="semantic", operation="row.weighted_mean", kind="method")
     def weighted_mean(
         self: RowExpression[Literal["numeric"]],
         weight: RowExpression[Literal["numeric"]],
@@ -1913,6 +1863,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
             UnaryOperator(operator.invert, self._recipe), self._context, "boolean"
         )
 
+    @traced(surface="semantic", operation="metric.isnull", kind="method")
     def isnull(self) -> MetricPredicate:
         """Capture a boolean test for NULL at the current expression stage.
 
@@ -1929,6 +1880,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         """
         return MetricExpression(self._method("isnull"), self._context, "boolean")
 
+    @traced(surface="semantic", operation="metric.notnull", kind="method")
     def notnull(self) -> MetricPredicate:
         """Capture a boolean test for non-NULL values at the current stage.
 
@@ -1945,6 +1897,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         """
         return MetricExpression(self._method("notnull"), self._context, "boolean")
 
+    @traced(surface="semantic", operation="metric.abs", kind="method")
     def abs(self: MetricExpression[Literal["numeric"]]) -> MetricExpression[Literal["numeric"]]:
         """Capture the absolute value of a numeric expression.
 
@@ -1962,6 +1915,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self._require("numeric")
         return MetricExpression(self._method("abs"), self._context, "numeric")
 
+    @traced(surface="semantic", operation="metric.sqrt", kind="method")
     def sqrt(self: MetricExpression[Literal["numeric"]]) -> MetricExpression[Literal["numeric"]]:
         """Capture the square root of a numeric expression.
 
@@ -1979,6 +1933,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self._require("numeric")
         return MetricExpression(self._method("sqrt"), self._context, "numeric")
 
+    @traced(surface="semantic", operation="metric.exp", kind="method")
     def exp(self: MetricExpression[Literal["numeric"]]) -> MetricExpression[Literal["numeric"]]:
         """Capture the exponential of a numeric expression.
 
@@ -1996,6 +1951,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self._require("numeric")
         return MetricExpression(self._method("exp"), self._context, "numeric")
 
+    @traced(surface="semantic", operation="metric.round", kind="method")
     def round(
         self: MetricExpression[Literal["numeric"]], digits: int = 0
     ) -> MetricExpression[Literal["numeric"]]:
@@ -2017,6 +1973,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self._require("numeric")
         return MetricExpression(self._method("round", (digits,)), self._context, "numeric")
 
+    @traced(surface="semantic", operation="metric.cast", kind="method")
     def cast(
         self: MetricExpression[Literal["numeric"]], target_type: str
     ) -> MetricExpression[Literal["numeric"]]:
@@ -2038,6 +1995,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self._require("numeric")
         return MetricExpression(self._method("cast", (target_type,)), self._context, "numeric")
 
+    @traced(surface="semantic", operation="metric.log", kind="method")
     def log(
         self: MetricExpression[Literal["numeric"]], base: NumericLiteral | None = None
     ) -> MetricExpression[Literal["numeric"]]:
@@ -2059,6 +2017,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self._require("numeric")
         return MetricExpression(self._method("log", (base,)), self._context, "numeric")
 
+    @traced(surface="semantic", operation="metric.clip", kind="method")
     def clip(
         self: MetricExpression[Literal["numeric"]],
         lower: MetricExpression[Literal["numeric"]] | NumericLiteral | None = None,
@@ -2104,6 +2063,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["boolean"]], *others: MetricPredicate | bool
     ) -> MetricExpression[Literal["boolean"]]: ...
 
+    @traced(surface="semantic", operation="metric.coalesce", kind="method")
     def coalesce(
         self, *others: MetricExpression[MetricRole] | LiteralValue
     ) -> MetricExpression[MetricRole]:
@@ -2126,6 +2086,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
             self._method("coalesce", others), _merge(self, others), cast("MetricRole", self._role)
         )
 
+    @traced(surface="semantic", operation="metric.least", kind="method")
     def least(
         self: MetricExpression[Literal["numeric"]],
         *others: MetricExpression[Literal["numeric"]] | NumericLiteral,
@@ -2148,6 +2109,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self._require("numeric")
         return MetricExpression(self._method("least", others), _merge(self, others), "numeric")
 
+    @traced(surface="semantic", operation="metric.greatest", kind="method")
     def greatest(
         self: MetricExpression[Literal["numeric"]],
         *others: MetricExpression[Literal["numeric"]] | NumericLiteral,
@@ -2181,6 +2143,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         self: MetricExpression[Literal["boolean"]], other: MetricPredicate | bool
     ) -> MetricExpression[Literal["boolean"]]: ...
 
+    @traced(surface="semantic", operation="metric.nullif", kind="method")
     def nullif(
         self, other: MetricExpression[MetricRole] | LiteralValue
     ) -> MetricExpression[MetricRole]:
@@ -2215,6 +2178,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         else_: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]: ...
 
+    @traced(surface="semantic", operation="metric.cases", kind="method")
     def cases(
         self,
         *branches: tuple[LiteralValue, MetricExpression[MetricRole] | LiteralValue],
@@ -2280,6 +2244,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         false: MetricExpression[Literal["numeric"]] | NumericLiteral,
     ) -> MetricExpression[Literal["numeric"]]: ...
 
+    @traced(surface="semantic", operation="metric.ifelse", kind="method")
     def ifelse(
         self: MetricPredicate,
         true: MetricExpression[MetricRole] | LiteralValue,
@@ -2322,6 +2287,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
             cast("MetricRole", branch_role),
         )
 
+    @traced(surface="semantic", operation="metric.where", kind="method")
     def where(self: NumericMetric, predicate: RowPredicate) -> NumericMetric:
         """Capture a source-row condition on a completed Metric.
 
@@ -2355,6 +2321,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         | Grain,
     ) -> _MetricSamples: ...
 
+    @traced(surface="semantic", operation="metric.per", kind="method")
     def per(
         self: NumericMetric,
         by: FieldExpression
@@ -2415,6 +2382,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
             )
         return _MetricSamples(self._method("per", (by,)), _merge(self, by), "samples")
 
+    @traced(surface="semantic", operation="metric.window", kind="method")
     def window(self: NumericMetric, window: Window) -> NumericMetric:
         """Capture an observation window on a completed Metric.
 
@@ -2462,6 +2430,7 @@ FieldExpression: TypeAlias = DimensionExpression | TimeExpression | NumericRow
 class _MetricSamples(_ExpressionCarrier):
     """The existing intermediate sample role, requiring a final reduction."""
 
+    @traced(surface="semantic", operation="metric_samples.sum", kind="method")
     def sum(self, *, nulls: NullPolicy = "ignore") -> NumericMetric:
         """Capture the sum reduction using the existing metric rules.
 
@@ -2482,6 +2451,7 @@ class _MetricSamples(_ExpressionCarrier):
             self._method("sum", kwargs={"nulls": nulls}), self._context, "numeric"
         )
 
+    @traced(surface="semantic", operation="metric_samples.mean", kind="method")
     def mean(self, *, nulls: NullPolicy = "ignore") -> NumericMetric:
         """Capture the mean reduction using the existing metric rules.
 
@@ -2502,6 +2472,7 @@ class _MetricSamples(_ExpressionCarrier):
             self._method("mean", kwargs={"nulls": nulls}), self._context, "numeric"
         )
 
+    @traced(surface="semantic", operation="metric_samples.min", kind="method")
     def min(self, *, nulls: NullPolicy = "ignore") -> NumericMetric:
         """Capture the min reduction using the existing metric rules.
 
@@ -2522,6 +2493,7 @@ class _MetricSamples(_ExpressionCarrier):
             self._method("min", kwargs={"nulls": nulls}), self._context, "numeric"
         )
 
+    @traced(surface="semantic", operation="metric_samples.max", kind="method")
     def max(self, *, nulls: NullPolicy = "ignore") -> NumericMetric:
         """Capture the max reduction using the existing metric rules.
 
@@ -2542,6 +2514,7 @@ class _MetricSamples(_ExpressionCarrier):
             self._method("max", kwargs={"nulls": nulls}), self._context, "numeric"
         )
 
+    @traced(surface="semantic", operation="metric_samples.median", kind="method")
     def median(self, *, nulls: NullPolicy = "ignore") -> NumericMetric:
         """Capture the median reduction using the existing metric rules.
 
@@ -2562,6 +2535,7 @@ class _MetricSamples(_ExpressionCarrier):
             self._method("median", kwargs={"nulls": nulls}), self._context, "numeric"
         )
 
+    @traced(surface="semantic", operation="metric_samples.count", kind="method")
     def count(self, *, nulls: NullPolicy = "ignore") -> NumericMetric:
         """Capture the count reduction using the existing metric rules.
 
@@ -2582,6 +2556,7 @@ class _MetricSamples(_ExpressionCarrier):
             self._method("count", kwargs={"nulls": nulls}), self._context, "numeric"
         )
 
+    @traced(surface="semantic", operation="metric_samples.count_distinct", kind="method")
     def count_distinct(self, *, nulls: NullPolicy = "ignore") -> NumericMetric:
         """Capture the count_distinct reduction using the existing metric rules.
 
@@ -2602,6 +2577,7 @@ class _MetricSamples(_ExpressionCarrier):
             self._method("count_distinct", kwargs={"nulls": nulls}), self._context, "numeric"
         )
 
+    @traced(surface="semantic", operation="metric_samples.approx_nunique", kind="method")
     def approx_nunique(self, *, nulls: NullPolicy = "ignore") -> NumericMetric:
         """Capture the approx_nunique reduction using the existing metric rules.
 
@@ -2622,6 +2598,7 @@ class _MetricSamples(_ExpressionCarrier):
             self._method("approx_nunique", kwargs={"nulls": nulls}), self._context, "numeric"
         )
 
+    @traced(surface="semantic", operation="metric_samples.approx_median", kind="method")
     def approx_median(self, *, nulls: NullPolicy = "ignore") -> NumericMetric:
         """Capture the approx_median reduction using the existing metric rules.
 
@@ -2642,6 +2619,7 @@ class _MetricSamples(_ExpressionCarrier):
             self._method("approx_median", kwargs={"nulls": nulls}), self._context, "numeric"
         )
 
+    @traced(surface="semantic", operation="metric_samples.first", kind="method")
     def first(
         self,
         *,
@@ -2673,6 +2651,7 @@ class _MetricSamples(_ExpressionCarrier):
             self._method("first", kwargs=kwargs), _merge(self, order_by), "numeric"
         )
 
+    @traced(surface="semantic", operation="metric_samples.last", kind="method")
     def last(
         self,
         *,
@@ -2704,6 +2683,7 @@ class _MetricSamples(_ExpressionCarrier):
             self._method("last", kwargs=kwargs), _merge(self, order_by), "numeric"
         )
 
+    @traced(surface="semantic", operation="metric_samples.weighted_mean", kind="method")
     def weighted_mean(
         self, *, weight: NumericMetric, nulls: NullPolicy = "ignore"
     ) -> NumericMetric:
@@ -2729,6 +2709,7 @@ class _MetricSamples(_ExpressionCarrier):
             "numeric",
         )
 
+    @traced(surface="semantic", operation="metric_samples.quantile", kind="method")
     def quantile(self, q: float, *, nulls: NullPolicy = "ignore") -> NumericMetric:
         """Capture the quantile reduction using the existing metric rules.
 
@@ -2750,6 +2731,7 @@ class _MetricSamples(_ExpressionCarrier):
             self._method("quantile", (q,), {"nulls": nulls}), self._context, "numeric"
         )
 
+    @traced(surface="semantic", operation="metric_samples.approx_quantile", kind="method")
     def approx_quantile(self, q: float, *, nulls: NullPolicy = "ignore") -> NumericMetric:
         """Capture the approx_quantile reduction using the existing metric rules.
 

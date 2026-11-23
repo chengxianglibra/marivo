@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import operator
 from collections import Counter
 
 from ibis.common.deferred import (
@@ -10,13 +11,22 @@ from ibis.common.deferred import (
     Call,
     Item,
     Just,
+    Resolver,
     Sequence,
     UnaryOperator,
     Variable,
 )
+from ibis.common.deferred import Sequence as RecipeSequence
 from typing_extensions import assert_never
 
-from marivo._definition.deferred import RescaleResolver
+from marivo._definition.deferred import (
+    CapturedDefaultTimeResolver,
+    DeclarationResolver,
+    NamedResolver,
+    RescaleResolver,
+    SemanticResolver,
+    attribute_name,
+)
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
@@ -65,6 +75,7 @@ from marivo._kernel.refs import (
     Ref,
     SemanticKindTag,
 )
+from marivo._kernel.symbolic import SymbolResolver
 from marivo._kernel.temporal import Grain
 
 
@@ -413,3 +424,58 @@ class FormulaDisplay:
                 f"Then compute {self._sample_reduction(node)}."
             )
         return f"Compute {self._calculation(node)}."
+
+
+def render_recipe_formula(recipe: Resolver, depth: int = 0) -> str:
+    """Render captured recipe syntax, without interpreting business facts."""
+
+    if depth > 5:
+        return "..."
+
+    def child(value: Resolver) -> str:
+        return render_recipe_formula(value, depth + 1)
+
+    if isinstance(recipe, NamedResolver):
+        return recipe.reference.ref.key
+    if isinstance(recipe, SymbolResolver):
+        return recipe.reference.key
+    if isinstance(recipe, CapturedDefaultTimeResolver):
+        return recipe.field.ref.key if recipe.field is not None else "(no Entity default)"
+    if isinstance(recipe, SemanticResolver):
+        return recipe.input.reference.ref.key
+    if isinstance(recipe, DeclarationResolver):
+        return child(recipe.recipe)
+    if isinstance(recipe, RescaleResolver):
+        return f"rescale({child(recipe.recipe)}, divisor={recipe.divisor!r}, unit={recipe.unit!r})"
+    if isinstance(recipe, BinaryOperator):
+        symbols = (
+            (operator.add, "+"),
+            (operator.sub, "-"),
+            (operator.mul, "*"),
+            (operator.truediv, "/"),
+            (operator.mod, "%"),
+            (operator.pow, "**"),
+            (operator.eq, "=="),
+            (operator.ne, "!="),
+            (operator.lt, "<"),
+            (operator.le, "<="),
+            (operator.gt, ">"),
+            (operator.ge, ">="),
+            (operator.and_, "&"),
+            (operator.or_, "|"),
+        )
+        symbol = next((label for function, label in symbols if recipe.func is function), "operator")
+        return f"({child(recipe.left)} {symbol} {child(recipe.right)})"
+    if isinstance(recipe, UnaryOperator):
+        return f"{'~' if recipe.func is operator.invert else '-'}{child(recipe.arg)}"
+    if isinstance(recipe, Attr):
+        return f"{child(recipe.obj)}.{attribute_name(recipe)}"
+    if isinstance(recipe, Call):
+        args = [child(value) for value in recipe.args[:4]]
+        args.extend(f"{key}={child(value)}" for key, value in tuple(recipe.kwargs.items())[:4])
+        return f"{child(recipe.func)}({', '.join(args)})"
+    if isinstance(recipe, RecipeSequence):
+        return "(" + ", ".join(child(value) for value in recipe.values[:4]) + ")"
+    if isinstance(recipe, Just):
+        return repr(recipe.value)[:80]
+    return type(recipe).__name__

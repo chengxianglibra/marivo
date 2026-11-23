@@ -12,15 +12,15 @@ from marivo._authoring.model import (
     AuthoringCapability,
     AuthoringEffects,
 )
-from marivo.introspection.live.model import SURFACE_LIMITS
-from marivo.introspection.live.resolve import (
-    LiveSurface,
+from marivo.introspection.capabilities.resolve import (
+    LiveSurfaceAdapter,
     ResolvedLiveTarget,
     ResolveKind,
     build_suggestion_index,
     resolve_live_target,
     suggestions_for,
 )
+from marivo.introspection.live.model import SURFACE_LIMITS
 
 
 class _FakeError(BaseException):
@@ -72,10 +72,10 @@ def _surface(
     caps: tuple[AuthoringCapability, ...],
     *,
     enrich: Callable[[object], ResolvedLiveTarget[AuthoringCapability] | None] | None = None,
-) -> LiveSurface[AuthoringCapability]:
+) -> LiveSurfaceAdapter[AuthoringCapability]:
     registry = _FakeRegistry(caps)
     index = build_suggestion_index(registry)
-    return LiveSurface(
+    return LiveSurfaceAdapter(
         registry=registry,
         type_index={},
         error_types={"FakeError": _FakeError},

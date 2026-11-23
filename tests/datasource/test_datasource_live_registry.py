@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import marivo.datasource as md
 from marivo._authoring.model import AuthoringEffects
-from marivo.datasource._capabilities.registry import REGISTRY, TYPE_CONTRACTS
-from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
-from marivo.datasource._capabilities.validation import validate_datasource_live_surface
+from marivo.datasource._help_specs.manifest import REGISTRY, TYPE_CONTRACTS
 from marivo.datasource.constraints import constraints_for_symbol
+from marivo.datasource.help_spi import DATASOURCE_LIVE_SURFACE
 from marivo.datasource.inspection.source import SourceInspection
 from marivo.datasource.store.evidence import DiscoveryEvidence
+from tests.datasource.help_validation import validate_datasource_live_surface
 
 PUBLIC_CALLABLE_TARGETS = {
     "env",

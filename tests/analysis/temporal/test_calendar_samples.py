@@ -19,9 +19,9 @@ from marivo.analysis.model.data_types import ScalarDataType
 from marivo.analysis.model.errors import CoreRuleError
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
-from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._expression_values import MetricExpression
+from marivo.semantic._help_specs.manifest import REGISTRY
 from marivo.semantic.catalog_model.objects import (
     Entity,
     Metric,

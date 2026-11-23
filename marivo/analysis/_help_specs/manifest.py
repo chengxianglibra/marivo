@@ -1,0 +1,461 @@
+"""Explicit private assembly of native owner inputs; never installs public Help."""
+
+from __future__ import annotations
+
+import ast
+import builtins
+import inspect
+import re
+from collections import Counter
+from dataclasses import dataclass, replace
+from types import MappingProxyType
+from typing import NoReturn
+
+from marivo.analysis import grain
+from marivo.analysis._help_specs.navigation import navigation
+from marivo.analysis.dsl import _correspondence_disclosure as operators
+from marivo.analysis.dsl import _observation_disclosure as observation
+from marivo.analysis.errors import AnalysisError, HelpTargetError
+from marivo.analysis.model.disclosure import (
+    CallableInput,
+    Descriptor,
+    DisclosureProvider,
+    NavigationInput,
+    TypeInput,
+    invalid,
+    public_fields,
+    public_methods,
+    variant_fields,
+)
+from marivo.analysis.session import _disclosure as runtime
+from marivo.introspection.capabilities.registry import SurfaceRegistry
+from marivo.introspection.capabilities.resolve import (
+    LiveSurfaceAdapter,
+    ResolvedLiveTarget,
+    build_suggestion_index,
+    resolve_live_target,
+)
+from marivo.introspection.live.targets import canonical_target
+
+
+@dataclass(frozen=True)
+class AnalysisManifest(SurfaceRegistry[Descriptor]):
+    providers: tuple[DisclosureProvider, ...]
+
+    @property
+    def descriptors(self) -> tuple[Descriptor, ...]:
+        return self.specs
+
+    def is_type_attribute(self, target: str) -> bool:
+        """Recognize exact declared fields of registered types without getters."""
+        owner, separator, member = target.rpartition(".")
+        return bool(separator) and any(
+            isinstance(descriptor, TypeInput)
+            and descriptor.canonical_id == owner
+            and any(
+                member == field.name for binding in descriptor.bindings for field in binding.fields
+            )
+            for descriptor in self.descriptors
+        )
+
+    def discovery_ids(self) -> tuple[str, ...]:
+        """Return intentional discovery members, not every resolvable leaf."""
+        members = {m for d in self.descriptors if isinstance(d, NavigationInput) for m in d.members}
+        return tuple(d.canonical_id for d in self.descriptors if d.canonical_id in members)
+
+    def callable_routes(self, descriptor: CallableInput) -> tuple[str, ...]:
+        """Link prerequisites and exact exported return types from native facts."""
+        names = set(re.findall(r"\b[A-Z][A-Za-z0-9_]+\b", descriptor.output))
+        outputs = tuple(
+            dict.fromkeys(e.target for p in self.providers for e in p.exports if e.name in names)
+        )
+        outputs = tuple(
+            dict.fromkeys(
+                (
+                    *outputs,
+                    *(
+                        d.canonical_id
+                        for d in self.descriptors
+                        if isinstance(d, TypeInput)
+                        and any(b.implementation.__name__ in names for b in d.bindings)
+                    ),
+                )
+            )
+        )
+        return tuple(
+            dict.fromkeys(
+                (
+                    *descriptor.related,
+                    *(t for p in descriptor.parameters for t in p.targets),
+                    *outputs,
+                )
+            )
+        )
+
+    def by_callable(self, value: object) -> Descriptor:
+        receiver = getattr(value, "__self__", None)
+        function = getattr(value, "__func__", value)
+        matches = [
+            d
+            for d in self.descriptors
+            if isinstance(d, CallableInput)
+            and any(
+                b.implementation is function
+                and (receiver is None or b.receiver is None or isinstance(receiver, b.receiver))
+                for b in d.bindings
+            )
+        ]
+        if not matches:
+            raise KeyError("unregistered callable")
+        if len(matches) > 1:
+            defaults = [d for d in matches if d.unbound_default]
+            if receiver is None and len(defaults) == 1:
+                return defaults[0]
+            raise invalid("one exact callable owner", "ambiguous callable identity")
+        return matches[0]
+
+    def live_surface(self) -> LiveSurfaceAdapter[Descriptor]:
+        """Bind this exact owner registry to the neutral public resolver."""
+        types = {
+            b.implementation: d.canonical_id
+            for d in self.descriptors
+            if isinstance(d, TypeInput)
+            for b in d.bindings
+        }
+        types.update(
+            {
+                e.implementation: e.target
+                for p in self.providers
+                for e in p.exports
+                if isinstance(e.implementation, type)
+                and isinstance(self.by_canonical_id(e.target), NavigationInput)
+            }
+        )
+
+        def enrich(value: object) -> ResolvedLiveTarget[Descriptor] | None:
+            if isinstance(value, type) and value in types:
+                return ResolvedLiveTarget(
+                    kind="type_contract", surface="analysis", type_name=types[value]
+                )
+            for provider in self.providers:
+                for export in provider.exports:
+                    if export.implementation is value and isinstance(
+                        self.by_canonical_id(export.target), NavigationInput
+                    ):
+                        return ResolvedLiveTarget(
+                            kind="descriptor",
+                            surface="analysis",
+                            canonical_id=export.target,
+                            descriptor=self.by_canonical_id(export.target),
+                        )
+            return None
+
+        for descriptor in self.descriptors:
+            if isinstance(descriptor, TypeInput):
+                for variant in descriptor.variants:
+                    types[variant.implementation] = descriptor.canonical_id
+
+        def help_target_error(value: object, suggestions: tuple[str, ...]) -> NoReturn:
+            raise HelpTargetError(target=value, suggestions=suggestions)
+
+        root = self.by_canonical_id("")
+        assert isinstance(root, NavigationInput)
+        return LiveSurfaceAdapter(
+            self,
+            MappingProxyType(types),
+            MappingProxyType({"AnalysisError": AnalysisError}),
+            AnalysisError,
+            enrich=enrich,
+            suggestion_index=build_suggestion_index(self),
+            default_suggestions=root.members,
+            help_target_error=help_target_error,
+            attribute_applicability=MappingProxyType(
+                {
+                    variant.implementation: variant.applicability
+                    for descriptor in self.descriptors
+                    if isinstance(descriptor, TypeInput)
+                    for variant in descriptor.variants
+                    if variant.applicability is not None
+                }
+            ),
+        )
+
+    def resolve(self, target: object) -> ResolvedLiveTarget[Descriptor]:
+        if isinstance(target, str) and target == "":
+            return ResolvedLiveTarget(
+                kind="descriptor",
+                surface="analysis",
+                canonical_id="",
+                descriptor=self.by_canonical_id(""),
+            )
+        if isinstance(target, str) and target.startswith("analysis."):
+            target = target[len("analysis.") :]
+        return resolve_live_target(target, self.live_surface())
+
+    def validate(self) -> None:
+        if tuple(sorted(p.owner for p in self.providers)) != (
+            "observation",
+            "operators",
+            "runtime",
+        ):
+            raise invalid("all three native owners exactly once", "missing or duplicate provider")
+        ids = set(self.canonical_ids())
+        self._validate_exports(ids)
+        memberships: Counter[str] = Counter()
+        self._validate_links(ids, memberships)
+        self._validate_discovery(memberships)
+
+    def _validate_exports(self, ids: set[str]) -> None:
+        exports = tuple(e for p in self.providers for e in p.exports)
+        if len({e.name for e in exports}) != len(exports):
+            raise invalid("unique export bindings", "duplicate export")
+        for export in exports:
+            if export.target not in ids:
+                raise invalid("a registered export Help target", export.target)
+            descriptor = self.by_canonical_id(export.target)
+            if isinstance(descriptor, TypeInput) and not any(
+                b.implementation is export.implementation for b in descriptor.bindings
+            ):
+                raise invalid("exact native type export binding", export.name)
+            if isinstance(descriptor, CallableInput) and not any(
+                b.implementation is export.implementation for b in descriptor.bindings
+            ):
+                raise invalid("exact native callable export binding", export.name)
+
+    def _validate_links(self, ids: set[str], memberships: Counter[str]) -> None:
+        for descriptor in self.descriptors:
+            targets: tuple[str, ...] = ()
+            if isinstance(descriptor, CallableInput):
+                self._validate_callable(descriptor)
+                targets = self.callable_routes(descriptor)
+            elif isinstance(descriptor, TypeInput):
+                for type_binding in descriptor.bindings:
+                    if type_binding.fields != public_fields(
+                        type_binding.implementation
+                    ) or type_binding.methods != public_methods(type_binding.implementation):
+                        raise invalid(
+                            "complete current fields and methods", descriptor.canonical_id
+                        )
+                for variant_input in descriptor.variants:
+                    if variant_input.fields != variant_fields(variant_input.implementation):
+                        raise invalid(
+                            "complete current sealed value fields", descriptor.canonical_id
+                        )
+                targets = descriptor.producers + descriptor.consumers
+            elif isinstance(descriptor, NavigationInput):
+                targets = descriptor.members + descriptor.related
+                memberships.update(descriptor.members)
+                summaries = dict(descriptor.route_summaries)
+                if len(summaries) != len(descriptor.route_summaries) or any(
+                    target not in targets or not summary.strip()
+                    for target, summary in descriptor.route_summaries
+                ):
+                    raise invalid(
+                        "unique decision summaries for advertised routes", descriptor.canonical_id
+                    )
+            self._validate_example(descriptor)
+            for target in targets:
+                if (
+                    target not in ids
+                    and not self.is_type_attribute(target)
+                    and target != "authoring"
+                    and not target.startswith(("semantic.", "datasource.", "ontology."))
+                ):
+                    raise invalid("independently resolvable linked target", target)
+
+    def _validate_callable(self, descriptor: CallableInput) -> None:
+        if not descriptor.bindings or not all(
+            (
+                descriptor.output,
+                descriptor.constraints,
+                descriptor.effects,
+                descriptor.example.code,
+                descriptor.example.outcome,
+            )
+        ):
+            raise invalid(
+                "complete callable inputs and executable example", descriptor.canonical_id
+            )
+        if any(not fact.strip() for fact in (*descriptor.constraints, *descriptor.failures)):
+            raise invalid("nonempty owned constraints and repairs", descriptor.canonical_id)
+        names = tuple(p.name for p in descriptor.parameters)
+        if len(set(names)) != len(names) or any(
+            not p.acquisition.strip() for p in descriptor.parameters
+        ):
+            raise invalid("unique parameter acquisition contracts", descriptor.canonical_id)
+        for binding in descriptor.bindings:
+            if (
+                not callable(binding.implementation)
+                or inspect.signature(binding.implementation) != binding.signature
+            ):
+                raise invalid("unchanged reflected callable signature", descriptor.canonical_id)
+            if binding.receiver is not None:
+                name = getattr(binding.implementation, "__name__", "")
+                actual: object = inspect.getattr_static(binding.receiver, name, None)
+                if actual is not binding.implementation:
+                    raise invalid("the exact receiver-owned method", descriptor.canonical_id)
+            expected = tuple(n for n in binding.signature.parameters if n not in ("self", "cls"))
+            if names != expected:
+                raise invalid(
+                    "parameter names matching the reflected signature",
+                    descriptor.canonical_id + ": " + repr(expected),
+                )
+        if descriptor.discovery_family is not None:
+            if descriptor.discovery_family not in self._by_id:
+                raise invalid("a registered canonical callable family", descriptor.discovery_family)
+            family = self.by_canonical_id(descriptor.discovery_family)
+            if (
+                not isinstance(family, CallableInput)
+                or family.discovery_group is None
+                or family.discovery_group != descriptor.discovery_group
+                or family.discovery_family != family.canonical_id
+            ):
+                raise invalid(
+                    "one canonical callable family in the same discovery group",
+                    descriptor.canonical_id,
+                )
+
+    def _validate_example(self, descriptor: Descriptor) -> None:
+        if (
+            isinstance(descriptor, (CallableInput, NavigationInput))
+            and descriptor.example is not None
+        ):
+            try:
+                tree = ast.parse(descriptor.example.code)
+            except SyntaxError as error:
+                raise invalid("an executable Python example", descriptor.canonical_id) from error
+            defined = {
+                n.id
+                for n in ast.walk(tree)
+                if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)
+            }
+            defined.update(
+                alias.asname or alias.name.split(".")[0]
+                for n in ast.walk(tree)
+                if isinstance(n, (ast.Import, ast.ImportFrom))
+                for alias in n.names
+            )
+            external = (
+                {
+                    n.id
+                    for n in ast.walk(tree)
+                    if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+                }
+                - defined
+                - {"mv", "ms"}
+                - set(vars(builtins))
+            )
+            if external != set(descriptor.example.requires):
+                raise invalid("exact external example inputs", descriptor.canonical_id)
+
+    def _validate_discovery(self, memberships: Counter[str]) -> None:
+        for descriptor in self.descriptors:
+            if isinstance(descriptor, CallableInput):
+                for binding in descriptor.bindings:
+                    self.by_callable(binding.implementation)
+        if any(count != 1 for count in memberships.values()):
+            raise invalid(
+                "one discovery group per target",
+                repr([t for t, count in memberships.items() if count != 1]),
+            )
+        reached: set[str] = set()
+
+        def visit(target: str) -> None:
+            if target in reached:
+                return
+            reached.add(target)
+            node = self.by_canonical_id(target)
+            if isinstance(node, NavigationInput):
+                for child in node.members:
+                    visit(child)
+
+        visit("")
+        expected_discovery = {"", *self.discovery_ids()}
+        if reached != expected_discovery:
+            raise invalid(
+                "root-reachable discovery topology", repr(sorted(expected_discovery - reached))
+            )
+        for descriptor in self.descriptors:
+            if (
+                isinstance(descriptor, CallableInput)
+                and descriptor.registration_ids
+                and descriptor.canonical_id not in reached
+            ):
+                raise invalid("discoverable analytical capability", descriptor.canonical_id)
+
+
+def _canonical_descriptor(descriptor: Descriptor) -> Descriptor:
+    """Assign semantic addresses when native owning descriptors are assembled."""
+
+    def targets(values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(canonical_target(value) for value in values)
+
+    if isinstance(descriptor, CallableInput):
+        return replace(
+            descriptor,
+            canonical_id=canonical_target(descriptor.canonical_id),
+            parameters=tuple(replace(p, targets=targets(p.targets)) for p in descriptor.parameters),
+            related=targets(descriptor.related),
+            discovery_group=canonical_target(descriptor.discovery_group)
+            if descriptor.discovery_group
+            else None,
+            discovery_family=canonical_target(descriptor.discovery_family)
+            if descriptor.discovery_family
+            else None,
+        )
+    if isinstance(descriptor, TypeInput):
+        return replace(
+            descriptor,
+            canonical_id=canonical_target(descriptor.canonical_id),
+            producers=targets(descriptor.producers),
+            consumers=targets(descriptor.consumers),
+        )
+    if isinstance(descriptor, NavigationInput):
+        return replace(
+            descriptor,
+            canonical_id=canonical_target(descriptor.canonical_id),
+            members=targets(descriptor.members),
+            related=targets(descriptor.related),
+            discovery_group=canonical_target(descriptor.discovery_group)
+            if descriptor.discovery_group
+            else None,
+            route_summaries=tuple(
+                (canonical_target(target), summary)
+                for target, summary in descriptor.route_summaries
+            ),
+        )
+
+
+def assemble(providers: tuple[DisclosureProvider, ...]) -> AnalysisManifest:
+    native_navigation = navigation(providers)
+    providers = tuple(
+        replace(
+            p,
+            descriptors=tuple(_canonical_descriptor(d) for d in p.descriptors),
+            exports=tuple(replace(e, target=canonical_target(e.target)) for e in p.exports),
+        )
+        for p in providers
+    )
+    rows = tuple(d for p in providers for d in p.descriptors) + tuple(
+        _canonical_descriptor(d) for d in native_navigation
+    )
+    try:
+        result = AnalysisManifest("analysis", rows, providers)
+    except ValueError as error:
+        raise invalid("unique canonical Help targets and bindings", str(error)) from error
+    result.validate()
+    return result
+
+
+def prepare() -> AnalysisManifest:
+    """Assemble the three current native disclosure owners without I/O."""
+    return assemble(
+        (
+            observation.provider(grain),
+            operators.provider(),
+            runtime.provider(),
+        )
+    )
+
+
+REGISTRY = prepare()

@@ -15,6 +15,7 @@ from marivo._help.route import (
     _native_surface,
     _owned_methods,
     native_route_target,
+    owned_method_target,
     render_native_route,
     render_surface_root,
     route_help_target,
@@ -71,13 +72,10 @@ def _method_routes(owner: HelpSurface, type_obj: type, type_name: str) -> str:
             target = f"{owner}.{type_target}"
             suffix = " (documented on this type page)"
         else:
-            route = route_help_target(getattr(type_obj, name))
-            if not isinstance(route, NativeHelpRoute):
+            method_target = owned_method_target(owner, type_obj, name)
+            if method_target is None:
                 raise RuntimeError(f"public method has no native Help owner: {type_name}.{name}")
-            identity = route.resolved.canonical_id or route.resolved.type_name
-            if identity is None:
-                raise RuntimeError(f"public method has no canonical target: {type_name}.{name}")
-            target = native_route_target(route)
+            target = method_target
             suffix = ""
         lines.append(f'  {name}: marivo.help("{target}"){suffix}')
     return "\nMethods (exact Help targets):\n" + "\n".join(lines) if lines else ""
@@ -95,7 +93,7 @@ def render_help_text(target: PublicHelpTarget = None) -> tuple[str, str, str | N
             route.resolved.canonical_id or route.resolved.type_name or route.resolved.error_name
         )
         resolved = route.resolved
-        kind = "object"
+        kind = route.page.kind
         if resolved.kind == "attribute":
             type_obj = resolved.attribute_owner
             assert type_obj is not None
@@ -122,23 +120,8 @@ def render_help_text(target: PublicHelpTarget = None) -> tuple[str, str, str | N
                 receiver=receiver,
                 applicability=conditions,
             )
-            kind = "attribute"
         else:
             text = render_native_route(route)
-            if resolved.descriptor is not None:
-                descriptor = resolved.descriptor
-                surface = _native_surface(route.owner)
-                kind = (
-                    surface.descriptor_kind(descriptor)
-                    if surface.descriptor_kind
-                    else "callable"
-                    if descriptor.callable_path
-                    else "expression"
-                    if descriptor.public_entrypoint
-                    else "topic"
-                )
-            elif resolved.kind == "error_contract":
-                kind = "error"
             type_bindings = tuple(
                 (value, name)
                 for value, name in _native_surface(route.owner).type_index.items()

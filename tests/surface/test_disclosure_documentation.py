@@ -16,14 +16,14 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability
-from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis._help_specs.manifest import REGISTRY
 from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod, FrameShapleyMethod
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.model.disclosure import CallableInput
-from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
-from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
-from marivo.semantic._capabilities.validation import validate_semantic_live_surface
+from marivo.datasource._help_specs.manifest import REGISTRY as DATASOURCE_REGISTRY
+from marivo.semantic._help_specs.manifest import REGISTRY as SEMANTIC_REGISTRY
 from marivo.semantic.reader import SemanticProject
+from tests.semantic.help_validation import validate_semantic_live_surface
 from tests.shared_fixtures import DslCaseFactory, catalog_value, frozen_coordinates
 from tests.support.paths import PROJECT_ROOT
 

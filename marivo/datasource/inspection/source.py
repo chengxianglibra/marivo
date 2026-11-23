@@ -47,6 +47,7 @@ from marivo.datasource.source import (
     UnprunedScope,
 )
 from marivo.datasource.store.evidence import DiscoveryEvidence
+from marivo.telemetry import traced
 
 
 @dataclass(frozen=True, repr=False)
@@ -202,6 +203,7 @@ class SourceInspection(RenderableResult):
             self._binding_snippet(column),
         )
 
+    @traced(surface="datasource", operation="source_inspection.source_column", kind="method")
     def source_column(self, name: str) -> str:
         """Return one inspected physical table column name.
 
@@ -251,6 +253,12 @@ class SourceInspection(RenderableResult):
             )
         return column.name
 
+    @traced(
+        surface="datasource",
+        operation="source_inspection.partitions",
+        kind="method",
+        stage="connect",
+    )
     def partitions(
         self,
         *,
@@ -331,6 +339,9 @@ class SourceInspection(RenderableResult):
             issues=issues,
         )
 
+    @traced(
+        surface="datasource", operation="source_inspection.sample", kind="method", stage="connect"
+    )
     def sample(
         self,
         *,

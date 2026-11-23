@@ -18,9 +18,8 @@ from marivo._help.render import help as show_help
 from marivo._help.render import render_help_text
 from marivo._kernel.refs import ref as ref_factory
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.semantic._capabilities.registry import REGISTRY
-from marivo.semantic._capabilities.validation import _validate_minimal_example_signature
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_row
+from marivo.semantic._help_specs.manifest import REGISTRY
 from marivo.semantic.errors import (
     SemanticExpressionError,
     SemanticLoadError,
@@ -33,6 +32,7 @@ from marivo.semantic.runtime_check.results import (
     ValidationCheckResult,
     ValidationReport,
 )
+from tests.semantic.help_validation import _validate_minimal_example_signature
 from tests.shared_fixtures import catalog_value
 from tests.shared_fixtures import resolve_test_symbol as resolve
 from tests.support.refs import as_ref

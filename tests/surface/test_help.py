@@ -26,24 +26,20 @@ from marivo._help.model import (
 from marivo._help.render import PublicHelpTarget
 from marivo._help.render import help as public_help
 from marivo._help.route import route_help_target
-from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
-from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
+from marivo.analysis._help_specs.manifest import REGISTRY as ANALYSIS_REGISTRY
+from marivo.analysis.help_spi import ANALYSIS_LIVE_SURFACE
 from marivo.analysis.model.disclosure import Descriptor
-from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
-from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
-from marivo.introspection.live.model import (
-    SURFACE_LIMITS,
-    HelpSurface,
-    LiveSurfaceRegistry,
-    ResolvableHelpDescriptor,
-)
-from marivo.introspection.live.resolve import LiveSurface
-from marivo.ontology._capabilities.registry import REGISTRY as ONTOLOGY_REGISTRY
-from marivo.ontology._capabilities.registry import OntologyDescriptor
-from marivo.ontology._capabilities.surface import ONTOLOGY_LIVE_SURFACE
-from marivo.semantic._capabilities.model import SemanticHelpDescriptor
-from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
-from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+from marivo.datasource._help_specs.manifest import REGISTRY as DATASOURCE_REGISTRY
+from marivo.datasource.help_spi import DATASOURCE_LIVE_SURFACE
+from marivo.introspection.capabilities.resolve import LiveSurfaceAdapter
+from marivo.introspection.capabilities.spec import CapabilitySpec, RegistryView
+from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface
+from marivo.ontology._help_specs.manifest import REGISTRY as ONTOLOGY_REGISTRY
+from marivo.ontology._help_specs.manifest import OntologyDescriptor
+from marivo.ontology.help_spi import ONTOLOGY_LIVE_SURFACE
+from marivo.semantic._help_specs.manifest import REGISTRY as SEMANTIC_REGISTRY
+from marivo.semantic._help_specs.model import SemanticHelpDescriptor
+from marivo.semantic.help_spi import SEMANTIC_LIVE_SURFACE
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -53,7 +49,7 @@ def test_default_root_advertises_a_resolvable_canonical_target() -> None:
     assert target == "root"
 
 
-_REGISTRIES: dict[HelpSurface, LiveSurfaceRegistry[ResolvableHelpDescriptor]] = {
+_REGISTRIES: dict[HelpSurface, RegistryView[CapabilitySpec]] = {
     "datasource": DATASOURCE_REGISTRY,
     "semantic": SEMANTIC_REGISTRY,
     "analysis": ANALYSIS_REGISTRY,
@@ -61,10 +57,10 @@ _REGISTRIES: dict[HelpSurface, LiveSurfaceRegistry[ResolvableHelpDescriptor]] = 
 }
 _SURFACES: dict[
     HelpSurface,
-    LiveSurface[AuthoringCapability]
-    | LiveSurface[SemanticHelpDescriptor]
-    | LiveSurface[Descriptor]
-    | LiveSurface[OntologyDescriptor],
+    LiveSurfaceAdapter[AuthoringCapability]
+    | LiveSurfaceAdapter[SemanticHelpDescriptor]
+    | LiveSurfaceAdapter[Descriptor]
+    | LiveSurfaceAdapter[OntologyDescriptor],
 ] = {
     "datasource": DATASOURCE_LIVE_SURFACE,
     "semantic": SEMANTIC_LIVE_SURFACE,
@@ -247,7 +243,7 @@ def test_bound_method_renders_the_same_descriptor(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create(name="unified_help")
-    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     resolved = resolve_live_target(session.members, ANALYSIS_LIVE_SURFACE)
     assert resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id("session.members")
@@ -290,7 +286,7 @@ def test_attribute_discovery_does_not_execute_getters(monkeypatch: pytest.Monkey
             """A value requiring explicit reading."""
             return "value"
 
-    surface = LiveSurface(
+    surface = LiveSurfaceAdapter(
         registry=ANALYSIS_REGISTRY,
         type_index={Example: "Example"},
         error_types={},

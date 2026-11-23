@@ -24,6 +24,7 @@ from marivo.datasource.store.builtin import (
     DEFAULT_DATASOURCE_DESCRIPTION,
     DEFAULT_DATASOURCE_NAME,
 )
+from marivo.telemetry import traced
 
 
 def _format_mapping(mapping: dict[str, object]) -> str:
@@ -81,6 +82,7 @@ class DatasourceCatalog(RenderableResult):
 
     workspace_dir: Path
 
+    @traced(surface="datasource", operation="datasource_catalog.list", kind="method")
     def list(self) -> DatasourceList:
         """List configured project datasources as a displayable DatasourceList.
 
@@ -93,6 +95,7 @@ class DatasourceCatalog(RenderableResult):
         """
         return _list_in_project(project_root=self.workspace_dir)
 
+    @traced(surface="datasource", operation="datasource_catalog.describe", kind="method")
     def describe(self, name: str) -> DatasourceDescription:
         """Show connection fields, env refs and the declared source timezone.
 
@@ -107,6 +110,9 @@ class DatasourceCatalog(RenderableResult):
         """
         return _describe_in_project(name, project_root=self.workspace_dir)
 
+    @traced(
+        surface="datasource", operation="datasource_catalog.test", kind="method", stage="connect"
+    )
     def test(
         self,
         name: str | DatasourceSymbol | DatasourceIdentityHandle,
@@ -179,6 +185,7 @@ class DatasourceCatalog(RenderableResult):
         return card
 
 
+@traced(surface="datasource", operation="load", stage="resolve")
 def load(
     *,
     workspace_dir: str | Path | None = None,

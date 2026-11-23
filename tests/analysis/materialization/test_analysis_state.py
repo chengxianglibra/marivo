@@ -14,7 +14,7 @@ from tests.shared_fixtures import DslCaseFactory, terminal_runs
 def test_current_continuation_registry_resolves_to_actual_bound_methods(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis._capabilities.registry import REGISTRY
+    from marivo.analysis._help_specs.manifest import REGISTRY
 
     case = analysis_dsl_case_factory("j2")
     logical = _values(case)

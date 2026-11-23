@@ -41,11 +41,11 @@ from marivo.analysis.dsl.population import (
     Population,
     _axes,
     _closed,
-    _interval_coordinate,
     _owner,
     _read,
     _subject,
 )
+from marivo.analysis.dsl.temporal import interval_coordinate
 from marivo.analysis.model.errors import CoreRuleError, reject
 from marivo.analysis.model.value_names import value_name
 from marivo.semantic import Metric, MetricExpression
@@ -375,7 +375,7 @@ def capture_metrics(
             "session.observe",
             canonical_id="session.observe",
         )
-    interval = _interval_coordinate(scope) if scope is not None else None
+    interval = interval_coordinate(scope) if scope is not None else None
     if interval is not None:
         _validate_report_timezone(interval, timezone, location="Session.observe.where")
     period = (

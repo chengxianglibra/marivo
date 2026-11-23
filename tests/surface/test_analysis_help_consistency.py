@@ -8,7 +8,7 @@ from ibis.common.deferred import Deferred
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._help.render import render_help_text
-from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis._help_specs.manifest import REGISTRY
 from marivo.analysis.model.data_types import DurationDataType
 from marivo.analysis.model.disclosure import CallableInput
 from marivo.semantic import Entity

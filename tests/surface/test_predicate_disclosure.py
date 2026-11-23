@@ -3,8 +3,8 @@
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._help.render import render_help_text
-from marivo.semantic._capabilities.model import SemanticNavigationRoute, SemanticNavigationTopic
-from marivo.semantic._capabilities.registry import REGISTRY
+from marivo.semantic._help_specs.manifest import REGISTRY
+from marivo.semantic._help_specs.model import SemanticNavigationRoute, SemanticNavigationTopic
 
 
 def test_source_predicate_topic_and_consumer_boundaries() -> None:

@@ -130,7 +130,7 @@ def _manifest() -> Manifest:
         store,
     )
     add(
-        "telemetry/__init__",
+        "telemetry/sanitizer",
         ("_session_creation_attributes",),
         ("connection.execute",),
         Owner(

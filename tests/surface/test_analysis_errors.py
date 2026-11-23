@@ -1,7 +1,8 @@
 """AnalysisError hierarchy for the analysis runtime."""
 
+from dataclasses import FrozenInstanceError
+
 import pytest
-from pydantic import ValidationError
 
 from marivo.analysis.errors import (
     AnalysisError,
@@ -78,7 +79,7 @@ def test_help_target_error_location_is_help_target() -> None:
 
 
 def test_analysis_repair_rejects_unknown_kind() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValueError):
         AnalysisRepair(
             kind="custom",  # type: ignore[arg-type]
             action="do something",
@@ -92,12 +93,12 @@ def test_analysis_repair_is_frozen() -> None:
         action="Use the registered metric id.",
         help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
     )
-    with pytest.raises(ValidationError):
-        repair.action = "mutated"
+    with pytest.raises(FrozenInstanceError):
+        repair.action = "mutated"  # type: ignore[misc]  # Verify runtime immutability.
 
 
 def test_analysis_repair_rejects_extra_fields() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(TypeError):
         AnalysisRepair(
             kind="retry",
             action="do something",

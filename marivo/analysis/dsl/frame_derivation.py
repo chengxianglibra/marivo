@@ -269,6 +269,15 @@ def _align(
     return FrameDerivation(tuple(output))
 
 
+def uses_frame_keys(declaration: FrameDerivation | None) -> bool:
+    """Identify retained key inputs before evaluating a source declaration."""
+    return declaration is not None and any(
+        output.target.current.binding.frame_key_inputs
+        or (output.target.baseline is not None and output.target.baseline.binding.frame_key_inputs)
+        for output in declaration.outputs
+    )
+
+
 def complete_declaration(
     declaration: FrameDerivation | None,
     keys: dict[str, CompletedFrameData],

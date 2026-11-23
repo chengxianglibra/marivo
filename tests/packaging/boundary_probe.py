@@ -28,10 +28,10 @@ def public_snapshot() -> dict[str, object]:
     import marivo.ontology as mo
     import marivo.semantic as ms
     from marivo._help.render import render_help_text
-    from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
+    from marivo.datasource._help_specs.manifest import REGISTRY as DATASOURCE_REGISTRY
     from marivo.introspection.live.model import EnvironmentFingerprint
     from marivo.introspection.live.render import render_fingerprint
-    from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
+    from marivo.semantic._help_specs.manifest import REGISTRY as SEMANTIC_REGISTRY
     from tests.surface.exports import DATASOURCE_PUBLIC, SEMANTIC_PUBLIC
 
     result: dict[str, object] = {}

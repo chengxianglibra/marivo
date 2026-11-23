@@ -18,8 +18,10 @@ from marivo.datasource.store.authoring import (
     _declare_if_loading,
 )
 from marivo.datasource.typing import AiContextValue
+from marivo.telemetry import traced
 
 
+@traced(surface="datasource", operation="duckdb")
 def duckdb(
     name: str,
     *,
@@ -78,6 +80,7 @@ def duckdb(
     return spec
 
 
+@traced(surface="datasource", operation="trino")
 def trino(
     name: str,
     *,
@@ -167,6 +170,7 @@ def trino(
     return spec
 
 
+@traced(surface="datasource", operation="mysql")
 def mysql(
     name: str,
     *,
@@ -237,6 +241,7 @@ def mysql(
     return spec
 
 
+@traced(surface="datasource", operation="postgres")
 def postgres(
     name: str,
     *,
@@ -307,6 +312,7 @@ def postgres(
     return spec
 
 
+@traced(surface="datasource", operation="clickhouse")
 def clickhouse(
     name: str,
     *,

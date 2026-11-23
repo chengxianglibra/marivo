@@ -46,6 +46,7 @@ from marivo.datasource.store.builtin import (
     DEFAULT_DATASOURCE_DESCRIPTION,
     DEFAULT_DATASOURCE_NAME,
 )
+from marivo.telemetry import traced
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
 """Default requested native timeout for connection and probe settings.
@@ -209,6 +210,7 @@ class DatasourceTestResult(RenderableResult):
         return card
 
 
+@traced(surface="datasource", operation="register")
 def register(
     spec: DatasourceSpec,
     *,
@@ -244,6 +246,7 @@ def register(
     return DatasourceSummary(name=stored.name, backend_type=stored.backend_type)
 
 
+@traced(surface="datasource", operation="remove")
 def remove(name: str) -> bool:
     """Delete the named project datasource file.
 

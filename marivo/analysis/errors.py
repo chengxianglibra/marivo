@@ -4,63 +4,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
-
-from marivo._kernel.repair import RepairKind as RepairKind
-from marivo._kernel.repair import StructuredRepair
+from marivo._kernel.errors import LiveHelpTarget
 from marivo.analysis.model.errors import AnalysisError as AnalysisError
-from marivo.introspection.live.model import LiveHelpTarget
+from marivo.analysis.model.errors import AnalysisRepair as AnalysisRepair
+from marivo.analysis.model.errors import RepairKind as RepairKind
 from marivo.introspection.live.targets import canonical_target
-
-
-class AnalysisRepair(BaseModel):
-    """Typed repair instruction for an :class:`AnalysisError`.
-
-    Parameters
-    ----------
-    kind:
-        Closed repair category. ``retry`` means the agent can re-attempt with
-        a corrected call. ``inspect`` means the agent should gather more
-        evidence before proceeding. ``user_choice`` means several mechanically
-        legal repairs remain and business judgment must select one.
-        ``semantic_authoring`` means a required semantic object is absent, so
-        typed analysis must stop that branch; the agent may use terminal
-        ``md.raw_sql(...)`` and must request semantic-authoring approval at
-        closeout. ``environment`` means project or datasource state must be
-        repaired before retry.
-    action:
-        One-sentence concrete next step.
-    help_target:
-        Canonical surface-qualified ``marivo.help(...)`` target to consult.
-    snippet:
-        Optional paste-ready code snippet.
-    candidates:
-        Optional tuple of live candidate strings (e.g. available metric ids).
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: RepairKind
-    action: str
-    help_target: LiveHelpTarget
-    snippet: str | None = None
-    candidates: tuple[str, ...] = ()
-
-
-def _public_repair(repair: StructuredRepair) -> AnalysisRepair:
-    return AnalysisRepair(
-        kind=repair.kind,
-        action=repair.action,
-        help_target=LiveHelpTarget(
-            surface=repair.help_target.surface, canonical_id=repair.help_target.canonical_id
-        ),
-        snippet=repair.snippet,
-        candidates=repair.candidates,
-    )
-
-
-# The public analysis surface presents the existing validated repair object.
-AnalysisError._repair_factory = _public_repair
 
 
 class TimezoneInvalidError(AnalysisError):
