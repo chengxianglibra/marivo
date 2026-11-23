@@ -1,19 +1,24 @@
 """Prove emitted temporal predicates over symbolic rows and execute boundary witnesses."""
 
+from __future__ import annotations
+
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import duckdb
 import ibis
+import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pandas as pd
 import pytest
+from typing_extensions import override
 
 import marivo.analysis as mv
+from marivo.analysis.compiler import source_time as source_time_module
 from marivo.analysis.compiler.member_version import version_predicate
 from marivo.analysis.compiler.source_time import source_time, source_time_predicate
 from marivo.analysis.materialization.temporal_sql import lower_temporal
@@ -63,7 +68,7 @@ class _Truth:
 
 
 def _scalar(node: ops.Value, symbols: _Symbols) -> tuple[str, str]:
-    if isinstance(node, ops.Field) and node in symbols:
+    if node in symbols:
         return symbols[node]
     if isinstance(node, ops.Literal) and isinstance(node.value, (date, datetime)):
         return _integer(_micros(node.value)), "false"
@@ -82,6 +87,21 @@ def _scalar(node: ops.Value, symbols: _Symbols) -> tuple[str, str]:
 
 
 def _truth(node: ops.Value, symbols: _Symbols) -> _Truth:
+    if isinstance(node, ops.Literal) and (node.value is None or isinstance(node.value, bool)):
+        return {
+            True: _Truth("true", "false"),
+            False: _Truth("false", "true"),
+            None: _Truth("false", "false"),
+        }[node.value]
+    if isinstance(node, ops.Cast) and node.to.is_boolean():
+        return _truth(node.arg, symbols)
+    if isinstance(node, ops.IfElse):
+        condition = _truth(node.bool_expr, symbols)
+        yes, no = _truth(node.true_expr, symbols), _truth(node.false_null_expr, symbols)
+        return _Truth(
+            f"(ite {condition.yes} {yes.yes} {no.yes})",
+            f"(ite {condition.yes} {yes.no} {no.no})",
+        )
     if isinstance(node, (ops.And, ops.Or)):
         left, right = _truth(node.left, symbols), _truth(node.right, symbols)
         if isinstance(node, ops.And):
@@ -157,6 +177,166 @@ def _prove_selection(
 
 def _point_matches(lower: int, upper: int) -> str:
     return f"(and (not point_null) (<= {_integer(lower)} point) (< point {_integer(upper)}))"
+
+
+@dataclass
+class _CutoffBranch:
+    take: bool
+    guard: str | None = None
+
+    def choose(self, guard: str) -> bool:
+        assert self.guard is None, "A cutoff trace may test at most one symbolic guard"
+        self.guard = guard
+        return self.take
+
+
+@dataclass(frozen=True, eq=False)
+class _SymbolicRemainder:
+    expression: str
+    branch: _CutoffBranch
+
+    def __mod__(self, divisor: int) -> _SymbolicRemainder:
+        return replace(self, expression=f"(mod {self.expression} {divisor})")
+
+    def __rsub__(self, left: int) -> str:
+        return f"(- {left} {self.expression})"
+
+    def __bool__(self) -> bool:
+        return self.branch.choose(f"(distinct {self.expression} 0)")
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        assert type(other) is int, "The symbolic remainder only compares with integer ticks"
+        return self.branch.choose(f"(= {self.expression} {_integer(other)})")
+
+    @override
+    def __ne__(self, other: object) -> bool:
+        assert type(other) is int, "The symbolic remainder only compares with integer ticks"
+        return self.branch.choose(f"(distinct {self.expression} {_integer(other)})")
+
+
+@dataclass(frozen=True, eq=False)
+class _SymbolicPoint:
+    """One path through the concrete compiler's datetime cutoff arithmetic."""
+
+    expression: str
+    branch: _CutoffBranch
+    midnight: bool = False
+
+    @property
+    def microsecond(self) -> _SymbolicRemainder:
+        return _SymbolicRemainder(f"(mod {self.expression} 1000000)", self.branch)
+
+    def replace(self, *, hour: int, minute: int, second: int, microsecond: int) -> _SymbolicPoint:
+        assert (hour, minute, second, microsecond) == (0, 0, 0, 0)
+        return replace(
+            self,
+            expression=f"(- {self.expression} (mod {self.expression} {_DAY}))",
+            midnight=True,
+        )
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        assert isinstance(other, _SymbolicPoint)
+        if self is other:
+            return True
+        assert self.branch is other.branch
+        return self.branch.choose(f"(= {self.expression} {other.expression})")
+
+    def __add__(self, elapsed: str) -> _SymbolicPoint:
+        return replace(self, expression=f"(+ {self.expression} {elapsed})")
+
+    def date(self) -> _SymbolicPoint:
+        assert self.midnight
+        return self
+
+
+def _symbolic_elapsed(*, days: bool = False, microseconds: str | None = None) -> str:
+    return microseconds if microseconds is not None else str(_DAY * int(days))
+
+
+def _emitted_cutoff(
+    raw: ir.Value,
+    expression: str,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    inclusive: bool,
+) -> _Truth:
+    # The only doubles supply symbolic civil-time arithmetic and capture the
+    # value bound into the real Ibis comparator. Force each truth value and
+    # attach the predicate actually tested by Python to the returned path.
+    placeholder = ibis.table({"bound": raw.type()}, name="symbolic_cutoff")["bound"]
+    symbols: dict[ops.Value, tuple[str, str]] = {raw.op(): ("point", "point_null")}
+
+    def bind_literal(value: _SymbolicPoint, type: dt.DataType) -> ir.Value:
+        assert type == raw.type()
+        symbols[placeholder.op()] = (value.expression, "false")
+        return placeholder
+
+    traces: list[tuple[str | None, _Truth]] = []
+    for take_branch in (True, False):
+        branch = _CutoffBranch(take_branch)
+        with monkeypatch.context() as patch:
+            patch.setattr(source_time_module, "timedelta", _symbolic_elapsed)
+            patch.setattr(ibis, "literal", bind_literal)
+            compiled = source_time_module._scalar_cutoff(
+                raw,
+                cast("datetime", _SymbolicPoint(expression, branch)),
+                inclusive=inclusive,
+                engine="duckdb",
+            )
+        assert compiled is not None
+        traces.append((branch.guard, _truth(compiled.op(), symbols)))
+    (guard, when_true), (other_guard, when_false) = traces
+    assert guard == other_guard, "Both cutoff paths must test the same symbolic predicate"
+    if guard is None:
+        assert when_true == when_false
+        return when_true
+    return _Truth(
+        f"(ite {guard} {when_true.yes} {when_false.yes})",
+        f"(ite {guard} {when_true.no} {when_false.no})",
+    )
+
+
+@pytest.mark.parametrize(
+    ("dtype", "step"),
+    (("date", _DAY), ("timestamp(0)", 1_000_000), ("timestamp(3)", 1_000), ("timestamp(6)", 1)),
+)
+def test_symbolic_cutoffs_preserve_signed_preimages_and_adjacent_partitions(
+    dtype: str, step: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw = ibis.table({"point": dtype}, name="signed_ticks")["point"]
+    first, split, final = (
+        _emitted_cutoff(raw, f"(+ {name} offset)", monkeypatch, inclusive=True)
+        for name in ("start", "endpoint", "end")
+    )
+    strict = _emitted_cutoff(raw, "(+ endpoint offset)", monkeypatch, inclusive=False)
+    prove_unsat(
+        f"""(set-logic QF_LIA)
+(declare-const start Int)
+(declare-const endpoint Int)
+(declare-const end Int)
+(declare-const offset Int)
+(declare-const point Int)
+(declare-const point_null Bool)
+(assert (and (<= start endpoint) (<= endpoint end) (= (mod point {step}) 0)))
+(define-fun instant () Int (- point offset))
+(define-fun expected () Bool (and (not point_null) (<= start instant) (< instant end)))
+(define-fun first_range () Bool (and {first.yes} {split.no}))
+(define-fun second_range () Bool (and {split.yes} {final.no}))
+(define-fun span () Bool (and {first.yes} {final.no}))
+(assert (or
+  (distinct first_range (and (not point_null) (<= start instant) (< instant endpoint)))
+  (distinct second_range (and (not point_null) (<= endpoint instant) (< instant end)))
+  (distinct span expected)
+  (and first_range second_range)
+  (distinct span (or first_range second_range))
+  (distinct {strict.yes} (and (not point_null) (> instant endpoint)))
+  (distinct {strict.no} (and (not point_null) (<= instant endpoint)))
+  (distinct (or {first.no} {final.yes}) (and (not point_null) (not expected)))))""",
+        claim=f"{dtype} signed ceil preimage, strict cutoff, NULL and adjacent partition",
+        witness=("start", "endpoint", "end", "offset", "point", "point_null", "span", "expected"),
+    )
 
 
 def _execute(table: ir.Table, predicate: ir.BooleanValue) -> dict[str, bool | None]:
@@ -385,6 +565,9 @@ def versions(
                 + _history_model(
                     "timestamp_open", "closed_open", (None, "9999-12-31T00:00:00Z"), timestamp=True
                 )
+                + _history_model(
+                    "timestamp_closed", "closed_closed", ("9999-12-31T00:00:00Z",), timestamp=True
+                )
             ),
         },
         load=False,
@@ -541,3 +724,106 @@ def test_validity_boundary_and_nonoverlap(
         backend.disconnect()
     if interpretation == "instant":
         assert versions.members(name, point) == ids, claim
+
+
+def _lift_temporal_literals(
+    predicate: ir.BooleanValue, symbols: _Symbols, literals: Mapping[int, str]
+) -> _Truth:
+    lifted = dict(symbols)
+    observed: set[int] = set()
+    replacements = {_integer(value): (value, name) for value, name in literals.items()}
+    # Walk leaf constants from the real expression. Provider date/time casts
+    # and literal inputs comprise two different Ibis AST spellings.
+    for node in predicate.op().find((ops.Literal, ops.Cast)):
+        try:
+            ground, _ = _scalar(node, {})
+        except AssertionError:
+            continue
+        if ground in replacements:
+            value, name = replacements[ground]
+            observed.add(value)
+            lifted[node] = (name, "false")
+    assert observed == set(literals), (predicate, literals, observed)
+    return _truth(predicate.op(), lifted)
+
+
+@pytest.mark.parametrize("interpretation", _INTERPRETATIONS)
+@pytest.mark.parametrize("name", ["timestamp_open", "timestamp_closed"])
+def test_symbolic_validity_anchor_and_declared_nonoverlap(
+    versions: _Versions, interpretation: _Interpretation, name: str
+) -> None:
+    table = ibis.table(
+        {"begins": "timestamp('UTC', 6)", "ends": "timestamp('UTC', 6)"},
+        name="timestamp_history",
+    )
+    point = _instant("2026-02-02T00:00:00Z")
+    predicate = versions.predicate(table, name, point, interpretation)
+    symbols, prelude, witness = _binding(table, ("begins", "ends"), step=1)
+    actual = _lift_temporal_literals(predicate, symbols, {_micros(point): "anchor"})
+    half_open = name == "timestamp_open"
+    before = interpretation == "before_endpoint"
+    start_op = "<" if before else "<="
+    end_op = "<" if half_open and not before else "<="
+    sentinel = _integer(_micros(date(9999, 12, 31)))
+    open_end = "ends_null" if half_open else "false"
+    expected = f"""(and (not begins_null) ({start_op} begins anchor)
+      (or {open_end} (and (not ends_null) (or (= ends {sentinel}) ({end_op} anchor ends)))))"""
+    _prove_selection(
+        f"{prelude}\n(declare-const anchor Int)",
+        actual,
+        expected,
+        claim=f"{name}/{interpretation} production predicate over a symbolic anchor",
+        witness=(*witness, "anchor"),
+    )
+    other_symbols, declarations, other_witness = _binding(
+        table, ("begins", "ends"), step=1, suffix="2"
+    )
+    other = _lift_temporal_literals(predicate, other_symbols, {_micros(point): "anchor"})
+    nonoverlap = "<=" if half_open else "<"
+    prove_unsat(
+        f"""(set-logic QF_LIA)
+{prelude}
+{declarations}
+(declare-const anchor Int)
+(assert (and (not ends_null) (distinct ends {sentinel}) ({nonoverlap} ends begins2)))
+(assert (and {actual.yes} {other.yes}))""",
+        claim=f"{name}/{interpretation} cannot select two declared nonoverlapping versions",
+        witness=(*witness, *other_witness, "anchor"),
+    )
+
+
+@pytest.mark.parametrize("interpretation", _INTERPRETATIONS)
+def test_symbolic_snapshot_day_membership_and_unique_period(
+    versions: _Versions, interpretation: _Interpretation
+) -> None:
+    point = _instant("2026-02-02T05:00:00Z")
+    table = ibis.table({"point": "timestamp('UTC', 6)"}, name="clock")
+    predicate = versions.predicate(table, "clock", point, interpretation)
+    before = interpretation == "before_endpoint"
+    left = point - timedelta(days=1) if before else point
+    right = left + timedelta(days=1)
+    symbols, prelude, witness = _binding(table, ("point",), step=1)
+    actual = _lift_temporal_literals(
+        predicate, symbols, {_micros(left): "left", _micros(right): "right"}
+    )
+    _prove_selection(
+        f"{prelude}\n(declare-const left Int)\n(declare-const right Int)\n(assert (< left right))",
+        actual,
+        "(and (not point_null) (<= left point) (< point right))",
+        claim=f"Snapshot {interpretation} keeps symbolic half-open source membership",
+        witness=(*witness, "left", "right"),
+    )
+    left_op, right_op = ("<", "<=") if before else ("<=", "<")
+    prove_unsat(
+        f"""(set-logic QF_LIA)
+(declare-const left Int)
+(declare-const right Int)
+(declare-const later_left Int)
+(declare-const later_right Int)
+(declare-const anchor Int)
+(assert (and (< left right) (<= right later_left) (< later_left later_right)))
+(assert (and ({left_op} left anchor) ({right_op} anchor right)
+             ({left_op} later_left anchor) ({right_op} anchor later_right)))""",
+        claim=f"Snapshot {interpretation} selects at most one nonoverlapping business period",
+        witness=("left", "right", "later_left", "later_right", "anchor"),
+    )
