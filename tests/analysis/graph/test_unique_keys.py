@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 import ibis
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 from marivo._definition.query import FilterValues, ValueBinary, ValueLiteral, ValueSlot
@@ -61,6 +62,14 @@ def test_minimal_candidates_empty_key_and_exact_slot_projection() -> None:
     assert facts.fixed(("value",), ("tenant", "id")).proves(())
 
 
+def test_negative_limit_preserves_existing_keys_without_proving_a_scalar() -> None:
+    table = ibis.range(5).unnest().name("key").as_table()
+    limited = table.limit(-3)
+    assert relation_unique_keys(limited).keys == ()
+    declared = UniqueKeys(("key",), (("key",),))
+    assert relation_unique_keys(limited, {table.op(): declared}) == declared
+
+
 def test_nullable_group_producer_skips_scan_but_unknown_null_duplicates_fail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -104,6 +113,32 @@ def test_distinct_proves_only_actual_columns_and_value_replacement_invalidates()
     union = table.union(table, distinct=True)
     assert relation_unique_keys(union).keys == (("id", "value"),)
     assert not relation_unique_keys(table.union(table, distinct=False)).keys
+
+
+@pytest.mark.parametrize("operation", ["aggregate", "distinct", "union"])
+@pytest.mark.parametrize(
+    "values", [(0.0, -0.0), (float("nan"), -float("nan"))], ids=["signed-zero", "nan-payloads"]
+)
+def test_sql_grouped_float_does_not_skip_complete_key_validation(
+    operation: str, values: tuple[float, float]
+) -> None:
+    source = ibis.table({"key": "float64"}, name="source")
+    other = ibis.table({"key": "float64"}, name="other")
+    result = {
+        "aggregate": source.group_by("key").aggregate(rows=source.count()).select("key"),
+        "distinct": source.distinct(),
+        "union": source.union(other, distinct=True),
+    }[operation]
+    # Native bitwise SQL grouping (e.g. ClickHouse) can return both encodings.
+    # Preserve valid NaNs so the completion kernel must distinguish them from NULL.
+    rows = pd.DataFrame({"key": pd.arrays.ArrowExtensionArray(pa.array(values, from_pandas=False))})
+    columns = (DataColumn("key", "key", ScalarDataType("float64"), True),)
+    with pytest.raises(MaterializationError) as raised:
+        StageOutput.from_source_frame(
+            rows, columns, ("key",), unique_keys=relation_unique_keys(result)
+        )
+    assert raised.value.stage == "stage_output"
+    assert raised.value.expected == "a complete unique stage key ('key',)"
 
 
 @pytest.mark.parametrize("null_safe", [False, True])
@@ -198,6 +233,9 @@ def test_string_join_without_comparison_proof_keeps_duplicate_validation(null_sa
             DataColumn("x", "x", ScalarDataType("string"), False),
             DataColumn("key", "key", ScalarDataType("string"), True),
         )
+        with pytest.raises(MaterializationError) as raised:
+            StageOutput.from_frame(rows, columns, ("row",), unique_keys=facts)
+        assert raised.value.stage == "stage_output"
     finally:
         connection.disconnect()
 

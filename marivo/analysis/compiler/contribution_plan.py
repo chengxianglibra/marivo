@@ -30,6 +30,7 @@ from marivo.analysis.compiler.query_stages import (
     SourceSchema,
 )
 from marivo.analysis.compiler.reduction_input import ReductionInput
+from marivo.analysis.compiler.unique_keys import add_sql_grouped_key
 from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.analysis.model.data_types import DataColumn, DurationDataType, ScalarDataType
 from marivo.analysis.model.errors import reject
@@ -230,7 +231,11 @@ def _physical_read(
             ),
         ),
         keys=tuple(c.slot_id for c in stage_keys),
-        unique_keys=UniqueKeys(tuple(expression.columns), (tuple(c.slot_id for c in stage_keys),)),
+        unique_keys=add_sql_grouped_key(
+            expression.op(),
+            UniqueKeys(tuple(expression.columns)),
+            tuple(c.slot_id for c in stage_keys),
+        ),
         program=ReductionRead(reduction),
     )
     node = contribution.definition

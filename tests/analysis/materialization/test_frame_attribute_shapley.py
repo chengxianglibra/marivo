@@ -244,6 +244,43 @@ def test_conditional_demand_proves_only_selected_log_branch(
     assert sum(rows["contribution.q"]) == pytest.approx(__import__("math").log(3))
 
 
+def test_nullable_division_guard_rejects_an_unsampled_mixed_null(
+    game_session: Session, tmp_path: Path
+) -> None:
+    with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
+        connection.execute(
+            "UPDATE facts SET x=CASE WHEN id=1 THEN 1 WHEN id=4 THEN 2 ELSE NULL END"
+        )
+    x = catalog_value(game_session.catalog, "sales.facts.x", kind="measure")
+    player = catalog_value(game_session.catalog, "sales.facts.player", kind="dimension")
+    target = _comparison(game_session, {"q": 10 / x.min()}).compute()
+    assert target.to_pandas()["q"].tolist() == [-5]
+    # Replacing A first leaves both players' x values NULL. The fixed-state
+    # proof must reject even when both sampled paths instead replace B first.
+    with pytest.raises(AttributeGameError) as error:
+        target.attribute(by=(player,), permutations=2, seed=17).compute()
+    assert error.value.reason == "incomplete_domain"
+    assert error.value.metric == "q"
+
+
+def test_float32_exp_rejects_an_unsampled_mixed_overflow(
+    game_session: Session, tmp_path: Path
+) -> None:
+    with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
+        connection.execute("UPDATE facts SET x=CASE WHEN id IN (1,4) THEN 80 ELSE 90 END")
+    x = catalog_value(game_session.catalog, "sales.facts.x", kind="measure")
+    player = catalog_value(game_session.catalog, "sales.facts.player", kind="dimension")
+    metric = x.min().cast("float32").exp()
+    target = _comparison(game_session, {"q": metric}).compute()
+    assert target.to_pandas()["q"].tolist() == [0]
+    # Both endpoints have minimum 80. The A-first coalition has minimum 90,
+    # where the local Float32 exponential overflows. Seed 17 visits B first.
+    with pytest.raises(AttributeGameError) as error:
+        target.attribute(by=(player,), permutations=2, seed=17).compute()
+    assert error.value.reason == "incomplete_domain"
+    assert error.value.metric == "q"
+
+
 def test_weighted_nested_state_uses_covalid_pairs(game_session: Session, tmp_path: Path) -> None:
     with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
         connection.execute("UPDATE facts SET x=NULL WHERE id=2")

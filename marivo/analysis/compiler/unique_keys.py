@@ -27,7 +27,7 @@ def relation_unique_keys(
         if node in known:
             return known[node].project(slots)
         if isinstance(node, ops.Aggregate):
-            return UniqueKeys(slots, (tuple(node.groups),))
+            return add_sql_grouped_key(node, UniqueKeys(slots), tuple(node.groups))
         if isinstance(node, ops.Project):
             mapping = {
                 value.name: name
@@ -40,16 +40,16 @@ def relation_unique_keys(
             return infer(node.parent).project(slots)
         if isinstance(node, ops.Limit):
             result = infer(node.parent).project(slots)
-            return result.add(()) if isinstance(node.n, int) and node.n <= 1 else result
+            return result.add(()) if isinstance(node.n, int) and 0 <= node.n <= 1 else result
         if isinstance(node, ops.Distinct):
-            return infer(node.parent).project(slots).add(slots)
+            return add_sql_grouped_key(node, infer(node.parent).project(slots), slots)
         if isinstance(node, (ops.Union, ops.Intersection, ops.Difference)):
             result = (
                 UniqueKeys(slots)
                 if isinstance(node, ops.Union)
                 else infer(node.left).project(slots)
             )
-            return result.add(slots) if node.distinct else result
+            return add_sql_grouped_key(node, result, slots) if node.distinct else result
         if isinstance(node, ops.JoinReference):
             return infer(node.parent).project(slots)
         if isinstance(node, ops.JoinChain) and len(node.rest) == 1:
@@ -57,6 +57,13 @@ def relation_unique_keys(
         return UniqueKeys(slots)
 
     return infer(table.op())
+
+
+def add_sql_grouped_key(node: ops.Relation, facts: UniqueKeys, key: tuple[str, ...]) -> UniqueKeys:
+    """Add a known native SQL grouping when it guarantees completed-key uniqueness."""
+    # SQL grouping can distinguish floating encodings that completed keys
+    # identify, such as signed zeros and different valid NaN payloads.
+    return facts if any(node.schema[name].is_floating() for name in key) else facts.add(key)
 
 
 def _join_keys(
