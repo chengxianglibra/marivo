@@ -130,6 +130,11 @@ def _stage_column(series: pd.Series, column: DataColumn) -> pd.Series:
     return pd.Series(pd.arrays.ArrowExtensionArray(exact), name=column.slot_id)
 
 
+def normalize_stage_column(series: pd.Series, column: DataColumn) -> pd.Series:
+    """Validate one projection binding without building a complete stage table."""
+    return _stage_column(series, column)
+
+
 def normalize_stage_columns(frame: pd.DataFrame, columns: tuple[DataColumn, ...]) -> pd.DataFrame:
     """Normalize exact carriers and column order without a relation-key obligation."""
     expected = tuple(column.slot_id for column in columns)

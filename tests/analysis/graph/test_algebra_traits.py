@@ -134,12 +134,12 @@ _VALUE_POSITIVE = FilterValues(ValueBinary("gt", ValueSlot(0), ValueLiteral(0)))
 _KEY_EQUAL = FilterValues(ValueBinary("eq", CoordinateSlot(0), ValueLiteral(2**63 - 1)))
 
 
-@pytest.mark.parametrize("short_circuit", (False, True), ids=("total", "short_circuit"))
-def test_selection_laws_use_the_same_current_exact_carrier_admission(short_circuit: bool) -> None:
-    issue_for = short_circuit_selection_issue if short_circuit else total_selection_issue
-    kwargs = {"single_consumer": True, "same_layout": True, "original_boundary": False}
+def test_total_selection_requires_qualified_predicates() -> None:
+    options = {"single_consumer": True, "same_layout": True, "original_boundary": False}
     values, columns, keys = (_VALUE,), (_KEY, _VALUE), (("key",),)
-    assert issue_for(_VALUE_POSITIVE, _KEY_EQUAL, values, columns, keys, **kwargs) is None
+    assert (
+        total_selection_issue(_VALUE_POSITIVE, _KEY_EQUAL, values, columns, keys, **options) is None
+    )
     assert selection_predicate_columns(_KEY_EQUAL.predicate, values, columns, keys) == frozenset(
         ("key",)
     )
@@ -148,15 +148,22 @@ def test_selection_laws_use_the_same_current_exact_carrier_admission(short_circu
     ) == frozenset(("amount",))
     for unqualified in (
         FilterValues(PresenceSlot(("left",))),
-        FilterValues(ValueBinary("eq", ValueSlot(0), ValueLiteral(2**63))),
+        FilterValues(ValueBinary("eq", ValueSlot(0), ValueLiteral(10**38))),
         FilterValues(
             ValueBinary("gt", ValueBinary("div", ValueSlot(0), ValueSlot(0)), ValueLiteral(0))
         ),
     ):
-        assert issue_for(_VALUE_POSITIVE, unqualified, values, columns, keys, **kwargs) == (
-            "closed int64 or Decimal(38,0) comparisons with the same drop-NA mask policy",
+        assert total_selection_issue(
+            _VALUE_POSITIVE, unqualified, values, columns, keys, **options
+        ) == (
+            "total scalar predicates with the same drop-NA mask policy",
             "unqualified predicate or numeric operation",
         )
+    assert selection_predicate_columns(
+        ValueBinary("lt", ValueSlot(0), ValueLiteral(2**63)), values, columns, keys
+    ) == frozenset(("amount",))
+    # The ordered route gates evaluation on surviving rows, including fallible predicates.
+    assert short_circuit_selection_issue(**options) is None
 
 
 def test_selection_laws_preserve_intermediate_boundaries() -> None:
@@ -167,11 +174,12 @@ def test_selection_laws_preserve_intermediate_boundaries() -> None:
     ):
         options = {"single_consumer": True, "same_layout": True, "original_boundary": False}
         options.update(boundary)
-        for issue_for in (short_circuit_selection_issue, total_selection_issue):
-            issue = issue_for(
-                _VALUE_POSITIVE, _KEY_EQUAL, (_VALUE,), (_KEY, _VALUE), (("key",),), **options
-            )
-            assert issue is not None and issue[1] == received
+        ordered_issue = short_circuit_selection_issue(**options)
+        total_issue = total_selection_issue(
+            _VALUE_POSITIVE, _KEY_EQUAL, (_VALUE,), (_KEY, _VALUE), (("key",),), **options
+        )
+        assert ordered_issue is not None and ordered_issue[1] == received
+        assert total_issue == ordered_issue
 
 
 def test_select_composition_requires_value_checks_and_demand_to_be_preserved() -> None:

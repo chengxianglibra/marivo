@@ -5,9 +5,9 @@ from __future__ import annotations
 import operator
 from datetime import date, datetime, timedelta
 from decimal import Decimal, localcontext
+from functools import partial
 from typing import Literal
 
-import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -34,19 +34,28 @@ from marivo._definition.query import (
 )
 from marivo.analysis.compiler.frame_plan import frame_program
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
-from marivo.analysis.compiler.query_stages import LocalCompute, local_result
+from marivo.analysis.compiler.query_stages import (
+    FilterFusionStep,
+    LocalCompute,
+    SelectFusionStep,
+    local_result,
+)
 from marivo.analysis.core.data_validation import stage_arrow_type
-from marivo.analysis.core.frame_fix import validate_fixed_key
 from marivo.analysis.core.frame_operations import FixFrameValues
 from marivo.analysis.core.frame_value_analysis import expressions
-from marivo.analysis.core.frozen_calendar import frozen_key_rows
 from marivo.analysis.core.value_normalization import physical_expression
 from marivo.analysis.methods.frame_correlation import correlation
 from marivo.analysis.methods.frame_evaluation import (
     FrameEvaluation,
     FrameGroupIndex,
+    evaluate_select,
     expression_key,
     group_index,
+)
+from marivo.analysis.methods.frame_filtering import (
+    evaluate_filter_chain,
+    evaluate_result_filter,
+    fixed_mask,
 )
 from marivo.analysis.methods.numeric_state import (
     Number,
@@ -326,6 +335,11 @@ def expression_series(
             )
         return _evaluate_partition(expression, frame, program, evaluation or FrameEvaluation())
     if isinstance(expression, ValueSlot):
+        if (
+            evaluation is not None
+            and (binding := evaluation.bound_selection(expression.index)) is not None
+        ):
+            return binding
         columns = (
             program.input_schema.values
             if isinstance(program, FrameProgram)
@@ -432,14 +446,7 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
                     result[column.slot_id] = frame[column.slot_id]
         return result
     if isinstance(operation, FilterValues):
-        mask = (
-            expression_series(operation.predicate, frame, program).astype("boolean").fillna(False)
-        )
-        return (
-            frame.loc[mask, [column.slot_id for column in stage.columns]]
-            .reset_index(drop=True)
-            .copy()
-        )
+        return evaluate_result_filter(program, operation, frame, stage.columns, expression_series)
     if isinstance(operation, TopValues):
         score = expression_series(operation.score, frame, program)
         ordered = frame.assign(__score=score)
@@ -477,29 +484,19 @@ def evaluate_frame(
     program: FrameProgram,
     inputs: tuple[pd.DataFrame, ...],
     *,
-    second_filter_columns: tuple[str, ...] | None = None,
+    filter_steps: tuple[FilterFusionStep, ...] = (),
+    select_steps: tuple[SelectFusionStep, ...] = (),
     memoize: bool = True,
 ) -> pd.DataFrame:
     """Evaluate a Frame operation with a fresh current-input memo."""
     source = inputs[0].reset_index(drop=True)
     evaluation = FrameEvaluation(memoize=memoize)
-    if second_filter_columns is not None:
-        operation = program.operation
-        assert isinstance(operation, FilterValues)
-        predicate = operation.predicate
-        assert isinstance(predicate, ValueBinary) and predicate.operation == "and"
-        first = _true_mask(predicate.left, source, program, evaluation).to_numpy(dtype=bool)
-        if first.all():
-            mask = _true_mask(predicate.right, source, program, evaluation)
-            return source.loc[mask].reset_index(drop=True).copy()
-        positions = np.flatnonzero(first)
-        if not positions.size:
-            return source.iloc[:0].copy()
-        # The qualified second predicate only needs its own columns from
-        # surviving rows. Materialize the complete Frame once, at the end.
-        operands = source.loc[:, list(second_filter_columns)].take(positions)
-        second = _true_mask(predicate.right, operands, program, evaluation).to_numpy(dtype=bool)
-        return source.take(positions[second]).reset_index(drop=True).copy()
+    if filter_steps:
+        return evaluate_filter_chain(
+            filter_steps, source, partial(_true_mask, evaluation=evaluation)
+        )
+    for step in select_steps:
+        evaluation.bind_select_step(step, source, partial(expression_series, evaluation=evaluation))
     return _evaluate_frame(program, source, evaluation)
 
 
@@ -525,32 +522,16 @@ def _evaluate_frame(
     operation = program.operation
     output = program.output_schema
     if isinstance(operation, FixFrameValues):
-        axis = program.input_schema.axes[operation.position]
-        fixed_key = validate_fixed_key(axis, operation.key)
-        fixed_mask = [item == fixed_key for item in frozen_key_rows(source, axis.columns)]
+        fixed_rows = fixed_mask(operation, program, source)
         return (
-            source.loc[fixed_mask, [c.slot_id for c in output.columns]]
+            source.loc[fixed_rows, [c.slot_id for c in output.columns]]
             .reset_index(drop=True)
             .copy()
         )
     if isinstance(operation, SelectValues):
-        result = source.loc[
-            :,
-            [
-                *program.keys,
-                *(c.slot_id for c in output.presence),
-                *(c.slot_id for c in output.projection_columns),
-            ],
-        ].copy()
-        for column, (_, expression) in zip(output.values, operation.values, strict=True):
-            values = expression_series(expression, source, program, evaluation=evaluation)
-            result[column.slot_id] = (
-                finish_float64(values, "Frame.select")
-                if column.dtype == ScalarDataType("float64")
-                and not isinstance(expression, ValueSlot)
-                else values
-            )
-        return result.loc[:, [c.slot_id for c in output.columns]].copy()
+        return evaluate_select(
+            program, operation, source, partial(expression_series, evaluation=evaluation)
+        )
     if isinstance(operation, FilterValues):
         mask = _true_mask(expressions(operation)[0], source, program, evaluation)
         return source.loc[mask].reset_index(drop=True).copy()

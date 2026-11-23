@@ -22,6 +22,8 @@ OptimizationRuleId: TypeAlias = Literal[
     "source_shared_key_fusion",
     "source_terminal_fusion",
     "pending_frame_top",
+    "common_read_cse",
+    "L5_select_fusion",
     # Current rules without plan decisions.
     "required_slots",
     "attribute_frequency_sharing",
@@ -31,9 +33,7 @@ OptimizationRuleId: TypeAlias = Literal[
     "injective_time_bucket",
     "shapley_summary_state",
     "frame_evaluation_cache",
-    # Reserved rules from O1–O9.
-    "common_read_cse",
-    "L5_select_fusion",
+    # Reserved rules from O3–O9.
     "conditional_source_merge",
     "unique_keys_degenerate_per",
     "unique_keys_degenerate_over",

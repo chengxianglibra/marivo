@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 import ibis
@@ -53,7 +53,7 @@ from marivo.analysis.compiler.source_predicates import string_bytes as _string_b
 from marivo.analysis.compiler.source_predicates import (
     string_without_collation,
 )
-from marivo.analysis.core.value_types import ibis_type
+from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.analysis.materialization.native_query_checks import (
     NativeQueryRelation,
 )
@@ -74,6 +74,8 @@ from marivo.analysis.model.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
+from marivo.analysis.model.local_laws import selection_predicate_columns
+from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.spi import NumericCheck
 
 if TYPE_CHECKING:
@@ -224,6 +226,87 @@ def _lower_native_top(
     return expression, evaluated.checks
 
 
+def _native_total_selection(
+    expression: ir.Table, program: ResultProgram, operation: FilterValues
+) -> bool:
+    if not program.selection_steps:
+        return True
+    slots = selection_predicate_columns(
+        operation.predicate, program.value_columns, program.columns, program.key_groups
+    )
+    if slots is None or not slots <= set(expression.columns):
+        return False
+    try:
+        actual = {
+            column.slot_id: replace(column, dtype=data_type(expression[column.slot_id].type()))
+            for column in (*program.columns, *program.value_columns)
+            if column.slot_id in slots
+        }
+    except SemanticExpressionError:
+        # Optional eager qualification must allow the original native masks.
+        return False
+    return (
+        selection_predicate_columns(
+            operation.predicate,
+            tuple(actual.get(column.slot_id, column) for column in program.value_columns),
+            tuple(actual.get(column.slot_id, column) for column in program.columns),
+            program.key_groups,
+        )
+        is not None
+    )
+
+
+def _native_operation_inputs(
+    expression: ir.Table, program: ResultProgram
+) -> tuple[tuple[ir.Value, ...], tuple[ir.Value, ...]]:
+    # Positions removed by demand pruning remain typed for slot lookup.
+    values = tuple(
+        expression[column.slot_id]
+        if column.slot_id in expression.columns
+        else ibis.null().cast(ibis_type(column.dtype))
+        for column in program.value_columns
+    )
+    coordinates = (
+        ()
+        if any(len(group) != 1 for group in program.key_groups)
+        else tuple(expression[group[0]] for group in program.key_groups)
+    )
+    return values, coordinates
+
+
+def _lower_native_selection(
+    expression: ir.Table,
+    program: ResultProgram,
+    operation: FilterValues,
+    owner: SourceSession,
+    checks: tuple[NumericCheck, ...],
+) -> tuple[ir.Table, tuple[NumericCheck, ...]] | str:
+    steps = (
+        (operation,)
+        if _native_total_selection(expression, program, operation)
+        else program.selection_steps
+    )
+    arithmetic = owner.provider.query_policy.supports_fused_arithmetic
+    for step in steps:
+        predicate = step.predicate
+        if not is_instance(predicate, ValueExpression) or not _safe_expression(
+            predicate,
+            native_float=arithmetic,
+            native_arithmetic=arithmetic,
+        ):
+            return "producer filter has nonlocal or numeric expression obligations"
+        values, coordinates = _native_operation_inputs(expression, program)
+        evaluated = _checked_value(predicate, values, coordinates, owner.provider.name)
+        if isinstance(evaluated, str):
+            return evaluated
+        condition = evaluated.value
+        if not isinstance(condition, ir.BooleanValue):
+            return "producer filter is not a boolean value"
+        checks = (*checks, *evaluated.checks)
+        expression = expression.filter(condition.fill_null(False))
+    return expression, checks
+
+
 def _lower_native_operation(
     expression: ir.Table,
     stage: LocalCompute,
@@ -232,41 +315,15 @@ def _lower_native_operation(
     owner: SourceSession,
     checks: tuple[NumericCheck, ...],
 ) -> tuple[ir.Table, tuple[NumericCheck, ...]] | str:
-    arithmetic = owner.provider.query_policy.supports_fused_arithmetic
-    # Demand pruning retains the original positional expression layout.
-    # Typed placeholders occupy only slots unused by this operation.
-    values = tuple(
-        expression[column.slot_id]
-        if column.slot_id in expression.columns
-        else ibis.null().cast(ibis_type(column.dtype))
-        for column in (
-            program.input_layout.values
-            if program.input_layout is not None
-            else tuple(column for column in program.columns if column.slot_id not in program.keys)
-        )
-    )
-    if any(len(group) != 1 for group in program.key_groups):
-        coordinates = ()
-    else:
-        coordinates = tuple(expression[group[0]] for group in program.key_groups)
     if isinstance(operation, FilterValues):
-        if not is_instance(operation.predicate, ValueExpression) or not _safe_expression(
-            operation.predicate,
-            native_float=owner.provider.query_policy.supports_fused_arithmetic,
-            native_arithmetic=arithmetic,
-        ):
-            return "producer filter has nonlocal or numeric expression obligations"
-        evaluated = _checked_value(operation.predicate, values, coordinates, owner.provider.name)
-        if isinstance(evaluated, str):
-            return evaluated
-        condition = evaluated.value
-        checks = (*checks, *evaluated.checks)
-        if not isinstance(condition, ir.BooleanValue):
-            return "producer filter is not a boolean value"
-        expression = expression.filter(condition.fill_null(False)).select(
-            *(column.slot_id for column in stage.columns)
-        )
-    elif isinstance(operation, SelectValues):
+        selected = _lower_native_selection(expression, program, operation, owner, checks)
+        if isinstance(selected, str):
+            return selected
+        expression, checks = selected
+        return expression.select(*(column.slot_id for column in stage.columns)), checks
+    arithmetic = owner.provider.query_policy.supports_fused_arithmetic
+    values, coordinates = _native_operation_inputs(expression, program)
+    if isinstance(operation, SelectValues):
         if any(
             (not arithmetic and not isinstance(value, (ValueSlot, ValueLiteral)))
             or not _safe_expression(

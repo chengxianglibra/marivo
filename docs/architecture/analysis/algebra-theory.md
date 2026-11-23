@@ -265,7 +265,8 @@ $$
 
 | 数学依据 | 当前编译器行为 | 代码入口 |
 | --- | --- | --- |
-| L1 固定选择（短路 & 全定义） | 公开 Frame 计划对调度顺序上相邻且互不相交的一对合格过滤做融合（中间结果单消费者、无需发布/检查点、布局与坐标事实一致）；谓词限 `int64` / `Decimal(38,0)` 值列、单分量 `int64` 坐标与可表示 `int64` 字面量的比较及 `AND`/`OR`，执行器按左到右短路只对首步命中行算第二步，模式不符回退原两步。内部 `ResultProgram` 的 L1 独立走全定义合取资格检查。 | [Frame 计划](../../../marivo/analysis/compiler/frame_filter_fusion.py) · [谓词资格](../../../marivo/analysis/model/local_laws.py) · [内部优化](../../../marivo/analysis/compiler/optimization.py) · [公开执行对照](../../../tests/analysis/materialization/test_query_optimization.py) |
+| L1 固定选择（短路与全定义） | 合格公开 Frame 调度合并相邻的多步 `where` / `fix`，按原顺序仅对存活行求值，最后物化一次。每个中间结果只允许一个消费者且无需发布或检查点。运行时布局变化按原步骤回退。内部 `ResultProgram` 只对同输入域的全定义标量比较、布尔取反和 NULL 判定合并 Kleene 掩码，随实际载体重新验证资格。 | [Frame 计划](../../../marivo/analysis/compiler/frame_filter_fusion.py) · [局部表达式资格](../../../marivo/analysis/model/local_laws.py) · [序列证明](../../../tests/formal/verify_selection_sequences.py) |
+| L5 相邻投影（`L5_select_fusion`） | 同一键域、单消费者且无独立检查点的逐行 `SelectValues` 链共享最终 Frame 物化。各逻辑阶段的载体、求值顺序和必要检查继续有效，下游丢弃的可能失败列仍求值。运行时输入布局变化重放原投影。 | [投影计划](../../../marivo/analysis/compiler/frame_select_fusion.py) · [形式化检查](../../../tests/formal/verify_select_projection_composition.py) |
 | 检查保留下的后向需求裁剪 | `required_slots` 在单次逆拓扑遍历中裁剪下游不再传输的普通投影列、未消费的 `ComponentRead` 组件和 `LiteralValues` 列，同时保留全部 `numeric_check` / `predicate_check` / 存在标记与上游必做检查。 | [后向需求分析](../../../marivo/analysis/compiler/optimization.py) |
 | 同域共享聚合输入（`source_block`） | 同次来源观察中，来源、关系路径、版本、贡献时钟、谓词、成员、键、NULL 政策和载体均兼容的普通聚合共享同一分组 SQL 块；每个归约仍保留各自值与检查出现，物理扫描次数由后端决定。 | [公共聚合合并](../../../marivo/analysis/compiler/optimization.py) · [普通来源聚合](populations-and-observation.md#observation-domain-contributions-and-counts) |
 | 纯归约确定性与检查幂等性（`common_read_cse`） | 同一读范围内，归约方式、操作数、权重、NULL 策略、类型与单位均匹配的确定性归约和检查可以共享物理计算。每个逻辑别名、分支的求值需求与检查义务分别保留。近似分位数继续独立调用已选内核。 | [公共聚合降级](../../../marivo/analysis/compiler/observation.py) · [内部样本投影](../../../marivo/analysis/materialization/sample_fusion.py) · [独立检查回归](../../../tests/analysis/materialization/test_query_optimization.py) |
@@ -288,7 +289,6 @@ $$
 | 隐式单值嵌套 `per` 坍缩 & `Attribute` `GROUPING SETS` | L6 + T1/T2 | `count.per(f).sum`、`sum.per(f).sum`（`nulls="ignore"`、精确算术）、同名配对 `min.per(f).min` 与 `max.per(f).max`（不含 `min.per(f).max`）仅对**隐式单值字段样本**（无空样本伪造 `0`）成立；`Attribute` 单次扫描要求新分类为单值全映射且满足精确 L6。 |
 | `in_population(P₁ × P₂)` 因式分解 & L3 冗余回查消除 | 独立匹配乘积律 + L3 | 仅当各轴组匹配相互独立（`M(f) = π₁(M(f)) × π₂(M(f))`，无共享多值扇出前缀）时才可拆为独立半连接/时间范围谓词；L3 消除回查须证明关系在原集合上左全且同读同版本；标量 `classify` 后置到 `Population.where` 之后须保证被滤键上 `classify` 无错误。 |
 | L7 普通键谓词与 `Frame.fix` 穿透 `GROUP BY` 下推 | L7 + 检查义务分离 | 谓词仅引用普通分组键且满足精确 collation 语义，原全量检查（`nulls="error"`、覆盖、唯一性）仍在未过滤域上独立保留；当存在显式输出域 `by=P`、`by=()` 或独立分支广播时，须**同步用同一谓词裁剪输出域 `K`**；对含 `MetricWindow` 的查询，**普通轴**键谓词可下推至事实表，**时间轴**谓词仅可收缩窗口求值端点而不可截断历史贡献。 |
-| 广义 N 步短路 L1 与相邻 `Select`（L5）融合 | L1(a)(b) + L5 | L1 扩展至全部全定义比较、`~`/`is_null`/`PresenceSlot`，并按短路合取结合律一次融合任意长度连续 `where`/`fix`；单消费者相邻 `Select` 融合为单阶段求值并保留被丢弃列的必要检查。 |
 | 终端融合扩展至 `Frame.reduce` / `over` / `fix` / 同源 `align` | 拉回 + 前推 + `presence` 代数 | 同源待执行图、合格物理载体与排序规则（浮点 `Top` 须对齐 `NaN` 序），且保留全输入检查摘要与完整键/presence 契约。 |
 | `UniqueKeys` 消除退化 `per` / `over` 与 `by=P` 共享覆盖检查 | `UniqueKeys` + 支持域代数 | 退化 `per` 坍缩须保证每输出键恒有 `|Jₖ| = 1`（或空样本语义满足 `ρ_out(∅) = m(∅)`），且外层归约满足单元素恒等 `ρ_out({{x}}) = x`（含 `x = NA` 且载体/单位/检查一致，如 `sum`/`mean`（载体兼容时）/`min`/`max`/`median`/`quantile`，不含 `count`/`count_distinct`/`corr`）；`over(..., by=frame.axes)` 每组大小恒为 1（`row_count ≡ 1`、`sum ≡ col`、`corr ≡ NA`）；同次 `observe(..., by=P)` 中必要键域相同的分支共享一次覆盖反连接。 |
 

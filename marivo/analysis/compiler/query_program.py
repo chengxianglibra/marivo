@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
 
 from marivo._definition.correspondence import ComparisonAxis
-from marivo._definition.query import QueryOperation, ValueBinary
+from marivo._definition.query import FilterValues, QueryOperation, ValueBinary
 from marivo._definition.relations import PopulationDependency, PopulationProgram
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
 from marivo.analysis.model.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
@@ -64,6 +64,13 @@ class ResultProgram:
     input_layout: ComparisonEndpoint | None = None
     output_layout: ComparisonEndpoint | None = None
     duration_operations: tuple[DurationBinary, ...] = ()
+    selection_steps: tuple[FilterValues, ...] = ()
+
+    @property
+    def value_columns(self) -> tuple[DataColumn, ...]:
+        if self.input_layout is not None:
+            return self.input_layout.values
+        return tuple(column for column in self.columns if column.slot_id not in self.keys)
 
 
 @dataclass(frozen=True, slots=True)

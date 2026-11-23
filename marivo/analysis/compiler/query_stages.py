@@ -44,6 +44,7 @@ from marivo.datasource.spi import DEFAULT_BACKEND_TYPE
 
 if TYPE_CHECKING:
     from marivo._definition.expressions import MetricNode
+    from marivo._definition.value_ir import ValueExpression
     from marivo.analysis.binding.attribute_rules import (
         AttributeComponentRole,
         AttributeSourceRequest,
@@ -485,11 +486,36 @@ class FrameInput:
 
 
 @dataclass(frozen=True, slots=True)
-class FrameFilterFusion:
-    """Columns needed by the second mask and original steps for carrier changes."""
+class FilterFusionStep:
+    """One selection mask and the original typed operand layout."""
 
-    second_columns: tuple[str, ...]
-    fallback: tuple[FrameCompute, FrameCompute]
+    program: FrameProgram
+    columns: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FrameFilterFusion:
+    """Ordered masks and their original stages for a changed input carrier."""
+
+    steps: tuple[FilterFusionStep, ...]
+    fallback: tuple[FrameCompute, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SelectFusionStep:
+    """Typed bindings for one intermediate projection in its original slot order."""
+
+    program: FrameProgram
+    live_values: tuple[tuple[int, ValueExpression], ...]
+    retained_check_expressions: tuple[tuple[int, ValueExpression], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FrameSelectFusion:
+    """Intermediate bindings and the original projection stages for typed replay."""
+
+    steps: tuple[SelectFusionStep, ...]
+    fallback: tuple[FrameCompute, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -511,6 +537,7 @@ class FrameCompute:
 
     unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
     filter_fusion: FrameFilterFusion | None = None
+    select_fusion: FrameSelectFusion | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(

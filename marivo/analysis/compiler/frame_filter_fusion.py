@@ -4,18 +4,19 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from marivo._definition.query import FilterValues, ValueBinary
+from marivo._definition.query import FilterValues
 from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
-from marivo.analysis.compiler.frame_plan import frame_program
 from marivo.analysis.compiler.optimization import _consumers
 from marivo.analysis.compiler.query_program import FrameProgram
 from marivo.analysis.compiler.query_stages import (
+    FilterFusionStep,
     FrameCompute,
     FrameFilterFusion,
     FusionGroup,
     QueryStage,
     RuleDecision,
 )
+from marivo.analysis.core.frame_operations import FixFrameValues
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.frame_contracts import CheckedStageInputT
 from marivo.analysis.model.local_laws import (
@@ -24,12 +25,33 @@ from marivo.analysis.model.local_laws import (
 )
 
 
+def _selection_step(program: FrameProgram) -> FilterFusionStep | None:
+    operation = program.operation
+    schema = program.input_schema
+    if isinstance(operation, FixFrameValues):
+        columns = program.key_groups[operation.position]
+    elif isinstance(operation, FilterValues):
+        consumed = selection_predicate_columns(
+            operation.predicate,
+            schema.values,
+            schema.columns,
+            program.key_groups,
+            presence=tuple(zip(schema.presence_paths, schema.presence, strict=True)),
+        )
+        if consumed is None:
+            return None
+        columns = tuple(sorted(consumed))
+    else:
+        return None
+    return FilterFusionStep(program, columns)
+
+
 def fuse_frame_filters(
     compiled: CompiledFramePlan[CheckedStageInputT],
     *,
     protected_inputs: frozenset[int] = frozenset(),
 ) -> CompiledFramePlan[CheckedStageInputT]:
-    """Remove one intermediate selection per disjoint qualified pair."""
+    """Retain maximal ordered selection chains on unshared typed inputs."""
     plan = compiled.lowered.plan
     protected = {
         plan.publish,
@@ -44,79 +66,62 @@ def fuse_frame_filters(
     consumers = dict(plan.consumers)
     retained: list[QueryStage] = []
     removed: set[str] = set()
-    groups: list[FusionGroup] = []
     decisions: list[RuleDecision] = []
+    pending: dict[str, FusionGroup] = {}
     for outer in plan.stages:
         inner = retained[-1] if retained else None
-        if (
+        if not (
             isinstance(inner, FrameCompute)
             and isinstance(outer, FrameCompute)
             and isinstance(inner.program, FrameProgram)
             and isinstance(outer.program, FrameProgram)
-            and isinstance(first := inner.program.operation, FilterValues)
-            and isinstance(second := outer.program.operation, FilterValues)
+            and isinstance(inner.program.operation, (FilterValues, FixFrameValues))
+            and isinstance(outer.program.operation, (FilterValues, FixFrameValues))
             and len(inner.inputs) == 1
             and outer.inputs == (inner.stage_id,)
-            and inner.filter_fusion is None
             and outer.filter_fusion is None
         ):
-            members = (inner.stage_id, outer.stage_id)
-            input_schema = inner.program.input_schema
-            midpoint = inner.program.output_schema
-            output_schema = outer.program.output_schema
-            issue = short_circuit_selection_issue(
-                first,
-                second,
-                input_schema.values,
-                input_schema.columns,
-                inner.program.key_groups,
-                single_consumer=consumers[inner.stage_id] == (outer.stage_id,),
-                same_layout=(
-                    midpoint == outer.program.input_schema
-                    and input_schema.axes == midpoint.axes == output_schema.axes
-                    and input_schema.columns == midpoint.columns == output_schema.columns
-                    and input_schema.values == midpoint.values == output_schema.values
-                ),
-                original_boundary=plan.original is not None,
-            )
-            if inner.stage_id in protected:
-                issue = ("an unreferenced intermediate selection", "output or key checkpoint")
-            if issue is None:
-                operation = FilterValues(ValueBinary("and", first.predicate, second.predicate))
-                combined = frame_program(input_schema, operation, output_schema)
-                if combined.output_schema == output_schema:
-                    second_slots = selection_predicate_columns(
-                        second.predicate,
-                        input_schema.values,
-                        input_schema.columns,
-                        inner.program.key_groups,
-                    )
-                    assert second_slots is not None
-                    retained.pop()
-                    removed.add(inner.stage_id)
-                    groups.append(FusionGroup("L1", members, outer.stage_id))
-                    decisions.append(
-                        RuleDecision(
-                            "L1",
-                            "adopted",
-                            members,
-                            "One selection over the same complete typed input, with the original steps retained for carrier changes.",
-                        )
-                    )
-                    retained.append(
-                        replace(
-                            outer,
-                            inputs=inner.inputs,
-                            program=combined,
-                            filter_fusion=FrameFilterFusion(
-                                tuple(sorted(second_slots)), (inner, outer)
-                            ),
-                        )
-                    )
-                    continue
-                issue = ("identical final Frame facts", "different schema after one selection")
+            retained.append(outer)
+            continue
+        fusion = inner.filter_fusion
+        first = _selection_step(inner.program) if fusion is None else fusion.steps[0]
+        last = _selection_step(outer.program)
+        original = (inner,) if fusion is None else fusion.fallback
+        members = (*(stage.stage_id for stage in original), outer.stage_id)
+        issue = short_circuit_selection_issue(
+            single_consumer=consumers[inner.stage_id] == (outer.stage_id,),
+            same_layout=inner.program.output_schema == outer.program.input_schema,
+            original_boundary=plan.original is not None,
+        )
+        if inner.stage_id in protected:
+            issue = ("an unreferenced intermediate selection", "output or key checkpoint")
+        if first is None or last is None:
+            issue = ("qualified row-local selection masks", "unqualified predicate")
+        if issue is not None:
             decisions.append(RuleDecision("L1", "refused", members, ": ".join(issue)))
-        retained.append(outer)
+            retained.append(outer)
+            continue
+        assert first is not None and last is not None
+        steps = (first,) if fusion is None else fusion.steps
+        retained[-1] = replace(
+            outer,
+            inputs=inner.inputs,
+            program=replace(outer.program, input_schema=first.program.input_schema),
+            filter_fusion=FrameFilterFusion((*steps, last), (*original, outer)),
+        )
+        removed.add(inner.stage_id)
+        pending.pop(inner.stage_id, None)
+        pending[outer.stage_id] = FusionGroup("L1", members, outer.stage_id)
+    groups = list(pending.values())
+    decisions.extend(
+        RuleDecision(
+            "L1",
+            "adopted",
+            group.members,
+            "Ordered masks run on surviving rows and retain the original typed replay.",
+        )
+        for group in groups
+    )
     if not decisions:
         return compiled
     stages = tuple(retained)
@@ -144,5 +149,5 @@ def frame_filter_steps(stage: FrameCompute, actual: DataSchema | None) -> tuple[
     if fusion is None:
         return (stage,)
     program = stage.program
-    assert isinstance(program, FrameProgram) and isinstance(program.operation, FilterValues)
+    assert isinstance(program, FrameProgram)
     return (stage,) if actual == program.input_schema else fusion.fallback

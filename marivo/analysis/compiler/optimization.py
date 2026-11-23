@@ -264,25 +264,17 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
         first, second = inner.program.operation, stage.program.operation
         pair = (inner.stage_id, stage.stage_id)
         if isinstance(second, FilterValues) and isinstance(first, FilterValues):
-            values = (
-                inner.program.input_layout.values
-                if inner.program.input_layout is not None
-                else tuple(
-                    column
-                    for column in inner.program.columns
-                    if column.slot_id not in inner.program.keys
-                )
-            )
             same = (
                 inner.columns == stage.columns
                 and inner.keys == stage.keys
                 and inner.program.key_groups == stage.program.key_groups
                 and inner.program.columns == stage.program.columns
+                and inner.program.output_layout == stage.program.input_layout
             )
             issue = total_selection_issue(
                 first,
                 second,
-                values,
+                inner.program.value_columns,
                 inner.program.columns,
                 inner.program.key_groups,
                 single_consumer=consumers[inner.stage_id] == {stage.stage_id}
@@ -297,7 +289,14 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
                 stages[stage.stage_id] = replace(
                     stage,
                     inputs=inner.inputs,
-                    program=replace(require_result(stage), operation=operation),
+                    program=replace(
+                        stage.program,
+                        operation=operation,
+                        selection_steps=(
+                            *(inner.program.selection_steps or (first,)),
+                            *(stage.program.selection_steps or (second,)),
+                        ),
+                    ),
                 )
                 removed.add(inner.stage_id)
                 for source in inner.inputs:
@@ -315,7 +314,7 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
                         "L1",
                         "adopted",
                         members,
-                        "Same-input closed int64 comparisons retain the complete key, nullable True-only mask and check positions.",
+                        "Same-input total scalar predicates retain the complete key, nullable True-only mask and check positions.",
                     )
                 )
             else:

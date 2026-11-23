@@ -10,8 +10,10 @@ from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 import marivo.analysis as mv
+from marivo._definition.query import FilterValues, ValueBinary, ValueUnary
 from marivo.analysis.compiler.frame_filter_fusion import fuse_frame_filters
 from marivo.analysis.compiler.optimization import optimize_query
+from marivo.analysis.compiler.query_program import ResultProgram
 from tests.formal._l1_validator import (
     frame_chain,
     result_plan,
@@ -23,6 +25,7 @@ from tests.formal.verify_query_rewrites import (
     _I64_MAX,
     _I64_MIN,
     _compile_fixed_frame,
+    _filters,
     _frame_filter,
     _selected_operand,
 )
@@ -45,7 +48,17 @@ class Junction:
     right: Predicate
 
 
-Predicate: TypeAlias = Comparison | Junction
+@dataclass(frozen=True)
+class Missing:
+    carrier: Carrier
+
+
+@dataclass(frozen=True)
+class Negated:
+    predicate: Predicate
+
+
+Predicate: TypeAlias = Comparison | Junction | Missing | Negated
 _OPERATORS: tuple[ComparisonOperator, ...] = ("eq", "ne", "lt", "le", "gt", "ge")
 _CARRIERS: tuple[Carrier, ...] = ("x", "exact", "coordinate")
 _BOUNDARIES = (_I64_MIN, -1, 0, 1, _I64_MAX)
@@ -57,11 +70,14 @@ _SHALLOW = st.builds(
 
 
 def predicate_at_depth(depth: int) -> st.SearchStrategy[Predicate]:
+    leaf = st.one_of(_SHALLOW, st.builds(Missing, st.sampled_from(_CARRIERS)))
     if depth == 1:
-        return _SHALLOW
+        return leaf
     inner = predicate_at_depth(depth - 1)
     joins: tuple[Literal["and", "or"], ...] = ("and", "or")
-    return st.one_of(_SHALLOW, st.builds(Junction, st.sampled_from(joins), inner, inner))
+    return st.one_of(
+        leaf, st.builds(Junction, st.sampled_from(joins), inner, inner), st.builds(Negated, inner)
+    )
 
 
 def _author(frame: mv.AnalysisFrame, carrier: Carrier, predicate: Predicate) -> mv.Column:
@@ -69,6 +85,10 @@ def _author(frame: mv.AnalysisFrame, carrier: Carrier, predicate: Predicate) -> 
         left = _author(frame, carrier, predicate.left)
         right = _author(frame, carrier, predicate.right)
         return left & right if predicate.operation == "and" else left | right
+    if isinstance(predicate, Missing):
+        return _selected_operand(frame, predicate.carrier).is_null()
+    if isinstance(predicate, Negated):
+        return ~_author(frame, carrier, predicate.predicate)
     value = _selected_operand(frame, carrier)
     target = (
         predicate.operand
@@ -96,10 +116,10 @@ _PREDICATE = predicate_at_depth(4)
 
 
 @pytest.mark.parametrize("carrier", _CARRIERS)
-@pytest.mark.parametrize("length", (2, 3))
+@pytest.mark.parametrize("length", (2, 3, 4))
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
-@given(predicates=st.tuples(_PREDICATE, _PREDICATE, _PREDICATE))
-@example(predicates=(_DEPTH_FOUR, Comparison("ge", _I64_MAX), _LEAF))
+@given(predicates=st.tuples(_PREDICATE, _PREDICATE, _PREDICATE, _PREDICATE))
+@example(predicates=(_DEPTH_FOUR, Comparison("ge", _I64_MAX), _LEAF, Comparison("ne", -1)))
 def test_actual_emitted_selection_sequence(
     filter_frame: mv.AnalysisFrame,
     carrier: Carrier,
@@ -122,11 +142,26 @@ def test_actual_emitted_selection_sequence(
     validate_total_selection(schema_program, total, optimize_query(total), optimize_query(swapped))
 
 
+def test_emitted_short_circuit_preserves_fix_and_presence_masks(
+    filter_frame: mv.AnalysisFrame,
+) -> None:
+    left = filter_frame.where(filter_frame["x"] >= 0).compute()
+    right = filter_frame.where(filter_frame["y"] <= 0).compute()
+    aligned = left.align(right).compute()
+    first = aligned.where(aligned["left_present"])
+    fixed = first.fix(first.axes[0], _I64_MAX)
+    third = fixed.where(~fixed["right_present"])
+    query = third.where(~third["left.x"].is_null())
+    original = _compile_fixed_frame(query)
+    rewritten = fuse_frame_filters(original)
+    validate_short_circuit(original.lowered.plan, rewritten.lowered.plan)
+
+
 @pytest.mark.parametrize(
     "problem, message",
     (
-        ("missing", "missing right operand exact"),
-        ("duplicate", "Duplicate right projection columns"),
+        ("missing", "missing operand exact"),
+        ("duplicate", "Duplicate projection columns"),
     ),
 )
 def test_validator_rejects_invalid_deep_right_projection(
@@ -139,13 +174,18 @@ def test_validator_rejects_invalid_deep_right_projection(
     plan = fuse_frame_filters(compiled).lowered.plan
     (stage,) = frame_chain(plan)
     fusion = stage.filter_fusion
-    assert fusion is not None and "exact" in fusion.second_columns
+    assert fusion is not None
+    first_step, second_step = fusion.steps
+    assert "exact" in second_step.columns
     columns = (
-        tuple(name for name in fusion.second_columns if name != "exact")
+        tuple(name for name in second_step.columns if name != "exact")
         if problem == "missing"
-        else (*fusion.second_columns, "exact")
+        else (*second_step.columns, "exact")
     )
-    altered = replace(stage, filter_fusion=replace(fusion, second_columns=columns))
+    altered = replace(
+        stage,
+        filter_fusion=replace(fusion, steps=(first_step, replace(second_step, columns=columns))),
+    )
     mutant = replace(
         plan,
         stages=tuple(
@@ -186,3 +226,66 @@ def test_partial_predicates_cannot_be_exchanged(filter_frame: mv.AnalysisFrame) 
             decision.rule == "L1" and decision.status == "refused"
             for decision in optimized.optimization_decisions
         )
+
+
+def test_emitted_short_circuit_distinguishes_valid_nan_and_missing(
+    filter_frame: mv.AnalysisFrame,
+) -> None:
+    first = filter_frame.where(~(filter_frame["floating"] < 0))
+    query = first.where(~first["floating"].is_null())
+    original = _compile_fixed_frame(query)
+    validate_short_circuit(original.lowered.plan, fuse_frame_filters(original).lowered.plan)
+
+
+def test_total_selection_validator_rejects_negation_that_drops_nan(
+    filter_frame: mv.AnalysisFrame,
+) -> None:
+    first = filter_frame.where(~(filter_frame["floating"] < 0))
+    query = first.where(~first["floating"].is_null())
+    frame_plan = _compile_fixed_frame(query).lowered.plan
+    (program, negated), (_, second) = tuple(
+        _frame_filter(stage) for stage in frame_chain(frame_plan)
+    )
+    assert isinstance(negated, ValueUnary) and isinstance(negated.operand, ValueBinary)
+    original = result_plan(program, (negated, second))
+    reversed_plan = optimize_query(result_plan(program, (second, negated)))
+    fused = optimize_query(original)
+    validate_total_selection(program, original, fused, reversed_plan)
+    (stage,) = _filters(fused)
+    assert isinstance(stage.program, ResultProgram)
+    wrong = ValueBinary("ge", negated.operand.left, negated.operand.right)
+    mutant = replace(
+        stage,
+        program=replace(stage.program, operation=FilterValues(ValueBinary("and", wrong, second))),
+    )
+    mutated_plan = replace(
+        fused, stages=tuple(mutant if item is stage else item for item in fused.stages)
+    )
+    with pytest.raises(AssertionError, match="counterexample"):
+        validate_total_selection(program, original, mutated_plan, reversed_plan)
+
+
+def test_short_circuit_validator_rejects_removal_of_fractional_float_rows(
+    filter_frame: mv.AnalysisFrame,
+) -> None:
+    floating = filter_frame["floating"]
+    first = filter_frame.where((floating > 0) & (floating < 1))
+    query = first.where(~first["floating"].is_null())
+    compiled = _compile_fixed_frame(query)
+    fused = fuse_frame_filters(compiled).lowered.plan
+    validate_short_circuit(compiled.lowered.plan, fused)
+    (stage,) = frame_chain(fused)
+    fusion = stage.filter_fusion
+    assert fusion is not None
+    left, right = fusion.steps
+    assert isinstance(left.program.operation, FilterValues)
+    operand = left.program.operation.predicate
+    assert isinstance(operand, ValueBinary) and isinstance(operand.left, ValueBinary)
+    never = ValueBinary("lt", operand.left.left, operand.left.left)
+    wrong = replace(left, program=replace(left.program, operation=FilterValues(never)))
+    mutant = replace(stage, filter_fusion=replace(fusion, steps=(wrong, right)))
+    mutated_plan = replace(
+        fused, stages=tuple(mutant if item is stage else item for item in fused.stages)
+    )
+    with pytest.raises(AssertionError, match="counterexample"):
+        validate_short_circuit(compiled.lowered.plan, mutated_plan)

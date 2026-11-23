@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from marivo.analysis.compiler.frame_filter_fusion import fuse_frame_filters
+from marivo.analysis.compiler.frame_select_fusion import fuse_frame_selects
 from marivo.analysis.compiler.frame_top import bound_pending_frame_top
 from marivo.analysis.materialization import query_key_fusion, query_terminal_fusion, sample_fusion
 from marivo.analysis.model.frame_contracts import CheckedStageInputT
@@ -44,9 +45,11 @@ def optimize_compiled_frame(
     *,
     include_top: bool = True,
 ) -> CompiledFramePlan[CheckedStageInputT]:
-    """Apply terminal Top before local short-circuit selection."""
+    """Apply terminal Top before local selection and projection fusion."""
     if include_top and policy.allows("pending_frame_top"):
         compiled = bound_pending_frame_top(compiled, providers)
     if policy.allows("L1"):
         compiled = fuse_frame_filters(compiled, protected_inputs=protected_inputs)
+    if policy.allows("L5_select_fusion"):
+        compiled = fuse_frame_selects(compiled, protected_inputs=protected_inputs)
     return compiled

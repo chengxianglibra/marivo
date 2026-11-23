@@ -3,14 +3,15 @@
 import operator
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime, timezone
-from decimal import Decimal
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from functools import partial
 from itertools import product
 from pathlib import Path
 from typing import Literal
 
 import duckdb
+import ibis
 import pandas as pd
 import pyarrow as pa
 import pytest
@@ -19,16 +20,19 @@ import marivo.analysis as mv
 from marivo._definition.query import (
     CoordinateSlot,
     FilterValues,
+    PresenceSlot,
     ValueBinary,
     ValueExpression,
     ValueLiteral,
     ValueSlot,
+    ValueUnary,
 )
 from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
 from marivo.analysis.compiler.frame_filter_fusion import frame_filter_steps, fuse_frame_filters
 from marivo.analysis.compiler.frame_plan import plan_frame
 from marivo.analysis.compiler.graph_lowering import lower_query
+from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.optimization import optimize_query
 from marivo.analysis.compiler.query_planning import plan_query
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
@@ -36,7 +40,9 @@ from marivo.analysis.compiler.query_stages import (
     FrameCompute,
     FrameInput,
     LocalCompute,
+    ProjectionRead,
     QueryPlan,
+    QueryStage,
     SourceReadStage,
     checked_output,
 )
@@ -53,17 +59,30 @@ from marivo.analysis.materialization.graph_source_execution import (
     execute_numeric_query,
     run_frame_plan,
 )
+from marivo.analysis.materialization.prepared_sources import PreparedSources
 from marivo.analysis.materialization.query_sources import open_query_sources
+from marivo.analysis.materialization.query_terminal_fusion import fuse_query_terminal
 from marivo.analysis.methods import query_values
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.methods.frame_evaluation import FrameEvaluation
 from marivo.analysis.methods.query_values import evaluate_result
 from marivo.analysis.model.data_schema import DataAxis, DataSchema
-from marivo.analysis.model.data_types import DataColumn, DecimalDataType, ScalarDataType
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DecimalDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.frame_contracts import frame_backing
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.model.optimization_policy import OptimizationPolicy
+from marivo.datasource.spi import (
+    SourceSession,
+    TableSourceIR,
+    default_datasource,
+    require_profile_for_backend_type,
+)
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.formal._smt import prove_unsat
@@ -119,21 +138,38 @@ def _operand(expression: ValueExpression) -> tuple[str, str]:
 def _kleene(
     expression: ValueExpression,
     operand: Callable[[ValueExpression], tuple[str, str]] = _operand,
+    *,
+    floating: frozenset[str] = frozenset(),
 ) -> str:
     """Translate actual plan nodes. -1/0/1 are FALSE/NULL/TRUE."""
+    if isinstance(expression, ValueUnary):
+        if expression.operation == "not":
+            return f"(- {_kleene(expression.operand, operand, floating=floating)})"
+        assert expression.operation == "is_null", expression
+        if isinstance(expression.operand, (ValueUnary, ValueBinary)):
+            missing = f"(= {_kleene(expression.operand, operand, floating=floating)} 0)"
+        else:
+            _, missing = operand(expression.operand)
+        return f"(ite {missing} 1 (- 1))"
+    if isinstance(expression, PresenceSlot):
+        value, missing = operand(expression)
+        return f"(ite {missing} 0 {value})"
     assert isinstance(expression, ValueBinary), expression
     if expression.operation in ("and", "or"):
-        left, right = _kleene(expression.left, operand), _kleene(expression.right, operand)
+        left = _kleene(expression.left, operand, floating=floating)
+        right = _kleene(expression.right, operand, floating=floating)
         relation = "<=" if expression.operation == "and" else ">="
         return f"(ite ({relation} {left} {right}) {left} {right})"
     comparisons = {"eq": "=", "ne": "distinct", "lt": "<", "le": "<=", "gt": ">", "ge": ">="}
     assert expression.operation in comparisons, expression
     lhs, lhs_null = operand(expression.left)
     rhs, rhs_null = operand(expression.right)
-    return (
-        f"(ite (or {lhs_null} {rhs_null}) 0 "
-        f"(ite ({comparisons[expression.operation]} {lhs} {rhs}) 1 (- 1)))"
-    )
+    comparison = f"({comparisons[expression.operation]} {lhs} {rhs})"
+    nan_flags = tuple(f"{term}_nan" for term in (lhs, rhs) if term in floating)
+    if nan_flags:
+        # Only inequality is true when a valid NaN participates in comparison.
+        comparison = f"(ite (or {' '.join(nan_flags)}) {str(expression.operation == 'ne').lower()} {comparison})"
+    return f"(ite (or {lhs_null} {rhs_null}) 0 (ite {comparison} 1 (- 1)))"
 
 
 def _filters(plan: QueryPlan) -> tuple[LocalCompute, ...]:
@@ -218,6 +254,51 @@ def test_l1_actual_rewrite_retains_the_same_rows_with_nullable_comparisons(
     pd.testing.assert_frame_equal(fused, plain)
 
 
+def test_l1_totality_rechecks_drift_and_preserves_early_demand() -> None:
+    first = ValueBinary("lt", _X, _ZERO)
+    guarded = ValueBinary("gt", _X, _Y)
+    (fused,) = _filters(optimize_query(_selection_plan(first, guarded)))
+    assert isinstance(fused.program, ResultProgram)
+    assert len(fused.program.selection_steps) == 2
+
+    # The planner saw integral slots. Native materialization can supply one
+    # effective Decimal and one float. Ordering Decimal against valid NaN
+    # fails on the first row, which the first predicate excludes.
+    columns = (
+        _COLUMNS[0],
+        replace(_COLUMNS[1], dtype=DecimalDataType(12, 2)),
+        replace(_COLUMNS[2], dtype=ScalarDataType("float64")),
+    )
+    source = pd.DataFrame(
+        {
+            "key": pd.Series([1, 2], dtype="int64[pyarrow]"),
+            "x": pd.Series(
+                [Decimal("1.00"), Decimal("-1.00")], dtype=pd.ArrowDtype(pa.decimal128(12, 2))
+            ),
+            "y": pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array([float("nan"), -2.0], type=pa.float64(), from_pandas=False)
+                ),
+            ),
+        }
+    )
+    actual = replace(fused, program=replace(fused.program, columns=columns), columns=columns)
+    assert evaluate_result(actual, (source,))["key"].tolist() == [2]
+    with pytest.raises(InvalidOperation):
+        evaluate_result(
+            replace(
+                actual,
+                program=replace(
+                    fused.program,
+                    operation=FilterValues(guarded),
+                    columns=columns,
+                    selection_steps=(),
+                ),
+            ),
+            (source,),
+        )
+
+
 def test_l1_keeps_unqualified_arithmetic_on_its_own_boundary() -> None:
     first = ValueBinary("lt", _X, _ZERO)
     unsafe = ValueBinary("gt", ValueBinary("add", _X, _Y), _ZERO)
@@ -233,7 +314,12 @@ _I64_MIN, _I64_MAX = -(2**63), 2**63 - 1
 _DECIMAL_MAX = 10**38 - 1
 _EXACT = DecimalDataType(38, 0)
 _FRAME_KEYS = (_I64_MAX, 3, _I64_MIN, 2, -1, 0, 1)
-_CARRIER_LIMITS = {_INT: (_I64_MIN, _I64_MAX), _EXACT: (-_DECIMAL_MAX, _DECIMAL_MAX)}
+_BOOL = ScalarDataType("boolean")
+_CARRIER_LIMITS = {
+    _INT: (_I64_MIN, _I64_MAX),
+    _EXACT: (-_DECIMAL_MAX, _DECIMAL_MAX),
+    _BOOL: (-1, 1),
+}
 
 
 @pytest.fixture
@@ -309,12 +395,14 @@ def _frame_operand(schema: DataSchema, expression: ValueExpression) -> tuple[str
         column = schema.values[expression.index]
     elif isinstance(expression, CoordinateSlot):
         (column,) = schema.axes[expression.index].columns
+    elif isinstance(expression, PresenceSlot):
+        column = schema.presence[schema.presence_paths.index(expression.path)]
     elif isinstance(expression, ValueLiteral) and type(expression.value) is int:
         assert _I64_MIN <= expression.value <= _I64_MAX
         return _integer(expression.value), "false"
     else:
         raise AssertionError(f"Unmodeled Frame selection operand: {expression!r}")
-    assert column.dtype in _CARRIER_LIMITS, column
+    assert column.dtype in _CARRIER_LIMITS or column.dtype == ScalarDataType("float64"), column
     return column.slot_id, f"{column.slot_id}_null"
 
 
@@ -322,6 +410,23 @@ def _symbolic_frame_row(schema: DataSchema) -> tuple[str, tuple[str, ...]]:
     constraints: list[str] = []
     witness: list[str] = []
     for column in schema.columns:
+        if column.dtype == ScalarDataType("float64"):
+            # A real super-domain retains fractional comparisons. Extreme reals
+            # can represent the ordered infinities in these comparison formulas.
+            # NaN and missing cells have disjoint state flags.
+            symbol = column.slot_id
+            constraints.extend(
+                (
+                    f"(declare-const {symbol} Real)",
+                    f"(declare-const {symbol}_null Bool)",
+                    f"(declare-const {symbol}_nan Bool)",
+                    f"(assert (not (and {symbol}_null {symbol}_nan)))",
+                )
+            )
+            if not column.nullable:
+                constraints.append(f"(assert (not {symbol}_null))")
+            witness.extend((symbol, f"{symbol}_null", f"{symbol}_nan"))
+            continue
         if column.dtype not in _CARRIER_LIMITS:
             continue
         symbol = column.slot_id
@@ -336,6 +441,8 @@ def _symbolic_frame_row(schema: DataSchema) -> tuple[str, tuple[str, ...]]:
         )
         if not column.nullable:
             constraints.append(f"(assert (not {nullable}))")
+        if column.dtype == _BOOL:
+            constraints.append(f"(assert (distinct {symbol} 0))")
         witness.extend((symbol, nullable))
     return "\n".join(constraints), tuple(witness)
 
@@ -358,8 +465,10 @@ def test_public_l1_emitted_filter_preserves_selection_and_second_mask_demand(
     left, right = fusion.fallback
     first_program, first_predicate = _frame_filter(left)
     _, second_predicate = _frame_filter(right)
-    program, emitted = _frame_filter(stage)
-    assert isinstance(emitted, ValueBinary), emitted
+    program, _ = _frame_filter(stage)
+    emitted_left, emitted_right = (step.program.operation for step in fusion.steps)
+    assert isinstance(emitted_left, FilterValues) and isinstance(emitted_right, FilterValues)
+    emitted = ValueBinary("and", emitted_left.predicate, emitted_right.predicate)
     assert fusion.fallback == tuple(
         step for step in original.lowered.plan.stages if isinstance(step, FrameCompute)
     )
@@ -371,7 +480,7 @@ def test_public_l1_emitted_filter_preserves_selection_and_second_mask_demand(
     # the same retention mask as short-circuit conjunction. The left subtree
     # also has to preserve exactly where the second mask is demanded.
     prove_unsat(
-        f"""(set-logic QF_LIA)
+        f"""(set-logic QF_LIRA)
 {row}
 (define-fun demand () Bool (= {_kleene(first_predicate, encode)} 1))
 (define-fun sequential () Bool (ite demand (= {_kleene(second_predicate, encode)} 1) false))
@@ -440,11 +549,13 @@ def test_public_l1_only_evaluates_the_second_mask_on_demanded_rows(
     pd.testing.assert_frame_equal(operands.loc[:, columns], expected.loc[:, columns])
 
 
-def test_public_l1_schema_change_executes_both_fallback_filters(
+def test_public_l1_schema_change_executes_every_fallback_filter(
     filter_frame: mv.AnalysisFrame,
 ) -> None:
     first = filter_frame.where(filter_frame["x"] >= 0)
-    original = _compile_fixed_frame(first.where(first["x"] < 1))
+    second = first.where(first["x"] < 1)
+    third = second.where(~second["x"].is_null())
+    original = _compile_fixed_frame(third.where(third["y"] <= 0))
     compiled = fuse_frame_filters(original)
     stage = _published_compute(compiled.lowered.plan)
     fusion = stage.filter_fusion
@@ -490,9 +601,184 @@ def test_public_l1_schema_change_executes_both_fallback_filters(
         observe_local=lambda step, _: executed.append(step.stage_id),
         completed_frames={fixed.input_id: actual},
     )
+    assert len(executed) == len(fusion.fallback) == 4
     assert tuple(executed) == tuple(step.stage_id for step in fusion.fallback)
     assert completed.frame_schema == schema
     pd.testing.assert_frame_equal(completed.table, rows.iloc[[3]].reset_index(drop=True))
+
+
+def test_four_stage_where_fix_chain_short_circuits_and_takes_survivors_once(
+    filter_frame: mv.AnalysisFrame, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = filter_frame.where(filter_frame["x"] >= 0)
+    second = first.where(~(first["floating"] < 0))
+    fixed = second.fix(second.axes[0], _FRAME_KEYS[0])
+    query = fixed.where(~fixed["y"].is_null())
+    planned = fuse_frame_filters(_compile_fixed_frame(query)).lowered.plan
+    stage = _published_compute(planned)
+    fusion = stage.filter_fusion
+    assert fusion is not None
+    assert len(fusion.steps) == len(fusion.fallback) == 4
+    assert tuple(item for item in planned.stages if isinstance(item, FrameCompute)) == (stage,)
+    control = compute_with_policy(
+        query, OptimizationPolicy.default().with_rule("L1", enabled=False)
+    ).to_pandas()
+
+    takes: list[tuple[tuple[str, ...], tuple[int, ...]]] = []
+    actual = pd.DataFrame.take
+
+    def audit(
+        frame: pd.DataFrame,
+        indices: list[int],
+        axis: Literal["index", "columns", 0, 1] = 0,
+        **kwargs: object,
+    ) -> pd.DataFrame:
+        takes.append((tuple(frame.columns), tuple(indices)))
+        return actual(frame, indices, axis=axis)
+
+    monkeypatch.setattr(pd.DataFrame, "take", audit)
+    result = query.compute().to_pandas()
+    pd.testing.assert_frame_equal(result, control)
+    assert result["y"].tolist() == [1]
+    expected = [
+        (("x",), tuple(range(len(_FRAME_KEYS)))),
+        (("floating",), (0, 3, 4, 6)),
+        (("key",), (0, 3)),
+        (("y",), (0,)),
+        (("key", "x", "y", "exact", "floating"), (0,)),
+    ]
+    assert any(takes[index : index + len(expected)] == expected for index in range(len(takes))), (
+        takes
+    )
+
+
+def test_three_stage_where_preserves_presence_and_valid_nan(filter_frame: mv.AnalysisFrame) -> None:
+    left = filter_frame.where(filter_frame["x"] > 0).compute()
+    right = filter_frame.where(filter_frame["y"] == 0).compute()
+    aligned = left.align(right).compute()
+    first = aligned.where(aligned["left_present"])
+    second = first.where(~first["right_present"])
+    query = second.where(~(second["left.floating"] < 0))
+    stage = _published_compute(fuse_frame_filters(_compile_fixed_frame(query)).lowered.plan)
+    fusion = stage.filter_fusion
+    assert fusion is not None and len(fusion.steps) == 3
+    control = compute_with_policy(
+        query, OptimizationPolicy.default().with_rule("L1", enabled=False)
+    ).to_pandas()
+    actual = query.compute().to_pandas()
+    pd.testing.assert_frame_equal(actual, control)
+    assert actual["key"].tolist() == [_FRAME_KEYS[0]]
+    assert actual["left_present"].tolist() == [True]
+    assert actual["right_present"].tolist() == [False]
+
+
+def test_total_l1_scalar_carriers_use_original_comparison_kernels(tmp_path: Path) -> None:
+    stamp = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    prior = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    moment = TimestampDataType("ns", "UTC")
+    paths = ("text", "amount", "day", "stamp", "flag")
+    columns = (
+        DataColumn("text", "text", ScalarDataType("string"), True),
+        DataColumn("amount", "amount", DecimalDataType(12, 2), True),
+        DataColumn("day", "day", ScalarDataType("date"), True),
+        DataColumn("stamp", "stamp", moment, True),
+        DataColumn("flag", "flag", ScalarDataType("boolean"), True),
+    )
+    schema = DataSchema(
+        (DataAxis("key", (_COLUMNS[0],), name="key"),),
+        columns,
+        value_paths=tuple((path,) for path in paths),
+    )
+    rows = pd.DataFrame(
+        {
+            "key": pd.Series([1, 2, 3, 4, 5, 6], dtype="int64[pyarrow]"),
+            "text": pd.Series(["a", "a", "b", "a", "a", "a"], dtype="string[pyarrow]"),
+            "amount": pd.Series(
+                [
+                    Decimal("1.30"),
+                    Decimal("1.24"),
+                    Decimal("1.40"),
+                    Decimal("1.40"),
+                    Decimal("1.40"),
+                    Decimal("1.40"),
+                ],
+                dtype=pd.ArrowDtype(pa.decimal128(12, 2)),
+            ),
+            "day": pd.Series(
+                [
+                    stamp.date(),
+                    stamp.date(),
+                    stamp.date(),
+                    prior.date(),
+                    stamp.date(),
+                    stamp.date(),
+                ],
+                dtype=pd.ArrowDtype(pa.date32()),
+            ),
+            "stamp": pd.Series(
+                [stamp, stamp, stamp, stamp, prior, stamp],
+                dtype=pd.ArrowDtype(pa.timestamp("ns", tz="UTC")),
+            ),
+            "flag": pd.Series([True, True, True, True, True, None], dtype="bool[pyarrow]"),
+        }
+    )
+    runtime = DatasetRuntime.create(tmp_path, "formal-l1-scalars", timezone="UTC")
+    metadata = FrameResultMetadata(
+        "formal-l1-scalars", EvaluationRecord(datetime(2026, 1, 1, tzinfo=timezone.utc), (), ())
+    )
+    source = mv.AnalysisFrame._from_memory(
+        runtime.local, CompletedFrameResult(CompletedFrameData(schema, rows), metadata)
+    )
+    first = source.where(source["text"] == "a")
+    second = first.where(first["amount"] >= Decimal("1.25"))
+    third = second.where(second["day"] >= date(2026, 1, 2))
+    query = third.where((third["stamp"] >= stamp) & third["flag"])
+    compiled = _compile_fixed_frame(query)
+    stage = _published_compute(fuse_frame_filters(compiled).lowered.plan)
+    fusion = stage.filter_fusion
+    assert fusion is not None and len(fusion.steps) == 4
+    policy = OptimizationPolicy.default().with_rule("L1", enabled=False)
+    control = compute_with_policy(query, policy).to_pandas()
+    selected = query.compute().to_pandas()
+    pd.testing.assert_frame_equal(selected, control)
+    assert selected["key"].tolist() == [1]
+
+    # Exercise the already-emitted L1(b) conjunction through the production
+    # ResultProgram kernel on exactly the same typed input.
+    original_steps = tuple(
+        item for item in compiled.lowered.plan.stages if isinstance(item, FrameCompute)
+    )
+    result_stages = tuple(
+        LocalCompute(
+            item.stage_id,
+            ("input",) if item is original_steps[0] else item.inputs,
+            schema.columns,
+            schema.key_fields,
+            ResultProgram(
+                FilterValues(predicate),
+                schema.columns,
+                schema.key_fields,
+                (),
+                program.key_groups,
+                program.key_groups,
+            ),
+        )
+        for item in original_steps
+        for program, predicate in (_frame_filter(item),)
+    )
+    identifier = original_steps[0].inputs[0]
+    result_plan = QueryPlan(
+        (checked_output("input", schema.columns, schema.key_fields), *result_stages),
+        tuple(
+            ("input" if name == identifier else name, consumers)
+            for name, consumers in compiled.lowered.plan.consumers
+        ),
+        original_steps[-1].stage_id,
+        (schema.key_fields,),
+    )
+    (terminal,) = _filters(optimize_query(result_plan))
+    internal = evaluate_result(terminal, (rows,))
+    assert internal["key"].tolist() == [1]
 
 
 @pytest.mark.parametrize("boundary", ("protected", "shared", "original"))
@@ -539,7 +825,7 @@ def test_public_l1_keeps_nan_distinct_from_na_under_negation(
     first = filter_frame.where(filter_frame.coord(filter_frame.axes[0]) >= _I64_MIN)
     query = first.where(~(first["floating"] < 0))
     plan = fuse_frame_filters(_compile_fixed_frame(query)).lowered.plan
-    assert _published_compute(plan).filter_fusion is None
+    assert _published_compute(plan).filter_fusion is not None
     assert query.compute().to_pandas()["key"].tolist() == [_FRAME_KEYS[0], _FRAME_KEYS[3]]
 
 
@@ -927,3 +1213,67 @@ def test_full_decimal_query_keeps_strict_checks_on_their_branch(
         for error in (plain_error.value, optimized_error.value):
             assert error.stage == "numeric_value"
             assert "nulls='error'" in (error.received or "")
+
+
+def test_total_l1_leaves_undemanded_non_utf8_literal_at_its_original_mask() -> None:
+    columns = (*_COLUMNS[:2], replace(_COLUMNS[2], dtype=ScalarDataType("string")))
+    original = _selection_plan(
+        ValueBinary("lt", _X, _ZERO), ValueBinary("eq", _Y, ValueLiteral(chr(0xD800)))
+    )
+    planned: list[QueryStage] = []
+    for stage in original.stages:
+        if isinstance(stage, SourceReadStage):
+            planned.append(replace(stage, columns=columns))
+        else:
+            assert isinstance(stage, LocalCompute) and isinstance(stage.program, ResultProgram)
+            planned.append(
+                replace(stage, columns=columns, program=replace(stage.program, columns=columns))
+            )
+    optimized = optimize_query(replace(original, stages=tuple(planned)))
+    assert len(_filters(optimized)) == 2
+    rows = pd.DataFrame({"key": [1], "x": [1], "y": ["ok"]})
+    for stage in _filters(optimized):
+        rows = evaluate_result(stage, (rows,))
+    assert rows.empty
+
+
+@pytest.mark.parametrize(
+    "sql,second",
+    (
+        (
+            "SELECT 1::BIGINT AS key, 3::DECIMAL(12,2) AS x, CAST('NaN' AS DOUBLE) AS y",
+            ValueBinary("lt", _X, _Y),
+        ),
+        (
+            "SELECT 1::BIGINT AS key, 3::BIGINT AS x, 9::UINTEGER AS y",
+            ValueBinary("lt", _X, ValueLiteral(10)),
+        ),
+    ),
+    ids=("mixed-effective-carriers", "unused-unsigned-carrier"),
+)
+def test_total_l1_requalifies_without_switching_native_terminal_paths(
+    sql: str, second: ValueBinary
+) -> None:
+    backend = ibis.duckdb.connect()
+    provider = require_profile_for_backend_type("duckdb")
+    with SourceSession(provider, default_datasource(), backend) as owner:
+        backend.create_table("actual_selection", backend.sql(sql))
+        bound = owner.bind(TableSourceIR("actual_selection"), source_identity="selection")
+        raw = bound.relation
+        original = _selection_plan(ValueBinary("gt", _X, _ZERO), second)
+        pairs = tuple((column.slot_id, column.slot_id) for column in _COLUMNS)
+        source = SourceReadStage(
+            "input", "source", (), _COLUMNS, _KEY, ProjectionRead(pairs), pairs, (), None
+        )
+        plan = replace(original, stages=(source, *original.stages[1:]))
+        prepared = PreparedSources(owner, (), {"source": raw}, {"source": bound}, {"source": owner})
+        optimized = optimize_query(plan)
+        assert len(_filters(optimized)) == 1
+        for route in (plan, optimized):
+            merged = fuse_query_terminal(
+                prepared, LoweredQuery(route, (LoweredRead("input", raw),))
+            )
+            stage = merged.plan.stages[-1]
+            assert isinstance(stage, SourceReadStage)
+            expression = merged.read(stage.stage_id).expression
+            assert expression.select("key").to_pyarrow().column("key").to_pylist() == [1]

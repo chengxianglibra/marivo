@@ -37,6 +37,7 @@ from marivo.analysis.compiler.attribute_inputs import (
     input_failure,
 )
 from marivo.analysis.compiler.frame_filter_fusion import frame_filter_steps
+from marivo.analysis.compiler.frame_select_fusion import frame_select_steps
 from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.query_stages import (
     FrameCompute,
@@ -368,7 +369,9 @@ def execute_numeric_query(
 
     def frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
         steps = (
-            frame_filter_steps(stage, inputs[0].frame_schema) if stage.filter_fusion else (stage,)
+            frame_filter_steps(stage, inputs[0].frame_schema)
+            if stage.filter_fusion
+            else frame_select_steps(stage, inputs[0].frame_schema)
         )
         for step in steps:
             output = frame_kernel(step, inputs)

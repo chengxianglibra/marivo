@@ -13,6 +13,7 @@ from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.query_program import (
     FrameCombineProgram,
     FrameCompareProgram,
+    FrameProgram,
     ResultProgram,
 )
 from marivo.analysis.compiler.query_stages import (
@@ -178,7 +179,7 @@ def _run_frame(
     stage: FrameCompute, inputs: tuple[StageOutput, ...], policy: OptimizationPolicy
 ) -> StageOutput:
     attribute_inputs: tuple[AttributeRootInputs, ...] = ()
-    if stage.filter_fusion is None:
+    if stage.filter_fusion is None and stage.select_fusion is None:
         stage = effective_frame(stage, inputs)
     # The schedule admits a fused program only on its exact compiled input schema.
     resolved_schema = stage.program.output_schema
@@ -226,23 +227,8 @@ def _run_frame(
             unique_keys=tuple(item.unique_keys for item in inputs),
         )
     else:
-        validate_frozen_coordinates(
-            stage.program.input_schema,
-            inputs[0].table,
-            tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in inputs[0].frame_attachments),
-            unique_keys=inputs[0].unique_keys,
-        )
-        tables = tuple(item.table for item in inputs)
-        fusion = stage.filter_fusion
-        evaluate = (
-            query_values.evaluate_frame
-            if policy.allows("frame_evaluation_cache")
-            else partial(query_values.evaluate_frame, memoize=False)
-        )
-        if fusion is None:
-            frame = evaluate(stage.program, tables)
-        else:
-            frame = evaluate(stage.program, tables, second_filter_columns=fusion.second_columns)
+        assert isinstance(stage.program, FrameProgram)
+        frame = _evaluate_unary_frame(stage.program, stage, inputs[0], policy)
         attachments = tuple(a for a in inputs[0].frame_attachments if a.name in required)
     if isinstance(stage.program, (FrameCompareProgram, FrameCombineProgram)):
         stage = replace(stage, program=replace(stage.program, output_schema=resolved_schema))
@@ -279,6 +265,32 @@ def _run_frame(
             receipts=(CheckReceipt("attribute.complete_key_mapping", stage.stage_id),),
         )
     return output
+
+
+def _evaluate_unary_frame(
+    program: FrameProgram, stage: FrameCompute, source: StageOutput, policy: OptimizationPolicy
+) -> pd.DataFrame:
+    projection = stage.select_fusion
+    schema = (
+        program.input_schema if projection is None else projection.steps[0].program.input_schema
+    )
+    validate_frozen_coordinates(
+        schema,
+        source.table,
+        tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in source.frame_attachments),
+        unique_keys=source.unique_keys,
+    )
+    tables = (source.table,)
+    evaluate = (
+        query_values.evaluate_frame
+        if policy.allows("frame_evaluation_cache")
+        else partial(query_values.evaluate_frame, memoize=False)
+    )
+    if projection is not None:
+        return evaluate(program, tables, select_steps=projection.steps)
+    if stage.filter_fusion is not None:
+        return evaluate(program, tables, filter_steps=stage.filter_fusion.steps)
+    return evaluate(program, tables)
 
 
 def _retained_input_attachments(

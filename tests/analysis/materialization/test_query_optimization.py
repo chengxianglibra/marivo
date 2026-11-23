@@ -80,6 +80,7 @@ from marivo.analysis.materialization.query_sources import open_query_sources
 from marivo.analysis.materialization.source_reads import read_stage
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_types import DecimalDataType, DurationDataType, ScalarDataType
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.optimization_policy import OptimizationPolicy
 from marivo.analysis.model.programs import FormulaInput
 from marivo.analysis.model.slot_roles import StageObligations
@@ -508,6 +509,25 @@ def test_current_frame_filters_preserve_real_source_domain(optimization_session:
     assert [(read.scopes, read.returned_rows) for read in fixed.persist().source_reads] == [
         (read.scopes, read.returned_rows) for read in control.persist().source_reads
     ]
+
+
+def test_where_fix_chain_preserves_source_strict_demand(optimization_session: Session) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    source = session.observe({"sales": amount.sum(nulls="error")}, by=(region,))
+    first = source.where(source["sales"] > 30)
+    fixed = first.fix(first.axes[0], "A")
+    query = fixed.where(~fixed["sales"].is_null())
+    errors = []
+    default = OptimizationPolicy.default()
+    for policy in (default, default.with_rule("L1", enabled=False)):
+        with pytest.raises(MaterializationError) as caught:
+            compute_with_policy(query, policy)
+        errors.append(caught.value)
+    assert errors[0].stage == errors[1].stage
+    assert errors[0].received == errors[1].received
+    assert "coordinates=" in (errors[0].received or "")
 
 
 def test_integral_decimal_source_filters_keep_values_beyond_int64(
