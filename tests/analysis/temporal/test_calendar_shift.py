@@ -6,6 +6,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._definition.grouping import grouping_binding
+from marivo._kernel.temporal import builtin_grain
 from marivo._kernel.temporal_grid import CivilShiftAbsent, CivilShiftTarget, TimeShiftAbsent
 from marivo.analysis.core.frozen_calendar import (
     FrozenAttachment,
@@ -22,7 +23,6 @@ from marivo.analysis.model.data_types import DataColumn, TimestampDataType
 
 
 def calendar(start: str, end: str, unit: str = "week", zone: str = "UTC") -> mv.CalendarAxis:
-    from marivo._kernel.temporal import builtin_grain
 
     return exact_scope(start, end, zone).by(builtin_grain(unit))
 

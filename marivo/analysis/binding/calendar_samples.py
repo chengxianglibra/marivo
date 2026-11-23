@@ -5,6 +5,7 @@ from __future__ import annotations
 from marivo._definition.expressions import BuiltinSampleCoordinate
 from marivo._definition.types import CalendarCoordinate
 from marivo._kernel.temporal import grain_nests
+from marivo._kernel.time_types import grain_token
 from marivo._kernel.timezones import same_timezone
 from marivo.analysis.model.errors import reject
 
@@ -25,7 +26,7 @@ def validate_sample_parent(
     if not grain_nests(inner.grain_spec, outer.grain_spec):
         reject(
             "a supported static child-to-parent calendar grain combination on the same field",
-            f"{inner.grain_spec._to_token()} within {outer.grain_spec._to_token()}",
+            f"{grain_token(inner.grain_spec)} within {grain_token(outer.grain_spec)}",
             'Choose m.per(mv.grain("day")) or a finer grain nested in the enclosing calendar.',
             "Metric.per",
             canonical_id="session.observe",

@@ -5,8 +5,8 @@ from __future__ import annotations
 import pandas as pd
 import pyarrow as pa
 
+from marivo.analysis.core.attachments import OutputAttachment
 from marivo.analysis.core.frozen_calendar import frozen_key_rows
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
 from marivo.analysis.model.data_schema import (
     CalendarDataAxis,
     DataAxis,

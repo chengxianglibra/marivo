@@ -1,9 +1,11 @@
 """Encoded snapshot fields share one interpretation across public read families."""
 
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -491,8 +493,6 @@ def test_trino_row_version_join_and_daily_statement_count(
         [],
     )
     if time_kind in ("instant", "mixed"):
-        import re
-        from dataclasses import replace
 
         def instants(data: SourceData) -> SourceData:
             return replace(

@@ -5,7 +5,6 @@ from __future__ import annotations
 import atexit
 import hashlib
 import importlib.metadata
-import inspect
 import json
 import os
 import sys
@@ -14,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
+import marivo
+
 
 def assert_installed_origin() -> dict[str, object]:
-    import marivo
-
     site = Path(sysconfig.get_path("purelib")).resolve()
     assert site.is_relative_to(Path(sys.prefix).resolve()), (
         "expected an isolated virtual environment"
@@ -95,61 +94,12 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     )
 
 
-def surface_snapshot() -> list[dict[str, object]]:
-    import marivo.analysis as mv
-    from marivo._help.render import render_help_text
-    from marivo.analysis._help_specs.manifest import REGISTRY
-
-    exports = {entry.name: entry for provider in REGISTRY.providers for entry in provider.exports}
-    result: list[dict[str, object]] = []
-    public_names: object = getattr(mv, "__all__", None)
-    assert isinstance(public_names, list)
-    names = tuple(str(name) for name in public_names)
-    assert list(names) == public_names
-    from tests.surface.exports import ANALYSIS_PUBLIC
-
-    assert set(names) == set(exports) == set(ANALYSIS_PUBLIC)
-    assert not hasattr(mv, "Query")
-    assert callable(mv.Population.show)
-    assert not hasattr(mv.Population, "execute")
-    for method_name in ("compute", "persist", "show", "to_pandas", "where", "compare", "reduce"):
-        assert callable(getattr(mv.AnalysisFrame, method_name))
-    assert all(
-        not hasattr(mv.AnalysisFrame, member)
-        for member in ("execute", "rollup", "drill", "share", "population")
-    )
-    assert all(not hasattr(mv.Session, member) for member in ("query", "artifact"))
-    assert not hasattr(mv, "Artifact")
-    assert not hasattr(mv.AnalysisFrame, "artifact")
-    assert tuple(inspect.signature(mv.AnalysisFrame.show).parameters) == ("self",)
-    for name in names:
-        value: object = getattr(mv, name)
-        entry = exports[name]
-        assert value is entry.implementation
-        signatures = (
-            {"__call__": str(inspect.signature(value))}
-            if callable(value) and not inspect.isclass(value)
-            else {}
-        )
-        if inspect.isclass(value):
-            for member_name, member in inspect.getmembers(value, inspect.isfunction):
-                if not member_name.startswith("_") and member.__module__.startswith("marivo."):
-                    signatures[member_name] = str(inspect.signature(member))
-        result.append(
-            {
-                "name": name,
-                "target": entry.target,
-                "signatures": signatures,
-                "help": render_help_text("analysis." + entry.target)[0],
-            }
-        )
-    return result
-
-
 if __name__ == "__main__":
     assert_installed_origin()
     mode = sys.argv[1]
     if mode == "surface":
+        from tests.packaging.wheel_surface import surface_snapshot
+
         report: object = surface_snapshot()
     elif mode == "guard":
         report = assert_installed_origin()

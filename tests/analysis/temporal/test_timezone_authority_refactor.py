@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import ibis
+import ibis.expr.operations as ops
 import pytest
 
 from marivo.analysis.compiler.source_time import (
@@ -15,9 +16,11 @@ from marivo.analysis.compiler.source_time import (
 )
 from marivo.analysis.model.time_authority import CivilDateSourceTime
 from marivo.datasource.engines.temporal_lowering import lower_temporal
+from marivo.datasource.temporal_primitives import render
 from marivo.semantic.ir import DateParse, TimestampParse
 from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
 from tests.analysis.temporal.encoded_time_fixtures import axis
+from tests.datasource.source_cases import SourceData, source_case
 
 
 def test_endpoint_rewrite_is_independent_for_each_range_boundary() -> None:
@@ -47,7 +50,6 @@ def test_endpoint_rewrite_is_independent_for_each_range_boundary() -> None:
     assert predicate is not None
     sql = str(ibis.to_sql(predicate, dialect="duckdb"))
     assert "TIMEZONE" in sql.upper()
-    import ibis.expr.operations as ops
 
     assert any(node.left == table.point.op() for node in predicate.op().find(ops.Less))
 
@@ -106,8 +108,6 @@ def test_fixed_offset_never_reaches_backend_as_a_timezone_name(engine: str) -> N
 def test_fixed_offset_native_projection_matches_independent_offset_sql(
     engine: str, profile: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.temporal_primitives import render
-    from tests.datasource.source_cases import SourceData, source_case
 
     columns = (
         "id BIGINT, wall TIMESTAMP(6), instant TIMESTAMPTZ"

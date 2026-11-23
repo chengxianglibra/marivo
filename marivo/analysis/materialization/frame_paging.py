@@ -10,6 +10,8 @@ from hashlib import sha256
 import pandas as pd
 import pyarrow as pa
 
+from marivo.analysis.core.attachments import OutputAttachment
+from marivo.analysis.core.data_validation import normalize_complete_frame
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     MemoryFrameBacking,
@@ -48,10 +50,7 @@ from marivo.analysis.materialization.graph_reading import (
     selected_coordinates,
 )
 from marivo.analysis.materialization.pandas_export import export_frame
-from marivo.analysis.materialization.terminal_protocol import invalid
 from marivo.analysis.materialization.terminal_storage import POLICY
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
-from marivo.analysis.methods.carriers.data_validation import normalize_complete_frame
 from marivo.analysis.model.data_schema import (
     CalendarComparisonBinding,
     CalendarDataAxis,
@@ -67,6 +66,7 @@ from marivo.analysis.model.data_types import (
     TimestampDataType,
 )
 from marivo.analysis.model.errors import reject
+from marivo.analysis.model.execution_errors import terminal_output_integrity_error as invalid
 from marivo.analysis.model.frame_schema import (
     FrameAxisSchema,
     FrameComparison,

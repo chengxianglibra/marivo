@@ -14,6 +14,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import _hour_clock
 from marivo.analysis.materialization.temporal_sql import lower_temporal
+from marivo.datasource.engines import mysql
 from marivo.datasource.engines.base import EngineProfile
 from marivo.datasource.engines.statements import StatementPurpose, execute_provider_statement
 from marivo.datasource.errors import DatasourceConnectionError
@@ -66,7 +67,6 @@ def test_mysql_public_native_membership_and_projection_require_selected_zone_bef
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    from marivo.datasource.engines import mysql
 
     data = SourceData(
         "id BIGINT, clock DATETIME(6), text VARCHAR(30), amount BIGINT",

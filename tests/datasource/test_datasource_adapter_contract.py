@@ -22,6 +22,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from marivo.datasource import engines
+from marivo.datasource.engines._aggregate_compilers import DuckDBCompilationMemo
 from marivo.datasource.errors import (
     DatasourceBackendTypeUnsupportedError,
     DatasourceSourceCapabilityError,
@@ -95,7 +97,6 @@ def _read(session: SourceSession) -> CompiledRead:
 def test_removed_backend_refuses_before_provider_loading(
     backend: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource import engines
 
     def forbidden_load(_backend: str) -> NoReturn:
         raise AssertionError("Removed datasource reached provider loading")
@@ -384,7 +385,6 @@ def test_duckdb_compilation_memo_isolates_ast_mutation_limits_and_compilers(
 def test_duckdb_compilation_memo_restores_nested_context_after_exceptions(
     session: SourceSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.engines._aggregate_compilers import DuckDBCompilationMemo
 
     expression = session.bind(TableSourceIR("facts"), source_identity="facts@v1").relation
     compiler = session._backend.compiler

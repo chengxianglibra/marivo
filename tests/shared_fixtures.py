@@ -6,7 +6,7 @@ import os
 import tempfile
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, overload
@@ -14,25 +14,63 @@ from unittest.mock import patch
 
 import duckdb
 import ibis
+import pyarrow.parquet as pq
+from ibis.common.deferred import Just
 
+import marivo.analysis as mv
+from marivo._definition.expressions import MetricExpression
 from marivo._definition.grouping import grouping_binding
+from marivo._definition.relations import ObserveQuery
+from marivo._definition.types import Owner
+from marivo._help.render import render_help_text
+from marivo._kernel.refs import Ref
+from marivo._kernel.symbolic import native_symbol_ref
 from marivo._kernel.temporal import CalendarAxis
+from marivo.analysis.binding.graph import BoundGraph
+from marivo.analysis.binding.observe import bind_observation
+from marivo.analysis.binding.signature import BoundQuantity, BoundSignature
+from marivo.analysis.compiler.source_time import source_time
+from marivo.analysis.core.frame_data import (
+    LiteralFrameBinding,
+    MemoryFrameBacking,
+    StoredFrameBacking,
+)
+from marivo.analysis.core.source_frame_schema import pending_schema
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.temporal import interval_coordinate
+from marivo.analysis.help_spi import PROVIDER
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.run_records import load_run
+from marivo.analysis.model.time_authority import ReportTimeAuthority, TemporalExecution
+from marivo.analysis.session.core import Session
+from marivo.datasource._help_specs.render import render_root_help as render_datasource_help
+from marivo.datasource.credentials.inputs import EnvRef
+from marivo.datasource.runtime.connections import DatasourceConnectionService
+from marivo.datasource.store.builtin import default_datasource
+from marivo.semantic._compiled_state import build_compiled_state
+from marivo.semantic._help_specs.render import render_root_help as render_semantic_help
+from marivo.semantic._symbolic_binding import publish_declarations
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.definition_resolution import resolve
+from marivo.semantic.ir import DateParse, StrptimeParse, TimestampParse
+from marivo.semantic.loader import _build_registry, load_project
+from marivo.semantic.loading_context import _LOADER_CTX
+from marivo.semantic.loading_diagnostics import semantic_duplicate_errors
+from marivo.semantic.reader import SemanticProject
+from marivo.semantic.static_check.assembly import assembly_validate
+from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
 
 if TYPE_CHECKING:
-    from marivo._definition.expressions import MetricExpression, MetricNode
+    from marivo._definition.expressions import MetricNode
     from marivo._help.render import PublicHelpTarget
     from marivo._kernel.temporal import TimeScope
-    from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.analysis.core.attachments import OutputAttachment
     from marivo.analysis.dsl.population import Population
-    from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.frame_services import LocalFrameServices
+    from marivo.analysis.materialization.run_records import TerminalRun
     from marivo.analysis.materialization.store import SessionStore
-    from marivo.analysis.materialization.terminal_store import TerminalRun
-    from marivo.analysis.methods.carriers.attachments import OutputAttachment
-    from marivo.analysis.model.time_authority import TemporalExecution
-    from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
-    from marivo.semantic.catalog import CatalogProject, SemanticCatalog
+    from marivo.semantic.catalog import CatalogProject
     from marivo.semantic.catalog_model.objects import (
         Dimension,
         Domain,
@@ -47,7 +85,6 @@ if TYPE_CHECKING:
     from marivo.semantic.ir import TargetDimensionContract
     from marivo.semantic.loader import LoadResult
     from marivo.semantic.loading_context import LoaderContext
-    from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
 
 # Bump the version string when seeded schema or rows change so cached
 # copies rebuild automatically.
@@ -78,7 +115,6 @@ def catalog_entry(
     catalog: SemanticCatalog | SemanticObject, name: str, *, kind: str
 ) -> SemanticObject:
     """Select one test input through public browse pages and exact identity facts."""
-    from marivo.semantic.catalog import SemanticCatalog
 
     kinds = {"dimension", "time_dimension", "measure"} if kind == "field" else {kind}
     selected: list[SemanticObject] = []
@@ -224,7 +260,6 @@ def patch_semantic_connections(
     Resolver callers retain their backend; operation-owned previews still close
     their acquired backend through the production connection owner.
     """
-    from marivo.datasource.runtime.connections import DatasourceConnectionService
 
     owner = DatasourceConnectionService(backend_factory=factory, use_datasources=False)
     with patch.object(project, "_connection_operation", side_effect=owner.operation):
@@ -233,9 +268,6 @@ def patch_semantic_connections(
 
 def in_memory_datasource_ir(name: str) -> DatasourceIR:
     """Return a fresh complete DuckDB declaration for source-free authoring checks."""
-    from dataclasses import replace
-
-    from marivo.datasource.store.builtin import default_datasource
 
     return replace(default_datasource(), semantic_id=name, name=name, wall_clock_timezone="UTC")
 
@@ -250,16 +282,6 @@ def captured_catalog(
     Public authoring tests load model files. This helper keeps focused closed
     consumer tests source-free without a second public finalization workflow.
     """
-    from marivo.semantic._compiled_state import build_compiled_state
-    from marivo.semantic._symbolic_binding import publish_declarations
-    from marivo.semantic.catalog import SemanticCatalog
-    from marivo.semantic.loader import (
-        _build_registry,
-        _semantic_duplicate_errors,
-    )
-    from marivo.semantic.loading_context import _LOADER_CTX
-    from marivo.semantic.reader import SemanticProject
-    from marivo.semantic.static_check.assembly import assembly_validate
 
     if contexts is None:
         context = _LOADER_CTX.get()
@@ -268,7 +290,7 @@ def captured_catalog(
     if datasource_irs is None:
         datasource_irs = tuple(ir for context in contexts for ir in context.datasource_irs)
     registry, sidecar, build_errors = _build_registry(list(contexts), datasource_irs=datasource_irs)
-    errors = [*build_errors, *_semantic_duplicate_errors(contexts)]
+    errors = [*build_errors, *semantic_duplicate_errors(contexts)]
     if not errors:
         errors.extend(publish_declarations(contexts, registry, sidecar))
     validation_errors, warnings = assembly_validate(registry, sidecar)
@@ -288,9 +310,6 @@ def captured_catalog(
 
 def resolve_test_symbol(catalog: SemanticCatalog, value: object) -> ResolvedValue:
     """Resolve a native selector or private test key in an explicit compiled scope."""
-    from marivo._kernel.refs import Ref
-    from marivo._kernel.symbolic import native_symbol_ref
-    from marivo.semantic.definition_resolution import resolve
 
     reference = value if type(value) is Ref else native_symbol_ref(value)
     assert reference is not None
@@ -301,8 +320,6 @@ def declared_test_timezone(
     axis: TargetDimensionContract, fallback: str | None = "UTC", inherited_from: str | None = None
 ) -> DeclaredSourceTimezone | None:
     """Supply explicit timezone declarations to focused compiler input fixtures."""
-    from marivo.semantic.ir import DateParse, StrptimeParse, TimestampParse
-    from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
 
     parse = axis.parse
     zone = parse.timezone if isinstance(parse, (DateParse, TimestampParse, StrptimeParse)) else None
@@ -318,8 +335,6 @@ def observation_temporal(
     axis: TargetDimensionContract, physical_type: str = "timestamp('UTC', 6)"
 ) -> TemporalExecution:
     """Bind explicit UTC test inputs to the same closed observation authority."""
-    from marivo.analysis.compiler.source_time import source_time
-    from marivo.analysis.model.time_authority import ReportTimeAuthority, TemporalExecution
 
     value = ibis.table({axis.source_column: physical_type})[axis.source_column]
     _, authority = source_time(
@@ -400,7 +415,6 @@ class DslCase:
 
 def export_dsl_parquet_models(case: DslCase, project: Path) -> None:
     """Export fixture facts and bind authored Entities to local Parquet sources."""
-    import pyarrow.parquet as pq
 
     source_files = project / "source_files"
     source_files.mkdir(exist_ok=True)
@@ -705,19 +719,15 @@ def rendered_help(target: PublicHelpTarget = None, *, owner: str | None = None) 
     """
     if owner is not None and target is None:
         if owner == "datasource":
-            from marivo.datasource._help_specs.render import render_root_help
+            return render_datasource_help()
         elif owner == "semantic":
-            from marivo.semantic._help_specs.render import render_root_help
+            return render_semantic_help()
         elif owner == "analysis":
-            from marivo.analysis.help_spi import PROVIDER
-
             return PROVIDER.root()
         else:
             raise ValueError(f"unknown help owner: {owner!r}")
-        return render_root_help()
     if owner is not None and isinstance(target, str):
         target = f"{owner}.{target}"
-    from marivo._help.render import render_help_text
 
     return render_help_text(target)[0]
 
@@ -905,7 +915,6 @@ def load_inline_semantic(
     ``assembly_validate`` would raise and return the result with errors
     attached instead.
     """
-    from marivo.semantic.loader import load_project
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -1001,8 +1010,6 @@ def seed_multi_metric_tables(con: ibis.duckdb.DuckDBBackend) -> None:
 def _publication_store(
     owner: Session | DatasetRuntime | LocalFrameServices,
 ) -> tuple[SessionStore, str]:
-    from marivo.analysis.materialization.admission import DatasetRuntime
-    from marivo.analysis.session.core import Session
 
     local = (
         owner._runtime.local
@@ -1020,7 +1027,6 @@ def terminal_runs(
     status: Literal["incomplete", "succeeded", "failed"] | None = None,
 ) -> tuple[TerminalRun, ...]:
     """Inspect internal publication records without a public history API."""
-    from marivo.analysis.materialization.terminal_store import run
 
     store, session_id = _publication_store(owner)
     with store._read() as conn:
@@ -1028,7 +1034,7 @@ def terminal_runs(
             "SELECT run_ref FROM analysis_action_runs WHERE session_ref=? ORDER BY admitted_at DESC,run_ref DESC",
             (session_id,),
         ).fetchall()
-        values = tuple(run(store, conn, row[0]) for row in refs)
+        values = tuple(load_run(conn, row[0]) for row in refs)
     assert all(value is not None for value in values)
     return tuple(
         value
@@ -1038,11 +1044,10 @@ def terminal_runs(
 
 
 def terminal_run(owner: Session | DatasetRuntime | LocalFrameServices, run_id: str) -> TerminalRun:
-    from marivo.analysis.materialization.terminal_store import run
 
     store, session_id = _publication_store(owner)
     with store._read() as conn:
-        value = run(store, conn, run_id)
+        value = load_run(conn, run_id)
     assert value is not None and value.session_ref == session_id
     return value
 
@@ -1053,7 +1058,6 @@ def run_ids(session: Session) -> set[str]:
 
 def time_population(axis: CalendarAxis | TimeScope) -> Population:
     """Keep one explicit finite time axis without adding classification keys."""
-    import marivo.analysis as mv
 
     return mv.product(axis, mv.coordinates(by=(), keys=((),)))
 
@@ -1063,7 +1067,6 @@ def frozen_coordinates(frame: AnalysisFrame) -> tuple[OutputAttachment, ...]:
 
     Test-only view of internal storage; ``frame.to_pandas()`` exports no attrs.
     """
-    from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 
     backing = frame._backing
     if isinstance(backing, StoredFrameBacking):
@@ -1083,15 +1086,6 @@ def numeric_program_frame(
     Bare literals are deliberately not public Metric inputs. These tests exercise
     source-free planning and stored-output behavior after authoring has completed.
     """
-    from marivo._definition.relations import ObserveQuery
-    from marivo._definition.types import Owner
-    from marivo.analysis.binding.graph import BoundGraph
-    from marivo.analysis.binding.observe import bind_observation
-    from marivo.analysis.binding.signature import BoundQuantity, BoundSignature
-    from marivo.analysis.core.frame_data import LiteralFrameBinding
-    from marivo.analysis.dsl.frame import AnalysisFrame
-    from marivo.analysis.dsl.frame_sources import pending_schema
-    from marivo.analysis.dsl.temporal import interval_coordinate
 
     owner = Owner(session.id, session._runtime.store.store_id)
     metrics = tuple(outputs.items())
@@ -1125,9 +1119,6 @@ def numeric_program_frame(
 
 def numeric_literal_node(value: int) -> MetricExpression:
     """Return a closed native recipe for lower-level numeric/publication fixtures."""
-    from ibis.common.deferred import Just
-
-    from marivo._definition.expressions import MetricExpression
 
     return MetricExpression(Just(value), ())
 
@@ -1163,7 +1154,6 @@ def revenue():
 
 def datasource_arguments_source(arguments: Mapping[str, object]) -> str:
     """Render test declaration kwargs, preserving EnvRef constructor syntax."""
-    from marivo.datasource.credentials.inputs import EnvRef
 
     return ", ".join(
         f"{key}=md.env({value.name!r})" if isinstance(value, EnvRef) else f"{key}={value!r}"

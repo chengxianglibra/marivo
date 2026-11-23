@@ -29,6 +29,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.methods import query_values
 from marivo.analysis.model.data_schema import DataAxis, DataSchema
 from marivo.analysis.model.data_types import (
     DataColumn,
@@ -511,12 +512,11 @@ def test_arrow_valid_nonfinite_endpoint_uses_native_correlation(
 def test_pair_count_does_not_compute_coefficients_or_ranks(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.methods import frame_values
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("pair_count evaluated correlation or ranks")
 
-    monkeypatch.setattr(frame_values, "correlation", forbidden)
+    monkeypatch.setattr(query_values, "correlation", forbidden)
     monkeypatch.setattr(pd.Series, "rank", forbidden)
     frame = _pairs(local, (1, 2, None), (1, None, 3))
     result = frame.reduce({"n": frame["x"].pair_count(frame["y"])}).compute().to_pandas()

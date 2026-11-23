@@ -23,15 +23,10 @@ from marivo._kernel.symbolic import (
     TimeDimensionSymbol,
     symbol_factory,
 )
-from marivo.semantic._expression_binding import (
-    compile_expression_body,
-    construct_measure_expression,
-)
-from marivo.semantic._expression_values import (
-    NumericRow,
-    RowExpression,
-    _merge,
-)
+from marivo.semantic._declarative_expression_compiler import construct_measure_expression
+from marivo.semantic._expression_binding import compile_expression_body
+from marivo.semantic._expression_carrier import _merge
+from marivo.semantic._expression_values import NumericRow, RowExpression
 from marivo.semantic.authoring.context import (
     _caller_location,
     _check_duplicate,

@@ -7,14 +7,28 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import Mock
 from uuid import uuid4
 
 import ibis
 import pandas as pd
 import pyarrow as pa
+import pymysql
+import pymysql._auth
 import pytest
+from clickhouse_connect.driver.exceptions import DatabaseError
+from psycopg import sql
 
-from marivo.datasource.engines.base import MetadataInspectRequest
+from marivo.datasource.engines._mysql_backend import MySQLBackend
+from marivo.datasource.engines.base import MetadataInspectRequest, PartitionProbeRequest
+from marivo.datasource.engines.clickhouse import (
+    inspect_partition_values as inspect_clickhouse_partition_values,
+)
+from marivo.datasource.engines.mysql import native_query_timeout
+from marivo.datasource.engines.statements import provider_statement_log
+from marivo.datasource.engines.trino import (
+    inspect_partition_values as inspect_trino_partition_values,
+)
 from marivo.datasource.ir import (
     AiContextIR,
     DatasourceIR,
@@ -23,8 +37,14 @@ from marivo.datasource.ir import (
 )
 from marivo.datasource.metadata_types import TableMetadata
 from marivo.datasource.runtime.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.backends import build_backend_with_secrets
 from marivo.datasource.runtime.read_types import PhysicalRequirement
 from marivo.datasource.runtime.session_factory import open_source_session
+from tests.datasource.environment import clickhouse_analysis as ch
+from tests.datasource.environment import mysql_analysis as mysql
+from tests.datasource.environment import postgres_analysis as pg
+from tests.datasource.environment import trino_analysis as trino
+from tests.datasource.environment.credentials import password
 from tests.datasource.source_cases import SourceData, source_case
 
 pytestmark = pytest.mark.runtime
@@ -213,9 +233,6 @@ def _expect_clickhouse_view_facts(metadata: TableMetadata) -> None:
 def test_postgres_table_view_namespace_and_decimal_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from psycopg import sql
-
-    from tests.datasource.environment import postgres_analysis as pg
 
     name = "source_adapter_" + uuid4().hex
     view = name + "_view"
@@ -269,9 +286,6 @@ def test_postgres_table_view_namespace_and_decimal_values(
 def test_postgres_arrow_integer_transport_preserves_mixed_values_and_bounds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from psycopg import sql
-
-    from tests.datasource.environment import postgres_analysis as pg
 
     data = SourceData(
         "id BIGINT NOT NULL, exact BIGINT, amount NUMERIC(18,2), fraction DOUBLE PRECISION, enabled BOOLEAN, label TEXT, day DATE, instant TIMESTAMPTZ, payload BYTEA, document JSONB",
@@ -435,7 +449,6 @@ def test_clickhouse_query_blocks_preserve_nullable_mixed_values(
     os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1", reason="opt-in MySQL service"
 )
 def test_mysql_table_view_and_decimal_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    from tests.datasource.environment import mysql_analysis as mysql
 
     name = "source_adapter_" + uuid4().hex
     view = name + "_view"
@@ -485,9 +498,6 @@ def test_mysql_table_view_and_decimal_values(monkeypatch: pytest.MonkeyPatch) ->
     os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1", reason="opt-in MySQL service"
 )
 def test_mysql_invalid_date_and_read_only_permission(monkeypatch: pytest.MonkeyPatch) -> None:
-    import pymysql
-
-    from tests.datasource.environment import mysql_analysis as mysql
 
     name = "source_adapter_" + uuid4().hex
     monkeypatch.setenv("MARIVO_SOURCE_ADAPTER_MYSQL_PASSWORD", mysql.password())
@@ -558,12 +568,6 @@ def test_mysql_invalid_date_and_read_only_permission(monkeypatch: pytest.MonkeyP
 def test_mysql_pymysql_rsa_authenticates_a_fresh_reader_without_tls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from unittest.mock import Mock
-
-    import pymysql._auth
-
-    from marivo.datasource.engines._mysql_backend import MySQLBackend
-    from tests.datasource.environment import mysql_analysis as mysql
 
     user = "pymysql_" + uuid4().hex[:16]
     encrypt = Mock(wraps=pymysql._auth.sha2_rsa_encrypt)
@@ -599,7 +603,6 @@ def test_mysql_pymysql_rsa_authenticates_a_fresh_reader_without_tls(
 )
 @pytest.mark.runtime
 def test_mariadb_pymysql_preserves_exact_table_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    from tests.datasource.environment import mysql_analysis as mysql
 
     name = "pymysql_mariadb_" + uuid4().hex
     monkeypatch.setenv("MARIVO_MARIADB_PASSWORD", mysql.password())
@@ -639,12 +642,6 @@ def test_mariadb_pymysql_preserves_exact_table_values(monkeypatch: pytest.Monkey
 def test_mariadb_native_timeout_fallback_and_connection_release(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pymysql
-
-    from marivo.datasource.engines.mysql import native_query_timeout
-    from marivo.datasource.engines.statements import provider_statement_log
-    from marivo.datasource.runtime.backends import build_backend_with_secrets
-    from tests.datasource.environment import mysql_analysis as mysql
 
     monkeypatch.setenv("MARIVO_MARIADB_PASSWORD", mysql.password())
     datasource = _datasource(
@@ -686,7 +683,6 @@ def test_mariadb_native_timeout_fallback_and_connection_release(
     os.environ.get("MARIVO_TRINO_ANALYSIS_TEST") != "1", reason="opt-in Trino service"
 )
 def test_trino_iceberg_and_non_iceberg_forms() -> None:
-    from tests.datasource.environment import trino_analysis as trino
 
     trino.setup()
     trino.setup_non_iceberg()
@@ -744,9 +740,6 @@ def test_trino_iceberg_and_non_iceberg_forms() -> None:
     os.environ.get("MARIVO_TRINO_ANALYSIS_TEST") != "1", reason="opt-in Trino service"
 )
 def test_trino_iceberg_partition_metadata_uses_bound_read() -> None:
-    from marivo.datasource.engines.base import PartitionProbeRequest
-    from marivo.datasource.engines.trino import inspect_partition_values
-    from tests.datasource.environment import trino_analysis as trino
 
     name = "source_adapter_part_" + uuid4().hex
     with trino.connection(admin=True) as admin:
@@ -782,7 +775,7 @@ def test_trino_iceberg_partition_metadata_uses_bound_read() -> None:
                     limit=3,
                     order="asc",
                 )
-                result = inspect_partition_values(request)
+                result = inspect_trino_partition_values(request)
                 assert result.value_source == "metadata"
                 assert result.rows == (
                     {"day": date(2026, 9, 26)},
@@ -797,8 +790,6 @@ def test_trino_iceberg_partition_metadata_uses_bound_read() -> None:
     os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1", reason="opt-in ClickHouse service"
 )
 def test_clickhouse_mergetree_table_and_view(monkeypatch: pytest.MonkeyPatch) -> None:
-    from tests.datasource.environment import clickhouse_analysis as ch
-    from tests.datasource.environment.credentials import password
 
     ch.setup()
     name = "source_adapter_" + uuid4().hex
@@ -853,12 +844,6 @@ def test_clickhouse_mergetree_table_and_view(monkeypatch: pytest.MonkeyPatch) ->
     os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1", reason="opt-in ClickHouse service"
 )
 def test_clickhouse_partition_catalog_uses_bound_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    from clickhouse_connect.driver.exceptions import DatabaseError
-
-    from marivo.datasource.engines.base import PartitionProbeRequest
-    from marivo.datasource.engines.clickhouse import inspect_partition_values
-    from tests.datasource.environment import clickhouse_analysis as ch
-    from tests.datasource.environment.credentials import password
 
     ch.setup()
     name = "source_adapter_part_" + uuid4().hex
@@ -892,7 +877,7 @@ def test_clickhouse_partition_catalog_uses_bound_read(monkeypatch: pytest.Monkey
                     order="asc",
                 )
                 with pytest.raises(DatabaseError):
-                    inspect_partition_values(request)
+                    inspect_clickhouse_partition_values(request)
             qualified = _datasource(
                 "clickhouse",
                 {**datasource.fields, "user": "qualifier"},
@@ -909,7 +894,7 @@ def test_clickhouse_partition_catalog_uses_bound_read(monkeypatch: pytest.Monkey
                     limit=3,
                     order="asc",
                 )
-                result = inspect_partition_values(request)
+                result = inspect_clickhouse_partition_values(request)
                 assert result.value_source == "system_catalog"
                 assert result.rows == ({"dt": "20260926"}, {"dt": "20260927"})
         finally:

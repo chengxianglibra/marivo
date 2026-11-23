@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import pandas as pd
 import pyarrow as pa
 
@@ -16,14 +14,6 @@ from marivo.analysis.model.data_types import DataColumn
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_structure import PendingDataAxis, PendingDataColumn, axis_role
 from marivo.analysis.model.frozen_keys import FrozenKey
-from marivo.analysis.model.lineage import Origins
-
-
-@dataclass(frozen=True, slots=True)
-class FixFrameValues:
-    position: int
-    key: tuple[LiteralValue, ...]
-    origins: Origins = ()
 
 
 def validate_fixed_key(

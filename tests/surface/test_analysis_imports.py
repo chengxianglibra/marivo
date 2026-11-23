@@ -4,6 +4,9 @@ import os
 import subprocess
 import sys
 
+import marivo.analysis as mv
+from marivo.datasource.metadata_types import TableMetadata
+from marivo.datasource.runtime.preview import PreviewResult
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -136,7 +139,6 @@ assert not result.kept, result.metadata
 
 
 def test_analysis_keeps_typed_correspondence_and_member_values() -> None:
-    import marivo.analysis as mv
 
     assert isinstance(mv.ordinal(), mv.CalendarCorrespondence)
     assert isinstance(mv.offset(periods=1), mv.CalendarCorrespondence)
@@ -148,7 +150,6 @@ def test_analysis_keeps_typed_correspondence_and_member_values() -> None:
 
 
 def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
-    import marivo.analysis as mv
 
     for name in (
         "members",
@@ -180,9 +181,6 @@ def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
 
 
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
-    import marivo.analysis as mv
-    from marivo.datasource.metadata_types import TableMetadata
-    from marivo.datasource.runtime.preview import PreviewResult
 
     assert mv.FrameSourceRead is not None
     assert TableMetadata is not None
@@ -218,7 +216,6 @@ assert mv.grain('day').unit == 'day'
 
 
 def test_retired_result_entries_have_no_public_aliases() -> None:
-    import marivo.analysis as mv
 
     for name in (
         "Query",

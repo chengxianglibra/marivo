@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, SupportsIndex, TypeAlias, cast, final
+from typing import Literal, SupportsIndex, TypeAlias, cast, final
 
-from pydantic_core import core_schema
+from pydantic_core import CoreSchema, core_schema
 
 from marivo._kernel.ai_context import AiContextIR
 from marivo._kernel.compat import Never, Self
@@ -80,7 +80,7 @@ class SemanticEdgeRef:
         return (_restore_semantic_edge_ref, (self.to_dict(),))
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, source_type: object, handler: object) -> Any:
+    def __get_pydantic_core_schema__(cls, source_type: object, handler: object) -> CoreSchema:
         del cls, source_type, handler
 
         def validate_python(value: object) -> SemanticEdgeRef:

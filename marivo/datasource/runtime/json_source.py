@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from math import isfinite
-from typing import TypeAlias, cast
+from typing import TypeAlias
 from urllib.error import HTTPError
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -19,6 +19,7 @@ from ibis.backends import BaseBackend
 
 from marivo.datasource.engines.statements import json_http_headers
 from marivo.datasource.ir import (
+    JsonPathStep,
     JsonQueryParamValue,
     JsonSourceIR,
     QueryParamScalar,
@@ -62,10 +63,10 @@ def _query_scalar(value: QueryParamScalar) -> str:
     return str(value)
 
 
-def _query_value(value: QueryParamScalar | QueryParamScalarList) -> str | list[str]:
-    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
-        return [_query_scalar(item) for item in value]
-    return _query_scalar(cast("QueryParamScalar", value))
+def _query_value(value: QueryParamScalar | QueryParamScalarList) -> tuple[str, ...]:
+    if isinstance(value, (str, bool, int, float)):
+        return (_query_scalar(value),)
+    return tuple(_query_scalar(item) for item in value)
 
 
 def _resolve_query_param_value(
@@ -74,18 +75,16 @@ def _resolve_query_param_value(
 ) -> QueryParamScalar | QueryParamScalarList:
     if isinstance(value, SourceParamIR):
         return supplied[value.name]
-    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
-        resolved: list[QueryParamScalar] = []
-        for item in value:
-            item_value = _resolve_query_param_value(item, supplied)
-            if isinstance(item_value, Sequence) and not isinstance(
-                item_value, str | bytes | bytearray
-            ):
-                resolved.extend(item_value)
-            else:
-                resolved.append(cast("QueryParamScalar", item_value))
-        return resolved
-    return cast("QueryParamScalar", value)
+    if isinstance(value, (str, bool, int, float)):
+        return value
+    resolved: list[QueryParamScalar] = []
+    for item in value:
+        item_value = _resolve_query_param_value(item, supplied)
+        if isinstance(item_value, (str, bool, int, float)):
+            resolved.append(item_value)
+        else:
+            resolved.extend(item_value)
+    return resolved
 
 
 def _validate_source_param_scalar(value: object, *, name: str) -> None:
@@ -153,16 +152,16 @@ def json_source_url(
             "JSON source query parameters must not be declared both in path and "
             f"query_params: {duplicates!r}."
         )
-    resolved: list[tuple[str, str | list[str]]] = [(name, value) for name, value in existing]
+    resolved = list(existing)
     for name, value in source.query_params:
         actual = _resolve_query_param_value(value, supplied)
-        resolved.append((name, _query_value(actual)))
+        resolved.extend((name, item) for item in _query_value(actual))
     return urlunsplit(
         (
             parts.scheme,
             parts.netloc,
             parts.path,
-            urlencode(cast("list[tuple[str, str]]", resolved), doseq=True),
+            urlencode(resolved),
             parts.fragment,
         )
     )
@@ -236,15 +235,16 @@ def _decode_payload(raw: str, source: JsonSourceIR) -> object:
         ) from None
 
 
-def _path_value(value: object, segments: tuple[tuple[str, object], ...]) -> object:
+def _path_value(value: object, segments: tuple[JsonPathStep, ...]) -> object:
     current = value
-    for kind, arg in segments:
-        if kind == "member":
-            if not isinstance(current, Mapping) or cast("str", arg) not in current:
+    for segment in segments:
+        if segment[0] == "member":
+            member = segment[1]
+            if not isinstance(current, Mapping) or member not in current:
                 return _MISSING
-            current = current[cast("str", arg)]
-        elif kind == "index":
-            index = cast("int", arg)
+            current = current[member]
+        elif segment[0] == "index":
+            index = segment[1]
             if not isinstance(current, Sequence) or isinstance(current, str | bytes | bytearray):
                 return _MISSING
             if index >= len(current):
@@ -275,9 +275,14 @@ def _records(payload: object, source: JsonSourceIR) -> list[object]:
 def _project_rows(payload: object, source: JsonSourceIR) -> list[dict[str, object]]:
     records = _records(payload, source)
     if not source.columns:
-        if any(not isinstance(record, Mapping) for record in records):
-            raise ValueError("JSON records must be objects when no columns projection is supplied.")
-        return [dict(cast("Mapping[str, object]", record)) for record in records]
+        objects: list[dict[str, object]] = []
+        for record in records:
+            if not isinstance(record, Mapping):
+                raise ValueError(
+                    "JSON records must be objects when no columns projection is supplied."
+                )
+            objects.append(dict(record))
+        return objects
 
     parsed = [(output, path, _parse_json_path(path)) for output, path in source.columns]
     traversal = next(
@@ -343,10 +348,10 @@ def _arrow_table(
     return ops.DatabaseTable(memory.op().name, schema=memory.schema(), source=backend).to_expr()
 
 
-def _apply_path(value: ir.Table | ir.Value, segments: tuple[tuple[str, object], ...]) -> ir.Value:
-    for kind, arg in segments:
-        if kind == "member":
-            member = cast("str", arg)
+def _apply_path(value: ir.Table | ir.Value, segments: tuple[JsonPathStep, ...]) -> ir.Value:
+    for segment in segments:
+        if segment[0] == "member":
+            member = segment[1]
             if isinstance(value, ir.Table):
                 if member not in value.columns:
                     raise ValueError(f"JSON field {member!r} is missing from the inferred source.")
@@ -357,12 +362,13 @@ def _apply_path(value: ir.Table | ir.Value, segments: tuple[tuple[str, object], 
                         f"JSON field {member!r} does not resolve through an object value."
                     )
                 value = value[member]
-        elif kind == "index":
+        elif segment[0] == "index":
+            index = segment[1]
             if not isinstance(value.type(), dt.Array):
                 raise ValueError(
-                    f"JSON field index {arg!r} does not resolve through an array value."
+                    f"JSON field index {index!r} does not resolve through an array value."
                 )
-            value = value[cast("int", arg)]
+            value = value[index]
         else:
             raise AssertionError("Array traversal must be expanded before path projection.")
     return value
@@ -375,7 +381,9 @@ def _inferred_table(backend: object, source: JsonSourceIR) -> ir.Table:
     options: dict[str, object] = {}
     if source.format != "auto":
         options["format"] = source.format
-    table = cast("ir.Table", reader(source.path, **options))
+    table = reader(source.path, **options)
+    if not isinstance(table, ir.Table):
+        raise TypeError("read_json() must return an Ibis table.")
     if source.records_path is None:
         if not source.columns:
             return table

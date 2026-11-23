@@ -58,6 +58,50 @@ class ProjectConfig:
     telemetry_mode: Literal["off", "on"] = "on"
 
 
+def _semantic_paths(semantic_table: object, project_root: Path) -> tuple[Path, ...]:
+    if semantic_table is None:
+        semantic_layer_paths: tuple[Path, ...] = ()
+    elif not isinstance(semantic_table, dict):
+        raise ValueError("marivo.toml [semantic] must be a table.")
+    else:
+        raw_paths = semantic_table.get("layer_paths")
+        if raw_paths is None:
+            semantic_layer_paths = ()
+        elif not isinstance(raw_paths, list):
+            raise ValueError("marivo.toml [semantic].layer_paths must be a list of strings.")
+        else:
+            resolved_paths: list[Path] = []
+            for index, raw_path in enumerate(raw_paths):
+                if not isinstance(raw_path, str):
+                    raise ValueError(
+                        f"marivo.toml [semantic].layer_paths[{index}] must be a string."
+                    )
+                path = Path(raw_path)
+                if not path.is_absolute():
+                    path = project_root / path
+                resolved_paths.append(path.resolve())
+            semantic_layer_paths = tuple(resolved_paths)
+    return semantic_layer_paths
+
+
+def _telemetry_mode(telemetry_table: object) -> Literal["off", "on"]:
+    if telemetry_table is None:
+        telemetry_mode: Literal["off", "on"] = "on"
+    elif not isinstance(telemetry_table, dict):
+        raise ValueError("marivo.toml [telemetry] must be a table.")
+    else:
+        raw_enabled = telemetry_table.get("enabled")
+        if raw_enabled is None:
+            telemetry_mode = "on"
+        elif not isinstance(raw_enabled, str) or raw_enabled not in {"on", "off"}:
+            raise ValueError("marivo.toml [telemetry].enabled must be 'on' or 'off'.")
+        elif raw_enabled == "off":
+            telemetry_mode = "off"
+        else:
+            telemetry_mode = "on"
+    return telemetry_mode
+
+
 def load_project_config(project_root: Path) -> ProjectConfig:
     """Parse ``marivo.toml`` from the given project root.
 
@@ -103,45 +147,8 @@ def load_project_config(project_root: Path) -> ProjectConfig:
         else:
             name = raw_name
 
-    semantic_table = data.get("semantic")
-    if semantic_table is None:
-        semantic_layer_paths: tuple[Path, ...] = ()
-    elif not isinstance(semantic_table, dict):
-        raise ValueError("marivo.toml [semantic] must be a table.")
-    else:
-        raw_paths = semantic_table.get("layer_paths")
-        if raw_paths is None:
-            semantic_layer_paths = ()
-        elif not isinstance(raw_paths, list):
-            raise ValueError("marivo.toml [semantic].layer_paths must be a list of strings.")
-        else:
-            resolved_paths: list[Path] = []
-            for index, raw_path in enumerate(raw_paths):
-                if not isinstance(raw_path, str):
-                    raise ValueError(
-                        f"marivo.toml [semantic].layer_paths[{index}] must be a string."
-                    )
-                path = Path(raw_path)
-                if not path.is_absolute():
-                    path = project_root / path
-                resolved_paths.append(path.resolve())
-            semantic_layer_paths = tuple(resolved_paths)
-
-    telemetry_table = data.get("telemetry")
-    if telemetry_table is None:
-        telemetry_mode: Literal["off", "on"] = "on"
-    elif not isinstance(telemetry_table, dict):
-        raise ValueError("marivo.toml [telemetry] must be a table.")
-    else:
-        raw_enabled = telemetry_table.get("enabled")
-        if raw_enabled is None:
-            telemetry_mode = "on"
-        elif not isinstance(raw_enabled, str) or raw_enabled not in {"on", "off"}:
-            raise ValueError("marivo.toml [telemetry].enabled must be 'on' or 'off'.")
-        elif raw_enabled == "off":
-            telemetry_mode = "off"
-        else:
-            telemetry_mode = "on"
+    semantic_layer_paths = _semantic_paths(data.get("semantic"), project_root)
+    telemetry_mode = _telemetry_mode(data.get("telemetry"))
 
     return ProjectConfig(
         name=name,

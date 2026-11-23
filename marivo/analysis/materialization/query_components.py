@@ -5,35 +5,54 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING, Literal
 
+import ibis
 import pandas as pd
 
-from marivo.analysis.compiler.attribute_inputs import (
+from marivo._definition.expressions import EntityCount, SourceAggregate
+from marivo._definition.types import CalendarCoordinate
+from marivo.analysis.compiler.attribute_inputs import input_failure
+from marivo.analysis.compiler.original import (
+    AggregatePayload,
+    ComponentLayout,
+    WeightedPayload,
+)
+from marivo.analysis.compiler.query_stages import (
     AttributeLeafInput,
     AttributeNativeFormula,
     AttributeRootLayout,
+    read_reduction,
+    require_reduction,
 )
-from marivo.analysis.compiler.graph_plan import read_reduction, require_reduction
-from marivo.analysis.compiler.original import (
-    ComponentLayout,
-)
-from marivo.analysis.methods.carriers.data_validation import (
+from marivo.analysis.core.data_validation import (
     normalize_stage_columns,
     normalize_stage_frame,
 )
+from marivo.analysis.core.frozen_calendar import frozen_key_rows
+from marivo.analysis.core.value_types import ibis_type
+from marivo.analysis.methods._ibis_numeric import evaluate_numeric
 from marivo.analysis.methods.carriers.stage_components import (
     AttributeRootInputs,
     ComponentFrame,
     _invalid,
 )
 from marivo.analysis.methods.carriers.stages import source_columns
-from marivo.analysis.model.attribute_failures import AttributeAggregateWitness
+from marivo.analysis.model.attribute_failures import (
+    AttributeAggregateWitness,
+    AttributeCoverageWitness,
+    AttributeFailureContext,
+    AttributeFineFiber,
+    AttributeParentFiber,
+    AttributePartitionWitness,
+    AttributeWindowFiber,
+)
 from marivo.analysis.model.data_types import DataColumn, DurationDataType, ScalarDataType
 from marivo.analysis.model.frame_contracts import CheckReceipt
 from marivo.analysis.model.unique_keys import UniqueKeys
+from marivo.semantic.spi import NumericValue, lower_metric_formula, numeric_failure
 
 if TYPE_CHECKING:
     from marivo.analysis.methods.carriers.stages import StageOutput
-    from marivo.analysis.model.attribute_failures import AttributeFailureContext, AttributeWitness
+    from marivo.analysis.model.attribute_failures import AttributeWitness
 
 
 def complete_components(
@@ -72,7 +91,6 @@ def complete_components(
         )
     }
     payload = layout.payload
-    from marivo.analysis.compiler.original import AggregatePayload, WeightedPayload
 
     if isinstance(payload, AggregatePayload):
         payload = replace(payload, value=actual[payload.value.slot_id])
@@ -136,29 +154,18 @@ def attribute_failure_context(
     fine: bool = False,
 ) -> AttributeFailureContext:
     """Retain a real failing source row's typed use, full parent and window."""
-    from marivo.analysis.core.frozen_calendar import frozen_key_rows
-    from marivo.analysis.model.attribute_failures import (
-        AttributeFailureContext,
-        AttributeFineFiber,
-        AttributeParentFiber,
-        AttributeWindowFiber,
-    )
 
     available = {column.slot_id: column for column in columns}
     parents = tuple(available[name] for name in layout.parent_keys)
     parent_key = frozen_key_rows(rows.iloc[:1], parents)[0]
     context = layout.parent_context
     if context is None:
-        from marivo.analysis.compiler.attribute_inputs import input_failure
-
         input_failure(
             "missing_component_proof",
             "the checked original-parent source association is unavailable",
         )
     matched = tuple(original for source, original in context.parent_mapping if source == parent_key)
     if len(matched) != 1:
-        from marivo.analysis.compiler.attribute_inputs import input_failure
-
         input_failure(
             "missing_component_proof",
             "the complete source parent does not resolve to one checked original parent",
@@ -181,7 +188,6 @@ def attribute_failure_context(
     binding = leaves[0].request.binding
     if binding.window_key is not None:
         assert binding.period is not None and binding.time is not None and binding.calendars
-        from marivo._definition.types import CalendarCoordinate
 
         calendar = binding.calendars[0][1]
         assert isinstance(calendar, CalendarCoordinate)
@@ -198,17 +204,11 @@ def complete_attribute_inputs(
     originals: dict[tuple[int, str], StageOutput],
 ) -> tuple[pd.DataFrame, AttributeRootInputs]:
     """Finish aggregate inputs and consume bounded backend failure witnesses."""
-    from marivo.analysis.compiler.attribute_inputs import input_failure
-    from marivo.analysis.core.frozen_calendar import frozen_key_rows
 
     columns = {column.slot_id: column for column in layout.columns}
     identity = tuple(column for column, _ in layout.identity)
     parent_columns = tuple(columns[name] for name in layout.parent_keys)
     full_columns = tuple(columns[name] for name in layout.keys)
-    from marivo.analysis.model.attribute_failures import (
-        AttributeCoverageWitness,
-        AttributePartitionWitness,
-    )
 
     uncovered = (
         frame.loc[frame[layout.kind] == 6] if layout.population is not None else frame.iloc[:0]
@@ -390,8 +390,6 @@ def complete_attribute_parent_domain(
     root: AttributeRootInputs, projection: StageOutput
 ) -> AttributeRootInputs:
     """Retain every selected parent, distinguishing checked emptiness from absence."""
-    from marivo._definition.expressions import EntityCount, SourceAggregate
-    from marivo.analysis.core.frozen_calendar import frozen_key_rows
 
     if root.layout.scope != "parent":
         return root
@@ -425,8 +423,6 @@ def complete_attribute_parent_domain(
     expected = tuple(frozen_key_rows(selected, parent_columns))
     actual = tuple(frozen_key_rows(parent, parent_columns))
     if not root.layout.parent_keys and expected and not actual:
-        from marivo.analysis.compiler.attribute_inputs import input_failure
-
         input_failure("missing_component_proof", "missing selected scalar parent aggregate")
     by_key = {key: index for index, key in enumerate(actual)}
     records: list[dict[str, object]] = []
@@ -488,15 +484,6 @@ def _empty_native_value(
     record: dict[str, object],
 ) -> object:
     """Run the existing original numeric recipe over this role's known-empty reductions."""
-    import ibis
-
-    from marivo.analysis.core.value_types import ibis_type
-    from marivo.analysis.methods._ibis_numeric import evaluate_numeric
-    from marivo.semantic.spi import (
-        NumericValue,
-        lower_metric_formula,
-        numeric_failure,
-    )
 
     columns = {column.slot_id: column for column in layout.columns}
     bindings = {

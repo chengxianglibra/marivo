@@ -2,492 +2,75 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-from datetime import datetime
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from dataclasses import replace
 
-from marivo._definition.correspondence import coordinate_position
-from marivo._definition.expressions import PredicateExpression
-from marivo._definition.observations import ContributionBinding
-from marivo._definition.relations import PopulationDependency
+from marivo._definition.correspondence import ComparisonAxis, coordinate_position
+from marivo._definition.expressions import (
+    ContributionFilter,
+    DeclaredMetricRef,
+)
+from marivo._definition.graph import computation_fingerprint, walk
+from marivo._definition.observations import ContributionBinding, ObservationBinding
+from marivo._definition.query import (
+    FilterValues,
+    KeyImage,
+    PopulationValues,
+    ReadFields,
+    ReduceValues,
+    SelectValues,
+    TopValues,
+    ValueSlot,
+)
+from marivo._definition.relations import (
+    LiteralPopulation,
+    ObserveQuery,
+    PopulationDependency,
+    PopulationProduct,
+    PopulationProgram,
+    PopulationSet,
+    condition_populations,
+    population_keys,
+)
+from marivo._definition.types import (
+    CalendarCoordinate,
+    FieldRead,
+    IntervalCoordinate,
+    coordinate_read_keys,
+    field_read_key,
+)
 from marivo.analysis.binding.calendar_keys import time_key_type, window_endpoint_keys
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.programs import FormulaProgram, MemberInput, PopulationInput
+from marivo.analysis.compiler.contribution_plan import plan_contributions
+from marivo.analysis.compiler.observation import (
+    formula_columns,
+)
+from marivo.analysis.compiler.predicate import population_key
+from marivo.analysis.compiler.queries import key_groups as output_key_groups
 from marivo.analysis.compiler.query_program import (
     FrameCombineProgram,
     FrameCompareProgram,
-    FrameParameter,
     FrameProgram,
-    PopulationParameterPlan,
     ResultProgram,
-    SourceParameter,
 )
-from marivo.analysis.core.attribute import (
-    AttributeContributionProgram,
-    AttributeFormulaBinding,
-    AttributeInputProgram,
-    AttributeProjectProgram,
-    AttributeSourceParentBinding,
+from marivo.analysis.compiler.query_stages import (
+    FrameCompute,
+    LocalCompute,
+    PeriodFilter,
+    ProjectionRead,
+    QueryPlan,
+    QueryStage,
+    ReductionRead,
+    SourceReadStage,
+    SourceSchema,
+    read_reduction,
+    require_reduction,
 )
-from marivo.analysis.core.attribute_game import AttributeGameProgram
-from marivo.analysis.model.data_schema import DataSchema
-from marivo.analysis.model.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
+from marivo.analysis.core.frame_operations import FixFrameValues
+from marivo.analysis.errors import AnalysisStageUnavailableError
+from marivo.analysis.model.data_types import DataColumn
 from marivo.analysis.model.errors import reject
-from marivo.analysis.model.frame_attribute_merge import AttributeMergeProgram
-from marivo.analysis.model.kernels import QUERY_COMBINE_KERNEL
-from marivo.analysis.model.programs import FormulaInput
-from marivo.analysis.model.time_authority import SourceTimeAuthority
 from marivo.analysis.model.unique_keys import UniqueKeys
-from marivo.datasource.spi import DEFAULT_BACKEND_TYPE
-
-if TYPE_CHECKING:
-    from marivo.analysis.compiler.attribute_inputs import AttributeRootLayout
-    from marivo.analysis.compiler.native_query import NativeQueryFinish
-    from marivo.analysis.compiler.observation import ReductionInput
-    from marivo.analysis.compiler.optimization import (
-        FusionGroup,
-        InvocationMemo,
-        RequiredSlots,
-        RuleDecision,
-    )
-    from marivo.analysis.compiler.original import ComponentLayout
-    from marivo.semantic.spi import CompiledSemanticState
-
-
-@dataclass(frozen=True, slots=True)
-class SourceField:
-    """One physical column admitted at execute preparation, without its values."""
-
-    field: str
-    column: str
-    dtype: DataType
-    nullable: bool
-
-
-@dataclass(frozen=True, slots=True)
-class SourceSchema:
-    """Schema-only facts for one contribution root Entity output."""
-
-    source_id: str
-    keys: tuple[SourceField, ...]
-    fields: tuple[SourceField, ...]
-    occurrence: tuple[int, ...] | None = None
-    preparation_checks: tuple[tuple[str, str, str], ...] = ()
-    key_groups: tuple[tuple[str, ...], ...] = ()
-    presence: str | None = None
-    scope_id: str = ""
-    parameters: tuple[PopulationParameterPlan, ...] = ()
-    inline_population: PopulationDependency | None = None
-    original_identity: tuple[SourceField, ...] = ()
-    binding_id: str = ""
-    time_authorities: tuple[SourceTimeAuthority, ...] = ()
-    provider: str = DEFAULT_BACKEND_TYPE
-    unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
-
-    def field(self, path: str) -> SourceField:
-        for item in self.fields:
-            if item.field == path:
-                return item
-        reject(
-            f"an admitted source column for {path}",
-            f"columns of {self.source_id}: {tuple(f.field for f in self.fields)!r}",
-            "Prepare every field read by this contribution before planning.",
-            "analysis.query_plan.source_schema",
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class PeriodFilter:
-    """Captured source period and whether its exact predicate is prepared."""
-
-    column: str
-    start: datetime | None
-    end: datetime
-    timezone: str = "UTC"
-    predicate_prepared: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class ProjectionRead:
-    projections: tuple[tuple[str, str], ...]
-    presence: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ReductionRead:
-    reduction: ReductionInput
-
-
-@dataclass(frozen=True, slots=True)
-class AttributeFrequencyRead:
-    """Exact typed distribution state over one governed source occurrence."""
-
-    reduction: ReductionInput
-    input_type: DataType | None = None
-    members: tuple[SourceReadStage, ...] = ()
-    finishers: tuple[
-        tuple[str, Literal["rank_bounds", "duckdb_native", "postgres_native"]], ...
-    ] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class ComponentRead:
-    layout: ComponentLayout
-
-
-@dataclass(frozen=True, slots=True)
-class CommonRead:
-    members: tuple[SourceReadStage, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class AttributeRead:
-    layout: AttributeRootLayout
-    representative: ReductionInput
-    members: tuple[SourceReadStage, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class NativeRead:
-    reductions: tuple[ReductionInput, ...]
-    finish: NativeQueryFinish | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class NativeEndpoint:
-    """Original captured reducer templates and their prepared source input."""
-
-    input_id: str
-    reads: tuple[tuple[tuple[int, ...], SourceReadStage], ...]
-
-
-@dataclass(frozen=True, slots=True)
-class AttributeCoalitionRead:
-    """One logical native game; every issued statement has its own read identity."""
-
-    game: AttributeGameProgram
-    endpoints: tuple[NativeEndpoint, NativeEndpoint]
-
-
-@dataclass(frozen=True, slots=True)
-class ActualWindowRead:
-    """Finish a windowed Grain-only observation over an actual complete key image."""
-
-    graph: BoundGraph
-    state: CompiledSemanticState
-    timezone: str
-    frame_schemas: tuple[tuple[str, DataSchema], ...]
-    key_inputs: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class SampleWindowRead:
-    """Evaluate windows over discovered calendar sample domains."""
-
-    graph: BoundGraph
-    state: CompiledSemanticState
-    timezone: str
-    frame_schemas: tuple[tuple[str, DataSchema], ...]
-    key_inputs: tuple[str, ...]
-    candidates: tuple[ContributionBinding, ...]
-    populations: tuple[PopulationInput, ...]
-    counts: tuple[MemberInput, ...]
-    reuse_population_outputs: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class CheckedOutput:
-    """Publish a result already completed by an earlier invocation phase."""
-
-
-SourceProgram: TypeAlias = (
-    ProjectionRead
-    | ReductionRead
-    | AttributeFrequencyRead
-    | ComponentRead
-    | CommonRead
-    | AttributeRead
-    | NativeRead
-    | AttributeCoalitionRead
-    | ActualWindowRead
-    | SampleWindowRead
-    | CheckedOutput
-)
-
-
-@dataclass(frozen=True, slots=True)
-class SourceReadStage:
-    """One planned source-read stage with a closed execution program."""
-
-    stage_id: str
-    source_id: str
-    occurrence: tuple[int, ...]
-    columns: tuple[DataColumn, ...]
-    keys: tuple[str, ...]
-    program: SourceProgram
-    field_columns: tuple[tuple[str, str], ...]
-    predicates: tuple[PredicateExpression, ...]
-    period: PeriodFilter | None
-    preparation_checks: tuple[tuple[str, str, str], ...] = ()
-    inputs: tuple[str, ...] = ()
-    parameters: tuple[SourceParameter, ...] = ()
-    attribute_parent: AttributeSourceParentBinding | None = None
-    binding_id: str = ""
-    native_reductions: tuple[ReductionInput, ...] = ()
-    native_reads: tuple[SourceReadStage, ...] = ()
-    attribute_state: bool = False
-    attribute_input_types: tuple[tuple[str, tuple[DataType, ...]], ...] = ()
-    attribute_native: bool = False
-    native_relation_id: str = ""
-    unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "unique_keys", self.unique_keys.project(tuple(c.slot_id for c in self.columns))
-        )
-
-
-def read_reduction(stage: SourceReadStage) -> ReductionInput | None:
-    program = stage.program
-    if isinstance(program, (ReductionRead, AttributeFrequencyRead)):
-        return program.reduction
-    if isinstance(program, ComponentRead):
-        return program.layout.reduction
-    if isinstance(program, AttributeRead):
-        return program.representative
-    if isinstance(program, CommonRead):
-        return read_reduction(program.members[0])
-    return None
-
-
-def require_reduction(stage: SourceReadStage) -> ReductionInput:
-    reduction = read_reduction(stage)
-    assert reduction is not None
-    return reduction
-
-
-def read_components(stage: SourceReadStage) -> ComponentLayout | None:
-    return stage.program.layout if isinstance(stage.program, ComponentRead) else None
-
-
-def read_attribute(stage: SourceReadStage) -> AttributeRootLayout | None:
-    return stage.program.layout if isinstance(stage.program, AttributeRead) else None
-
-
-def read_members(stage: SourceReadStage) -> tuple[SourceReadStage, ...]:
-    return (
-        stage.program.members
-        if isinstance(stage.program, (CommonRead, AttributeRead, AttributeFrequencyRead))
-        else ()
-    )
-
-
-def common_program(
-    stage: SourceReadStage, members: tuple[SourceReadStage, ...]
-) -> CommonRead | AttributeRead:
-    if isinstance(stage.program, AttributeRead):
-        return replace(stage.program, members=members)
-    return CommonRead(members)
-
-
-def read_finish(stage: SourceReadStage) -> NativeQueryFinish | None:
-    return stage.program.finish if isinstance(stage.program, NativeRead) else None
-
-
-def require_components(stage: SourceReadStage) -> ComponentLayout:
-    layout = read_components(stage)
-    assert layout is not None
-    return layout
-
-
-def require_attribute(stage: SourceReadStage) -> AttributeRootLayout:
-    layout = read_attribute(stage)
-    assert layout is not None
-    return layout
-
-
-def require_finish(stage: SourceReadStage) -> NativeQueryFinish:
-    finish = read_finish(stage)
-    assert finish is not None
-    return finish
-
-
-def read_native_reductions(stage: SourceReadStage) -> tuple[ReductionInput, ...]:
-    native = stage.program.reductions if isinstance(stage.program, NativeRead) else ()
-    return (*native, *stage.native_reductions)
-
-
-def read_projections(stage: SourceReadStage) -> tuple[tuple[str, str], ...]:
-    return stage.program.projections if isinstance(stage.program, ProjectionRead) else ()
-
-
-def read_presence(stage: SourceReadStage) -> str | None:
-    return stage.program.presence if isinstance(stage.program, ProjectionRead) else None
-
-
-@dataclass(frozen=True, slots=True)
-class FusedLocalProgram:
-    steps: tuple[LocalCompute, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class LocalCompute:
-    """One closed local program over completed stage outputs."""
-
-    stage_id: str
-    inputs: tuple[str, ...]
-    columns: tuple[DataColumn, ...]
-    keys: tuple[str, ...]
-    program: FormulaProgram | ResultProgram | FusedLocalProgram
-    attribute: AttributeFormulaBinding | None = None
-    unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "unique_keys", self.unique_keys.project(tuple(c.slot_id for c in self.columns))
-        )
-
-    @property
-    def kernel(self) -> str:
-        return (
-            "query.result@v1" if isinstance(self.program, ResultProgram) else QUERY_COMBINE_KERNEL
-        )
-
-
-def local_result(stage: LocalCompute) -> ResultProgram | None:
-    return stage.program if isinstance(stage.program, ResultProgram) else None
-
-
-def require_result(stage: LocalCompute) -> ResultProgram:
-    program = local_result(stage)
-    assert program is not None
-    return program
-
-
-def local_steps(stage: LocalCompute) -> tuple[LocalCompute, ...]:
-    return stage.program.steps if isinstance(stage.program, FusedLocalProgram) else ()
-
-
-@dataclass(frozen=True, slots=True)
-class FrameInput:
-    """Exact fixed-data identity; its full validation contract cannot be pruned."""
-
-    stage_id: str
-    input_id: str
-    schema: DataSchema
-    inputs: tuple[str, ...] = ()
-
-    @property
-    def unique_keys(self) -> UniqueKeys:
-        return UniqueKeys(tuple(c.slot_id for c in self.columns), (self.keys,))
-
-    @property
-    def columns(self) -> tuple[DataColumn, ...]:
-        return self.schema.columns
-
-    @property
-    def keys(self) -> tuple[str, ...]:
-        return self.schema.key_fields
-
-
-@dataclass(frozen=True, slots=True)
-class FrameFilterFusion:
-    """Columns needed by the second mask and original steps for carrier changes."""
-
-    second_columns: tuple[str, ...]
-    fallback: tuple[FrameCompute, FrameCompute]
-
-
-@dataclass(frozen=True, slots=True)
-class FrameCompute:
-    """A closed Frame program, independent from semantic Query kernels."""
-
-    stage_id: str
-    inputs: tuple[str, ...]
-    program: (
-        FrameProgram
-        | FrameCombineProgram
-        | FrameCompareProgram
-        | AttributeProjectProgram
-        | AttributeInputProgram
-        | AttributeContributionProgram
-        | AttributeMergeProgram
-        | AttributeGameProgram
-    )
-
-    unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
-    filter_fusion: FrameFilterFusion | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "unique_keys", self.unique_keys.project(tuple(c.slot_id for c in self.columns))
-        )
-
-    @property
-    def columns(self) -> tuple[DataColumn, ...]:
-        return self.program.output_schema.columns
-
-    @property
-    def keys(self) -> tuple[str, ...]:
-        return self.program.output_schema.key_fields
-
-
-@dataclass(frozen=True, slots=True)
-class FrameKeysInput:
-    """Compiler-only key relation, eliminated before the Frame schedule runs."""
-
-    stage_id: str
-    parameter: FrameParameter
-    inputs: tuple[str, ...] = ()
-
-    @property
-    def unique_keys(self) -> UniqueKeys:
-        return UniqueKeys(tuple(c.slot_id for c in self.columns), (self.keys,))
-
-    @property
-    def columns(self) -> tuple[DataColumn, ...]:
-        return self.parameter.columns
-
-    @property
-    def keys(self) -> tuple[str, ...]:
-        return tuple(column.slot_id for column in self.columns)
-
-
-QueryStage: TypeAlias = SourceReadStage | LocalCompute | FrameInput | FrameCompute | FrameKeysInput
-
-
-@dataclass(frozen=True, slots=True)
-class QueryPlan:
-    """Topologically ordered stages, consumers and the published stage."""
-
-    stages: tuple[QueryStage, ...]
-    consumers: tuple[tuple[str, tuple[str, ...]], ...]
-    publish: str
-    output_groups: tuple[tuple[str, ...], ...] = ()
-    original: FormulaProgram | None = None
-    required_slots: tuple[RequiredSlots, ...] = ()
-    fusion_groups: tuple[FusionGroup, ...] = ()
-    optimization_decisions: tuple[RuleDecision, ...] = ()
-
-    def consumers_of(self, stage_id: str) -> tuple[str, ...]:
-        return dict(self.consumers).get(stage_id, ())
-
-    def source_read_stage(self, stage_id: str) -> SourceReadStage:
-        for stage in self.stages:
-            if stage.stage_id == stage_id and isinstance(stage, SourceReadStage):
-                return stage
-        reject(
-            "a source stage in the current executable plan",
-            stage_id,
-            "Associate the lowered payload with its current source stage.",
-            "analysis.query_plan",
-        )
-
-
-def checked_output(
-    identifier: str, columns: tuple[DataColumn, ...], keys: tuple[str, ...]
-) -> SourceReadStage:
-    return SourceReadStage(identifier, identifier, (), columns, keys, CheckedOutput(), (), (), None)
 
 
 def _stage_id(occurrence: tuple[int, ...]) -> str:
@@ -504,7 +87,6 @@ def _plan_source_reads(
     publishes its read directly; several are combined by the later Query
     planner with the exact slots its local program declares.
     """
-    from marivo.analysis.errors import AnalysisStageUnavailableError
 
     observation = graph.signature.observation
     contributions = () if observation is None else observation.contributions
@@ -517,9 +99,6 @@ def _plan_source_reads(
             target="analysis_frame.compute",
         )
     by_source = {schema.source_id: schema for schema in schemas}
-    from marivo._definition.relations import condition_populations
-    from marivo._definition.types import FieldRead, coordinate_read_keys, field_read_key
-    from marivo.analysis.compiler.predicate import population_key
 
     reads: list[SourceReadStage] = []
     for contribution in contributions:
@@ -644,72 +223,6 @@ def _plan_source_reads(
     return QueryPlan(stages, consumers, publish)
 
 
-def plan_query(
-    graph: BoundGraph,
-    schemas: tuple[SourceSchema, ...],
-    *,
-    require_original: bool = False,
-    memo: InvocationMemo | None = None,
-    prefix: tuple[int, ...] = (),
-) -> QueryPlan:
-    """Plan dependency producers before every parameterized source consumer."""
-    if memo is not None:
-        from marivo.analysis.compiler.optimization import compilation_key
-
-        return memo.plan(
-            compilation_key(
-                graph,
-                schemas,
-                required=("prefix:" + repr(prefix),),
-                require_original=require_original,
-            ),
-            lambda: _plan_bound_query(
-                graph,
-                schemas,
-                require_original=require_original,
-                memo=memo,
-                prefix=prefix,
-            ),
-        )
-    return _plan_bound_query(
-        graph,
-        schemas,
-        require_original=require_original,
-        memo=None,
-        prefix=prefix,
-    )
-
-
-def _plan_bound_query(
-    graph: BoundGraph,
-    schemas: tuple[SourceSchema, ...],
-    *,
-    require_original: bool,
-    memo: InvocationMemo | None,
-    prefix: tuple[int, ...],
-) -> QueryPlan:
-    from marivo._definition.query import ResultQuery
-    from marivo._definition.relations import ReadQuery
-
-    if isinstance(graph.root, ResultQuery):
-        from marivo.analysis.compiler.queries import plan_literal
-
-        return with_unique_keys(plan_literal(graph, graph.root.operation, schemas))
-    if isinstance(graph.root, ReadQuery):
-        from marivo.analysis.compiler.queries import plan_read
-
-        return with_unique_keys(plan_read(graph, schemas, memo=memo))
-
-    from marivo.analysis.compiler.parameters import plan_parameters
-
-    planned = plan_parameters(graph, schemas, memo=memo)
-    if require_original:
-        from marivo.analysis.compiler.optimization import retain_components
-
-        return with_unique_keys(retain_components(planned, schemas))
-    return with_unique_keys(planned)
-
-
 def _plan_query(
     graph: BoundGraph,
     schemas: tuple[SourceSchema, ...],
@@ -717,46 +230,8 @@ def _plan_query(
     scope_id: str,
 ) -> QueryPlan:
     """Fix ordinary numeric source and local routes before any business read."""
-    import ibis
-
-    from marivo._definition.relations import ObserveQuery
 
     assert isinstance(graph.root, ObserveQuery)
-
-    from marivo._definition.expressions import (
-        ContributionFilter,
-        DeclaredMetricRef,
-        EntityCount,
-        SourceAggregate,
-    )
-    from marivo._definition.graph import computation_fingerprint, walk
-    from marivo._definition.observations import CalendarGrouping
-    from marivo._definition.query import PopulationValues
-    from marivo._definition.relations import (
-        LiteralPopulation,
-        PopulationProduct,
-        PopulationProgram,
-        PopulationSet,
-    )
-    from marivo._definition.types import (
-        CalendarCoordinate,
-        IntervalCoordinate,
-        coordinate_read_keys,
-    )
-    from marivo.analysis.compiler.observation import (
-        duration_type,
-        formula_columns,
-        lower_observation,
-        reduction_input,
-    )
-    from marivo.analysis.core.value_types import data_type, ibis_type
-
-    def time_name(axis: CalendarGrouping) -> str:
-        return (
-            "interval"
-            if isinstance(axis, IntervalCoordinate)
-            else f"calendar:{axis.grain_spec._to_token()}"
-        )
 
     observation = graph.signature.observation
     contributions = () if observation is None else observation.contributions
@@ -769,182 +244,51 @@ def _plan_query(
         ),
         None,
     )
-    reads: list[SourceReadStage] = []
-    values: list[FormulaInput] = []
-    keys: tuple[DataColumn, ...] = ()
-    calendar_key = "key.0"
     source_stages = tuple(stage for stage in base.stages if isinstance(stage, SourceReadStage))
-    if not source_stages and calendar is not None:
-        keys = (DataColumn(calendar_key, time_name(calendar), time_key_type(calendar), False),)
-    for stage, contribution in zip(source_stages, contributions, strict=True):
-        reduction = reduction_input(contribution, f"{stage.stage_id}/value", calendar)
-        schema = next(
-            item
-            for item in schemas
-            if item.source_id == stage.source_id
-            and (item.occurrence is None or item.occurrence == stage.occurrence)
-        )
-        reduction = replace(
-            reduction,
-            provider=schema.provider,
-            preserve_sample_presence=(
-                observation is not None
-                and observation.coordinates.population is not None
-                and (bool(stage.predicates) or not (reduction.axes or reduction.calendars))
-            ),
-            duration=duration_type(
-                contribution.definition, {item.field: item.dtype for item in schema.fields}
-            ),
-        )
-        table = ibis.table({item.column: ibis_type(item.dtype) for item in schema.fields})
-        expression, numeric_checks = lower_observation(
-            reduction, table, dict(stage.field_columns), stage.predicates
-        )
-        calendar_slots = dict(reduction.calendars)
-        if calendar is not None:
-            calendar_key = next(
-                (slot for slot, axis in reduction.calendars if axis == calendar), calendar_key
-            )
-        stage_keys = tuple(
-            DataColumn(
-                slot,
-                (time_name(calendar_slots[slot]))
-                if slot in calendar_slots
-                else next(path for key, path in reduction.axes if key == slot),
-                next(
-                    (
-                        field.dtype
-                        for field in schema.fields
-                        if field.field
-                        == next((path for key, path in reduction.axes if key == slot), "")
-                        and isinstance(field.dtype, DurationDataType)
-                    ),
-                    data_type(expression[slot].type()),
-                ),
-                True,
-            )
-            for slot in expression.columns
-            if slot.startswith("key.")
-        )
-        output_width = int(calendar is not None) + sum(
-            len(coordinate_read_keys(read))
-            for read in contribution.coordinates[: contribution.output_axis_count]
-        )
-        output_slots = {f"key.{i}" for i in range(output_width)}
-        output_keys = tuple(c for c in stage_keys if c.slot_id in output_slots)
-        merged_keys = {c.slot_id: c for c in keys}
-        if calendar is not None:
-            report_slot = next(
-                (slot for slot, axis in reduction.calendars if axis == calendar),
-                next(
-                    (
-                        f"key.{i}"
-                        for i in range(output_width)
-                        if f"key.{i}" not in contribution.coordinate_slots
-                    ),
-                    calendar_key,
-                ),
-            )
-            calendar_key = report_slot
-            merged_keys[report_slot] = DataColumn(
-                report_slot, time_name(calendar), time_key_type(calendar), False
-            )
-
-        for key in output_keys:
-            previous = merged_keys.get(key.slot_id)
-            if previous is not None and previous.dtype != key.dtype:
-                reject(
-                    "identical physical coordinate types across contributions",
-                    repr(key),
-                    "Choose fields with a common lossless coordinate type.",
-                    "analysis.query_plan",
-                )
-            merged_keys[key.slot_id] = key
-        keys = tuple(
-            merged_keys[k] for k in sorted(merged_keys, key=lambda k: int(k.split(".")[1]))
-        )
-        column = DataColumn(
-            reduction.value_slot,
-            reduction.value_slot,
-            reduction.duration or data_type(expression[reduction.value_slot].type()),
-            True,
-        )
-        reads.append(
-            replace(
-                stage,
-                columns=(
-                    *stage_keys,
-                    column,
-                    *(
-                        DataColumn(name, name, ScalarDataType("boolean"), False)
-                        for name, _ in numeric_checks
-                    ),
-                    *(
-                        (
-                            DataColumn(
-                                "__numeric_present",
-                                "__numeric_present",
-                                ScalarDataType("boolean"),
-                                False,
-                            ),
-                        )
-                        if "__numeric_present" in expression.columns
-                        else ()
-                    ),
-                    *(
-                        (
-                            DataColumn(
-                                "__sample_present",
-                                "__sample_present",
-                                ScalarDataType("boolean"),
-                                False,
-                            ),
-                        )
-                        if "__sample_present" in expression.columns
-                        else ()
-                    ),
-                    *(
-                        DataColumn(name, name, ScalarDataType("boolean"), False)
-                        for name in expression.columns
-                        if name.startswith("__sample_scope_")
-                    ),
-                ),
-                keys=tuple(c.slot_id for c in stage_keys),
-                unique_keys=UniqueKeys(
-                    tuple(expression.columns), (tuple(c.slot_id for c in stage_keys),)
-                ),
-                program=ReductionRead(reduction),
-            )
-        )
-        node = contribution.definition
-        key_groups = []
-        ordinary = iter(slot for slot, _ in reduction.axes)
-        for read in contribution.coordinates:
-            key_groups.append(tuple(next(ordinary) for _ in coordinate_read_keys(read)))
-        key_groups.extend((slot,) for slot, _ in reduction.calendars)
-        key_groups.sort(key=lambda group: int(group[0].split(".")[1]))
-        values.append(
-            FormulaInput(
-                contribution.logical_occurrence or contribution.occurrence,
-                stage.stage_id,
-                column,
-                isinstance(node, EntityCount)
-                or (
-                    isinstance(node, SourceAggregate)
-                    and (node.reducer in ("sum", "count", "count_distinct", "approx_nunique"))
-                ),
-                tuple((name, check.expected, check.received) for name, check in numeric_checks),
-                keys=tuple(c.slot_id for c in stage_keys),
-                key_groups=tuple(key_groups),
-            )
-        )
-    population_inputs: list[PopulationInput] = []
-    population_stages: list[SourceReadStage | LocalCompute] = []
     output_population = observation.coordinates.population if observation is not None else None
     parent_scope = observation.coordinates.parent_scope if observation is not None else None
+    reads, values, keys, calendar_key = plan_contributions(
+        source_stages, contributions, schemas, calendar, output_population is not None
+    )
+    population_inputs, population_stages, keys = _plan_population_dependencies(
+        graph, graph.root, schemas, observation, output_population, parent_scope, keys
+    )
+    program = FormulaProgram(
+        graph.root.metrics,
+        graph.signature.declared_metrics,
+        tuple(values),
+        calendar,
+        tuple(population_inputs),
+        output_population=observation.coordinates.population if observation is not None else None,
+        calendar_key=calendar_key,
+        axes=graph.signature.axes,
+        calendar_samples=observation.calendar_samples if observation is not None else (),
+        window_endpoints=window_endpoint_keys(contributions),
+        sample_matches=observation.sample_matches if observation is not None else (),
+    )
+    count_inputs, keys, calendar_key = _plan_member_counts(
+        graph.signature.axes, schemas, observation, keys, calendar_key, has_source_reads=bool(reads)
+    )
+    program = _bind_formula_keys(graph, program, observation, keys, count_inputs, calendar_key)
+    return _publish_observation(
+        graph, base, reads, population_stages, contributions, calendar, keys, program, scope_id
+    )
+
+
+def _plan_population_dependencies(
+    graph: BoundGraph,
+    root: ObserveQuery,
+    schemas: tuple[SourceSchema, ...],
+    observation: ObservationBinding | None,
+    output_population: PopulationDependency | None,
+    parent_scope: PopulationDependency | None,
+    keys: tuple[DataColumn, ...],
+) -> tuple[list[PopulationInput], list[SourceReadStage | LocalCompute], tuple[DataColumn, ...]]:
+    population_inputs: list[PopulationInput] = []
+    population_stages: list[SourceReadStage | LocalCompute] = []
     closure = walk(
         (
-            graph.root,
+            root,
             *((output_population,) if output_population is not None else ()),
             *(
                 (observation.condition,)
@@ -966,11 +310,10 @@ def _plan_query(
             DataColumn(f"population.{i}", item.field, item.dtype, item.nullable)
             for i, item in enumerate(population_schema.keys)
         )
-        if not graph.root.metrics and population == output_population:
+        if not root.metrics and population == output_population:
             keys = tuple(
                 replace(column, slot_id=f"key.{i}") for i, column in enumerate(domain_columns)
             )
-        from marivo._definition.relations import population_keys
 
         if population_keys(population) is not None:
             continue  # Keep schema-bound key types, execute finite keys locally.
@@ -1051,20 +394,19 @@ def _plan_query(
                 key_groups=groups,
             )
         )
-    program = FormulaProgram(
-        graph.root.metrics,
-        graph.signature.declared_metrics,
-        tuple(values),
-        calendar,
-        tuple(population_inputs),
-        output_population=observation.coordinates.population if observation is not None else None,
-        calendar_key=calendar_key,
-        axes=graph.signature.axes,
-        calendar_samples=observation.calendar_samples if observation is not None else (),
-        window_endpoints=window_endpoint_keys(contributions),
-        sample_matches=observation.sample_matches if observation is not None else (),
-    )
-    count_inputs = []
+    return population_inputs, population_stages, keys
+
+
+def _plan_member_counts(
+    axes: tuple[ComparisonAxis, ...],
+    schemas: tuple[SourceSchema, ...],
+    observation: ObservationBinding | None,
+    keys: tuple[DataColumn, ...],
+    calendar_key: str,
+    *,
+    has_source_reads: bool,
+) -> tuple[tuple[MemberInput, ...], tuple[DataColumn, ...], str]:
+    count_inputs: list[MemberInput] = []
     for definition, member_population in (
         () if observation is None else observation.count_populations
     ):
@@ -1082,7 +424,7 @@ def _plan_query(
             for group in member_schema.key_groups
         )
         output_columns: list[DataColumn] = []
-        for axis in graph.signature.axes:
+        for axis in axes:
             if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
                 calendar_key = f"key.{len(output_columns)}"
                 output_columns.append(
@@ -1101,7 +443,7 @@ def _plan_query(
                 slot = f"key.{len(output_columns)}"
                 item = member_schema.keys[member_slots.index(name)]
                 output_columns.append(DataColumn(slot, item.field, item.dtype, item.nullable))
-        if not reads:
+        if not has_source_reads:
             keys = tuple(output_columns)
         count_inputs.append(
             MemberInput(
@@ -1111,12 +453,22 @@ def _plan_query(
                 tuple(zip(member_population.axes, member_groups, strict=True)),
             )
         )
+    return tuple(count_inputs), keys, calendar_key
+
+
+def _bind_formula_keys(
+    graph: BoundGraph,
+    program: FormulaProgram,
+    observation: ObservationBinding | None,
+    keys: tuple[DataColumn, ...],
+    count_inputs: tuple[MemberInput, ...],
+    calendar_key: str,
+) -> FormulaProgram:
+    parent_scope = observation.coordinates.parent_scope if observation is not None else None
     output_groups: tuple[tuple[str, ...], ...] = ()
     if parent_scope is not None or program.sample_matches:
-        from marivo.analysis.compiler.queries import key_groups as output_key_groups
-
         output_groups = output_key_groups(
-            graph, keys, tuple(column.slot_id for column in keys), counts=tuple(count_inputs)
+            graph, keys, tuple(column.slot_id for column in keys), counts=count_inputs
         )
     if parent_scope is not None:
         program = replace(
@@ -1129,8 +481,23 @@ def _plan_query(
             ),
         )
     program = replace(
-        program, counts=tuple(count_inputs), calendar_key=calendar_key, key_groups=output_groups
+        program, counts=count_inputs, calendar_key=calendar_key, key_groups=output_groups
     )
+    return program
+
+
+def _publish_observation(
+    graph: BoundGraph,
+    base: QueryPlan,
+    reads: list[SourceReadStage],
+    population_stages: list[SourceReadStage | LocalCompute],
+    contributions: tuple[ContributionBinding, ...],
+    calendar: CalendarCoordinate | IntervalCoordinate | None,
+    keys: tuple[DataColumn, ...],
+    program: FormulaProgram,
+    scope_id: str,
+) -> QueryPlan:
+    assert isinstance(graph.root, ObserveQuery)
     columns = tuple(
         replace(column, unit=quantity.unit)
         for column, quantity in zip(
@@ -1193,17 +560,6 @@ def _plan_query(
 
 def with_unique_keys(plan: QueryPlan) -> QueryPlan:
     """Bind controlled operation facts, using upstream checks only as postconditions."""
-    from marivo._definition.query import (
-        FilterValues,
-        KeyImage,
-        PopulationValues,
-        ReadFields,
-        ReduceValues,
-        SelectValues,
-        TopValues,
-        ValueSlot,
-    )
-    from marivo.analysis.core.frame_fix import FixFrameValues
 
     stages: list[QueryStage] = []
     by_id: dict[str, QueryStage] = {}

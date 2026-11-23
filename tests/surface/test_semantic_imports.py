@@ -22,12 +22,16 @@ import sys
 import pytest
 from ibis.common.deferred import Deferred
 
+import marivo._kernel.refs as refs
+import marivo._kernel.temporal as temporal
 import marivo.semantic as ms
+import marivo.semantic.catalog as catalog
 from marivo._kernel.refs import RefPayloadV1
 from marivo.semantic import errors as errors_mod
 from marivo.semantic import typing as typing_mod
 from marivo.semantic.check import _error_to_dict
 from marivo.semantic.constraints import ConstraintId, get_constraint
+from marivo.semantic.errors import StructuredWarning
 from marivo.semantic.ir import (
     AiContextIR,
     DatasourceIR,
@@ -41,6 +45,9 @@ from marivo.semantic.ir import (
     SourceLocation,
     TargetDimensionContract,
 )
+from marivo.semantic.loader import LoadResult
+from marivo.semantic.loading_context import LoaderContext
+from marivo.semantic.reader import SemanticProject
 from tests.support.refs import as_ref
 
 
@@ -385,7 +392,6 @@ def test_ibis_backend_protocol() -> None:
 
 def test_ai_context_value_fields() -> None:
     assert hasattr(typing_mod, "AiContextValue")
-    import dataclasses
 
     field_names = {f.name for f in dataclasses.fields(typing_mod.AiContextValue)}
     assert field_names == {"business_definition", "guardrails", "aliases"}
@@ -396,7 +402,6 @@ def test_ai_context_value_uses_existing_typing_namespace() -> None:
 
 
 def test_loader_context_dataclass() -> None:
-    from marivo.semantic.loading_context import LoaderContext
 
     ctx = LoaderContext()
     assert ctx.current_model_file is None
@@ -405,7 +410,6 @@ def test_loader_context_dataclass() -> None:
 
 
 def test_load_result_dataclass() -> None:
-    from marivo.semantic.loader import LoadResult
 
     result = LoadResult(status="ready")
     assert result.status == "ready"
@@ -416,7 +420,6 @@ def test_load_result_dataclass() -> None:
 
 
 def test_structured_warning_is_frozen() -> None:
-    from marivo.semantic.errors import StructuredWarning
 
     warn = StructuredWarning(
         kind="string_ref",
@@ -434,7 +437,6 @@ def test_structured_warning_is_frozen() -> None:
 
 
 def test_reader_project_init() -> None:
-    from marivo.semantic.reader import SemanticProject
 
     project = SemanticProject(root="/tmp/test")
     assert not project.is_ready()
@@ -456,8 +458,6 @@ def test_semantic_import_does_not_load_analysis() -> None:
 
 
 def test_sql_provenance_has_no_public_entry() -> None:
-    import marivo.semantic as ms
-    from marivo.semantic.reader import SemanticProject
 
     assert not hasattr(ms, "from_sql")
     assert not hasattr(ms, "SqlProvenance")
@@ -466,9 +466,6 @@ def test_sql_provenance_has_no_public_entry() -> None:
 
 
 def test_removed_temporal_models_have_no_direct_entry_or_ref_factory() -> None:
-    import marivo._kernel.refs as refs
-    import marivo._kernel.temporal as temporal
-    import marivo.semantic.catalog as catalog
 
     for owner, names in (
         (

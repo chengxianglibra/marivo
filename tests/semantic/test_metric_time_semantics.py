@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
+from json import loads
 from pathlib import Path
+from threading import Event
+from time import monotonic
 from typing import Literal, NoReturn
 
 import duckdb
@@ -19,6 +23,8 @@ from marivo.datasource.runtime.connections import DatasourceConnectionService
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import SemanticError, SemanticLoadFailed
 from marivo.semantic.expressions.metric_time import metric_time_occurrences
+from marivo.server.frames import FrameReads
+from marivo.server.wire import Budget, Limits
 from tests.shared_fixtures import catalog_get, write_minimal_catalog_project
 
 _MODEL = """
@@ -674,12 +680,6 @@ def test_captured_time_facts_survive_fixed_derivation_and_cold_storage(
     ).persist()
     assert isinstance(derived.schema.value_time_semantics["ratio"], mv.FrameDerivedTimeSemantics)
     assert derived.schema.value_time_semantics["renamed"] == facts["fixed"]
-    from json import loads
-    from threading import Event
-    from time import monotonic
-
-    from marivo.server.frames import FrameReads
-    from marivo.server.wire import Budget, Limits
 
     budget = Budget(Limits(), "frame", monotonic() + 30, Event())
     wire = loads(FrameReads(tmp_path).report(session.id, derived.artifact_id, budget))
@@ -701,7 +701,6 @@ assert fact.report_axis.grain.unit == 'day'
 assert len(fact.report_cells) == 3
 """
     # Reopening the leaf must not need definitions or the source database.
-    import shutil
 
     shutil.rmtree(tmp_path / "models")
     (tmp_path / "facts.duckdb").unlink()
@@ -776,7 +775,6 @@ def test_fixed_temporal_population_matches_existing_keys_and_explicit_internal_s
 def test_independent_windows_still_validate_endpoints_and_calendar_rules(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
 
     _project(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))

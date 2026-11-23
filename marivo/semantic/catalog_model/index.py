@@ -7,9 +7,7 @@ from functools import cached_property
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
-    Any,
     TypeAlias,
-    TypeVar,
     cast,
 )
 
@@ -28,7 +26,6 @@ from marivo.datasource.spi import (
 from marivo.semantic.catalog_model.details import (
     DatasourceDetails,
     DomainDetails,
-    _CatalogObjectDetails,
 )
 from marivo.semantic.catalog_model.objects import (
     _ENTRY_TYPE_BY_KIND,
@@ -38,7 +35,6 @@ from marivo.semantic.catalog_model.objects import (
     SemanticObject,
     _SemanticObject,
 )
-from marivo.semantic.catalog_model.refs import _make_ref
 from marivo.semantic.definition_resolution import (
     CatalogValues,
     ResolvedValue,
@@ -52,24 +48,7 @@ if TYPE_CHECKING:
     from marivo.semantic.static_check.registry import Registry
 
 
-CatalogObjectT = TypeVar("CatalogObjectT", bound="_SemanticObject[SemanticKindTag]")
-
 CatalogItem: TypeAlias = _SemanticObject[SemanticKindTag] | ResolvedValue
-
-
-def _object_from_details(
-    object_type: type[CatalogObjectT],
-    details: _CatalogObjectDetails,
-    catalog: CatalogLookup,
-) -> CatalogObjectT:
-    return cast(
-        "CatalogObjectT",
-        cast("Any", object_type)(
-            _ref=details._ref,
-            _details=details,
-            _catalog=catalog,
-        ),
-    )
 
 
 def _normalize_location(loc: SourceLocation | DatasourceSourceLocation) -> SourceLocation:
@@ -116,13 +95,13 @@ def _build_datasource_object(
         fields=dict(ds_ir.fields),
         env_refs=dict(ds_ir.env_refs),
     )
-    return _object_from_details(Datasource, details, catalog)
+    return Datasource(_ref=ref, _details=details, _catalog=catalog)
 
 
 def _build_domain_object(
     model_ir: DomainIR, build_index: _CatalogBuildIndex, catalog: CatalogLookup
 ) -> Domain:
-    ref = _make_ref(model_ir.name, SemanticKind.DOMAIN)
+    ref = ref_factory.domain(model_ir.name)
     details = DomainDetails(
         _ref=ref,
         kind=SemanticKind.DOMAIN,
@@ -137,7 +116,7 @@ def _build_domain_object(
         owner=model_ir.owner,
         default=model_ir.default,
     )
-    return _object_from_details(Domain, details, catalog)
+    return Domain(_ref=ref, _details=details, _catalog=catalog)
 
 
 class _CatalogIndex:
@@ -157,14 +136,16 @@ class _CatalogIndex:
         self._dependencies = catalog._state.dependencies
         build_index = _CatalogBuildIndex(registry)
         datasource_irs = datasource_irs or tuple(registry.datasources.values())
-        entries: tuple[_SemanticObject[SemanticKindTag], ...] = (
+        entries: tuple[Domain | Datasource, ...] = (
             *(
                 _build_domain_object(item, build_index, catalog)
                 for item in registry.domains.values()
             ),
             *(_build_datasource_object(item, build_index, catalog) for item in datasource_irs),
         )
-        self._entries = MappingProxyType({entry._ref: entry for entry in entries})
+        self._entries: Mapping[Ref[SemanticKindTag], Domain | Datasource] = MappingProxyType(
+            {entry._ref: entry for entry in entries}
+        )
         self._refs: tuple[Ref[SemanticKindTag], ...] = tuple(
             sorted((*self._entries, *self.values.refs), key=lambda ref: ref.key)
         )
@@ -180,7 +161,7 @@ class _CatalogIndex:
         self._scopes = MappingProxyType(scopes)
         self._public_entries: Mapping[Ref[SemanticKindTag], SemanticObject] = MappingProxyType(
             {
-                ref: cast("SemanticObject", self._entries[ref])
+                ref: self._entries[ref]
                 if ref in self._entries
                 else cast(
                     "SemanticObject",

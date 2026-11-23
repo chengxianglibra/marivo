@@ -20,12 +20,15 @@ from marivo.analysis.model.time_authority import (
 )
 from marivo.datasource.spi import (
     DEFAULT_BACKEND_TYPE,
+    TemporalExpressionError,
     localize,
     profile_for_backend_type,
     query_dialect,
     timestamp,
     timestamp_is_instant,
 )
+from marivo.datasource.spi import parse_strptime as native_strptime
+from marivo.semantic.errors import SourceTimezoneMissing
 from marivo.semantic.spi import (
     DateParse,
     DeclaredSourceTimezone,
@@ -38,6 +41,16 @@ from marivo.semantic.spi import (
     is_time_bearing_format,
     time_type_issue,
 )
+
+
+def temporal_bound(value: ir.Value, boundary: datetime, zone: str) -> ir.Value:
+    """Compare civil dates in the captured boundary zone, instants by exact instant."""
+    if value.type().is_date():
+        return ibis.literal(
+            boundary.astimezone(normalize_timezone(zone).tz).replace(tzinfo=None),
+            type="timestamp(6)",
+        )
+    return ibis.literal(boundary, type="timestamp('UTC', 6)")
 
 
 def ordered_time_literal(point: datetime, fmt: str, *, strict: bool = False) -> str | None:
@@ -582,12 +595,6 @@ def _same_day_hour_filter(
 
 def parse_strptime(engine: str, text: ir.StringValue, parse: StrptimeParse) -> ir.Value:
     """Apply a semantic parser using the shared native expression implementation."""
-    from marivo.datasource.spi import (
-        TemporalExpressionError,
-    )
-    from marivo.datasource.spi import (
-        parse_strptime as native_strptime,
-    )
 
     try:
         return native_strptime(
@@ -709,8 +716,6 @@ def source_time(
         instant = timestamp(value)
     else:
         if source_timezone is None:
-            from marivo.semantic.errors import SourceTimezoneMissing
-
             raise SourceTimezoneMissing(axis=axis, physical_type=str(physical), backend=engine)
         if isinstance(value, ir.DateValue):
             authority = CivilDateSourceTime(

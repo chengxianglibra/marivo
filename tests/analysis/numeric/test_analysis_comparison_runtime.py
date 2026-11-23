@@ -31,6 +31,7 @@ from tests.shared_fixtures import (
     time_population,
 )
 from tests.support.paths import PROJECT_ROOT
+from tests.support.source_trace import capture_source
 
 
 def _classify(population: mv.Population, region: ms.Dimension) -> mv.Population:
@@ -635,7 +636,6 @@ def test_float_sum_and_native_mean_comparison_values(
 def test_comparison_construction_is_lazy_and_shared_source_runs_once(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j2")
     observed, independent = _monthly(case, 8), _monthly(case, 7)

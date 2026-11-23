@@ -2,6 +2,9 @@
 
 import ibis.expr.types as ir
 
+from marivo.analysis.materialization.date_day_keys import has_deferred_day_keys, lower_day_keys
+from marivo.analysis.materialization.encoded_time import EncodedTime, lower_encoded_times
+from marivo.analysis.materialization.time_filter import cancel_utc, optimize_time
 from marivo.datasource.spi import (
     governed_temporal_operation as governed_temporal_operation,
 )
@@ -10,9 +13,6 @@ from marivo.datasource.spi import lower_native_temporal, needs_temporal_lowering
 
 def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
     """Optimize Analysis filters before applying the shared native lowering."""
-    from marivo.analysis.materialization.date_day_keys import has_deferred_day_keys, lower_day_keys
-    from marivo.analysis.materialization.encoded_time import EncodedTime, lower_encoded_times
-    from marivo.analysis.materialization.time_filter import cancel_utc, optimize_time
 
     deferred = has_deferred_day_keys(expression)
     encoded = bool(expression.op().find(EncodedTime))

@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 import marivo.semantic as ms
+from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES
+from marivo.semantic import _catalog_definition, _definition_identity
 from marivo.semantic.catalog_entries import MetricContributionClockBinding
+from marivo.semantic.definition_resolution import _Resolver
 from marivo.semantic.errors import SemanticError
 from tests.shared_fixtures import write_minimal_catalog_project
 
@@ -452,9 +456,6 @@ def query_count():
 def test_static_definitions_are_built_once_per_catalog_and_reload_is_independent(
     tmp_path: Path,
 ) -> None:
-    from unittest.mock import patch
-
-    from marivo.semantic import _catalog_definition
 
     write_minimal_catalog_project(tmp_path)
     with patch.object(
@@ -486,11 +487,6 @@ def test_static_definitions_are_built_once_per_catalog_and_reload_is_independent
 
 
 def test_new_resolvers_reuse_only_their_captured_state_definition_versions(tmp_path: Path) -> None:
-    from unittest.mock import patch
-
-    from marivo._kernel.refs import ref as ref_factory
-    from marivo.semantic import _definition_identity
-    from marivo.semantic.definition_resolution import _Resolver
 
     write_minimal_catalog_project(tmp_path)
     original = ms.load(workspace_dir=tmp_path)

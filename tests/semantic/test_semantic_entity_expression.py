@@ -17,6 +17,10 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ibis_ir
 import pytest
+from ibis import asc as sort_first
+from ibis import asc as sort_second
+from ibis import now as sort_clock
+from ibis import random as pick_random
 from ibis.common.deferred import Deferred
 
 import marivo.datasource as md
@@ -25,6 +29,10 @@ from marivo._kernel.refs import Ref, SemanticKindTag
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.symbolic import EntitySymbol
 from marivo.datasource.ir import TableSourceIR
+from marivo.semantic import _expression_binding
+from marivo.semantic._definition_identity import scoped_definition_fingerprint
+from marivo.semantic._expression_binding import compile_expression_body
+from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, SemanticLoadError
 from marivo.semantic.expressions.ir import ExpressionBody
 from marivo.semantic.ir import EntityIR
@@ -32,6 +40,7 @@ from marivo.semantic.loading_context import (
     _LOADER_CTX,
     LoaderContext,
 )
+from tests.shared_fixtures import load_inline_semantic
 from tests.support.refs import as_ref
 
 if TYPE_CHECKING:
@@ -69,7 +78,6 @@ def _compile_entity_body(
     fn: Callable[..., object], ref: Ref[SemanticKindTag] | None = None
 ) -> ExpressionBody:
     """Compile one Entity body through the shared expression compiler."""
-    from marivo.semantic._expression_binding import compile_expression_body
 
     entity_ref = ref if ref is not None else ref_factory.entity("sales.t")
     return compile_expression_body(
@@ -217,7 +225,6 @@ def test_entity_body_rejects_execution_attribute() -> None:
 
 
 def test_entity_body_rejects_ms_bind() -> None:
-    from marivo.semantic import _expression_binding
 
     def body(raw: ibis_ir.Table) -> object:
         return _expression_binding.bind(ref_factory.dimension("sales.orders.region"), raw)  # type: ignore[arg-type]  # Test invalid binding syntax.
@@ -241,8 +248,6 @@ def test_entity_body_rejects_clock_and_random_symbols() -> None:
 
 
 def test_entity_body_rejects_clock_and_random_import_aliases() -> None:
-    from ibis import now as sort_clock
-    from ibis import random as pick_random
 
     def body_alias_clock(raw: ibis_ir.Table) -> object:
         return raw.mutate(t=sort_clock())
@@ -363,7 +368,6 @@ def daily_orders(raw):
 
 
 def test_expression_entity_body_change_invalidates_fingerprint() -> None:
-    from tests.shared_fixtures import load_inline_semantic
 
     def fingerprint_for(body_expr: str) -> str:
         with load_inline_semantic(_identity_body_variant(body_expr)) as result:
@@ -375,8 +379,6 @@ def test_expression_entity_body_change_invalidates_fingerprint() -> None:
 
 def test_expression_entity_body_includes_transitive_metric_dependency() -> None:
     """A body-only edit invalidates a dependent metric's scoped digest."""
-    from marivo.semantic._definition_identity import scoped_definition_fingerprint
-    from tests.shared_fixtures import load_inline_semantic
 
     source = (
         _identity_body_variant("filter(raw.amount > 0)")
@@ -422,7 +424,6 @@ def test_ibis_import_alias_identity_changes_entity_fingerprint() -> None:
     ``from ibis import desc as sort`` pick different rows for the same AST
     spelling, so the normalized body must encode the resolved symbol identity.
     """
-    from tests.shared_fixtures import load_inline_semantic
 
     def source_for(import_line: str) -> str:
         return (
@@ -445,8 +446,6 @@ def test_ibis_import_alias_identity_changes_entity_fingerprint() -> None:
 
 def test_entity_body_hash_resolves_alias_identity_within_compile() -> None:
     """Two aliases for the same Ibis symbol produce one body hash."""
-    from ibis import asc as sort_first
-    from ibis import asc as sort_second
 
     def body_first(raw: ibis_ir.Table) -> object:
         return raw.order_by(sort_first(raw.amount)).limit(1)
@@ -470,7 +469,6 @@ def test_entity_card_discloses_captured_expression_body(
     Reading the card never executes the body; details render from captured
     display syntax only.
     """
-    from marivo.semantic.catalog import SemanticCatalog
 
     model = (
         "import marivo.datasource as md\n"
@@ -509,7 +507,6 @@ def test_direct_entity_card_keeps_direct_form_disclosure(
     tmp_path: Path,
 ) -> None:
     """A direct Entity card reports the direct form and source schema authority."""
-    from marivo.semantic.catalog import SemanticCatalog
 
     model = (
         "import marivo.datasource as md\n"

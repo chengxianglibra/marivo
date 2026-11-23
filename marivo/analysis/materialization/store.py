@@ -9,12 +9,12 @@ import sqlite3
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
-from marivo._kernel.compat import UTC
+from marivo._kernel.timezones import normalize_timezone
+from marivo.analysis.errors import AnalysisRepair, SessionAlreadyExistsError
 from marivo.analysis.materialization.contracts import (
     ResourceRecord,
     RunFailure,
@@ -24,12 +24,11 @@ from marivo.analysis.materialization.contracts import (
     parse_timestamp,
 )
 from marivo.analysis.materialization.layout import MaterializationLayout
+from marivo.analysis.materialization.run_records import TerminalRun, load_run
+from marivo.analysis.materialization.sqlite_values import _now, _one, _optional, _rows, _text
 from marivo.analysis.model.execution_errors import IntegrityError
-from marivo.analysis.model.receipts import canonical_json, invalid
-
-if TYPE_CHECKING:
-    from marivo.analysis.materialization.terminal_store import TerminalRun
-
+from marivo.analysis.model.receipts import canonical_json, digest, invalid
+from marivo.introspection.live.model import LiveHelpTarget
 
 _SCHEMA = """
 CREATE TABLE sessions (
@@ -95,10 +94,6 @@ def _generation_error(version: object, expected: int = 28) -> IntegrityError:
     )
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
-
-
 def _new_run_ref() -> str:
     """Allocate the Store's Run reference format before key construction."""
     return "run_" + secrets.token_hex(12)
@@ -121,47 +116,6 @@ def _enable_wal(conn: sqlite3.Connection) -> None:
             if mode != "wal":
                 raise invalid("Store 28 requires WAL durability")
             return
-
-
-def _cell(row: sqlite3.Row, name: str) -> object:
-    value: object = row[name]
-    return value
-
-
-def _text(row: sqlite3.Row, name: str) -> str:
-    value = _cell(row, name)
-    if type(value) is not str or not value:
-        raise invalid(f"invalid {name} relation field")
-    return value
-
-
-def _optional(row: sqlite3.Row, name: str) -> str | None:
-    value = _cell(row, name)
-    if value is None:
-        return None
-    if type(value) is not str:
-        raise invalid(f"invalid nullable {name} relation field")
-    return value
-
-
-def _rows(
-    conn: sqlite3.Connection, sql: str, parameters: tuple[object, ...] = ()
-) -> tuple[sqlite3.Row, ...]:
-    result: list[sqlite3.Row] = []
-    for value in conn.execute(sql, parameters):
-        if not isinstance(value, sqlite3.Row):
-            raise invalid("invalid SQLite row decoder")
-        result.append(value)
-    return tuple(result)
-
-
-def _one(
-    conn: sqlite3.Connection, sql: str, parameters: tuple[object, ...] = ()
-) -> sqlite3.Row | None:
-    rows = _rows(conn, sql, parameters)
-    if len(rows) > 1:
-        raise invalid("duplicate selected metadata")
-    return None if not rows else rows[0]
 
 
 class SessionStore:
@@ -201,7 +155,6 @@ class SessionStore:
 
     @property
     def store_id(self) -> str:
-        from marivo.analysis.model.receipts import digest
 
         return "store_" + digest(str(self.db_path))
 
@@ -337,7 +290,6 @@ class SessionStore:
             raise invalid("Session report timezone origin is missing") from None
         if origin not in ("explicit", "system"):
             raise invalid("unknown report timezone origin")
-        from marivo._kernel.timezones import normalize_timezone
 
         timezone_name = _text(row, "report_timezone_name")
         try:
@@ -400,9 +352,6 @@ class SessionStore:
         with self._write() as conn:
             row = _one(conn, "SELECT * FROM sessions WHERE name=?", (name,))
             if row is not None:
-                from marivo.analysis.errors import AnalysisRepair, SessionAlreadyExistsError
-                from marivo.introspection.live.model import LiveHelpTarget
-
                 existing = self._session(row)
                 raise SessionAlreadyExistsError(
                     message="A Session with this exact name already exists.",
@@ -443,16 +392,12 @@ class SessionStore:
         return result
 
     def _resource_run(self, run_ref: str) -> TerminalRun | None:
-        from marivo.analysis.materialization.terminal_store import run
-
         with self._read() as conn:
-            return run(self, conn, run_ref)
+            return load_run(conn, run_ref)
 
     def reserve(self, resource: ResourceRecord) -> None:
         with self._write() as conn:
-            from marivo.analysis.materialization.terminal_store import run as terminal_run
-
-            run = terminal_run(self, conn, resource.run_ref)
+            run = load_run(conn, resource.run_ref)
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("resource reservation requires incomplete admission")
             conn.execute(
@@ -529,9 +474,7 @@ class SessionStore:
         payload = canonical_json(failure_payload(failure))
         decode_failure(payload)
         with self._write() as conn:
-            from marivo.analysis.materialization.terminal_store import run as terminal_run
-
-            run = terminal_run(self, conn, run_ref)
+            run = load_run(conn, run_ref)
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("terminal history cannot be rewritten")
             now = _now()

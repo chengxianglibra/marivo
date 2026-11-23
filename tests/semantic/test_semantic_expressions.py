@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import ast
 import dataclasses
+import inspect
+import sys
+import textwrap
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from types import ModuleType
 from typing import Literal, NoReturn, TypeAlias, TypeVar, overload
 
 import duckdb
@@ -44,19 +49,18 @@ from marivo._kernel.refs import (
 )
 from marivo._kernel.refs import ref as ref_factory
 from marivo.analysis.errors import AnalysisError
+from marivo.datasource.runtime import backends as backends
 from marivo.semantic import Relationship
+from marivo.semantic._deferred_facts import MetricFacts, RowFacts, _Facts, _Samples
 from marivo.semantic._deferred_semantics import (
-    MetricFacts,
-    RowFacts,
     _consume,
-    _Facts,
     _inspect,
-    _Samples,
     consume_field,
     consume_metric,
     consume_predicate,
     consume_row,
 )
+from marivo.semantic._expression_binding import evaluate_expression_body
 from marivo.semantic._expression_values import _ExpressionCarrier
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.definition_resolution import Field
@@ -73,11 +77,13 @@ from marivo.semantic.expressions.objects import (
 from marivo.semantic.expressions.objects import _Entity as Entity
 from marivo.semantic.expressions.objects import _Relationship as CapturedRelationship
 from marivo.semantic.loading_context import (
+    _LOADER_CTX,
     LoaderContext,
     loader_context,
 )
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import captured_catalog, catalog_value
+from marivo.semantic.static_check.assembly import assembly_validate
+from tests.shared_fixtures import captured_catalog, catalog_value, write_minimal_catalog_project
 from tests.shared_fixtures import resolve_test_symbol as resolve
 from tests.support.refs import as_ref
 
@@ -332,7 +338,6 @@ def test_versions_follow_definition_dependencies(
 def test_declaration_state_resolves_same_exact_values_as_catalog(
     catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError("declaration resolution opened a datasource backend")
@@ -372,8 +377,6 @@ def test_declaration_state_resolves_same_exact_values_as_catalog(
 def test_declared_constructors_capture_catalog_versions_without_business_reads(
     catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime import backends as backends
-    from marivo.semantic.loading_context import loader_context
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError("constructor read a business source")
@@ -420,7 +423,6 @@ def test_declared_constructors_capture_catalog_versions_without_business_reads(
 def test_constructor_snapshots_bind_explicit_time_in_either_declaration_order(
     catalog: SemanticCatalog,
 ) -> None:
-    from marivo.semantic.static_check.assembly import assembly_validate
 
     field_first: bool
     for field_first in (False, True):
@@ -501,7 +503,6 @@ def test_constructor_snapshots_accept_later_declared_permission_axis(
 def test_constructor_snapshots_close_retained_ibis_forward_dependencies(
     catalog: SemanticCatalog,
 ) -> None:
-    from marivo.semantic.static_check.assembly import assembly_validate
 
     ctx = LoaderContext(
         default_domain="sales", datasource_irs=tuple(catalog._state.registry.datasources.values())
@@ -530,7 +531,6 @@ def test_constructor_snapshots_close_retained_ibis_forward_dependencies(
 
 
 def test_ibis_bindings_use_completed_consumer_definitions(catalog: SemanticCatalog) -> None:
-    from marivo.semantic._expression_binding import evaluate_expression_body
 
     def assert_binding(column: str, lookup: bool) -> None:
         datasource_irs = tuple(catalog._state.registry.datasources.values())
@@ -641,8 +641,6 @@ def test_file_loader_resolves_owners_in_its_scope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import sys
-    from types import ModuleType
 
     mode: str
     for mode in ("same", "updated", "lookup"):
@@ -672,9 +670,6 @@ def test_file_loader_resolves_owners_in_its_scope(
 
 
 def test_metric_reflected_comparisons_match_ordinary_composition(catalog: SemanticCatalog) -> None:
-    import ast
-    import inspect
-    import textwrap
 
     source = textwrap.dedent(
         inspect.getsource(
@@ -863,8 +858,6 @@ def test_retired_declaration_syntax_has_specific_reauthoring_errors(
 def test_measure_declaration_names_the_ad_hoc_graph_without_loader(
     catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime import backends as backends
-    from marivo.semantic.loading_context import _LOADER_CTX
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError("measure declaration opened a datasource backend")
@@ -1305,7 +1298,6 @@ def _measure(catalog: SemanticCatalog, name: str) -> Deferred:
 def test_public_boolean_conditionals_preserve_predicate_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tests.shared_fixtures import write_minimal_catalog_project
 
     write_minimal_catalog_project(tmp_path)
     database = tmp_path / "facts.duckdb"
@@ -1652,7 +1644,6 @@ def test_weighted_mean_pairs_one_root_and_rejects_foreign_time(catalog: Semantic
 def test_expression_construction_reads_no_business_source(
     catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError("expression construction opened a datasource backend")
@@ -2029,7 +2020,6 @@ def test_via_time_requires_root_start_and_keeps_native_reductions(catalog: Seman
 def test_via_construction_reads_no_business_source(
     catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError("via construction opened a datasource backend")

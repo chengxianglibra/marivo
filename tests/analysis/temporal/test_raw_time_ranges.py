@@ -1,5 +1,6 @@
 """Physical range predicates preserve typed cutoffs without wrapping source columns."""
 
+import operator
 import os
 from dataclasses import replace
 from datetime import date, datetime, timezone
@@ -22,6 +23,7 @@ from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse, TimestampParse
 from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
 from tests.analysis.temporal.encoded_time_fixtures import axis
+from tests.datasource.environment.clickhouse_analysis import connection
 from tests.datasource.source_cases import SourceData, source_case, source_params
 
 
@@ -162,7 +164,6 @@ def test_raw_cutoffs_round_to_source_ticks_and_respect_source_timezone(
     os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1", reason="opt-in ClickHouse service"
 )
 def test_clickhouse_date32_historical_range_uses_date32_cutoffs() -> None:
-    from tests.datasource.environment.clickhouse_analysis import connection
 
     table = ibis.table({"point": "date"}, name="events")
     field = replace(axis("%Y%m%d"), parse=DateParse(timezone="Asia/Shanghai"))
@@ -196,7 +197,6 @@ def test_clickhouse_date32_historical_range_uses_date32_cutoffs() -> None:
 def test_canonical_comparisons_keep_strictness_and_nullable_complements(
     comparison: TimeComparison, minute: int
 ) -> None:
-    import operator
 
     operations = {
         ">=": operator.ge,

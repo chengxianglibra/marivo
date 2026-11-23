@@ -1,5 +1,7 @@
 """Single-member restriction preserves cells, keys and missing-row semantics."""
 
+import subprocess
+import sys
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -9,7 +11,10 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.compiler.frame_plan import frame_program
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.core.frame_operations import FixFrameValues
+from marivo.analysis.core.frame_value_analysis import infer_frame_schema
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
@@ -23,7 +28,13 @@ from marivo.analysis.model.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
+from marivo.analysis.model.frame_facts import UnresolvedDataType
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.frame_structure import (
+    PendingDataAxis,
+    PendingDataColumn,
+    PendingDataSchema,
+)
 from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value
 
 
@@ -64,7 +75,6 @@ def axis(name: str, dtype: DataType | None = None, *, nullable: bool = True) -> 
 def test_pending_fixed_axes_close_before_and_inside_comparison(
     analysis_dsl_case_factory: DslCaseFactory, key: str | None
 ) -> None:
-    from marivo.analysis.model.frame_facts import UnresolvedDataType
 
     case = analysis_dsl_case_factory("j2")
     region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
@@ -117,14 +127,6 @@ def test_pending_fixed_axes_close_before_and_inside_comparison(
 def test_pending_composite_fixed_key_retains_exact_physical_types(
     dtype: DataType, key: Decimal | pd.Timestamp | pd.Timedelta
 ) -> None:
-    from marivo.analysis.compiler.frame_plan import frame_program
-    from marivo.analysis.core.frame_expression import infer_frame_schema
-    from marivo.analysis.core.frame_fix import FixFrameValues
-    from marivo.analysis.model.frame_structure import (
-        PendingDataAxis,
-        PendingDataColumn,
-        PendingDataSchema,
-    )
 
     captured = PendingDataSchema(
         (
@@ -321,8 +323,6 @@ def test_fix_after_compare_preserves_presence_and_value_bindings(local: LocalFra
 
 
 def test_fix_cold_roundtrip_and_source_free_continuation(local: LocalFrameServices) -> None:
-    import subprocess
-    import sys
 
     frame = memory(
         local,

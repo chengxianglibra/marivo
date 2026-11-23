@@ -9,21 +9,24 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.core.attribute import _coefficient_column
-from marivo.analysis.core.frame_method_facts import (
-    FrameAdditiveMethod,
-    FrameAttributeMetric,
-    FrameDivisionMethod,
+from marivo.analysis.core.data_validation import stage_arrow_type
+from marivo.analysis.core.frame_level_facts import (
     FrameLevelAdditiveMethod,
     FrameLevelDivisionMethod,
     FrameLevelLinearMethod,
     FrameLevelRatioMethod,
+)
+from marivo.analysis.core.frame_method_facts import (
+    FrameAdditiveMethod,
+    FrameAttributeMetric,
+    FrameDivisionMethod,
     FrameLinearMethod,
     FrameMethodFacts,
     FrameRatioMethod,
     FrameShapleyMethod,
 )
-from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
-from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary, _Value
+from marivo.analysis.methods.attribute_numeric import _numeric_binary, _Value
+from marivo.analysis.methods.frame_attribute_report import _report_value
 from marivo.analysis.model.data_types import DurationDataType, ScalarDataType
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.method_values import FrameMethodValue
@@ -211,8 +214,6 @@ def _target(metric: FrameAttributeMetric) -> None:
         else:
             captured = _value(method.change)
             if isinstance(method, FrameShapleyMethod):
-                from marivo.analysis.methods.frame_attribute_report import _report_value
-
                 if method.change.column.unit != metric.total.column.unit:
                     reject(
                         "the native change unit retained by the absolute sampled report",

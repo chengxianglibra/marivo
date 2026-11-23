@@ -46,6 +46,7 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.static_check.assembly import assembly_validate
+from marivo.semantic.static_check.physical_identity import entity_dependency_fingerprint
 from marivo.semantic.static_check.registry import Registry
 
 _LOC = SourceLocation(file="<test>", line=0)
@@ -478,7 +479,6 @@ def test_missing_dimension_ref_includes_did_you_mean() -> None:
 
 
 def test_physical_entity_dependency_fingerprint_preserves_consumed_identity() -> None:
-    from marivo.semantic.static_check.physical_identity import entity_dependency_fingerprint
 
     # Snapshot includes the first-class datasource source-time declaration.
     assert entity_dependency_fingerprint(_make_registry(), "sales.orders") == (

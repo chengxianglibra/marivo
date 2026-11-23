@@ -5,6 +5,7 @@ from pathlib import Path
 
 import ibis
 import pytest
+from psycopg import sql as pg_sql
 
 import marivo
 from marivo.analysis.materialization.store import SessionStore
@@ -47,7 +48,6 @@ def test_admin_credentials_are_redacted_only_when_native_records_are_saved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pytest.importorskip("psycopg")
-    from psycopg import sql as pg_sql
 
     postgres = pg_sql.SQL("ALTER ROLE {} WITH PASSWORD {} NOSUPERUSER").format(
         pg_sql.Identifier("sql_ownership_fixture_reader"),

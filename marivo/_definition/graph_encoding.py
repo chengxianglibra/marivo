@@ -28,7 +28,7 @@ from marivo._definition.windows import SampleWindowContext
 from marivo._kernel.errors import invalid
 from marivo._kernel.refs import Ref
 from marivo._kernel.time_types import Grain as TemporalGrain
-from marivo._kernel.time_types import InstantAnchor
+from marivo._kernel.time_types import InstantAnchor, grain_token
 
 
 def canonical_value(value: object) -> object:
@@ -36,7 +36,7 @@ def canonical_value(value: object) -> object:
     if isinstance(value, Enum):
         return canonical_value(value.value)
     if isinstance(value, TemporalGrain):
-        return value._to_token()
+        return grain_token(value)
     if value is None or isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):

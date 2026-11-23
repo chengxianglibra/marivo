@@ -27,7 +27,7 @@ def password() -> str:
 
 @contextmanager
 def connection(*, admin: bool = False, port: int = PORT) -> Iterator[Connection]:
-    import pymysql
+    import pymysql  # noqa: PLC0415 - Install the optional MySQL driver only in MySQL environments.
 
     with pymysql.connect(
         host=HOST,

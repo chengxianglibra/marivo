@@ -14,12 +14,12 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.core.data_validation import normalize_stage_frame
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     MemoryFrameBacking,
 )
-from marivo.analysis.methods.carriers.data_validation import normalize_stage_frame
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_schema import DataAxis, DataSchema
 from marivo.analysis.model.data_types import (

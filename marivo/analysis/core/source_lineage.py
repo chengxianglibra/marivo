@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import fields, is_dataclass
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from marivo._definition.expressions import DeclaredMetricRef
+from marivo._definition.expressions import DeclaredMetricRef, MetricWindow
 from marivo._definition.graph import DefinitionNode, children
 from marivo._definition.relations import (
     ObserveQuery,
@@ -20,10 +21,13 @@ from marivo._definition.types import (
     FieldRead,
     RowAttributeTime,
 )
+from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
 from marivo._kernel.refs import Ref
 from marivo._kernel.temporal import Grain
 from marivo.analysis.binding.signature import BoundQuantity
+from marivo.analysis.core.frame_data import SourceFrameBinding
 from marivo.analysis.model.calendar_schema import calendar_grain
+from marivo.analysis.model.data_schema import CalendarDataAxis, IntervalDataAxis
 from marivo.analysis.model.frame_schema import capture_grain
 from marivo.analysis.model.lineage import (
     ColumnLineage,
@@ -35,12 +39,23 @@ from marivo.analysis.model.lineage import (
     merge,
     union,
 )
+from marivo.analysis.model.time_facts import (
+    FrameAllHistoryWindow,
+    FrameAxisTime,
+    FrameFixedTime,
+    FrameObservationContext,
+    FrameObservationWindow,
+    FrameSinceWindow,
+    FrameToDateWindow,
+    FrameTrailingDurationWindow,
+    FrameTrailingPeriodsWindow,
+)
 from marivo.semantic.spi import DefinitionResolver as _Resolver
 from marivo.semantic.spi import PublishedDeclaration
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.graph import BoundGraph
-    from marivo.analysis.core.frame_data import LiteralFrameBinding, SourceFrameBinding
+    from marivo.analysis.core.frame_data import LiteralFrameBinding
     from marivo.analysis.model.data_schema import DataSchema
     from marivo.analysis.model.frame_structure import PendingDataSchema, PendingFrameAxis
     from marivo.analysis.model.layout_facts import FrameValueContext
@@ -50,7 +65,6 @@ if TYPE_CHECKING:
 def _capture(
     root: SourceFrameBinding | LiteralFrameBinding,
 ) -> tuple[Callable[[object], Origins], Callable[[DefinitionNode], ColumnLineage]]:
-    from marivo.analysis.core.frame_data import SourceFrameBinding
 
     state = root.state if isinstance(root, SourceFrameBinding) else None
     resolver = _Resolver(state) if state is not None else None
@@ -165,7 +179,6 @@ def definition_lineage(root: SourceFrameBinding, node: DefinitionNode) -> Column
 def source_lineage(
     schema: DataSchema | PendingDataSchema, root: SourceFrameBinding | LiteralFrameBinding
 ) -> FrameLineage:
-    from marivo.analysis.core.frame_data import SourceFrameBinding
 
     collect, expression = _capture(root)
     graph = root.graph
@@ -274,28 +287,6 @@ def observation_contexts(
     state: CompiledSemanticState | None,
 ) -> tuple[tuple[str, FrameValueContext], ...]:
     """Capture direct subjects and explicit outer windows before declaration expansion."""
-    from datetime import datetime, timezone
-
-    from marivo._definition.expressions import MetricWindow
-    from marivo._definition.windows import (
-        AllHistory,
-        Since,
-        ToDate,
-        TrailingDuration,
-        TrailingPeriods,
-    )
-    from marivo.analysis.model.data_schema import CalendarDataAxis, IntervalDataAxis
-    from marivo.analysis.model.time_facts import (
-        FrameAllHistoryWindow,
-        FrameAxisTime,
-        FrameFixedTime,
-        FrameObservationContext,
-        FrameObservationWindow,
-        FrameSinceWindow,
-        FrameToDateWindow,
-        FrameTrailingDurationWindow,
-        FrameTrailingPeriodsWindow,
-    )
 
     if not isinstance(graph.root, ObserveQuery):
         return ()

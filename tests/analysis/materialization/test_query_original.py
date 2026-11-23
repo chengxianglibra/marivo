@@ -1,13 +1,26 @@
 """Explicit source Metrics keep numerical and business identity contracts."""
 
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import duckdb
+import ibis
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition.expressions import EntityCount
+from marivo._definition.types import ExactRef
+from marivo._kernel.refs import ref
+from marivo.analysis.compiler.original import component_layout
+from marivo.analysis.compiler.reduction_input import ReductionInput
+from marivo.analysis.core import data_validation
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.query_components import complete_components
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
@@ -323,19 +336,6 @@ def test_versioned_members_and_read_select_the_same_exact_snapshot(
 def test_original_contribution_and_projected_domain_skip_independent_proven_key_scans(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import ibis
-    import pandas as pd
-
-    from marivo._definition.expressions import EntityCount
-    from marivo._definition.types import ExactRef
-    from marivo._kernel.refs import ref
-    from marivo.analysis.compiler.observation import ReductionInput
-    from marivo.analysis.compiler.original import component_layout
-    from marivo.analysis.materialization.query_components import complete_components
-    from marivo.analysis.methods.carriers import data_validation
-    from marivo.analysis.model.data_types import DataColumn, ScalarDataType
-    from marivo.analysis.model.execution_errors import MaterializationError
-    from marivo.analysis.model.unique_keys import UniqueKeys
 
     key = DataColumn("key.0", "group", ScalarDataType("string"), False)
     value = DataColumn("value", "count", ScalarDataType("int64"), False)
@@ -371,7 +371,6 @@ def test_original_contribution_and_projected_domain_skip_independent_proven_key_
     assert component.coordinates["key.0"].tolist() == ["A", "B"]
     assert not component.table_unique_keys.proves(("key.0",))
     assert component.domain_unique_keys.proves(("key.0",))
-    from dataclasses import replace
 
     unknown = replace(layout, table_unique_keys=UniqueKeys())
     with pytest.raises(MaterializationError):

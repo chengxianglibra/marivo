@@ -24,10 +24,14 @@ from marivo.analysis.compiler.calendar import (
     builtin_sample_key,
     builtin_wall_key,
 )
+from marivo.analysis.compiler.source_time import source_time
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.materialization.date_day_keys import deferred_day_key
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.datasource.temporal_primitives import localize, render, timestamp
+from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
+from tests.analysis.temporal.encoded_time_fixtures import axis
+from tests.datasource.environment.clickhouse_analysis import connection
 from tests.datasource.source_cases import SourceData, source_case, source_params
 
 
@@ -292,7 +296,6 @@ def test_unbound_clickhouse_strings_do_not_acquire_inferred_utc_cutoffs(literal:
 def test_clickhouse_date_axes_prune_partitions(historical: bool) -> None:
     if os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1":
         pytest.skip("Explicit ready ClickHouse service required")
-    from tests.datasource.environment.clickhouse_analysis import connection
 
     name = "date_pruning_" + uuid4().hex
     rows_per_day = 8192
@@ -395,9 +398,6 @@ def test_clickhouse_date_axes_prune_partitions(historical: bool) -> None:
 def test_encoded_day_keys_restore_native_groups_after_aggregation(
     encoding: str, source_zone: str, report_zone: str, start: str, end: str, fast: bool
 ) -> None:
-    from marivo.analysis.compiler.source_time import source_time
-    from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
-    from tests.analysis.temporal.encoded_time_fixtures import axis
 
     calendar = grouping_binding(exact_scope(start, end, report_zone).by(mv.grain("day")))
     fmt = "%Y-%m-%d" if encoding == "dashed" else "%Y%m%d"

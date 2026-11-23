@@ -11,17 +11,24 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.analysis.materialization.graph_local_execution as local_execution
+from marivo.analysis.compiler.query_stages import FrameCompute, LocalCompute
 from marivo.analysis.core.frame_data import MemoryFrameBacking
-from marivo.analysis.core.frame_method_facts import (
-    FrameShapleyMethod,
+from marivo.analysis.core.frame_method_facts import FrameShapleyMethod
+from marivo.analysis.core.frame_shapley_facts import (
     FrameShapleyNativeQuantile,
     FrameShapleyQuery,
     FrameShapleyQueryGame,
 )
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.graph_local_execution import LocalKernel
+from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.attribute_game_errors import AttributeGameError
+from marivo.analysis.model.data_types import ScalarDataType
 from marivo.analysis.session.core import Session
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic._expression_values import NumericMetric
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, time_population
@@ -283,8 +290,6 @@ def test_relative_game_normalizes_after_absolute_sampling(game_session: Session)
 def test_relative_zero_baseline_retains_target_and_structured_parent(
     game_session: Session, tmp_path: Path, route: str
 ) -> None:
-    from marivo.analysis.model.attribute_game_errors import AttributeGameError
-    from marivo.analysis.model.data_types import ScalarDataType
 
     with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
         connection.execute("UPDATE facts SET x=0 WHERE id<3")
@@ -937,12 +942,6 @@ def test_native_demanded_empty_coalition_rejects_complete_call(
 def test_native_reads_can_change_between_queries_while_players_and_endpoints_stay_cached(
     game_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis.materialization.graph_local_execution as local_execution
-    from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
-    from marivo.analysis.materialization.graph_local_execution import LocalKernel
-    from marivo.analysis.methods.carriers.stages import StageOutput
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     x = catalog_value(game_session.catalog, "sales.facts.x", kind="measure")
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="dimension")

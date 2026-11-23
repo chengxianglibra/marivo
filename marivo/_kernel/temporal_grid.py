@@ -9,7 +9,7 @@ from hashlib import sha256
 from itertools import pairwise
 from typing import Literal, TypeAlias
 
-from marivo._kernel.time_types import Grain
+from marivo._kernel.time_types import Grain, grain_token
 from marivo._kernel.timezones import normalize_timezone
 
 CivilBounds: TypeAlias = tuple[str, str, str, str]
@@ -116,7 +116,7 @@ class BoundTimeGrid:
 
     @property
     def grain_token(self) -> str:
-        return self.grain_spec._to_token()
+        return grain_token(self.grain_spec)
 
     def __post_init__(self) -> None:
         if not self.identity or not self.grain_token or self.precision != "us":
@@ -519,7 +519,7 @@ def bind_time_grid(start: datetime, end: datetime, boundary: str, grain: Grain) 
         )
         for cell in cells
     )
-    token = grain._to_token()
+    token = grain_token(grain)
     return BoundTimeGrid(
         _identity(
             token,

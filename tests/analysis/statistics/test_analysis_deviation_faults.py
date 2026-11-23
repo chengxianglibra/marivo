@@ -11,8 +11,12 @@ import pyarrow.parquet as pq
 import pytest
 
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import frame_evaluation, terminal_publication
+from marivo.analysis.materialization import graph_reading as reading
 from marivo.analysis.materialization.storage import _open_payload
 from marivo.analysis.model.receipts import LocalReceipt
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from tests.analysis.statistics.pandas_workflows import assert_clean, deviation, orders, plain
 from tests.shared_fixtures import DslCaseFactory, run_ids, terminal_runs
 
@@ -21,7 +25,6 @@ def test_terminal_reader_failure_stops_pandas_scoring_without_run(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.materialization import graph_reading as reading
 
     case = analysis_dsl_case_factory("j2")
     artifact = orders(case).persist()
@@ -110,7 +113,6 @@ def test_local_failure_releases_prepared_sources_and_preserves_prior_artifact(
     monkeypatch: pytest.MonkeyPatch,
     cancel: bool,
 ) -> None:
-    from marivo.analysis.materialization import frame_evaluation
 
     case = analysis_dsl_case_factory("j2")
     query = orders(case)
@@ -148,8 +150,6 @@ def test_transaction_failure_has_no_partial_success(
             injected.append(actual)
             raise RuntimeError("injected terminal publication failure")
 
-    from marivo.analysis.materialization import terminal_publication
-
     monkeypatch.setattr(terminal_publication, "_event", inject)
     with pytest.raises(AnalysisError):
         orders(case).persist()
@@ -162,8 +162,6 @@ def test_lost_commit_ack_returns_committed_output_without_source_replay(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     case = analysis_dsl_case_factory("j2")
     execute = SourceSession.execute
@@ -181,7 +179,6 @@ def test_lost_commit_ack_returns_committed_output_without_source_replay(
             raise OSError("lost terminal commit acknowledgement")
 
     monkeypatch.setattr(SourceSession, "execute", read)
-    from marivo.analysis.materialization import terminal_publication
 
     monkeypatch.setattr(terminal_publication, "_event", lose_ack)
     artifact = orders(case).persist()

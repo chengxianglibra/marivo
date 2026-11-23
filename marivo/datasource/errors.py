@@ -15,6 +15,7 @@ from marivo._kernel.errors import MarivoError
 from marivo.datasource.locations import DatasourceSourceLocation
 from marivo.introspection.live.errors import HelpTargetErrorPayload
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.targets import canonical_target
 
 ScopeState = Literal["known", "none", "unknown"]
 
@@ -130,7 +131,6 @@ def repair(
     preserves_evidence: bool | None = None,
 ) -> AuthoringRepair:
     """Construct a datasource-owned typed repair."""
-    from marivo.introspection.live.targets import canonical_target
 
     return AuthoringRepair(
         kind=kind,

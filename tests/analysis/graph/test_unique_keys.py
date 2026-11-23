@@ -8,8 +8,18 @@ import ibis
 import pandas as pd
 import pytest
 
+from marivo._definition.query import FilterValues, ValueBinary, ValueLiteral, ValueSlot
+from marivo.analysis.compiler.graph_plan import with_unique_keys
+from marivo.analysis.compiler.query_program import ResultProgram
+from marivo.analysis.compiler.query_stages import (
+    LocalCompute,
+    ProjectionRead,
+    QueryPlan,
+    SourceReadStage,
+)
 from marivo.analysis.compiler.unique_keys import relation_unique_keys
-from marivo.analysis.methods.carriers import data_validation
+from marivo.analysis.core import data_validation
+from marivo.analysis.materialization.graph_local_execution import run_local
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.execution_errors import MaterializationError
@@ -17,16 +27,6 @@ from marivo.analysis.model.unique_keys import UniqueKeys
 
 
 def test_unknown_keyless_stage_does_not_gain_scalar_proof_after_filter() -> None:
-    from marivo._definition.query import FilterValues, ValueBinary, ValueLiteral, ValueSlot
-    from marivo.analysis.compiler.graph_plan import (
-        LocalCompute,
-        ProjectionRead,
-        QueryPlan,
-        SourceReadStage,
-        with_unique_keys,
-    )
-    from marivo.analysis.compiler.query_program import ResultProgram
-    from marivo.analysis.materialization.graph_local_execution import run_local
 
     columns = (DataColumn("value", "value", ScalarDataType("int64"), False),)
     source = SourceReadStage(

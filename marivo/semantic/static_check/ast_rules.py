@@ -8,8 +8,8 @@ import hashlib
 import inspect
 import sys
 import textwrap
-from collections.abc import Callable
-from typing import Any, Literal, cast
+from collections.abc import Callable, Mapping
+from typing import Literal, cast
 
 from marivo.semantic.constraints import ASTSpec, ConstraintId, get_constraint
 from marivo.semantic.errors import (
@@ -74,7 +74,7 @@ def _has_pushdown_unfriendly_time_call(node: ast.AST) -> bool:
 
 def _time_dimension_pushdown_advisory(
     field_ir: DimensionIR,
-    fn: Callable[..., Any] | None,
+    fn: Callable[..., object] | None,
     function: ast.FunctionDef | None = None,
 ) -> bool:
     if not field_ir.is_time_dimension:
@@ -127,7 +127,7 @@ def _infer_terminal_cast(expr: ast.AST) -> str | None:
 
 def _time_dimension_dtype_advisory(
     field_ir: DimensionIR,
-    fn: Callable[..., Any] | None,
+    fn: Callable[..., object] | None,
     function: ast.FunctionDef | None = None,
 ) -> str | None:
     """Return a cast target that conflicts with the Dimension's declared parse result."""
@@ -165,7 +165,7 @@ def _time_dimension_dtype_advisory(
     return None
 
 
-def validate_decorator_call(kind: str, payload: dict[str, Any]) -> None:
+def validate_decorator_call(kind: str, payload: Mapping[str, object]) -> None:
     """Layer 1: decorator-time validation.  Raises SemanticDecoratorError.
 
     Currently a passthrough — decorator-time validation is handled inline
@@ -571,7 +571,7 @@ _BODY_KIND_LABELS = {
 
 
 def validate_metric_body_ast(
-    fn: Callable[..., Any],
+    fn: Callable[..., object],
     mode: Literal["base"],
     *,
     body_kind: Literal["dimension", "time_dimension", "measure", "metric"] = "metric",

@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from contextvars import ContextVar
 from dataclasses import MISSING, Field, dataclass, field, fields
 from pathlib import Path
-from typing import Any, ClassVar, TypeAlias, cast, get_args, get_origin
+from typing import ClassVar, TypeAlias, cast, get_args, get_origin
 
 from marivo._kernel.refs import DatasourceKind, Ref, SemanticKind, _validate_segment
 from marivo._kernel.refs import ref as ref_factory
@@ -124,7 +124,7 @@ def _allows_none(annotation: object) -> bool:
     return type(None) in get_args(annotation)
 
 
-def _is_jsonable_value(value: Any) -> bool:
+def _is_jsonable_value(value: object) -> bool:
     if isinstance(value, str | int | float | bool) or value is None:
         return True
     if isinstance(value, list):
@@ -579,7 +579,7 @@ def _current_ctx() -> DatasourceLoaderContext | None:
     return _DATASOURCE_CTX.get()
 
 
-def validate_datasource_name(name: Any) -> None:
+def validate_datasource_name(name: object) -> None:
     if not isinstance(name, str) or not name:
         raise DatasourceFieldInvalidError(
             message="datasource name must be a non-empty string",

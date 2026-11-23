@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
 from ibis.common.deferred import Deferred
+from pandas import DataFrame
 from typing_extensions import assert_type
 
 import marivo
@@ -141,7 +142,6 @@ if TYPE_CHECKING:
         return session.frame(complete)
 
     def terminal_reads(artifact: mv.AnalysisFrame) -> tuple[mv.FrameSourceRead, ...]:
-        from pandas import DataFrame
 
         assert_type(session.persisted_frame(artifact.artifact_id), mv.AnalysisFrame)
         assert_type(artifact.show(), None)
@@ -275,7 +275,6 @@ if TYPE_CHECKING:
 
 
 def fixed_frame_contract(frame: mv.AnalysisFrame) -> mv.AnalysisFrame:
-    from decimal import Decimal
 
     assert_type(frame.fix(frame.axes[0], "east"), mv.AnalysisFrame)
     assert_type(frame.fix(frame.axes[0], None), mv.AnalysisFrame)

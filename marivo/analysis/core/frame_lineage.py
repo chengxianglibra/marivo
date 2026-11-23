@@ -16,16 +16,32 @@ from marivo._definition.query import (
     TopValues,
     ValueExpression,
 )
-from marivo.analysis.core.attribute_game import AttributeGameValues
-from marivo.analysis.core.frame_expression import (
+from marivo.analysis.binding.attribute_rules import (
+    AdditiveRule,
+    AdditiveSource,
+    AttributeRule,
+    DirectRatio,
+    NativeMean,
+    NativeWeightedMean,
+    RuleAdd,
+    RuleDivide,
+    RuleNegate,
+    RuleRescale,
+    RuleScale,
+    RuleSubtract,
+)
+from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
+from marivo.analysis.core.frame_operations import (
     AlignFrameValues,
     AttributeContributionValues,
+    AttributeGameValues,
     AttributeInputsValues,
     AttributeProjectValues,
     CompareFrameValues,
+    FixFrameValues,
     FrameOperationKind,
 )
-from marivo.analysis.core.frame_fix import FixFrameValues
+from marivo.analysis.core.source_lineage import definition_lineage
 from marivo.analysis.model.frame_attribute_merge import AttributeMergeValues
 from marivo.analysis.model.lineage import (
     ColumnLineage,
@@ -137,161 +153,159 @@ def derive(
     elif isinstance(
         operation, (AttributeContributionValues, AttributeInputsValues, AttributeGameValues)
     ):
-        mapping = operation.mapping
-        endpoints = tuple(frame.lineage for frame in inputs[1:])
-        left = endpoints[0]
-        right = endpoints[-1]
-        left_axes, right_axes = tuple(left.axes.values()), tuple(right.axes.values())
-        left_fine = tuple(a for i, a in enumerate(left_axes) if i not in mapping.left_parents)
-        right_fine = tuple(a for i, a in enumerate(right_axes) if i not in mapping.right_parents)
-        fine = tuple(merge(a, b) for a, b in zip(left_fine, right_fine, strict=True))
-        axes = (*axes, *fine)
-        domain = union(
-            domain, *(endpoint._domain for endpoint in endpoints), *(all_origins(a) for a in axes)
-        )
-        indices = (
-            tuple(game.target_slot for game in operation.games)
-            if isinstance(operation, AttributeGameValues)
-            else operation.source_indices or (0, 0)
-        )
-        lvalue = tuple(left.values.values())[indices[0]]
-        rvalue = tuple(right.values.values())[indices[1]]
-        both = merge(lvalue, rvalue)
-        if isinstance(operation, AttributeGameValues):
-            game_target = operation.target
-            observed = values[game_target.observed]
-            values = tuple(
-                observed
-                if path == ("observed_total", *game_target.path)
-                else lvalue
-                if path == ("detail", "current", *game_target.path)
-                else rvalue
-                if path == ("detail", "baseline", *game_target.path)
-                else both
-                for path in schema.value_paths
-            )
-        elif isinstance(operation, AttributeContributionValues) and operation.target is not None:
-            target = operation.target
-            observed = values[target.observed]
-
-            def component(side: int, name: str) -> ColumnLineage:
-                from marivo.analysis.binding.attribute_rules import (
-                    AdditiveRule,
-                    AdditiveSource,
-                    AttributeRule,
-                    DirectRatio,
-                    NativeMean,
-                    NativeWeightedMean,
-                    RuleAdd,
-                    RuleDivide,
-                    RuleNegate,
-                    RuleRescale,
-                    RuleScale,
-                    RuleSubtract,
-                )
-                from marivo.analysis.binding.lineage import definition_lineage
-                from marivo.analysis.core.frame_data import (
-                    ExpressionFrameBacking,
-                    SourceFrameBinding,
-                )
-
-                frame = inputs[1 + min(side, len(endpoints) - 1)]
-                backing = frame._backing
-                assert isinstance(backing, ExpressionFrameBacking) and isinstance(
-                    backing.root, SourceFrameBinding
-                )
-                source_binding = backing.root
-                rule = operation.rules[side][0][1]
-
-                def capture(rule: AttributeRule) -> ColumnLineage:
-                    named = (
-                        tuple(
-                            SemanticObjectIdentity(ref.ref.kind.value, ref.ref.path, ref.version)
-                            for ref in rule.origins
-                        )
-                        if isinstance(rule, AdditiveRule)
-                        else ()
-                    )
-                    return merge(capture_operation(rule), ColumnLineage(union(named)))
-
-                def capture_operation(rule: AttributeRule) -> ColumnLineage:
-                    op = rule.operation
-                    if isinstance(op, AdditiveSource):
-                        return definition_lineage(source_binding, op.source.binding.definition)
-                    if isinstance(op, NativeMean):
-                        node = op.source.binding.definition
-                        assert isinstance(node, SourceAggregate)
-                        return (
-                            definition_lineage(source_binding, node.operand)
-                            if name == "numerator"
-                            else ColumnLineage()
-                        )
-                    if isinstance(op, NativeWeightedMean):
-                        node = op.source.binding.definition
-                        assert isinstance(node, SourceWeightedMean)
-                        if name == "valid_count":
-                            return ColumnLineage()
-                        weight = definition_lineage(source_binding, node.weight)
-                        return (
-                            merge(definition_lineage(source_binding, node.value), weight)
-                            if name == "numerator"
-                            else weight
-                        )
-                    if isinstance(op, DirectRatio):
-                        return merge(capture(op.numerator), capture(op.denominator))
-                    if isinstance(op, (RuleAdd, RuleSubtract)):
-                        return merge(capture(op.left), capture(op.right))
-                    assert isinstance(op, (RuleNegate, RuleScale, RuleDivide, RuleRescale))
-                    return capture(op.operand)
-
-                if isinstance(rule.operation, DirectRatio):
-                    rule = (
-                        rule.operation.numerator
-                        if name == "numerator"
-                        else rule.operation.denominator
-                    )
-                return merge(capture(rule), context=all_origins(lvalue if side == 0 else rvalue))
-
-            def report(path: tuple[str, ...]) -> ColumnLineage:
-                role = path[: -len(target.path)]
-                if role == ("observed_total",):
-                    return observed
-                if len(role) == 3 and role[0] == "component":
-                    return component(1 if role[1] == "baseline" else 0, role[2])
-                if role in (
-                    ("detail", "baseline"),
-                    ("component", "baseline", "numerator"),
-                    ("component", "baseline", "denominator"),
-                    ("component", "baseline", "valid_count"),
-                ):
-                    return rvalue
-                if role[:1] == ("component",) or role in (
-                    ("detail", "value"),
-                    ("detail", "current"),
-                ):
-                    return lvalue
-                return both
-
-            values = tuple(report(path) for path in schema.value_paths)
-        else:
-
-            def diagnostic(path: tuple[str, ...]) -> ColumnLineage:
-                role, *source = path
-                key = ".".join(source)
-                a = left.values[key]
-                b = right.values[key]
-                if role == "left":
-                    return a
-                if role == "right":
-                    return b
-                return merge(a, b)
-
-            values = tuple(diagnostic(path) for path in schema.value_paths)
-        presence = tuple(
-            ColumnLineage(context_origins=e._domain)
-            for e in ((left,) if len(schema.presence) == 1 else (left, right))
-        )
-        presence = presence[: len(schema.presence)]
+        return _attribute_lineage(schema, operation, inputs)
     else:
         assert_never(operation)
     return directory(schema, values, axes, presence, domain)
+
+
+def _attribute_lineage(
+    schema: DataSchema | PendingDataSchema,
+    operation: AttributeContributionValues | AttributeInputsValues | AttributeGameValues,
+    inputs: tuple[FrameNode, ...],
+) -> FrameLineage:
+    first = inputs[0].lineage
+    values = tuple(first.values.values())
+    axes = tuple(first.axes.values())
+    domain = first._domain
+    mapping = operation.mapping
+    endpoints = tuple(frame.lineage for frame in inputs[1:])
+    left = endpoints[0]
+    right = endpoints[-1]
+    left_axes, right_axes = tuple(left.axes.values()), tuple(right.axes.values())
+    left_fine = tuple(a for i, a in enumerate(left_axes) if i not in mapping.left_parents)
+    right_fine = tuple(a for i, a in enumerate(right_axes) if i not in mapping.right_parents)
+    fine = tuple(merge(a, b) for a, b in zip(left_fine, right_fine, strict=True))
+    axes = (*axes, *fine)
+    domain = union(
+        domain, *(endpoint._domain for endpoint in endpoints), *(all_origins(a) for a in axes)
+    )
+    indices = (
+        tuple(game.target_slot for game in operation.games)
+        if isinstance(operation, AttributeGameValues)
+        else operation.source_indices or (0, 0)
+    )
+    lvalue = tuple(left.values.values())[indices[0]]
+    rvalue = tuple(right.values.values())[indices[1]]
+    both = merge(lvalue, rvalue)
+    if isinstance(operation, AttributeGameValues):
+        game_target = operation.target
+        observed = values[game_target.observed]
+        values = tuple(
+            observed
+            if path == ("observed_total", *game_target.path)
+            else lvalue
+            if path == ("detail", "current", *game_target.path)
+            else rvalue
+            if path == ("detail", "baseline", *game_target.path)
+            else both
+            for path in schema.value_paths
+        )
+    elif isinstance(operation, AttributeContributionValues) and operation.target is not None:
+        target = operation.target
+        observed = values[target.observed]
+
+        def report(path: tuple[str, ...]) -> ColumnLineage:
+            role = path[: -len(target.path)]
+            if role == ("observed_total",):
+                return observed
+            if len(role) == 3 and role[0] == "component":
+                side = 1 if role[1] == "baseline" else 0
+                return _attribute_component(operation, inputs, side, role[2], (lvalue, rvalue))
+            if role in (
+                ("detail", "baseline"),
+                ("component", "baseline", "numerator"),
+                ("component", "baseline", "denominator"),
+                ("component", "baseline", "valid_count"),
+            ):
+                return rvalue
+            if role[:1] == ("component",) or role in (
+                ("detail", "value"),
+                ("detail", "current"),
+            ):
+                return lvalue
+            return both
+
+        values = tuple(report(path) for path in schema.value_paths)
+    else:
+
+        def diagnostic(path: tuple[str, ...]) -> ColumnLineage:
+            role, *source = path
+            key = ".".join(source)
+            a = left.values[key]
+            b = right.values[key]
+            if role == "left":
+                return a
+            if role == "right":
+                return b
+            return merge(a, b)
+
+        values = tuple(diagnostic(path) for path in schema.value_paths)
+    presence = tuple(
+        ColumnLineage(context_origins=e._domain)
+        for e in ((left,) if len(schema.presence) == 1 else (left, right))
+    )
+    presence = presence[: len(schema.presence)]
+    return directory(schema, values, axes, presence, domain)
+
+
+def _attribute_component(
+    operation: AttributeContributionValues,
+    inputs: tuple[FrameNode, ...],
+    side: int,
+    name: str,
+    endpoints: tuple[ColumnLineage, ColumnLineage],
+) -> ColumnLineage:
+
+    frame = inputs[1 + min(side, len(inputs) - 2)]
+    backing = frame._backing
+    assert isinstance(backing, ExpressionFrameBacking) and isinstance(
+        backing.root, SourceFrameBinding
+    )
+    source_binding = backing.root
+    rule = operation.rules[side][0][1]
+
+    def capture(rule: AttributeRule) -> ColumnLineage:
+        named = (
+            tuple(
+                SemanticObjectIdentity(ref.ref.kind.value, ref.ref.path, ref.version)
+                for ref in rule.origins
+            )
+            if isinstance(rule, AdditiveRule)
+            else ()
+        )
+        return merge(capture_operation(rule), ColumnLineage(union(named)))
+
+    def capture_operation(rule: AttributeRule) -> ColumnLineage:
+        op = rule.operation
+        if isinstance(op, AdditiveSource):
+            return definition_lineage(source_binding, op.source.binding.definition)
+        if isinstance(op, NativeMean):
+            node = op.source.binding.definition
+            assert isinstance(node, SourceAggregate)
+            return (
+                definition_lineage(source_binding, node.operand)
+                if name == "numerator"
+                else ColumnLineage()
+            )
+        if isinstance(op, NativeWeightedMean):
+            node = op.source.binding.definition
+            assert isinstance(node, SourceWeightedMean)
+            if name == "valid_count":
+                return ColumnLineage()
+            weight = definition_lineage(source_binding, node.weight)
+            return (
+                merge(definition_lineage(source_binding, node.value), weight)
+                if name == "numerator"
+                else weight
+            )
+        if isinstance(op, DirectRatio):
+            return merge(capture(op.numerator), capture(op.denominator))
+        if isinstance(op, (RuleAdd, RuleSubtract)):
+            return merge(capture(op.left), capture(op.right))
+        assert isinstance(op, (RuleNegate, RuleScale, RuleDivide, RuleRescale))
+        return capture(op.operand)
+
+    if isinstance(rule.operation, DirectRatio):
+        rule = rule.operation.numerator if name == "numerator" else rule.operation.denominator
+    return merge(capture(rule), context=all_origins(endpoints[side]))

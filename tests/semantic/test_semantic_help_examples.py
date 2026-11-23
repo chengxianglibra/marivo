@@ -20,6 +20,7 @@ from marivo._help.render import PublicHelpTarget
 from marivo._help.render import help as public_help
 from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.runtime.preview import PreviewResult
+from marivo.introspection.live.targets import semantic_target
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.catalog_model.objects import Entity
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
@@ -522,7 +523,6 @@ def test_sampled_metric_status_axis_requires_its_own_fold(
 def test_changed_help_is_equivalent_for_callables_and_has_only_resolvable_routes(
     target: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from marivo.introspection.live.targets import semantic_target
 
     text = _help_text(f"semantic.{semantic_target(target)}", capsys)
     assert len(text) <= 7000

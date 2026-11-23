@@ -8,14 +8,34 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import date
 from decimal import Decimal
 from math import isfinite
 from typing import Literal, TypeAlias
 
-import pandas as pd
-import pyarrow as pa
-
+from marivo.analysis.core.frame_level_facts import (
+    FrameLevelAdditiveMethod,
+    FrameLevelDivisionMethod,
+    FrameLevelLinearMethod,
+    FrameLevelRatioMethod,
+    _level_method,
+    _LevelMethod,
+)
+from marivo.analysis.core.frame_method_checks import _divisor, _quotient_unit, _total, _totals
+from marivo.analysis.core.frame_method_coordinates import (
+    FrameMethodCoordinate as FrameMethodCoordinate,
+)
+from marivo.analysis.core.frame_method_coordinates import _arrow_table
+from marivo.analysis.core.frame_shapley_facts import (
+    FrameShapleyCapture,
+    FrameShapleyGame,
+    FrameShapleyLeaf,
+    FrameShapleyNativeQuantile,
+    FrameShapleyQuantile,
+    FrameShapleyQuery,
+    FrameShapleyQueryGame,
+    FrameShapleyReduction,
+    state_metric_approximation,
+)
 from marivo.analysis.core.frozen_calendar import (
     FrozenAttachment,
     FrozenCalendarDirectory,
@@ -37,11 +57,9 @@ from marivo.analysis.model.data_schema import (
 )
 from marivo.analysis.model.data_types import (
     DataColumn,
-    DataType,
     DecimalDataType,
     DurationDataType,
     ScalarDataType,
-    TimestampDataType,
 )
 from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
 from marivo.analysis.model.method_values import (
@@ -49,15 +67,12 @@ from marivo.analysis.model.method_values import (
     _cell,
     _coefficient_text,
     _count,
-    _digest_identity,
     _FactRecord,
     _fail,
     _MethodScalar,
-    _scalar,
     _short,
     _text,
 )
-from marivo.semantic.spi import ratio_unit
 
 _ExactMethod: TypeAlias = (
     "FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod"
@@ -66,46 +81,6 @@ _Method: TypeAlias = "_ExactMethod | FrameShapleyMethod"
 _StateRoute: TypeAlias = Literal[
     "typed_sufficient_state/v1", "typed_value_frequency/v1", "typed_sufficient_frequency/v1"
 ]
-
-
-def _quotient_unit(numerator: str | None, denominator: str | None) -> str | None:
-    try:
-        return ratio_unit(numerator, denominator)
-    except ValueError:
-        _fail("governed ratio component units", "invalid numerator or denominator unit")
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameMethodCoordinate(_FactRecord):
-    """Own a named finite typed snapshot. Args: name, schema, rows; e.g. ``FrameMethodCoordinate('c', s, ())``.
-
-    Returns a frozen record; rows must be immutable exact-width scalar tuples.
-    """
-
-    name: str
-    schema: DataSchema = field(
-        metadata={
-            "meaning": "Read coordinate.schema for the complete saved coordinate layout. Read-only schema metadata; nested axes and bindings do not acquire public construction authority."
-        }
-    )
-    rows: tuple[tuple[bool | int | float | str | date | Decimal | None, ...], ...]
-
-    def __post_init__(self) -> None:
-        _text(self.name)
-        if type(self.schema) is not DataSchema or type(self.rows) is not tuple:
-            _fail("a pure schema and immutable coordinate rows", type(self).__name__)
-        for row in self.rows:
-            if type(row) is not tuple or len(row) != len(self.schema.columns):
-                _fail("complete immutable rows in schema column order", self.name)
-            for column, value in zip(self.schema.columns, row, strict=True):
-                _scalar(column, value)
-
-    def _summary(self) -> str:
-        return f"kind=coordinate, name={_short(self.name)!r}, rows={len(self.rows)}, columns={len(self.schema.columns)}"
-
-    def _lines(self) -> Iterator[str]:
-        for row in self.rows:
-            yield " | ".join(_cell(value) for value in row)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -158,30 +133,6 @@ class FrameMethodSupport(_FactRecord):
             f"left input/effective={_coefficient_text(self.left_input_count)}/{_coefficient_text(self.left_effective_count)}; "
             f"right input/effective={_coefficient_text(self.right_input_count)}/{_coefficient_text(self.right_effective_count)}"
         )
-
-
-def _total(value: FrameMethodValue) -> None:
-    if (
-        type(value) is not FrameMethodValue
-        or value.value is None
-        or not (
-            isinstance(value.column.dtype, (DecimalDataType, DurationDataType))
-            or value.column.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
-        )
-    ):
-        _fail("a nonnull typed numeric or Duration parent total", type(value).__name__)
-
-
-def _totals(left: FrameMethodValue, right: FrameMethodValue, change: FrameMethodValue) -> None:
-    for value in (left, right, change):
-        _total(value)
-    if not left.column.unit == right.column.unit == change.column.unit:
-        _fail("matching total and change units", "inconsistent parent total units")
-    durations = tuple(isinstance(v.column.dtype, DurationDataType) for v in (left, right, change))
-    if any(durations) and not (
-        all(durations) and left.column.dtype == right.column.dtype == change.column.dtype
-    ):
-        _fail("matching exact Duration units or numeric totals", "inconsistent total types")
 
 
 def _supports(support: tuple[FrameMethodSupport, ...]) -> None:
@@ -390,401 +341,6 @@ class FrameRatioMethod(_FactRecord):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class FrameShapleyGame(_FactRecord):
-    """Describe a fixed replacement game without retaining its executable formula.
-
-    Read ``metric.method.game`` after attribution. Formula identities are SHA256
-    digests; proof clauses describe checks over captured states. Neither can
-    reopen a source or reconstruct the original Metric. Summary reconstruction
-    has no promised bias bound; permutation standard error excludes that bias.
-    """
-
-    kind: Literal["group_replacement"]
-    semantics_version: Literal["group_replacement/v1"]
-    current_formula_id: str
-    baseline_formula_id: str
-    player_domain: Literal["joint_key_union/v1"]
-    domain_policy: Literal["finite_interval_demand/v1"]
-    domain_proof: tuple[str, ...]
-    metric_approximation: Literal["exact_metric/v1", "summary_reconstruction/v1"]
-    standard_error: Literal["permutation_mean/v1"]
-    closure_policy: Literal["typed_marginal_float64_sum/v1"]
-
-    def __post_init__(self) -> None:
-        if (
-            self.kind != "group_replacement"  # type: ignore[redundant-expr]  # Preserve the runtime check.
-            or self.semantics_version != "group_replacement/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.player_domain != "joint_key_union/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.domain_policy != "finite_interval_demand/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.metric_approximation not in ("exact_metric/v1", "summary_reconstruction/v1")
-            or self.standard_error != "permutation_mean/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.closure_policy != "typed_marginal_float64_sum/v1"
-        ):
-            _fail(
-                "closed replacement, domain, approximation, error and closure policies",
-                repr(self.kind),
-            )
-        _digest_identity(self.current_formula_id)
-        _digest_identity(self.baseline_formula_id)
-        if type(self.domain_proof) is not tuple or not self.domain_proof:
-            _fail("nonempty immutable captured domain certificate clauses", repr(self.domain_proof))
-        for clause in self.domain_proof:
-            _text(clause)
-
-    def _summary(self) -> str:
-        return f"kind=group_replacement, formula={self.current_formula_id[:12]}, proof_clauses={len(self.domain_proof)}"
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameShapleyQueryGame(_FactRecord):
-    """Describe a replacement game evaluated through independent native reads.
-
-    Only evaluated coalitions were checked. Observed marginal standard errors
-    cannot separate permutation variation from changes between source reads.
-    Formula identities are inert digests, without source or replay authority.
-    """
-
-    kind: Literal["group_replacement"]
-    semantics_version: Literal["group_replacement/v1"]
-    current_formula_id: str
-    baseline_formula_id: str
-    player_domain: Literal["joint_key_union/v1"]
-    input_consistency: Literal["independent_reads/v1"]
-    domain_policy: Literal["evaluated_coalitions/v1"]
-    metric_approximation: Literal["exact_metric/v1", "native_approximate_metric/v1"]
-    standard_error: Literal["observed_marginal_mean/v1"]
-    closure_policy: Literal["typed_marginal_float64_sum/v1"]
-
-    def __post_init__(self) -> None:
-        if (
-            self.kind != "group_replacement"  # type: ignore[redundant-expr]  # Preserve the runtime check.
-            or self.semantics_version != "group_replacement/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.player_domain != "joint_key_union/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.input_consistency != "independent_reads/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.domain_policy != "evaluated_coalitions/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.metric_approximation not in ("exact_metric/v1", "native_approximate_metric/v1")
-            or self.standard_error != "observed_marginal_mean/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.closure_policy != "typed_marginal_float64_sum/v1"
-        ):
-            _fail(
-                "closed native query game, consistency, domain and error policies", repr(self.kind)
-            )
-        _digest_identity(self.current_formula_id)
-        _digest_identity(self.baseline_formula_id)
-
-    def _summary(self) -> str:
-        return f"kind=group_replacement, formula={self.current_formula_id[:12]}, input=independent_reads/v1, domain=evaluated_coalitions/v1"
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameShapleyReduction(_FactRecord):
-    """Name an original non-quantile reducer; no executable reduction is retained."""
-
-    kind: Literal["aggregate"]
-    reducer: Literal[
-        "sum",
-        "count",
-        "entity_count",
-        "count_distinct",
-        "approx_nunique",
-        "mean",
-        "weighted_mean",
-        "min",
-        "max",
-    ]
-
-    def __post_init__(self) -> None:
-        if self.kind != "aggregate" or self.reducer not in (  # type: ignore[redundant-expr]  # Preserve the runtime check.
-            "sum",
-            "count",
-            "entity_count",
-            "count_distinct",
-            "approx_nunique",
-            "mean",
-            "weighted_mean",
-            "min",
-            "max",
-        ):
-            _fail("a closed original reducer identity", repr(self.reducer))
-
-    def _summary(self) -> str:
-        return f"kind=aggregate, reducer={self.reducer}"
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameShapleyQuantile(_FactRecord):
-    """Capture original exact quantile parameters and the qualified finishing recipe.
-
-    The finisher is captured from the original reduction rather than inferred
-    from its backend or transport type. It remains separate from sampling error.
-    """
-
-    kind: Literal["quantile"]
-    reducer: Literal["median", "quantile"]
-    q: float
-    finisher: Literal["rank_bounds", "duckdb_native", "postgres_native"]
-
-    def __post_init__(self) -> None:
-        if self.kind != "quantile" or self.reducer not in ("median", "quantile"):  # type: ignore[redundant-expr]  # Preserve the runtime check.
-            _fail("an exact median or quantile reducer", repr(self.reducer))
-        if type(self.q) is not float or not isfinite(self.q) or not 0 <= self.q <= 1:
-            _fail("a finite captured Float64 quantile in [0, 1]", repr(self.q))
-        if self.reducer == "median" and self.q != 0.5:
-            _fail("q=0.5 for the median reducer", repr(self.q))
-        if self.finisher not in ("rank_bounds", "duckdb_native", "postgres_native"):
-            _fail("the closed original quantile finishing recipe", repr(self.finisher))
-
-    def _summary(self) -> str:
-        return f"kind=quantile, reducer={self.reducer}, q={self.q!r}, finisher={self.finisher}"
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameShapleyNativeQuantile(_FactRecord):
-    """Retain the original native exact or approximate quantile operation.
-
-    The reducer and backend receipts identify the original native algorithm;
-    no local rank finisher or replacement sketch is claimed or retained.
-    """
-
-    kind: Literal["native_quantile"]
-    reducer: Literal["median", "quantile", "approx_median", "approx_quantile"]
-    q: float
-    algorithm_version: Literal["original_native_reducer/v1"]
-
-    def __post_init__(self) -> None:
-        if self.kind != "native_quantile" or self.reducer not in (  # type: ignore[redundant-expr]  # Preserve the runtime check.
-            "median",
-            "quantile",
-            "approx_median",
-            "approx_quantile",
-        ):
-            _fail("an original native exact or approximate quantile reducer", repr(self.reducer))
-        if type(self.q) is not float or not isfinite(self.q) or not 0 <= self.q <= 1:
-            _fail("a finite captured Float64 quantile in [0, 1]", repr(self.q))
-        if self.reducer in ("median", "approx_median") and self.q != 0.5:
-            _fail("q=0.5 for the original median reducer", repr(self.q))
-        if self.algorithm_version != "original_native_reducer/v1":
-            _fail("the versioned original backend-native reducer", repr(self.algorithm_version))
-
-    def _summary(self) -> str:
-        return f"kind=native_quantile, reducer={self.reducer}, q={self.q!r}, algorithm={self.algorithm_version}"
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameShapleyLeaf(_FactRecord):
-    """Associate one typed original reducer occurrence with its captured input receipts.
-
-    Read ``metric.method.leaves`` for original input/output types and NULL masks.
-    Capture identifiers reference inert cost records, not connections or state.
-    Weighted mean repeats its single captured paired NULL policy in the value
-    and weight fields; it does not declare independent NULL-policy inputs.
-    """
-
-    occurrence: tuple[int, ...]
-    current_capture_ids: tuple[str, ...]
-    baseline_capture_ids: tuple[str, ...]
-    reduction: FrameShapleyReduction | FrameShapleyQuantile | FrameShapleyNativeQuantile
-    input_types: tuple[DataType, ...]
-    output: DataColumn
-    mask_policy: Literal["rows", "non_null_value", "co_valid_value_weight"]
-    null_policy: Literal["skip", "error", "not_applicable"]
-    weight_null_policy: Literal["skip", "error", "not_applicable"]
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.occurrence) is not tuple
-            or not self.occurrence
-            or any(type(part) is not int or part < 0 for part in self.occurrence)
-        ):
-            _fail("an immutable nonempty original leaf occurrence", repr(self.occurrence))
-        for captured in (self.current_capture_ids, self.baseline_capture_ids):
-            if type(captured) is not tuple or not captured:
-                _fail("nonempty immutable unique endpoint capture references", repr(captured))
-            for capture_id in captured:
-                _text(capture_id)
-            if len(set(captured)) != len(captured):
-                _fail("nonempty immutable unique endpoint capture references", repr(captured))
-        if type(self.reduction) not in (
-            FrameShapleyReduction,
-            FrameShapleyQuantile,
-            FrameShapleyNativeQuantile,
-        ):
-            _fail("a closed original reducer or quantile record", type(self.reduction).__name__)
-        if type(self.output) is not DataColumn:
-            _fail("the original concrete typed reducer output", type(self.output).__name__)
-        if type(self.input_types) is not tuple or any(
-            type(dtype)
-            not in (ScalarDataType, DecimalDataType, TimestampDataType, DurationDataType)
-            for dtype in self.input_types
-        ):
-            _fail("immutable concrete original input types", repr(self.input_types))
-        weighted = (
-            isinstance(self.reduction, FrameShapleyReduction)
-            and self.reduction.reducer == "weighted_mean"
-        )
-        entity = (
-            isinstance(self.reduction, FrameShapleyReduction)
-            and self.reduction.reducer == "entity_count"
-        )
-        if len(self.input_types) != (2 if weighted else 0 if entity else 1):
-            _fail("original reducer input arity", repr(self.occurrence))
-        expected_mask = (
-            "co_valid_value_weight" if weighted else "rows" if entity else "non_null_value"
-        )
-        if self.mask_policy != expected_mask:
-            _fail("the original reducer's effective support mask", repr(self.mask_policy))
-        if self.null_policy not in (("not_applicable",) if entity else ("skip", "error")):
-            _fail("the original value NULL policy", repr(self.null_policy))
-        if self.weight_null_policy not in (("skip", "error") if weighted else ("not_applicable",)):
-            _fail(
-                "the original weight NULL policy only for paired weights",
-                repr(self.weight_null_policy),
-            )
-        if weighted and self.weight_null_policy != self.null_policy:
-            _fail(
-                "one captured NULL policy for the co-valid value/weight pair",
-                repr(self.weight_null_policy),
-            )
-
-    def _summary(self) -> str:
-        return f"kind=leaf, occurrence={self.occurrence}, reducer={self.reduction.reducer}, output={_short(self.output.name)!r}"
-
-
-def state_metric_approximation(
-    leaves: tuple[FrameShapleyLeaf, ...],
-) -> Literal["exact_metric/v1", "summary_reconstruction/v1"]:
-    """Classify the captured state recipe; permutation error does not cover its bias."""
-    return (
-        "summary_reconstruction/v1"
-        if any(
-            isinstance(leaf.reduction, FrameShapleyReduction)
-            and (
-                leaf.reduction.reducer == "mean"
-                or (
-                    leaf.reduction.reducer in ("sum", "weighted_mean")
-                    and ScalarDataType("float64") in leaf.input_types
-                )
-            )
-            for leaf in leaves
-        )
-        else "exact_metric/v1"
-    )
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameShapleyCapture(_FactRecord):
-    """Describe actual state capture and transport costs without retaining the state.
-
-    The complete prepared-input directory includes auxiliary player-domain,
-    diagnostic and shared sibling inputs even when no leaf references them.
-
-    ``returned_bytes`` measures decoded Arrow bytes, not wire or scanned bytes.
-    ``state_bytes`` measures the typed logical state payload, not process memory.
-    Unknown backend scan/wire statistics and backend version stay None. Actual
-    executed capture statements are counted by source_reads; physical scans and
-    unobserved schema/catalog work are not inferred from that count.
-    """
-
-    capture_id: str
-    endpoint: Literal["current", "baseline", "both"]
-    backend: str
-    backend_version: str | None
-    state_route: _StateRoute
-    state_entries: int
-    state_bytes: int
-    returned_rows: int
-    returned_bytes: int
-    source_reads: int
-    native_parameter_bytes: int
-    native_batches: int
-    scanned_rows: int | None
-    scanned_bytes: int | None
-    wire_bytes: int | None
-
-    def __post_init__(self) -> None:
-        _text(self.capture_id)
-        _text(self.backend)
-        if self.backend_version is not None:
-            _text(self.backend_version)
-        if self.endpoint not in ("current", "baseline", "both") or self.state_route not in (
-            "typed_sufficient_state/v1",
-            "typed_value_frequency/v1",
-            "typed_sufficient_frequency/v1",
-        ):
-            _fail("a captured endpoint and qualified typed state route", repr(self.endpoint))
-        for value in (
-            self.state_entries,
-            self.state_bytes,
-            self.returned_rows,
-            self.returned_bytes,
-            self.source_reads,
-            self.native_parameter_bytes,
-            self.native_batches,
-        ):
-            _count(value)
-        for optional in (self.scanned_rows, self.scanned_bytes, self.wire_bytes):
-            if optional is not None:
-                _count(optional)
-
-    def _summary(self) -> str:
-        return f"kind=capture, input={_short(self.capture_id)!r}, endpoint={self.endpoint}, route={self.state_route}"
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameShapleyQuery(_FactRecord):
-    """Record one executed native query and its measured returned-data costs.
-
-    The complete invocation directory includes player-domain, diagnostic and
-    coalition queries. Cached coalition lookups create no query receipt.
-    ``returned_bytes`` means decoded Arrow bytes, not scanned or wire bytes.
-    Unknown native backend version and physical scan/wire statistics stay None.
-    These records contain no SQL, data state, source handle or replay program.
-    """
-
-    capture_id: str
-    endpoint: Literal["current", "baseline", "both"]
-    backend: str
-    backend_version: str | None
-    purpose: Literal["player_domain", "group_diagnostic", "coalition"]
-    returned_rows: int
-    returned_bytes: int
-    source_reads: int
-    native_parameter_bytes: int
-    native_batches: int
-    scanned_rows: int | None
-    scanned_bytes: int | None
-    wire_bytes: int | None
-
-    def __post_init__(self) -> None:
-        _text(self.capture_id)
-        _text(self.backend)
-        if self.backend_version is not None:
-            _text(self.backend_version)
-        if self.endpoint not in ("current", "baseline", "both") or self.purpose not in (
-            "player_domain",
-            "group_diagnostic",
-            "coalition",
-        ):
-            _fail("an actual native query endpoint and purpose", repr(self.purpose))
-        for value in (
-            self.returned_rows,
-            self.returned_bytes,
-            self.source_reads,
-            self.native_parameter_bytes,
-            self.native_batches,
-        ):
-            _count(value)
-        if self.source_reads != 1:
-            _fail("one actual executed statement per native query receipt", repr(self.source_reads))
-        for optional in (self.scanned_rows, self.scanned_bytes, self.wire_bytes):
-            if optional is not None:
-                _count(optional)
-
-    def _summary(self) -> str:
-        return f"kind=native_query, input={_short(self.capture_id)!r}, endpoint={self.endpoint}, purpose={self.purpose}"
-
-
-@dataclass(frozen=True, slots=True, repr=False)
 class FrameShapleyMethod(_FactRecord):
     """Explain sampled group replacement over captured states or independent native reads.
 
@@ -988,19 +544,6 @@ class FrameShapleyMethod(_FactRecord):
             yield from capture._lines()
 
 
-def _divisor(value: int | float | Decimal, operation: str) -> None:
-    if (
-        type(value) not in (int, float, Decimal)
-        or (isinstance(value, float) and not isfinite(value))
-        or (isinstance(value, Decimal) and not value.is_finite())
-        or value == 0
-        or (operation == "rescale" and value < 0)
-    ):
-        _fail("a finite nonzero typed divisor, positive for rescale", repr(value))
-    if operation not in ("divide", "rescale"):
-        _fail("divide or rescale", operation)
-
-
 @dataclass(frozen=True, slots=True, repr=False)
 class FrameDivisionMethod(_FactRecord):
     """Explain captured division. Args: kind, totals, divisor, operation, method.
@@ -1098,193 +641,6 @@ class FrameLinearMethod(_FactRecord):
 
     def _lines(self) -> Iterator[str]:
         yield from _method_lines(self)
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameLevelSupport(_FactRecord):
-    """Captured support for one endpoint, with no synthetic baseline."""
-
-    root_id: str
-    policy: Literal[
-        "rows", "non_null_value", "co_valid_value_weight", "identity", "preserved_sample"
-    ]
-    input_count: int
-    effective_count: int
-
-    def __post_init__(self) -> None:
-        _text(self.root_id)
-        if self.policy not in (
-            "rows",
-            "non_null_value",
-            "co_valid_value_weight",
-            "identity",
-            "preserved_sample",
-        ):
-            _fail("a closed sample policy", repr(self.policy))
-        if (
-            type(self.input_count) is not int
-            or type(self.effective_count) is not int
-            or not 0 <= self.effective_count <= self.input_count
-        ):
-            _fail("exact nonnegative endpoint support counts", repr(self.input_count))
-
-    def _summary(self) -> str:
-        return f"kind=level_support, root={_short(self.root_id)!r}, policy={self.policy}"
-
-
-def _level_support(support: tuple[FrameLevelSupport, ...]) -> None:
-    if (
-        type(support) is not tuple
-        or not support
-        or any(type(item) is not FrameLevelSupport for item in support)
-        or len({item.root_id for item in support}) != len(support)
-    ):
-        _fail("immutable unique one-endpoint supports", repr(support))
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameLevelAdditiveMethod(_FactRecord):
-    """A one-endpoint additive rule and its original total."""
-
-    kind: Literal["level_additive"]
-    value: FrameMethodValue
-    support: tuple[FrameLevelSupport, ...]
-
-    def __post_init__(self) -> None:
-        if self.kind != "level_additive":
-            _fail("kind='level_additive'", repr(self.kind))
-        _total(self.value)
-        _level_support(self.support)
-
-    def _summary(self) -> str:
-        return f"kind=level_additive, column={_short(self.value.column.name)!r}, roots={len(self.support)}"
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameLevelRatioMethod(_FactRecord):
-    """A one-endpoint ratio with independently captured components."""
-
-    kind: Literal["level_ratio_component"]
-    value: FrameMethodValue
-    numerator: FrameMethodValue
-    denominator: FrameMethodValue
-    support: tuple[FrameLevelSupport, ...]
-
-    def __post_init__(self) -> None:
-        if self.kind != "level_ratio_component":
-            _fail("kind='level_ratio_component'", repr(self.kind))
-        for value in (self.value, self.numerator, self.denominator):
-            _total(value)
-        if (
-            self.denominator.value == 0
-            or _quotient_unit(self.numerator.column.unit, self.denominator.column.unit)
-            != self.value.column.unit
-        ):
-            _fail("nonzero denominator and matching ratio units", self.value.column.name)
-        _level_support(self.support)
-
-    def _summary(self) -> str:
-        return f"kind=level_ratio_component, column={_short(self.value.column.name)!r}, roots={len(self.support)}"
-
-
-_LevelMethod: TypeAlias = "FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod | FrameLevelDivisionMethod"
-
-
-def _level_method(method: _LevelMethod) -> None:
-    if type(method) not in (
-        FrameLevelAdditiveMethod,
-        FrameLevelRatioMethod,
-        FrameLevelLinearMethod,
-        FrameLevelDivisionMethod,
-    ):
-        _fail("a closed one-endpoint rule", type(method).__name__)
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameLevelDivisionMethod(_FactRecord):
-    """Explain one-endpoint division with its original divisor and child method.
-
-    Args: kind, value, divisor, operation, method. Returns immutable inert facts.
-    Example: read ``metric.method.divisor`` when kind is ``level_division``.
-    Constraints: divide preserves units; rescale retains its declared result unit.
-    """
-
-    kind: Literal["level_division"]
-    value: FrameMethodValue
-    divisor: int | float | Decimal
-    operation: Literal["divide", "rescale"]
-    method: (
-        FrameLevelAdditiveMethod
-        | FrameLevelRatioMethod
-        | FrameLevelLinearMethod
-        | FrameLevelDivisionMethod
-    )
-
-    def __post_init__(self) -> None:
-        if self.kind != "level_division":
-            _fail("kind='level_division'", repr(self.kind))
-        _total(self.value)
-        _divisor(self.divisor, self.operation)
-        _level_method(self.method)
-        if self.operation == "divide" and self.method.value.column.unit != self.value.column.unit:
-            _fail("division preserving the child unit", self.value.column.name)
-        if self.operation == "rescale" and self.value.column.unit is None:
-            _fail("an explicit rescale result unit", self.value.column.name)
-
-    def _summary(self) -> str:
-        return f"kind=level_division, column={_short(self.value.column.name)!r}, operation={self.operation}"
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameLevelLinearTerm(_FactRecord):
-    """An original ordered coefficient and one-endpoint child rule."""
-
-    coefficient: int | float | Decimal
-    method: (
-        FrameLevelAdditiveMethod
-        | FrameLevelRatioMethod
-        | FrameLevelLinearMethod
-        | FrameLevelDivisionMethod
-    )
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.coefficient) not in (int, float, Decimal)
-            or (isinstance(self.coefficient, float) and not isfinite(self.coefficient))
-            or (isinstance(self.coefficient, Decimal) and not self.coefficient.is_finite())
-        ):
-            _fail("a finite original coefficient", repr(self.coefficient))
-        _level_method(self.method)
-
-    def _summary(self) -> str:
-        return f"kind=level_linear_term, child={self.method.kind}, column={_short(self.method.value.column.name)!r}"
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameLevelLinearMethod(_FactRecord):
-    """A one-endpoint fixed linear rule retaining child order."""
-
-    kind: Literal["level_linear"]
-    value: FrameMethodValue
-    terms: tuple[FrameLevelLinearTerm, ...]
-
-    def __post_init__(self) -> None:
-        if self.kind != "level_linear":
-            _fail("kind='level_linear'", repr(self.kind))
-        _total(self.value)
-        if (
-            type(self.terms) is not tuple
-            or not self.terms
-            or any(type(term) is not FrameLevelLinearTerm for term in self.terms)
-        ):
-            _fail("nonempty exact ordered level terms", repr(self.terms))
-        if any(term.method.value.column.unit != self.value.column.unit for term in self.terms):
-            _fail("linear child units matching parent", self.value.column.name)
-
-    def _summary(self) -> str:
-        return (
-            f"kind=level_linear, column={_short(self.value.column.name)!r}, terms={len(self.terms)}"
-        )
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -1473,35 +829,6 @@ class FrameMethodParent(_FactRecord):
         for metric in self.metrics:
             yield repr(metric)
             yield from metric._lines()
-
-
-def _arrow_table(schema: DataSchema, rows: tuple[tuple[_MethodScalar, ...], ...]) -> pd.DataFrame:
-    result: dict[str, pd.Series] = {}
-    for i, column in enumerate(schema.columns):
-        dtype = column.dtype
-        if isinstance(dtype, ScalarDataType):
-            physical = {
-                "boolean": pa.bool_(),
-                "string": pa.string(),
-                "int64": pa.int64(),
-                "float64": pa.float64(),
-                "date": pa.date32(),
-            }[dtype.name]
-        elif isinstance(dtype, DecimalDataType):
-            physical = pa.decimal128(dtype.precision, dtype.scale)
-        elif isinstance(dtype, TimestampDataType):
-            physical = pa.timestamp(dtype.unit, dtype.timezone)
-        else:
-            physical = pa.duration(dtype.unit)
-        values = tuple(row[i] for row in rows)
-        array = pa.array(
-            values,
-            type=pa.int64()
-            if isinstance(dtype, (TimestampDataType, DurationDataType))
-            else physical,
-        )
-        result[column.slot_id] = pd.Series(pd.arrays.ArrowExtensionArray(array.cast(physical)))
-    return pd.DataFrame(result, index=pd.RangeIndex(len(rows)))
 
 
 def _coordinates(

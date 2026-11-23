@@ -1,12 +1,13 @@
 """Checked target reports share a union domain without filling absent values."""
 
+from dataclasses import replace
 from decimal import Decimal
 
 import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.core.frame_data import MemoryFrameBacking
-from marivo.analysis.dsl.frame_attribute_merge import merge_attribute_reports
+from marivo.analysis.dsl._frame_attribute_api import merge_attribute_reports
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.methods.frame_attribute_merge import merge_attribute_data
 from marivo.analysis.model.data_schema import DataAxis, DataColumn, DataSchema
@@ -100,7 +101,6 @@ def test_merge_uses_existing_frame_schedule_for_fixed_inputs(
 
 
 def test_union_admits_null_key_from_another_target_without_changing_key_type() -> None:
-    from dataclasses import replace
 
     key = DataColumn("key", "key", ScalarDataType("int64"), False)
     a = DataColumn("a", "a", ScalarDataType("int64"), False)

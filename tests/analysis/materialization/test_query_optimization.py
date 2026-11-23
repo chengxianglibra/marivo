@@ -12,32 +12,43 @@ from unittest.mock import patch
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
 import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo._definition.expressions import SourceAggregate
 from marivo._definition.query import FilterValues, LiteralValues
 from marivo._definition.types import AxisBinding
+from marivo._kernel.temporal import TimeScope, _time_scope_from_contract_data
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler import optimization
-from marivo.analysis.compiler.frame_plan import CompiledFramePlan
-from marivo.analysis.compiler.graph_lowering import LoweredRead, lower_query
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.attribute_frequencies import frequency_read
+from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
+from marivo.analysis.compiler.graph_lowering import lower_query
+from marivo.analysis.compiler.lowered_query import LoweredRead
+from marivo.analysis.compiler.optimization import (
+    InvocationMemo,
+    _common_sources,
+    compilation_key,
+    optimize_query,
+    retain_components,
+)
+from marivo.analysis.compiler.original import WeightedPayload
+from marivo.analysis.compiler.query_planning import plan_query
+from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
+from marivo.analysis.compiler.query_stages import (
+    AttributeFrequencyRead,
     FrameCompute,
     FrameInput,
     LocalCompute,
     QueryPlan,
     SourceReadStage,
-    plan_query,
     read_members,
     read_projections,
+    require_reduction,
 )
-from marivo.analysis.compiler.optimization import (
-    InvocationMemo,
-    compilation_key,
-    optimize_query,
-)
-from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     ExpressionFrameBacking,
@@ -47,16 +58,27 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.graph_source_execution import (
-    PreparedSources,
-    execute_numeric_query,
-    open_query_sources,
+from marivo.analysis.materialization import (
+    frame_evaluation,
+    frame_source_preparation,
+    source_reads,
+    terminal_store,
 )
+from marivo.analysis.materialization import source_completion as execution
+from marivo.analysis.materialization.graph_source_execution import (
+    execute_numeric_query,
+    run_frame_plan,
+)
+from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.materialization.query_sources import open_query_sources
+from marivo.analysis.materialization.source_reads import read_stage
 from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
 from marivo.analysis.session.core import Session
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic.errors import SemanticExpressionError
+from marivo.semantic.numeric_operations import NumericCheck
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import (
     catalog_value,
@@ -122,7 +144,6 @@ def _execute(
     optimize_sources: bool | None = None,
     completed: list[AnalysisFrame] | None = None,
 ) -> tuple[StageOutput, QueryPlan, tuple[str, ...], dict[str, tuple[str, ...]]]:
-    from marivo.analysis.materialization import frame_evaluation, frame_source_preparation
 
     optimize_sources = optimized if optimize_sources is None else optimize_sources
     if (
@@ -161,7 +182,6 @@ def _execute(
     frame_events: list[str] = []
     frame_actual: dict[str, tuple[str, ...]] = {}
     captured: list[tuple[StageOutput, QueryPlan]] = []
-    from marivo.analysis.materialization.graph_source_execution import run_frame_plan
 
     run = run_frame_plan
 
@@ -396,10 +416,6 @@ def test_integral_decimal_source_filters_keep_values_beyond_int64(
 def test_source_carrier_change_uses_original_filter_stages(
     optimization_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pyarrow as pa
-
-    from marivo.analysis.materialization import graph_source_execution
-    from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
 
     session = optimization_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
@@ -407,7 +423,7 @@ def test_source_carrier_change_uses_original_filter_stages(
     source = session.observe({"sales": amount.min()}, by=(region,))
     first = source.where(source["sales"] >= 0)
     query = first.where(first["sales"] < 25)
-    read = graph_source_execution.read_stage
+    read = source_reads.read_stage
 
     def changed_carrier(
         prepared: PreparedSources,
@@ -437,7 +453,7 @@ def test_source_carrier_change_uses_original_filter_stages(
         )
         return replace(output, columns=columns, table=rows)
 
-    monkeypatch.setattr(graph_source_execution, "read_stage", changed_carrier)
+    monkeypatch.setattr(source_reads, "read_stage", changed_carrier)
     result, plan, events, _ = _same(session, query)
     (group,) = [group for group in plan.fusion_groups if group.law == "L1"]
     assert group.output == plan.publish
@@ -1206,7 +1222,6 @@ def test_common_block_keeps_same_period_filter_and_exact_checks(
 def test_decimal_column_division_finishes_once_in_declared_float_carrier(
     optimization_session: Session,
 ) -> None:
-    from fractions import Fraction
 
     session = optimization_session
     exact = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
@@ -1266,8 +1281,6 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     optimization_session: Session,
     clock: str,
 ) -> None:
-
-    from marivo._kernel.temporal import TimeScope, _time_scope_from_contract_data
 
     scope = optimization_session.time_scope(
         start=f"2026-01-01T{clock}+00:00", end=f"2026-01-03T{clock}+00:00"
@@ -1508,7 +1521,6 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     optimization_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.materialization import terminal_store
 
     session = optimization_session
     composite = catalog_value(session.catalog, "sales.composite_orders", kind="entity")
@@ -1552,7 +1564,6 @@ def test_literal_identity_coordinates_require_resolved_entity_without_source_loo
     optimization_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import marivo.semantic as ms
 
     session = optimization_session
     entity = catalog_value(session.catalog, "sales.composite_orders", kind="entity")
@@ -1585,8 +1596,6 @@ def test_grouped_common_completion_preserves_joint_rows_without_merge(
     optimization_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.materialization import graph_source_execution as execution
-    from marivo.semantic.numeric_operations import NumericCheck
 
     session = optimization_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
@@ -1650,9 +1659,6 @@ def test_joint_extended_reducers_preserve_empty_and_null_groups(
 def test_frequency_payload_survives_ordinary_aggregate_optimization(
     optimization_session: Session,
 ) -> None:
-    from marivo._definition.expressions import SourceAggregate
-    from marivo.analysis.compiler.attribute_frequencies import frequency_read
-    from marivo.analysis.compiler.graph_plan import AttributeFrequencyRead, require_reduction
 
     session = optimization_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
@@ -1693,9 +1699,6 @@ def test_frequency_payload_survives_ordinary_aggregate_optimization(
 def test_joint_weighted_components_retain_both_raw_operands(
     optimization_session: Session,
 ) -> None:
-    from marivo.analysis.compiler.optimization import _common_sources, retain_components
-    from marivo.analysis.compiler.original import WeightedPayload
-    from marivo.analysis.materialization.graph_source_execution import read_stage
 
     session = optimization_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")

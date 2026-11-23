@@ -370,7 +370,12 @@ def _normalize_source_columns(value: object, field_name: str) -> tuple[tuple[str
 _JSON_PATH_MEMBER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
-def _parse_json_path(name: str) -> tuple[tuple[str, object], ...]:
+JsonPathStep: TypeAlias = (
+    tuple[Literal["member"], str] | tuple[Literal["index"], int] | tuple[Literal["traverse"], None]
+)
+
+
+def _parse_json_path(name: str) -> tuple[JsonPathStep, ...]:
     """Parse one JSON field path into member/index/traverse segments.
 
     A column path selects a nested value relative to each record object:
@@ -379,7 +384,7 @@ def _parse_json_path(name: str) -> tuple[tuple[str, object], ...]:
     """
     if not any(separator in name for separator in (".", "[", "]")):
         return (("member", name),)
-    segments: list[tuple[str, object]] = []
+    segments: list[JsonPathStep] = []
     for part in name.split("."):
         if not part:
             raise ValueError(f"JSON field path {name!r} must not contain empty segments.")
@@ -412,7 +417,7 @@ def _parse_json_path(name: str) -> tuple[tuple[str, object], ...]:
 
 
 def _validate_json_columns(columns: tuple[tuple[str, str], ...]) -> None:
-    traversal_prefix: tuple[tuple[str, object], ...] | None = None
+    traversal_prefix: tuple[JsonPathStep, ...] | None = None
     for _output_name, path in columns:
         segments = _parse_json_path(path)
         traversal_positions = [
@@ -435,7 +440,7 @@ def _validate_json_columns(columns: tuple[tuple[str, str], ...]) -> None:
             )
 
 
-def _format_json_path(segments: tuple[tuple[str, object], ...]) -> str:
+def _format_json_path(segments: tuple[JsonPathStep, ...]) -> str:
     rendered = ""
     for kind, arg in segments:
         if kind == "member":

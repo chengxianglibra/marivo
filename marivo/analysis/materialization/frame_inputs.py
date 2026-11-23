@@ -6,25 +6,25 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from marivo._definition.query import FilterValues, SelectValues, TopValues
-from marivo.analysis.core.attribute_game import AttributeGameValues
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     FrameKeyDependency,
     OperationFrameBinding,
     SourceFrameBinding,
 )
-from marivo.analysis.core.frame_expression import (
+from marivo.analysis.core.frame_operations import (
     AlignFrameValues,
     AttributeContributionValues,
     AttributeFrameValues,
+    AttributeGameValues,
     AttributeInputsValues,
     CompareFrameValues,
     FixedFrameInput,
+    FixFrameValues,
     FrameExpression,
     FrameOperation,
     SourceFrameInput,
 )
-from marivo.analysis.core.frame_fix import FixFrameValues
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_attribute_merge import AttributeMergeValues
@@ -35,7 +35,7 @@ from marivo.analysis.model.frame_metadata import (
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.attribute_rules import AttributeRule
-    from marivo.analysis.binding.frame_attribute_inputs import AttributeInputRequest
+    from marivo.analysis.core.frame_attribute_inputs import AttributeInputRequest
     from marivo.analysis.core.frame_data import FrameNode
 
 

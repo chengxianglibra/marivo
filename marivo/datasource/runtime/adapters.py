@@ -23,6 +23,7 @@ import pyarrow.parquet as pq
 from ibis.backends import BaseBackend
 
 from marivo._kernel import execution_log as _execution_log
+from marivo._kernel.validation import nonempty_text
 from marivo.datasource import credentials as cr
 from marivo.datasource._expression_fields import physical_fields
 from marivo.datasource._lifetime import BackendLease
@@ -527,7 +528,7 @@ class SourceSession:
             sql = compile_distributed_query(expression.as_table(), supplied)
         else:
             sql = self._backend.compile(expression.as_table(), params=supplied, limit=None)
-        if not isinstance(sql, str) or not sql:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not nonempty_text(sql):
             raise _invalid("nonempty Ibis compiled SQL", type(sql).__name__)
         if self.provider.validate_query is not None:
             self.provider.validate_query(self._backend, sql)

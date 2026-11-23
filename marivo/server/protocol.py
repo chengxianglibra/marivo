@@ -304,68 +304,15 @@ def _directory(item: str, **extra: JsonObject) -> JsonObject:
     )
 
 
-def _schemas() -> dict[str, JsonObject]:
+def _frame_schemas() -> dict[str, JsonObject]:
     layout = arr(either(ref(CoordinateExportColumn.__name__), ref(FieldExportColumn.__name__)))
-    scalar_kinds = ("boolean", "string", "int64", "float64", "date")
-    scalar_values = (BOOL, STRING, TICKS, either(NUMBER, ref("NonFiniteFloat")), _type(date))
-    types = {
-        "ScalarDataType": record(kind={"enum": list(scalar_kinds)}),
-        "DecimalDataType": record(kind=literal("decimal"), precision=INT, scale=INT),
-        "TimestampDataType": record(
-            kind=literal("timestamp"), unit=UNITS, timezone=nullable(STRING)
-        ),
-        "DurationDataType": record(kind=literal("duration"), unit=UNITS),
-    }
-    typed_scalar = either(
-        *(
-            record(dtype=record(kind=literal(kind)), value=nullable(value))
-            for kind, value in zip(scalar_kinds, scalar_values, strict=True)
-        ),
-        record(dtype=ref("DecimalDataType"), value=nullable(DECIMAL)),
-        record(dtype=ref("TimestampDataType"), value=nullable(STRING)),
-        record(dtype=ref("DurationDataType"), value=nullable(TICKS)),
-    )
-    key = arr(ref("TypedScalar"))
-    endpoint = either(ref("CalendarPeriod"), ref("IntervalPeriod"))
-    summary = {
-        "id": STRING,
-        "path": STRING,
-        "name": STRING,
-        "domain": nullable(STRING),
-        "business_definition": nullable(STRING),
-    }
-    definitions = {
-        "datasource": DatasourceDefinition,
-        "domain": DomainDefinition,
-        "entity": EntityDefinition,
-        "metric": MetricDefinition,
-        "relationship": RelationshipDefinition,
-        "dimension": FieldDefinition,
-        "measure": FieldDefinition,
-        "time_dimension": FieldDefinition,
-    }
-    provenance = record(source_file=nullable(STRING), source_line=INT, python_symbol=STRING)
     frame_summary = {
         "ref": ref("FrameRef"),
         "description": nullable(STRING),
         "committed_at": DATETIME,
         "schema": ref(FrameSchema.__name__),
     }
-    session_fields = {
-        name: _type(_annotation(SessionSummary, name))
-        for name in [
-            "name",
-            "question",
-            "timezone",
-            "timezone_origin",
-            "created_at",
-            "updated_at",
-            "artifact_count",
-        ]
-    }
     return {
-        **_nested(),
-        **types,
         "FrameRef": record(
             schema=literal("marivo.frame_ref/v2"),
             store_id=STRING,
@@ -436,10 +383,41 @@ def _schemas() -> dict[str, JsonObject]:
             schema=record(columns=arr(record(name=STRING, dtype=ref("DataFrameType")))),
             data=record(layout=arr(STRING), rows=arr(arr(ref("ScalarValue"))), row_count=INT),
         ),
+    }
+
+
+def _scalar_schemas() -> tuple[dict[str, JsonObject], dict[str, JsonObject]]:
+    scalar_kinds = ("boolean", "string", "int64", "float64", "date")
+    scalar_values = (BOOL, STRING, TICKS, either(NUMBER, ref("NonFiniteFloat")), _type(date))
+    types: dict[str, JsonObject] = {
+        "ScalarDataType": record(kind={"enum": list(scalar_kinds)}),
+        "DecimalDataType": record(kind=literal("decimal"), precision=INT, scale=INT),
+        "TimestampDataType": record(
+            kind=literal("timestamp"), unit=UNITS, timezone=nullable(STRING)
+        ),
+        "DurationDataType": record(kind=literal("duration"), unit=UNITS),
+    }
+    typed_scalar = either(
+        *(
+            record(dtype=record(kind=literal(kind)), value=nullable(value))
+            for kind, value in zip(scalar_kinds, scalar_values, strict=True)
+        ),
+        record(dtype=ref("DecimalDataType"), value=nullable(DECIMAL)),
+        record(dtype=ref("TimestampDataType"), value=nullable(STRING)),
+        record(dtype=ref("DurationDataType"), value=nullable(TICKS)),
+    )
+    return types, {
         "NonFiniteFloat": record(float={"enum": ["nan", "inf", "-inf"]}),
         "ScalarValue": either(STRING, BOOL, NUMBER, NULL, ref("NonFiniteFloat")),
         "TypedScalar": typed_scalar,
         "Cell": either(ref("ScalarValue"), ref("TypedScalar"), arr(ref("ScalarValue"))),
+    }
+
+
+def _period_schemas() -> dict[str, JsonObject]:
+    key = arr(ref("TypedScalar"))
+    endpoint = either(ref("CalendarPeriod"), ref("IntervalPeriod"))
+    return {
         "CalendarPeriod": record(
             kind=literal("calendar"),
             key=key,
@@ -463,6 +441,75 @@ def _schemas() -> dict[str, JsonObject]:
             baseline=nullable(endpoint),
             absent_reason=nullable({"enum": ["period_absent", "cutoff_absent", "unmatched"]}),
         ),
+    }
+
+
+def _catalog_schemas() -> dict[str, JsonObject]:
+    summary = {
+        "id": STRING,
+        "path": STRING,
+        "name": STRING,
+        "domain": nullable(STRING),
+        "business_definition": nullable(STRING),
+    }
+    definitions = {
+        "datasource": DatasourceDefinition,
+        "domain": DomainDefinition,
+        "entity": EntityDefinition,
+        "metric": MetricDefinition,
+        "relationship": RelationshipDefinition,
+        "dimension": FieldDefinition,
+        "measure": FieldDefinition,
+        "time_dimension": FieldDefinition,
+    }
+    provenance = record(source_file=nullable(STRING), source_line=INT, python_symbol=STRING)
+    return {
+        "SemanticSummary": record(**summary, kind={"enum": list(KINDS)}),
+        "SemanticObject": either(
+            *(
+                record(
+                    **summary,
+                    kind=literal(kind),
+                    definition=ref(definition.__name__),
+                    provenance=provenance,
+                )
+                for kind, definition in definitions.items()
+            )
+        ),
+        "ObjectDirectory": _directory("SemanticSummary", kinds=arr(STRING), domains=arr(STRING)),
+        "RelatedDirectory": _directory("SemanticSummary", outside_scope=arr(STRING)),
+        "DatasourceProperties": record(
+            backend_type=STRING,
+            wall_clock_timezone=nullable(STRING),
+            properties={
+                "type": "object",
+                "additionalProperties": either(STRING, INT, BOOL, arr(STRING)),
+            },
+            has_omitted_fields=BOOL,
+        ),
+    }
+
+
+def _schemas() -> dict[str, JsonObject]:
+    data_types, scalar_values = _scalar_schemas()
+    session_fields = {
+        name: _type(_annotation(SessionSummary, name))
+        for name in [
+            "name",
+            "question",
+            "timezone",
+            "timezone_origin",
+            "created_at",
+            "updated_at",
+            "artifact_count",
+        ]
+    }
+    return {
+        **_nested(),
+        **data_types,
+        **_frame_schemas(),
+        **scalar_values,
+        **_period_schemas(),
         "Info": record(
             api_version={"type": "integer", "const": API_VERSION},
             marivo_version=STRING,
@@ -487,29 +534,7 @@ def _schemas() -> dict[str, JsonObject]:
         "SessionSummary": record(session_id=STRING, **session_fields),
         "SessionDirectory": _directory("SessionSummary"),
         "FrameDirectory": _directory("FrameSummary"),
-        "SemanticSummary": record(**summary, kind={"enum": list(KINDS)}),
-        "SemanticObject": either(
-            *(
-                record(
-                    **summary,
-                    kind=literal(kind),
-                    definition=ref(definition.__name__),
-                    provenance=provenance,
-                )
-                for kind, definition in definitions.items()
-            )
-        ),
-        "ObjectDirectory": _directory("SemanticSummary", kinds=arr(STRING), domains=arr(STRING)),
-        "RelatedDirectory": _directory("SemanticSummary", outside_scope=arr(STRING)),
-        "DatasourceProperties": record(
-            backend_type=STRING,
-            wall_clock_timezone=nullable(STRING),
-            properties={
-                "type": "object",
-                "additionalProperties": either(STRING, INT, BOOL, arr(STRING)),
-            },
-            has_omitted_fields=BOOL,
-        ),
+        **_catalog_schemas(),
         **{
             f"Error{status}": record(
                 error=record(

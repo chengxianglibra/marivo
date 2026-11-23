@@ -10,12 +10,14 @@ from pathlib import Path
 from typing import get_args, get_type_hints
 
 import pytest
+from pydantic import BaseModel, Field
 
 import marivo
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability
 from marivo._help import render as help_render
+from marivo._help import route as routing
 from marivo._help.model import (
     MarivoHelpSurfaceError,
     MarivoHelpTargetError,
@@ -26,19 +28,22 @@ from marivo._help.model import (
 from marivo._help.render import PublicHelpTarget
 from marivo._help.render import help as public_help
 from marivo._help.route import route_help_target
+from marivo._kernel.temporal import TimeScopeContractV1
 from marivo.analysis._help_specs.manifest import REGISTRY as ANALYSIS_REGISTRY
 from marivo.analysis.help_spi import ANALYSIS_LIVE_SURFACE
-from marivo.analysis.model.disclosure import Descriptor
+from marivo.analysis.model.disclosure import Descriptor, NavigationInput
 from marivo.datasource._help_specs.manifest import REGISTRY as DATASOURCE_REGISTRY
 from marivo.datasource.help_spi import DATASOURCE_LIVE_SURFACE
-from marivo.introspection.capabilities.resolve import LiveSurfaceAdapter
+from marivo.introspection.capabilities.resolve import LiveSurfaceAdapter, resolve_live_target
 from marivo.introspection.capabilities.spec import CapabilitySpec, RegistryView
+from marivo.introspection.live.attributes import public_attributes
 from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface
 from marivo.ontology._help_specs.manifest import REGISTRY as ONTOLOGY_REGISTRY
 from marivo.ontology._help_specs.manifest import OntologyDescriptor
 from marivo.ontology.help_spi import ONTOLOGY_LIVE_SURFACE
 from marivo.semantic._help_specs.manifest import REGISTRY as SEMANTIC_REGISTRY
 from marivo.semantic._help_specs.model import SemanticHelpDescriptor
+from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.help_spi import SEMANTIC_LIVE_SURFACE
 from tests.support.paths import PROJECT_ROOT
 
@@ -151,7 +156,6 @@ def test_shared_catalog_callable_uses_its_native_semantic_contract(
     method_name: str,
     canonical_target: str,
 ) -> None:
-    from marivo.semantic.catalog import SemanticCatalog
 
     catalog = ms.load()
     for method in (getattr(SemanticCatalog, method_name), getattr(catalog, method_name)):
@@ -206,8 +210,6 @@ def test_analysis_task_members_resolve_independently() -> None:
         "sessions",
         "operators",
     ):
-        from marivo.analysis.model.disclosure import NavigationInput
-
         topic = ANALYSIS_REGISTRY.by_canonical_id(owner)
         assert isinstance(topic, NavigationInput)
         assert len(topic.members) <= 18
@@ -243,7 +245,6 @@ def test_bound_method_renders_the_same_descriptor(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create(name="unified_help")
-    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     resolved = resolve_live_target(session.members, ANALYSIS_LIVE_SURFACE)
     assert resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id("session.members")
@@ -275,8 +276,6 @@ def test_unknown_qualified_help_target_exposes_resolvable_repair_candidates() ->
 
 
 def test_attribute_discovery_does_not_execute_getters(monkeypatch: pytest.MonkeyPatch) -> None:
-    from marivo._help import route as routing
-    from marivo.introspection.live.attributes import public_attributes
 
     class Example:
         field: int
@@ -297,10 +296,6 @@ def test_attribute_discovery_does_not_execute_getters(monkeypatch: pytest.Monkey
 
 
 def test_attribute_access_uses_owning_frozen_model_contracts() -> None:
-    from pydantic import BaseModel, Field
-
-    from marivo._kernel.temporal import TimeScopeContractV1
-    from marivo.introspection.live.attributes import public_attributes
 
     # Required time identity fields need no construction to discover immutability.
     assert TimeScopeContractV1.model_config["frozen"] is True

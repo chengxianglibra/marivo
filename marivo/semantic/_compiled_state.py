@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Literal
 
 from marivo._definition.deferred import root_declaration
 from marivo._definition.expressions import MetricNode, RowNode
@@ -53,47 +53,34 @@ def _published_nodes(registry: Registry) -> dict[Ref[SemanticKindTag], MetricNod
 
     nodes: dict[Ref[SemanticKindTag], MetricNode | RowNode] = {}
     for key, measure in registry.declared_measures.items():
-        nodes[cast("Ref[SemanticKindTag]", ref_factory.measure(key))] = consume_row(measure).node
+        nodes[ref_factory.measure(key)] = consume_row(measure).node
     for key, metric in registry.declared_metrics.items():
-        nodes[cast("Ref[SemanticKindTag]", ref_factory.metric(key))] = consume_metric(metric).node
+        nodes[ref_factory.metric(key)] = consume_metric(metric).node
     return nodes
 
 
 def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
     rows: dict[Ref[SemanticKindTag], object] = {}
-    rows.update(
-        (cast("Ref[SemanticKindTag]", ref_factory.domain(key)), value)
-        for key, value in registry.domains.items()
-    )
-    rows.update(
-        (cast("Ref[SemanticKindTag]", ref_factory.datasource(key)), value)
-        for key, value in registry.datasources.items()
-    )
-    rows.update(
-        (cast("Ref[SemanticKindTag]", ref_factory.entity(key)), value)
-        for key, value in registry.entities.items()
-    )
+    rows.update((ref_factory.domain(key), value) for key, value in registry.domains.items())
+    rows.update((ref_factory.datasource(key), value) for key, value in registry.datasources.items())
+    rows.update((ref_factory.entity(key), value) for key, value in registry.entities.items())
     for key, value in registry.dimensions.items():
         ref = (
             ref_factory.time_dimension(key)
             if value.is_time_dimension
             else ref_factory.dimension(key)
         )
-        rows[cast("Ref[SemanticKindTag]", ref)] = value
+        rows[ref] = value
+    rows.update((ref_factory.measure(key), value) for key, value in registry.measures.items())
     rows.update(
-        (cast("Ref[SemanticKindTag]", ref_factory.measure(key)), value)
-        for key, value in registry.measures.items()
-    )
-    rows.update(
-        (cast("Ref[SemanticKindTag]", ref_factory.relationship(key)), value)
-        for key, value in registry.relationships.items()
+        (ref_factory.relationship(key), value) for key, value in registry.relationships.items()
     )
 
     for key, measure in registry.declared_measures.items():
         declaration = root_declaration(measure)
         assert declaration is not None
         facts = consume_row(measure)
-        rows[cast("Ref[SemanticKindTag]", ref_factory.measure(key))] = PublishedDeclaration(
+        rows[ref_factory.measure(key)] = PublishedDeclaration(
             "measure",
             declaration.name,
             computation_fingerprint(facts.node),
@@ -104,7 +91,7 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
         declaration = root_declaration(metric)
         assert declaration is not None
         metric_facts = consume_metric(metric)
-        rows[cast("Ref[SemanticKindTag]", ref_factory.metric(key))] = PublishedDeclaration(
+        rows[ref_factory.metric(key)] = PublishedDeclaration(
             "metric",
             declaration.name,
             computation_fingerprint(metric_facts.node),
@@ -116,9 +103,9 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
 
 def _ref_for_path(registry: Registry, path: str) -> Ref[SemanticKindTag] | None:
     if path in registry.datasources:
-        return cast("Ref[SemanticKindTag]", ref_factory.datasource(path))
+        return ref_factory.datasource(path)
     if path in registry.entities:
-        return cast("Ref[SemanticKindTag]", ref_factory.entity(path))
+        return ref_factory.entity(path)
     dimension = registry.dimensions.get(path)
     if dimension is not None:
         ref = (
@@ -126,13 +113,13 @@ def _ref_for_path(registry: Registry, path: str) -> Ref[SemanticKindTag] | None:
             if dimension.is_time_dimension
             else ref_factory.dimension(path)
         )
-        return cast("Ref[SemanticKindTag]", ref)
+        return ref
     if path in registry.measures:
-        return cast("Ref[SemanticKindTag]", ref_factory.measure(path))
+        return ref_factory.measure(path)
     if path in registry.relationships:
-        return cast("Ref[SemanticKindTag]", ref_factory.relationship(path))
+        return ref_factory.relationship(path)
     if path in registry.domains:
-        return cast("Ref[SemanticKindTag]", ref_factory.domain(path))
+        return ref_factory.domain(path)
     return None
 
 

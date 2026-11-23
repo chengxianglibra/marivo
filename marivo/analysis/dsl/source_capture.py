@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from datetime import datetime
 from typing import TypeAlias
 
 from ibis.common.deferred import Deferred
@@ -11,13 +12,17 @@ from ibis.common.deferred import Deferred
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import DeclaredMetricRef, MetricNode
 from marivo._definition.grouping import grouping_binding, normalize_groupings
+from marivo._definition.observations import CoordinateBinding, ObservationBinding
 from marivo._definition.population_builders import extend
-from marivo._definition.query import ResultQuery
+from marivo._definition.query import LiteralValues, ResultQuery
 from marivo._definition.relations import (
+    LiteralPopulation,
     MembershipBinding,
     ObserveQuery,
+    PopulationDependency,
     ReadQuery,
     condition_populations,
+    population_keys,
 )
 from marivo._definition.types import (
     AxisBinding,
@@ -28,11 +33,13 @@ from marivo._definition.types import (
     IntervalCoordinate,
     LiteralValue,
     Owner,
+    check_literal,
     field_axis,
 )
 from marivo._kernel.grouping import Grouping
 from marivo._kernel.temporal import TimeScope
 from marivo._kernel.timezones import same_timezone
+from marivo.analysis.binding.contribution_binding import ObservationCoordinate
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.observe import ObservationPeriod, bind_observation
 from marivo.analysis.binding.signature import BoundQuantity, BoundSignature, ResultQuantity
@@ -135,7 +142,6 @@ def capture_read(
     *,
     on: Grouping | None = None,
 ) -> BoundGraph:
-    from marivo._definition.observations import CoordinateBinding, ObservationBinding
 
     if _owner(population._definition) not in (None, owner):
         reject(
@@ -181,11 +187,6 @@ def capture_values(
     rows: tuple[ValueRow, ...],
     owner: Owner,
 ) -> BoundGraph:
-    from datetime import datetime
-
-    from marivo._definition.query import LiteralValues
-    from marivo._definition.relations import LiteralPopulation
-    from marivo._definition.types import DefinitionGraphError, check_literal
 
     def literal(value: LiteralValue) -> LiteralValue:
         try:
@@ -312,16 +313,9 @@ def _validate_report_timezone(
         )
 
 
-def capture_metrics(
-    metrics: _MetricInputs,
-    owner: Owner,
-    *,
-    by: tuple[Deferred | Grouping, ...] | Population = (),
-    where: Deferred | None = None,
-    timezone: str = "UTC",
-    state: CompiledSemanticState | None = None,
-    scope: TimeScope | None = None,
-) -> BoundGraph:
+def _capture_named_metrics(
+    metrics: _MetricInputs, state: CompiledSemanticState | None
+) -> tuple[list[BoundQuantity], dict[ExactRef, MetricNode]]:
     quantities: list[BoundQuantity] = []
     definitions: dict[ExactRef, MetricNode] = {}
     names: dict[str, tuple[int, str]] = {}
@@ -366,6 +360,90 @@ def capture_metrics(
         names[name] = (position, reference)
         quantities.append(BoundQuantity(name, facts.node, facts.unit))
         definitions.update(facts._declared)
+    return quantities, definitions
+
+
+def _capture_observation_axes(
+    axes: tuple[object, ...],
+    population: PopulationDependency | None,
+    timezone: str,
+    scope: TimeScope | None,
+) -> tuple[tuple[ObservationCoordinate, ...], int | None, bool]:
+    source_axes: list[AxisBinding | CalendarCoordinate | IntervalCoordinate] = []
+    time_axes = 0
+    pending_interval: int | None = None
+    empty_interval = False
+    for index, axis in enumerate(axes):
+        if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+            if isinstance(axis, IntervalCoordinate) and population is not None:
+                finite = population_keys(population)
+                selected = {row[index] for row in finite} if finite is not None else set()
+                if finite is None:
+                    pending_interval = index
+                elif not selected:
+                    empty_interval = True
+                if len(selected) > 1:
+                    reject(
+                        "at most one distinct report interval in observe by",
+                        repr(
+                            tuple(
+                                axis.bounds[key]
+                                for key in sorted(k for k in selected if type(k) is int)
+                            )
+                        ),
+                        "Observe each interval separately or select a single interval in the Population.",
+                        "Session.observe.by",
+                        canonical_id="session.observe",
+                    )
+                if selected:
+                    (key,) = selected
+                    assert type(key) is int
+                    start, end = axis.bounds[key]
+                    axis = replace(
+                        axis, start=start, end=end, intervals=axis.bounds, report_key=key
+                    )
+            _validate_report_timezone(axis, timezone, location=f"Session.observe.by[{index}]")
+            time_axes += 1
+            source_axes.append(axis)
+        elif isinstance(axis, AxisBinding) and (
+            axis.field is None or axis.field.ref.kind.value != "time_dimension"
+        ):
+            source_axes.append(axis)
+        else:
+            reject(
+                "classification axes and fieldless report time coordinates",
+                repr(axis),
+                "Use a CalendarAxis or a complete Population with fieldless time coordinates.",
+                "Session.observe.by",
+                canonical_id="session.observe",
+            )
+    if time_axes > 1 or (time_axes and scope is not None):
+        reject(
+            "one report time selection",
+            f"report time coordinates in by: {time_axes}; "
+            f"where TimeScope is {'present' if scope is not None else 'absent'}",
+            "Use the time coordinates in by without a separate report TimeScope in where.",
+            "Session.observe.by",
+            canonical_id="session.observe",
+        )
+    reads = tuple(
+        axis if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) else axis.as_read()
+        for axis in source_axes
+    )
+    return reads, pending_interval, empty_interval
+
+
+def capture_metrics(
+    metrics: _MetricInputs,
+    owner: Owner,
+    *,
+    by: tuple[Deferred | Grouping, ...] | Population = (),
+    where: Deferred | None = None,
+    timezone: str = "UTC",
+    state: CompiledSemanticState | None = None,
+    scope: TimeScope | None = None,
+) -> BoundGraph:
+    quantities, definitions = _capture_named_metrics(metrics, state)
     population = by._definition if isinstance(by, Population) else None
     if population is not None and _owner(population) not in (None, owner):
         reject(
@@ -412,68 +490,8 @@ def capture_metrics(
             "Session.observe.by",
             canonical_id="session.observe",
         )
-    source_axes: list[AxisBinding | CalendarCoordinate | IntervalCoordinate] = []
-    time_axes = 0
-    pending_interval: int | None = None
-    empty_interval = False
-    for index, axis in enumerate(axes):
-        if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
-            if isinstance(axis, IntervalCoordinate) and population is not None:
-                from marivo._definition.relations import population_keys
-
-                finite = population_keys(population)
-                selected = {row[index] for row in finite} if finite is not None else set()
-                if finite is None:
-                    pending_interval = index
-                elif not selected:
-                    empty_interval = True
-                if len(selected) > 1:
-                    reject(
-                        "at most one distinct report interval in observe by",
-                        repr(
-                            tuple(
-                                axis.bounds[key]
-                                for key in sorted(k for k in selected if type(k) is int)
-                            )
-                        ),
-                        "Observe each interval separately or select a single interval in the Population.",
-                        "Session.observe.by",
-                        canonical_id="session.observe",
-                    )
-                if selected:
-                    (key,) = selected
-                    assert type(key) is int
-                    start, end = axis.bounds[key]
-                    axis = replace(
-                        axis, start=start, end=end, intervals=axis.bounds, report_key=key
-                    )
-            _validate_report_timezone(axis, timezone, location=f"Session.observe.by[{index}]")
-            time_axes += 1
-            source_axes.append(axis)
-        elif isinstance(axis, AxisBinding) and (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            axis.field is None or axis.field.ref.kind.value != "time_dimension"
-        ):
-            source_axes.append(axis)
-        else:
-            reject(
-                "classification axes and fieldless report time coordinates",
-                repr(axis),
-                "Use a CalendarAxis or a complete Population with fieldless time coordinates.",
-                "Session.observe.by",
-                canonical_id="session.observe",
-            )
-    if time_axes > 1 or (time_axes and scope is not None):
-        reject(
-            "one report time selection",
-            f"report time coordinates in by: {time_axes}; "
-            f"where TimeScope is {'present' if scope is not None else 'absent'}",
-            "Use the time coordinates in by without a separate report TimeScope in where.",
-            "Session.observe.by",
-            canonical_id="session.observe",
-        )
-    reads = tuple(
-        axis if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) else axis.as_read()
-        for axis in source_axes
+    reads, pending_interval, empty_interval = _capture_observation_axes(
+        axes, population, timezone, scope
     )
     condition = consume_predicate(where).node if where is not None else None
     if condition is not None:
@@ -522,7 +540,6 @@ def capture_metrics(
 
 
 def capture_population(population: Population, owner: Owner) -> BoundGraph:
-    from marivo._definition.observations import CoordinateBinding, ObservationBinding
 
     existing_owner = _owner(population._definition)
     if existing_owner is not None and existing_owner != owner:

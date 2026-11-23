@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+import marivo.semantic.search.catalog_search as search
 from marivo.semantic.errors import CatalogSearchError
 from marivo.semantic.search import sentence_transformers_backend as models
 from marivo.semantic.search.catalog_search import search_documents
@@ -421,7 +422,6 @@ def test_local_model_paths_cannot_ignore_the_declared_revision(
 def test_observed_corruption_never_unlinks_a_concurrently_published_ranking(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.semantic.search.catalog_search as search
 
     documents = tuple(_document(name, name) for name in ("one", "two", "three"))
     winner = _search(tmp_path, documents, limit=1)

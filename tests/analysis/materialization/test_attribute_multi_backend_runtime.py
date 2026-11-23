@@ -15,6 +15,7 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.core.attribute import AttributeInputError
 from marivo.analysis.core.frame_method_facts import FrameShapleyMethod
+from marivo.datasource.spi import native_aggregate
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
@@ -509,7 +510,6 @@ def test_native_shapley_queries_keep_original_reducers_and_actual_read_costs(
             "float_condition": (amount.sum() > 4).ifelse(1, 0),
             "native_distinct": category.count_distinct() * amount.sum(),
         }
-        from marivo.datasource.spi import native_aggregate
 
         if native_aggregate(backend, "quantile", ibis.dtype("float64")) is not None:
             metrics["quantile"] = amount.quantile(0.5) * weight.sum()

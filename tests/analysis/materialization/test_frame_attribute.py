@@ -1,6 +1,8 @@
 """Explicit default Attribute requests use the ordinary checked Frame schedule."""
 
+import inspect
 from collections.abc import Callable
+from decimal import Decimal
 from pathlib import Path
 
 import duckdb
@@ -12,6 +14,7 @@ import marivo.analysis as mv
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import attribute_source_preparation
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.data_types import DecimalDataType
 from marivo.analysis.session.core import Session
@@ -108,7 +111,6 @@ def test_explicit_investigation_outer_presence_and_original_nullable_values(
 
 
 def test_attribute_has_only_receiver_and_keyword_configuration(session: Session) -> None:
-    import inspect
 
     assert tuple(inspect.signature(AnalysisFrame.attribute).parameters) == (
         "self",
@@ -552,9 +554,6 @@ def test_correlated_overlapping_parent_membership_is_preserved_for_investigation
 def test_native_decimal_investigation_preserves_finisher_and_parent_scope(
     session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from decimal import Decimal
-
-    from marivo.analysis.materialization import graph_source_execution
 
     with duckdb.connect(str(tmp_path / "attribute.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER amount TYPE DECIMAL(18,2)")
@@ -574,7 +573,7 @@ def test_native_decimal_investigation_preserves_finisher_and_parent_scope(
     def no_proof(*args: object, **kwargs: object) -> None:
         raise AssertionError("Plain investigation must not collect contribution proof")
 
-    monkeypatch.setattr(graph_source_execution, "prepare_attribute_sources", no_proof)
+    monkeypatch.setattr(attribute_source_preparation, "prepare_attribute_sources", no_proof)
     current = session.observe(
         {"q": metric}, by=(region, channel), where=mv.in_population(keys) & (identifier >= 3)
     )

@@ -12,6 +12,7 @@ from sqlglot import expressions as sge
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.errors import AnalysisError
 from marivo.datasource import engines
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
 from marivo.datasource.runtime.adapters import SourceSession
@@ -451,7 +452,6 @@ def test_encoded_and_parsed_time_wide_sums_preserve_values_and_run_ownership(
         )
 
     # Safe parsing retains native Ibis's int64 transport boundary.
-    from marivo.analysis.errors import AnalysisError
 
     with pytest.raises(AnalysisError):
         execute()

@@ -28,7 +28,14 @@ from marivo.datasource.inspection.details import (
     Partitioning,
     PhysicalExtent,
 )
-from marivo.datasource.metadata_types import ColumnMetadata, PartitionMetadata, TableMetadata
+from marivo.datasource.inspection.projection import _project_table_metadata
+from marivo.datasource.inspection.source import SourceInspection, _preflight_scope
+from marivo.datasource.metadata_types import (
+    ColumnMetadata,
+    PartitionMetadata,
+    TableMetadata,
+    _schema_columns,
+)
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.datasource.source import PartitionScope
@@ -831,9 +838,6 @@ def test_time_range_mismatches_fail_before_business_read_without_timezone_defaul
 def test_time_range_preserves_reflected_mysql_datetime_and_timestamp_categories(
     project_root: Path, ibis_type: str, projected: bool
 ) -> None:
-    from marivo.datasource.inspection.projection import _project_table_metadata
-    from marivo.datasource.inspection.source import SourceInspection, _preflight_scope
-    from marivo.datasource.metadata_types import _schema_columns
 
     schema = _schema_columns(ibis.table({"event_time": ibis_type}))
     physical_schema = schema
@@ -906,7 +910,6 @@ def test_time_range_uses_native_mysql_and_clickhouse_physical_semantics(
     physical_type: str,
     aware: bool,
 ) -> None:
-    from marivo.datasource.inspection.source import SourceInspection, _preflight_scope
 
     inspection = SourceInspection(
         _datasource=ref_factory.datasource("warehouse"),

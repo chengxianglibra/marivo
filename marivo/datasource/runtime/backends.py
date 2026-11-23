@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, NoReturn, SupportsIndex
+from typing import NoReturn, SupportsIndex
 
 from ibis.backends import BaseBackend
 
+from marivo._kernel.validation import nonempty_text
 from marivo.datasource import credentials as cr
 from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.credentials import secrets as secrets
@@ -34,13 +35,13 @@ class _NativeQueryTimeoutError(DatasourceSourceCapabilityError):
 
 @dataclass(frozen=True)
 class EffectiveDatasourceKwargs:
-    kwargs: dict[str, Any] = field(repr=False)
+    kwargs: dict[str, object] = field(repr=False)
     injected: tuple[cr.SecretValue, ...]
     env_sourced_secrets: tuple[secrets.ResolvedSecret, ...]
 
 
-def _reject_unqualified_credentials(datasource: DatasourceIR, profile: Any) -> None:
-    if datasource.fields.get("secrets") and getattr(profile, "install_credentials", None) is None:
+def _reject_unqualified_credentials(datasource: DatasourceIR, profile: EngineProfile) -> None:
+    if datasource.fields.get("secrets") and profile.install_credentials is None:
         raise DatasourceFieldInvalidError(
             message=("Declared secrets require a provider that owns scoped credentials."),
             expected="a credentials-owning provider",
@@ -57,14 +58,16 @@ def _reject_unqualified_credentials(datasource: DatasourceIR, profile: Any) -> N
         )
 
 
-def _effective_kwargs(datasource: DatasourceIR, profile: Any) -> EffectiveDatasourceKwargs:
+def _effective_kwargs(
+    datasource: DatasourceIR, profile: EngineProfile
+) -> EffectiveDatasourceKwargs:
     _reject_unqualified_credentials(datasource, profile)
-    resolved: dict[str, Any] = dict(datasource.fields)
+    resolved: dict[str, object] = dict(datasource.fields)
     env_sourced: list[secrets.ResolvedSecret] = []
     resolver = cr.current_resolver()
     injected: dict[str, cr.SecretValue] = {}
     for stem, env_var in datasource.env_refs.items():
-        if not isinstance(env_var, str) or not env_var:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not nonempty_text(env_var):
             raise DatasourceFieldInvalidError(
                 message=(
                     f"datasource {datasource.name!r} field {stem} must be a non-empty env var name"
@@ -256,7 +259,7 @@ def build_backend(
     datasource: DatasourceIR,
     *,
     terminal_timeout_seconds: int | None = None,
-) -> Any:
+) -> BaseBackend:
     """Open and return a live ibis backend for the given datasource."""
     return build_backend_with_secrets(
         datasource,

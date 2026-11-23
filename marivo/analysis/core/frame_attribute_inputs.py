@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from marivo.analysis.binding.attribute_game import AttributeGame
     from marivo.analysis.binding.attribute_rules import AttributeRule
     from marivo.analysis.core.frame_data import FrameNode
-    from marivo.analysis.core.frame_expression import AttributeFrameValues
+    from marivo.analysis.core.frame_operations import AttributeFrameValues
 
 
 @dataclass(frozen=True, slots=True)

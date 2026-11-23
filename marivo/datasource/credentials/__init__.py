@@ -11,6 +11,7 @@ from typing import NoReturn, Protocol, SupportsIndex
 
 from marivo._kernel.errors import MarivoError
 from marivo._kernel.project import resolve_project_root
+from marivo._kernel.validation import nonempty_text
 from marivo.datasource.errors import (
     DatasourceConnectionError,
     DatasourceCredentialError,
@@ -39,7 +40,7 @@ class SecretValue:
     __slots__ = ("__value",)
 
     def __init__(self, value: str) -> None:
-        if not isinstance(value, str) or not value:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not nonempty_text(value):
             raise ValueError("SecretValue requires a non-empty string.")
         self.__value = value
 

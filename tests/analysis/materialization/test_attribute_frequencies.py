@@ -1,6 +1,10 @@
 """Exact quantile capture reaches the existing governed SourceReadStage boundary."""
 
+import math
+import operator
+import os
 from dataclasses import replace
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -8,27 +12,33 @@ import ibis
 import ibis.expr.types as ir
 import pandas as pd
 import pytest
+from ibis.common.deferred import BinaryOperator, Just, Variable
 
-from marivo._definition.expressions import RowField, SourceAggregate
+from marivo._definition.expressions import (
+    PredicateExpression,
+    RowExpression,
+    RowField,
+    SourceAggregate,
+)
 from marivo._definition.types import ExactRef, SumAll
 from marivo._kernel.refs import ref
 from marivo.analysis.compiler.attribute_frequencies import frequency_read, share_frequency_reads
 from marivo.analysis.compiler.graph_lowering import lower_query
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.query_stages import (
     AttributeFrequencyRead,
+    PeriodFilter,
     QueryPlan,
     ReductionRead,
     SourceReadStage,
 )
-from marivo.analysis.compiler.observation import ReductionInput
+from marivo.analysis.compiler.reduction_input import ReductionInput
 from marivo.analysis.core.value_types import data_type
 from marivo.analysis.errors import AnalysisStageUnavailableError
-from marivo.analysis.materialization.graph_source_execution import (
-    PreparedSources,
-    qualify_attribute_game_sources,
-    read_stage,
-)
-from marivo.analysis.model.data_types import DataColumn
+from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.materialization.source_qualification import qualify_attribute_game_sources
+from marivo.analysis.materialization.source_reads import read_stage
+from marivo.analysis.methods.numeric_state import typed_null_mask
+from marivo.analysis.model.data_types import DataColumn, DecimalDataType
 from tests.datasource.source_cases import SourceData, source_case, source_params
 
 
@@ -224,7 +234,6 @@ def test_distinct_frequency_rejects_unqualified_equality_before_reads(dtype: str
 def test_native_frequency_capture_keeps_full_uint64_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.model.data_types import DecimalDataType
 
     maximum = 2**64 - 1
     data = SourceData(
@@ -256,9 +265,6 @@ def test_native_frequency_capture_keeps_full_uint64_values(
 def test_frequency_capture_retains_original_period_before_grouping(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from datetime import datetime, timezone
-
-    from marivo.analysis.compiler.graph_plan import PeriodFilter
 
     data = SourceData(
         "id BIGINT, category VARCHAR, amount DECIMAL(18,2), observed TIMESTAMP",
@@ -294,7 +300,6 @@ def test_frequency_capture_retains_original_period_before_grouping(
 def test_frequency_query_plan_aggregates_one_fact_scan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import os
 
     with source_case("duckdb", "table", tmp_path, monkeypatch, DATA) as case:
         bound = case.session.bind(case.source, source_identity="attribute-frequency-plan")
@@ -369,11 +374,6 @@ def test_actual_shared_frequency_input_retains_separate_q_and_scalar_outputs(
         distinct_scope = replace(second, predicates=(), inputs=("different-parent-scope",))
         unshared = share_frequency_reads(QueryPlan((first, distinct_scope), (), first.stage_id))
         assert len(unshared.stages) == 2
-        import operator
-
-        from ibis.common.deferred import BinaryOperator, Just, Variable
-
-        from marivo._definition.expressions import PredicateExpression, RowExpression
 
         predicate = PredicateExpression(
             Variable("slot_0"),
@@ -407,9 +407,6 @@ def test_actual_shared_frequency_input_retains_separate_q_and_scalar_outputs(
 def test_original_native_quantile_finisher_matches_fixed_frequency_endpoints(
     backend: str, profile: str, case_name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import math
-
-    from marivo.analysis.methods.numeric_state import typed_null_mask
 
     cases: dict[str, list[int | float | None]] = {
         "finite_extremes": [-1e308, 1e308],

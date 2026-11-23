@@ -44,144 +44,266 @@ from marivo.semantic.spi import (
     path,
 )
 
+_CONSTRUCTORS = (
+    (
+        identity,
+        "Grouping | Deferred",
+        "Describe a complete direct Entity identity or a distinct identity role defined by a Path.",
+        "result = mv.identity(entity)",
+        ("entity",),
+        "inputs.population",
+    ),
+    (
+        coordinates,
+        "Population | Deferred",
+        "Capture complete field and identity tuples; None is a field Null category.",
+        "result = mv.coordinates(by=(region,), keys=(('east',), ('west',)))",
+        ("region",),
+        "inputs.population",
+    ),
+    (
+        membership,
+        "Grouping | Deferred",
+        "Capture one correlated member-field tuple and explicit directed allocation paths.",
+        "result = mv.membership(tag, via=(mv.path(order_tags),), unmatched='exclude')",
+        ("tag", "order_tags"),
+        "inputs.population.paths",
+    ),
+    (
+        path,
+        "Path | PathSymbol",
+        "Capture a nonempty, contiguous, directed relationship path.",
+        "result = mv.path(order_customer)",
+        ("order_customer",),
+        "inputs.population.paths",
+    ),
+    (
+        product,
+        "Population | Deferred",
+        "Form the Cartesian product of disjoint complete domains, preserving axis order.",
+        "result = mv.product(regions, calendar)",
+        ("regions", "calendar"),
+        "inputs.population",
+    ),
+    (
+        in_population,
+        "RowPredicate | Deferred",
+        "Test complete correlated tuples. Combine with field conditions using &, | and ~.",
+        "result = mv.in_population(population)",
+        ("population",),
+        "inputs.population",
+    ),
+    (
+        all_history,
+        "ObservationWindow",
+        "Use available history before each observation endpoint, with no lower bound.",
+        "result = mv.all_history()",
+        (),
+        "inputs.time.windows",
+    ),
+    (
+        trailing_duration,
+        "ObservationWindow",
+        "Use a fixed elapsed duration before each observation endpoint.",
+        "from datetime import timedelta\nresult = mv.trailing_duration(duration=timedelta(hours=24))",
+        (),
+        "inputs.time.windows",
+    ),
+    (
+        trailing_periods,
+        "ObservationWindow",
+        "Use the current calendar period and count minus one preceding periods.",
+        "result = mv.trailing_periods(count=7)",
+        (),
+        "inputs.time.windows",
+    ),
+    (
+        since,
+        "ObservationWindow",
+        "Use an exact fixed start before each observation endpoint.",
+        "result = mv.since(start=session.instant('2026-01-01'))",
+        ("session",),
+        "inputs.time.windows",
+    ),
+    (
+        to_date,
+        "ObservationWindow",
+        "Reset at the natural calendar period boundary owning each endpoint.",
+        "result = mv.to_date(grain=mv.grain('month'))",
+        (),
+        "inputs.time.windows",
+    ),
+)
+_POPULATION_METHODS: tuple[tuple[type[object], str, str, str, str, tuple[str, ...]], ...] = (
+    (
+        Population,
+        "count",
+        "NumericMetric",
+        "Count complete distinct tuples as a lazy Metric; declared identities without facts still count. Group only by existing domain coordinates.",
+        "result = population.count()",
+        ("population",),
+    ),
+    (
+        Population,
+        "project",
+        "Population",
+        "Select and reorder existing coordinates, deduplicating complete projected tuples.",
+        "result = population.project(by=(population.axes[0],))",
+        ("population",),
+    ),
+    (
+        Population,
+        "classify",
+        "Population",
+        "Append single-valued coordinates and preserve the receiver’s complete tuples.",
+        "result = population.classify(by=(region,))",
+        ("population", "region"),
+    ),
+    (
+        Population,
+        "union",
+        "Population",
+        "Union compatible bound coordinate domains in left-side axis order.",
+        "result = population.union(other)",
+        ("population", "other"),
+    ),
+    (
+        Population,
+        "intersection",
+        "Population",
+        "Intersect compatible bound coordinate domains in left-side axis order.",
+        "result = population.intersection(other)",
+        ("population", "other"),
+    ),
+    (
+        Population,
+        "difference",
+        "Population",
+        "Subtract matching complete coordinates.",
+        "result = population.difference(other)",
+        ("population", "other"),
+    ),
+    (
+        Population,
+        "where",
+        "Population",
+        "Filter complete tuples using a RowPredicate evaluated on existing coordinates.",
+        "result = population.where(mv.in_population(allowed))",
+        ("population", "allowed"),
+    ),
+    (
+        Population,
+        "image",
+        "Population",
+        "Map a selected identity role to distinct direct target identities.",
+        "result = population.image(via=mv.path(relationship))",
+        ("population", "relationship"),
+    ),
+    (
+        Population,
+        "preimage",
+        "Population",
+        "Retain complete receiver tuples that reach at least one selected target identity.",
+        "result = population.preimage(targets, via=mv.path(relationship))",
+        ("population", "targets", "relationship"),
+    ),
+    (
+        Population,
+        "identities",
+        "Population",
+        "Select an existing complete identity role, then deduplicate its keys on the direct Entity axis.",
+        "result = population.identities(on=identity_axis)",
+        ("population", "identity_axis"),
+    ),
+    (
+        Path,
+        "show",
+        "None",
+        "Print bounded captured path facts, including endpoints and step anchors.",
+        "result = route.show()",
+        ("route",),
+    ),
+    (
+        RelationshipStep,
+        "show",
+        "None",
+        "Print the captured relationship and optional target version anchor.",
+        "result = step.show()",
+        ("step",),
+    ),
+    (
+        Population,
+        "show",
+        "None",
+        "Print bounded captured axes, scope and dependency facts without evaluating keys.",
+        "result = population.show()",
+        ("population",),
+    ),
+    (
+        Grouping,
+        "show",
+        "None",
+        "Print bounded captured grouping facts.",
+        "result = grouping.show()",
+        ("grouping",),
+    ),
+    (
+        _Window,
+        "show",
+        "str",
+        "Return source-free window rule parameters.",
+        "result = rule.show()",
+        ("rule",),
+    ),
+)
 
-def provider() -> DisclosureProvider:
-    """Bind the exact constructor and receiver implementations, without I/O."""
-    descriptors: list[Descriptor] = []
-    exports: list[ExportInput] = []
-    constructors = (
-        (
-            identity,
-            "Grouping | Deferred",
-            "Describe a complete direct Entity identity or a distinct identity role defined by a Path.",
-            "result = mv.identity(entity)",
-            ("entity",),
-            "inputs.population",
-        ),
-        (
-            coordinates,
-            "Population | Deferred",
-            "Capture complete field and identity tuples; None is a field Null category.",
-            "result = mv.coordinates(by=(region,), keys=(('east',), ('west',)))",
-            ("region",),
-            "inputs.population",
-        ),
-        (
-            membership,
-            "Grouping | Deferred",
-            "Capture one correlated member-field tuple and explicit directed allocation paths.",
-            "result = mv.membership(tag, via=(mv.path(order_tags),), unmatched='exclude')",
-            ("tag", "order_tags"),
-            "inputs.population.paths",
-        ),
-        (
-            path,
-            "Path | PathSymbol",
-            "Capture a nonempty, contiguous, directed relationship path.",
-            "result = mv.path(order_customer)",
-            ("order_customer",),
-            "inputs.population.paths",
-        ),
-        (
-            product,
-            "Population | Deferred",
-            "Form the Cartesian product of disjoint complete domains, preserving axis order.",
-            "result = mv.product(regions, calendar)",
-            ("regions", "calendar"),
-            "inputs.population",
-        ),
-        (
-            in_population,
-            "RowPredicate | Deferred",
-            "Test complete correlated tuples. Combine with field conditions using &, | and ~.",
-            "result = mv.in_population(population)",
-            ("population",),
-            "inputs.population",
-        ),
-        (
-            all_history,
-            "ObservationWindow",
-            "Use available history before each observation endpoint, with no lower bound.",
-            "result = mv.all_history()",
-            (),
-            "inputs.time.windows",
-        ),
-        (
-            trailing_duration,
-            "ObservationWindow",
-            "Use a fixed elapsed duration before each observation endpoint.",
-            "from datetime import timedelta\nresult = mv.trailing_duration(duration=timedelta(hours=24))",
-            (),
-            "inputs.time.windows",
-        ),
-        (
-            trailing_periods,
-            "ObservationWindow",
-            "Use the current calendar period and count minus one preceding periods.",
-            "result = mv.trailing_periods(count=7)",
-            (),
-            "inputs.time.windows",
-        ),
-        (
-            since,
-            "ObservationWindow",
-            "Use an exact fixed start before each observation endpoint.",
-            "result = mv.since(start=session.instant('2026-01-01'))",
-            ("session",),
-            "inputs.time.windows",
-        ),
-        (
-            to_date,
-            "ObservationWindow",
-            "Reset at the natural calendar period boundary owning each endpoint.",
-            "result = mv.to_date(grain=mv.grain('month'))",
-            (),
-            "inputs.time.windows",
-        ),
-    )
-    grouping_inputs = {
-        "coordinates": "Pass resolved fields or field or identity Groupings. Each identity key is a complete primary-key tuple. Use product for calendar or interval factors.",
-        "membership": "Pass one resolved field or a nonempty tuple of resolved fields from one member Entity; put allocation paths in via, not in routed fields.",
-        "Population.project": "Select or reorder existing coordinates using population.axes or matching fields. Projection cannot read new fields; allocation rules belong to observe.by or Metric.per inputs.",
-        "Population.classify": "Pass single-valued fields or mv.identity(path) for new complete identity roles. Existing axes are reused; an empty tuple leaves the domain as is.",
-    }
-    parameter_facts = {
-        "target": "Use a resolved Entity or native Entity symbol for a direct identity. Use mv.path(...) for a distinct routed identity role.",
-        "keys": "Give one value per ordered axis; each identity value is a complete nonnull primary-key tuple. Duplicate complete tuples collapse; field None remains a category.",
-        "entity": "Pass a resolved Entity from session.catalog.get('entity:<path>') or a finalized scope; bare EntityRef inputs are rejected.",
-        "via": "Pass a Path from mv.path(...). Allocation membership takes a tuple of Paths, one per contribution root.",
-        "steps": "Pass one or more directed Relationship values or anchored RelationshipStep values in connected order.",
-        "source_at": "Supply an exact InstantAnchor for a versioned source lookup. None can reuse the consumer's existing source row when available.",
-        "on": "Choose one existing complete identity Grouping. Omit only when the receiver has one eligible identity role.",
-        "unmatched": "Choose exclude or null explicitly; null retains a source Null bucket.",
-        "factors": "Pass at least two Populations, CalendarAxis or TimeScope values, or native Deferred parameters; closed factors need disjoint axes and compatible owners.",
-        "population": "Pass a literal or same-Session Population, or a native Deferred parameter for loader binding.",
-        "duration": "Pass a positive datetime.timedelta; duration is elapsed time, not a civil period count.",
-        "count": "Pass a positive integer excluding bool; evaluation requires complete periods from the report CalendarAxis or nearest enclosing builtin calendar sample.",
-        "start": "Pass an aware datetime or session.instant(...), strictly before every consumed endpoint.",
-        "grain": "Pass mv.grain(unit) for a natural calendar reset; it uses the Session reporting timezone.",
-        "predicate": "Pass a RowPredicate over existing coordinates. Combine comparisons, isin, isnull and in_population(...) using &, | and ~.",
-        "other": "Pass a Population with compatible bound business axes, or a native Deferred parameter. Results use the left Population’s axis order.",
-        "targets": "Pass the path target Entity’s direct single identity-axis Population, or a native Deferred parameter.",
-        "at": "Pass an exact InstantAnchor when required attribute/version reads need it; omit otherwise.",
-    }
-    parameter_targets: dict[str, tuple[str, ...]] = {
-        "target": ("inputs.catalog", "path.define"),
-        "entity": ("inputs.catalog",),
-        "via": ("path.define",),
-        "steps": ("semantic.relationship", "semantic.relationship.at"),
-        "source_at": ("session.instant",),
-        "on": ("population.axes",),
-        "by": ("inputs.catalog", "identity"),
-        "factors": ("inputs.population", "session.time_scope"),
-        "population": ("inputs.population",),
-        "other": ("inputs.population",),
-        "targets": ("session.members",),
-        "predicate": ("semantic.predicate", "Population.classify", "in_population"),
-        "at": ("session.instant",),
-        "start": ("session.instant",),
-        "grain": ("grain.define",),
-    }
+
+_GROUPING_INPUTS = {
+    "coordinates": "Pass resolved fields or field or identity Groupings. Each identity key is a complete primary-key tuple. Use product for calendar or interval factors.",
+    "membership": "Pass one resolved field or a nonempty tuple of resolved fields from one member Entity; put allocation paths in via, not in routed fields.",
+    "Population.project": "Select or reorder existing coordinates using population.axes or matching fields. Projection cannot read new fields; allocation rules belong to observe.by or Metric.per inputs.",
+    "Population.classify": "Pass single-valued fields or mv.identity(path) for new complete identity roles. Existing axes are reused; an empty tuple leaves the domain as is.",
+}
+_PARAMETER_FACTS = {
+    "target": "Use a resolved Entity or native Entity symbol for a direct identity. Use mv.path(...) for a distinct routed identity role.",
+    "keys": "Give one value per ordered axis; each identity value is a complete nonnull primary-key tuple. Duplicate complete tuples collapse; field None remains a category.",
+    "entity": "Pass a resolved Entity from session.catalog.get('entity:<path>') or a finalized scope; bare EntityRef inputs are rejected.",
+    "via": "Pass a Path from mv.path(...). Allocation membership takes a tuple of Paths, one per contribution root.",
+    "steps": "Pass one or more directed Relationship values or anchored RelationshipStep values in connected order.",
+    "source_at": "Supply an exact InstantAnchor for a versioned source lookup. None can reuse the consumer's existing source row when available.",
+    "on": "Choose one existing complete identity Grouping. Omit only when the receiver has one eligible identity role.",
+    "unmatched": "Choose exclude or null explicitly; null retains a source Null bucket.",
+    "factors": "Pass at least two Populations, CalendarAxis or TimeScope values, or native Deferred parameters; closed factors need disjoint axes and compatible owners.",
+    "population": "Pass a literal or same-Session Population, or a native Deferred parameter for loader binding.",
+    "duration": "Pass a positive datetime.timedelta; duration is elapsed time, not a civil period count.",
+    "count": "Pass a positive integer excluding bool; evaluation requires complete periods from the report CalendarAxis or nearest enclosing builtin calendar sample.",
+    "start": "Pass an aware datetime or session.instant(...), strictly before every consumed endpoint.",
+    "grain": "Pass mv.grain(unit) for a natural calendar reset; it uses the Session reporting timezone.",
+    "predicate": "Pass a RowPredicate over existing coordinates. Combine comparisons, isin, isnull and in_population(...) using &, | and ~.",
+    "other": "Pass a Population with compatible bound business axes, or a native Deferred parameter. Results use the left Population’s axis order.",
+    "targets": "Pass the path target Entity’s direct single identity-axis Population, or a native Deferred parameter.",
+    "at": "Pass an exact InstantAnchor when required attribute/version reads need it; omit otherwise.",
+}
+_PARAMETER_TARGETS: dict[str, tuple[str, ...]] = {
+    "target": ("inputs.catalog", "path.define"),
+    "entity": ("inputs.catalog",),
+    "via": ("path.define",),
+    "steps": ("semantic.relationship", "semantic.relationship.at"),
+    "source_at": ("session.instant",),
+    "on": ("population.axes",),
+    "by": ("inputs.catalog", "identity"),
+    "factors": ("inputs.population", "session.time_scope"),
+    "population": ("inputs.population",),
+    "other": ("inputs.population",),
+    "targets": ("session.members",),
+    "predicate": ("semantic.predicate", "Population.classify", "in_population"),
+    "at": ("session.instant",),
+    "start": ("session.instant",),
+    "grain": ("grain.define",),
+}
+
+
+def _constructor_descriptors(descriptors: list[Descriptor], exports: list[ExportInput]) -> None:
     constructor_constraints = {
         "identity": "Use coordinates for requested keys, or members for source-represented identities. Membership selection time does not change direct identity compatibility. A Path preserves the role and explicit node time bindings.",
         "coordinates": "Duplicate complete tuples collapse. Literal domains select only their captured complete keys; use product to combine calendar domains.",
@@ -195,7 +317,7 @@ def provider() -> DisclosureProvider:
         "since": "The start is inclusive and each actual observation endpoint is exclusive; start must precede every endpoint.",
         "to_date": "Each nominal output bucket must lie inside one reset period. At an exact reset boundary, the just-completed period owns the endpoint.",
     }
-    for function, output, summary, code, requires, group in constructors:
+    for function, output, summary, code, requires, group in _CONSTRUCTORS:
         name = function.__name__
         is_window = group == "inputs.time.windows"
         descriptors.append(
@@ -207,10 +329,10 @@ def provider() -> DisclosureProvider:
                 parameters=tuple(
                     ParameterInput(
                         name,
-                        grouping_inputs[function.__name__]
+                        _GROUPING_INPUTS[function.__name__]
                         if name == "by"
-                        else parameter_facts[name],
-                        parameter_targets.get(name, ()),
+                        else _PARAMETER_FACTS[name],
+                        _PARAMETER_TARGETS.get(name, ()),
                     )
                     for name in signature(function).parameters
                 ),
@@ -238,128 +360,11 @@ def provider() -> DisclosureProvider:
             )
         )
         exports.append(ExportInput(name, function, "path.define" if function is path else name))
-    methods: tuple[tuple[type[object], str, str, str, str, tuple[str, ...]], ...] = (
-        (
-            Population,
-            "count",
-            "NumericMetric",
-            "Count complete distinct tuples as a lazy Metric; declared identities without facts still count. Group only by existing domain coordinates.",
-            "result = population.count()",
-            ("population",),
-        ),
-        (
-            Population,
-            "project",
-            "Population",
-            "Select and reorder existing coordinates, deduplicating complete projected tuples.",
-            "result = population.project(by=(population.axes[0],))",
-            ("population",),
-        ),
-        (
-            Population,
-            "classify",
-            "Population",
-            "Append single-valued coordinates and preserve the receiver’s complete tuples.",
-            "result = population.classify(by=(region,))",
-            ("population", "region"),
-        ),
-        (
-            Population,
-            "union",
-            "Population",
-            "Union compatible bound coordinate domains in left-side axis order.",
-            "result = population.union(other)",
-            ("population", "other"),
-        ),
-        (
-            Population,
-            "intersection",
-            "Population",
-            "Intersect compatible bound coordinate domains in left-side axis order.",
-            "result = population.intersection(other)",
-            ("population", "other"),
-        ),
-        (
-            Population,
-            "difference",
-            "Population",
-            "Subtract matching complete coordinates.",
-            "result = population.difference(other)",
-            ("population", "other"),
-        ),
-        (
-            Population,
-            "where",
-            "Population",
-            "Filter complete tuples using a RowPredicate evaluated on existing coordinates.",
-            "result = population.where(mv.in_population(allowed))",
-            ("population", "allowed"),
-        ),
-        (
-            Population,
-            "image",
-            "Population",
-            "Map a selected identity role to distinct direct target identities.",
-            "result = population.image(via=mv.path(relationship))",
-            ("population", "relationship"),
-        ),
-        (
-            Population,
-            "preimage",
-            "Population",
-            "Retain complete receiver tuples that reach at least one selected target identity.",
-            "result = population.preimage(targets, via=mv.path(relationship))",
-            ("population", "targets", "relationship"),
-        ),
-        (
-            Population,
-            "identities",
-            "Population",
-            "Select an existing complete identity role, then deduplicate its keys on the direct Entity axis.",
-            "result = population.identities(on=identity_axis)",
-            ("population", "identity_axis"),
-        ),
-        (
-            Path,
-            "show",
-            "None",
-            "Print bounded captured path facts, including endpoints and step anchors.",
-            "result = route.show()",
-            ("route",),
-        ),
-        (
-            RelationshipStep,
-            "show",
-            "None",
-            "Print the captured relationship and optional target version anchor.",
-            "result = step.show()",
-            ("step",),
-        ),
-        (
-            Population,
-            "show",
-            "None",
-            "Print bounded captured axes, scope and dependency facts without evaluating keys.",
-            "result = population.show()",
-            ("population",),
-        ),
-        (
-            Grouping,
-            "show",
-            "None",
-            "Print bounded captured grouping facts.",
-            "result = grouping.show()",
-            ("grouping",),
-        ),
-        (
-            _Window,
-            "show",
-            "str",
-            "Return source-free window rule parameters.",
-            "result = rule.show()",
-            ("rule",),
-        ),
-    )
+
+
+def _population_method_descriptors(
+    descriptors: list[Descriptor], exports: list[ExportInput]
+) -> None:
     method_constraints = {
         "classify": "Missing scalar matches yield NULL. Appending an identity role requires a complete key for every tuple. Use field.at(...) or a Path anchor for required version reads. Use project to drop or reorder axes.",
         "where": "Only True retains a tuple; field NULL follows three-valued logic. Membership compares complete null-safe tuples. Use classify for a missing field; where adds no lookup.",
@@ -367,7 +372,7 @@ def provider() -> DisclosureProvider:
         "image": "Complete foreign keys can supply target identities without target row reads. Remove a terminal anchor when identity is determined by the foreign key; test target existence with members and intersection.",
         "preimage": "Retains all receiver axes. A tuple reaching multiple targets matches existentially; taking its image again can reach other targets. Use an explicit members domain to require target presence at an instant.",
     }
-    for owner, name, output, summary, code, method_requires in methods:
+    for owner, name, output, summary, code, method_requires in _POPULATION_METHODS:
         symbolic_output = owner is Population and output == "Population"
         if symbolic_output:
             output = "Population | Deferred"
@@ -383,20 +388,20 @@ def provider() -> DisclosureProvider:
                 parameters=tuple(
                     ParameterInput(
                         name,
-                        grouping_inputs[target]
+                        _GROUPING_INPUTS[target]
                         if name == "by"
                         else "Required. Choose an existing complete identity axis from population.axes."
                         if target == "Population.identities" and name == "on"
                         else "Choose an existing identity Grouping when multiple roles can supply the new coordinates. None uses the unique eligible role; reusing existing coordinates needs no new read."
                         if target == "Population.classify" and name == "on"
-                        else parameter_facts[name],
+                        else _PARAMETER_FACTS[name],
                         (
                             ("population.axes", "identity", "semantic.field")
                             if target == "Population.classify"
                             else ("population.axes",)
                         )
                         if name == "by"
-                        else parameter_targets.get(name, ()),
+                        else _PARAMETER_TARGETS.get(name, ()),
                     )
                     for name in signature(function).parameters
                     if name != "self"
@@ -434,6 +439,11 @@ def provider() -> DisclosureProvider:
                 ),
             )
         )
+
+
+def _population_value_descriptors(
+    descriptors: list[Descriptor], exports: list[ExportInput]
+) -> None:
     for value, producers, consumers in (
         (
             Population,
@@ -523,6 +533,15 @@ def provider() -> DisclosureProvider:
             ),
         )
     )
+
+
+def provider() -> DisclosureProvider:
+    """Bind the exact constructor and receiver implementations, without I/O."""
+    descriptors: list[Descriptor] = []
+    exports: list[ExportInput] = []
+    _constructor_descriptors(descriptors, exports)
+    _population_method_descriptors(descriptors, exports)
+    _population_value_descriptors(descriptors, exports)
     return DisclosureProvider(
         "analysis.population",
         with_sealed_variants(

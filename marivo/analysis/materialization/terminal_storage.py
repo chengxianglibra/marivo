@@ -10,19 +10,19 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from marivo.analysis.core.data_validation import (
+    normalize_complete_frame,
+    stage_arrow_type,
+)
 from marivo.analysis.materialization.storage import (
     _checked_path,
     _fsync_directory,
     _manifest_bytes,
     payload_digest,
 )
-from marivo.analysis.materialization.terminal_protocol import invalid
-from marivo.analysis.methods.carriers.data_validation import (
-    normalize_complete_frame,
-    stage_arrow_type,
-)
 from marivo.analysis.model.artifact_data import ParquetHandle
 from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.execution_errors import terminal_output_integrity_error as invalid
 from marivo.analysis.model.receipts import FileEntry, LocalReceipt
 
 
@@ -130,10 +130,3 @@ def write_output(
         ) or parquet.metadata.num_rows != len(frame):
             raise invalid("encoded terminal output differs from its frozen schema")
     return handle
-
-
-def read_output(root: Path, schema: DataSchema, handle: ParquetHandle) -> pd.DataFrame:
-    """Read the complete physical output through the shared terminal data reader."""
-    from marivo.analysis.materialization.graph_reading import ExportRead, OutputRead, ReadLayout
-
-    return OutputRead(root).read(ReadLayout(schema, handle), ExportRead())

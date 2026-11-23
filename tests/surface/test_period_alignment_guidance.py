@@ -7,6 +7,9 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._help.render import render_help_text
+from marivo.analysis._help_specs.manifest import prepare
+from marivo.analysis.model.disclosure import CallableInput
+from marivo.cli import main
 from tests.analysis.numeric.test_period_alignment import period
 from tests.shared_fixtures import DslCaseFactory, frozen_coordinates, terminal_runs
 
@@ -15,7 +18,6 @@ def test_named_comparison_and_terminal_rows_disclose_current_protocol(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    import marivo.analysis as mv
 
     case = analysis_dsl_case_factory("j2")
     _, current = period(case.session, 8, 3)
@@ -47,8 +49,6 @@ def test_named_comparison_and_terminal_rows_disclose_current_protocol(
 def test_offset_shift_and_named_compare_help_examples_are_executable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis as mv
-    from marivo._help.render import render_help_text
 
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("period-help", timezone="UTC")
@@ -89,7 +89,6 @@ def test_offset_shift_and_named_compare_help_examples_are_executable(
 def test_compare_help_discloses_accepted_exact_duration_contract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis as mv
 
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("duration-help", timezone="UTC")
@@ -113,9 +112,6 @@ def test_baseline_help_routes_fields_and_example_without_execution(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.analysis._help_specs.manifest import prepare
-    from marivo.analysis.model.disclosure import CallableInput
-    from marivo.cli import main
 
     session = analysis_dsl_case_factory("j2").session
     frame = session.values(by=(), columns={"value": None}, rows=(((), {"value": 3}),))

@@ -6,8 +6,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from marivo.analysis.core.attachments import OutputAttachment
 from marivo.analysis.core.frozen_calendar import frozen_key_rows, frozen_key_table
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_attribute_merge import AttributeMergeProgram

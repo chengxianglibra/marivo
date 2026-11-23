@@ -1,23 +1,27 @@
 """Shared source inventories contain requested recipes in their captured order."""
 
+import duckdb
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.binding.frame_attribute_sources import collect_source_groups
+from marivo.analysis.compiler.lowered_query import LoweredRead
+from marivo.analysis.compiler.query_stages import SourceReadStage, read_attribute
+from marivo.analysis.dsl.frame_attribute_sources import collect_source_groups
+from marivo.analysis.materialization import source_reads
+from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 def _capture_role_inventory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[tuple[str, str, tuple[str, ...]]]:
-    from marivo.analysis.compiler.graph_lowering import LoweredRead
-    from marivo.analysis.compiler.graph_plan import SourceReadStage, read_attribute
-    from marivo.analysis.materialization import graph_source_execution
-    from marivo.analysis.materialization.graph_source_execution import PreparedSources
-    from marivo.analysis.methods.carriers.stages import StageOutput
 
     roles: list[tuple[str, str, tuple[str, ...]]] = []
-    original = graph_source_execution.read_stage
+    original = source_reads.read_stage
 
     def read(
         prepared: PreparedSources,
@@ -34,7 +38,7 @@ def _capture_role_inventory(
             )
         return output
 
-    monkeypatch.setattr(graph_source_execution, "read_stage", read)
+    monkeypatch.setattr(source_reads, "read_stage", read)
     return roles
 
 
@@ -82,11 +86,6 @@ def test_distinct_metric_formulas_share_each_role_read_and_exclude_unused_rules(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import duckdb
-    import pandas as pd
-
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     case = analysis_dsl_case_factory("j1")
     amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
@@ -126,11 +125,6 @@ def test_reordered_comparison_metrics_and_level_target_share_endpoint_reads(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import duckdb
-    import pandas as pd
-
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     case = analysis_dsl_case_factory("j1")
     amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")

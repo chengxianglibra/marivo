@@ -12,6 +12,7 @@ import pytest
 from marivo._definition.query import LiteralValues, ResultQuery
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.signature import BoundSignature, ResultQuantity
+from marivo.analysis.core.attachments import OutputAttachment
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -25,7 +26,6 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.terminal_store import describe
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
 from marivo.analysis.model.artifact_data import ArtifactData, ParquetHandle
 from marivo.analysis.model.data_schema import (
     BuiltinCalendarData,
@@ -214,8 +214,8 @@ def test_equal_structures_are_independent_inputs_and_old_handles_fail(
     assert isinstance(second._backing, MemoryFrameBacking)
     assert first._schema == second._schema
     assert first._input_id != second._input_id
-    assert second._bind_statistic(row_count())._input_id == second._input_id
-    assert first._bind_statistic(row_count())._input_id == first._input_id
+    assert second.over(row_count())._input_id == second._input_id
+    assert first.over(row_count())._input_id == first._input_id
     assert second._backing.metadata.result_id == first._backing.metadata.result_id
     assert second._backing.metadata.evaluated_at == NOW
 
@@ -248,10 +248,12 @@ def test_handles_keep_current_input_alive_without_runtime(
     assert reference() is not None
     assert statistic._frame is axis._frame
     axis.show()
-    axis._frame["revenue"].show()
+    retained = reference()
+    assert retained is not None
+    retained["revenue"].show()
     assert tuple(field.name for field in fields(local)) == ("store", "session_ref")
     assert isinstance(axis._frame._backing, MemoryFrameBacking)
-    del axis, statistic
+    del axis, statistic, retained
     gc.collect()
     assert reference() is None
 
@@ -307,7 +309,7 @@ def test_stored_bindings_are_stable_only_for_exact_store_session_artifact(
     first, second = reopen(local, "artifact_1"), reopen(local, "artifact_1")
     assert first is not second and first._input_id == second._input_id
     second._require_column(first["revenue"])
-    second._bind_statistic(first["revenue"].sum())
+    second.over(first["revenue"].sum())
     assert second.coord(first.axes[0])._input_id == second._input_id
     other_session = DatasetRuntime.create(tmp_path, "stored-other", timezone="UTC").local
     other_store = DatasetRuntime.create(

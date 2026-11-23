@@ -12,7 +12,11 @@ import sqlglot.expressions as sge
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.grouping import grouping_binding
+from marivo.analysis.compiler import source_time
+from marivo.analysis.compiler.calendar import reusable_date_day
+from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.native_calendar import output_calendar
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
@@ -168,10 +172,6 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
                 strict.compute()
             assert isinstance(error.value.__cause__, SemanticExpressionError)
             assert error.value.__cause__.expected == "non-NA source values"
-        from marivo.analysis.compiler import source_time
-        from marivo.analysis.compiler.calendar import reusable_date_day
-        from marivo.analysis.dsl.temporal import exact_scope
-        from marivo.analysis.materialization.native_calendar import output_calendar
 
         for start, end in (("2026-03-05", "2026-03-11"), ("2026-10-29", "2026-11-04")):
             gap = exact_scope(start, end, "America/Havana").by(mv.grain("day"))

@@ -77,6 +77,7 @@ from marivo._kernel.refs import (
 )
 from marivo._kernel.symbolic import SymbolResolver
 from marivo._kernel.temporal import Grain
+from marivo._kernel.time_types import grain_token
 
 
 def _recipe_text(recipe: object, operands: tuple[str, ...]) -> str:
@@ -159,7 +160,7 @@ def _window_text(window: ObservationWindow) -> str:
     if isinstance(window, Since):
         return f"since(start={window.start.isoformat()!r})"
     if isinstance(window, ToDate):
-        return f"to_date(grain={window.grain._to_token()!r})"
+        return f"to_date(grain={grain_token(window.grain)!r})"
     if isinstance(window, TrailingPeriods):
         return f"trailing_periods(count={window.count})"
     if isinstance(window, TrailingDuration):
@@ -231,12 +232,12 @@ class FormulaDisplay:
 
     def _samples(self, samples: SampleDomainSpec) -> str:
         if isinstance(samples, Grain):
-            return f"grain({samples._to_token()!r})"
+            return f"grain({grain_token(samples)!r})"
         if isinstance(samples, FieldCalendarSample):
             read = samples.field
             return (
                 f"{self._read(read.field, read.path, read.at)}, "
-                f"grain=grain({samples.grain._to_token()!r})"
+                f"grain=grain({grain_token(samples.grain)!r})"
             )
         if isinstance(samples, SampleDomain):
             axes = _tuple_text(tuple(map(self._axis, samples.axes)))
@@ -266,10 +267,10 @@ class FormulaDisplay:
 
     def _sample_scope(self, samples: SampleDomainSpec) -> str:
         if isinstance(samples, Grain):
-            return f"each represented {samples._to_token()} bucket on the contribution clocks"
+            return f"each represented {grain_token(samples)} bucket on the contribution clocks"
         if isinstance(samples, FieldCalendarSample):
             return (
-                f"each represented {samples.grain._to_token()} bucket of "
+                f"each represented {grain_token(samples.grain)} bucket of "
                 f"`{self._read(samples.field.field, samples.field.path, samples.field.at)}`"
             )
         if isinstance(samples, SampleDomain):

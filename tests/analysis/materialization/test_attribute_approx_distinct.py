@@ -17,11 +17,10 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._definition.expressions import SourceAggregate
-from marivo.analysis.compiler.graph_plan import read_reduction
+from marivo.analysis.compiler.query_stages import read_reduction
 from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
-from marivo.analysis.core.frame_method_facts import (
-    FrameMethodParent,
-    FrameShapleyMethod,
+from marivo.analysis.core.frame_method_facts import FrameMethodParent, FrameShapleyMethod
+from marivo.analysis.core.frame_shapley_facts import (
     FrameShapleyQuery,
     FrameShapleyQueryGame,
     FrameShapleyReduction,

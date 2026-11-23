@@ -2,11 +2,20 @@
 
 from unittest.mock import Mock
 
+import ibis
 import pytest
+import sqlglot as sg
+import sqlglot.expressions as sge
 from ibis.backends import BaseBackend
+from ibis.backends.clickhouse import Backend
 
 from marivo.datasource.engines import clickhouse as ch
+from marivo.datasource.engines._aggregate_compilers import (
+    compile_distributed_query,
+    configure_aggregate_compiler,
+)
 from marivo.datasource.ir import TableSourceIR
+from tests.datasource.aggregate_fixtures import compiler_backend
 from tests.datasource.source_cases import datasource
 
 
@@ -69,13 +78,6 @@ def test_enum_equality_admission_does_not_qualify_native_string_order(
 
 
 def test_distributed_compiler_broadcasts_subqueries_without_mutating_local_compiler() -> None:
-    import ibis
-    from ibis.backends.clickhouse import Backend
-
-    from marivo.datasource.engines._aggregate_compilers import (
-        compile_distributed_query,
-        configure_aggregate_compiler,
-    )
 
     backend = Backend()
     configure_aggregate_compiler(backend)
@@ -91,12 +93,6 @@ def test_distributed_compiler_broadcasts_subqueries_without_mutating_local_compi
 def test_constant_join_conditions_preserve_join_keys_without_changing_boolean_values(
     predicate: bool, distributed: bool
 ) -> None:
-    import ibis
-    import sqlglot as sg
-    import sqlglot.expressions as sge
-
-    from marivo.datasource.engines._aggregate_compilers import compile_distributed_query
-    from tests.datasource.aggregate_fixtures import compiler_backend
 
     left = ibis.table({"left.key": "int64"}, name="left").mutate(flag=ibis.literal(predicate))
     right = ibis.table({"right key": "int64"}, name="right")

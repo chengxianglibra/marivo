@@ -12,7 +12,10 @@ import marivo.datasource as md
 from marivo._help.model import MarivoHelpTargetError
 from marivo._help.render import render_help_text
 from marivo._kernel.refs import ref as ref_factory
+from marivo.datasource._help_specs.manifest import REGISTRY
+from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceMissingError
+from marivo.datasource.help_spi import DATASOURCE_LIVE_SURFACE
 from marivo.datasource.inspection.catalog import DatasourceCatalog
 from marivo.datasource.inspection.details import (
     ExecutionCapabilities,
@@ -21,7 +24,9 @@ from marivo.datasource.inspection.details import (
 )
 from marivo.datasource.inspection.source import SourceInspection
 from marivo.datasource.store.evidence import DiscoveryEvidence, SnapshotCoverage
+from marivo.introspection.capabilities.resolve import resolve_live_target
 from marivo.introspection.live.model import SURFACE_LIMITS
+from marivo.semantic._aggregate_accuracy import aggregate_repair
 
 
 def test_json_help_exposes_analysis_request_and_authoring_binding_boundaries() -> None:
@@ -35,8 +40,6 @@ def test_file_projection_help_matches_optional_source_specific_inputs() -> None:
 
 
 def test_trino_help_matches_source_native_quantile_capability() -> None:
-    from marivo.datasource.engines import require_profile_for_backend_type
-    from marivo.semantic._aggregate_accuracy import aggregate_repair
 
     profile = require_profile_for_backend_type("trino")
     assert aggregate_repair(("percentile", 0.95), profile.name) is not None
@@ -58,8 +61,6 @@ def test_trino_help_matches_source_native_quantile_capability() -> None:
     ],
 )
 def test_help_resolves_supported_target_kinds(target: object, canonical_id: str) -> None:
-    from marivo.datasource.help_spi import DATASOURCE_LIVE_SURFACE
-    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     resolved = resolve_live_target(target, DATASOURCE_LIVE_SURFACE)
     assert canonical_id in {
@@ -122,8 +123,6 @@ def datasource_runtime_targets(tmp_path: Path) -> tuple[object, ...]:
 def test_runtime_help_accepts_only_registered_datasource_instances(
     datasource_runtime_targets: tuple[object, ...],
 ) -> None:
-    from marivo.datasource.help_spi import DATASOURCE_LIVE_SURFACE
-    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     for target in datasource_runtime_targets:
         assert resolve_live_target(type(target), DATASOURCE_LIVE_SURFACE).kind in {
@@ -133,8 +132,6 @@ def test_runtime_help_accepts_only_registered_datasource_instances(
 
 
 def test_error_help_kind_depends_on_concrete_repair_target() -> None:
-    from marivo.datasource.help_spi import DATASOURCE_LIVE_SURFACE
-    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     assert (
         resolve_live_target(DatasourceMissingError, DATASOURCE_LIVE_SURFACE).kind
@@ -160,7 +157,6 @@ def test_live_help_performs_no_datasource_effects(
 
 
 def test_datasource_task_tree_exposes_direct_sql_and_conditioned_native_routes() -> None:
-    from marivo.datasource._help_specs.manifest import REGISTRY
 
     root_routes = REGISTRY.navigation_routes()
     assert tuple(route.target.display for route in root_routes) == (

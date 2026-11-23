@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from hashlib import sha256
-from json import dumps
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 import pandas as pd
@@ -17,91 +14,96 @@ from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._definition.query import (
     CoordinateSlot,
     FilterValues,
-    PairStatistic,
     PresenceSlot,
-    ReduceValues,
-    ResultQuery,
-    SelectValues,
-    Statistic,
     TopValues,
-    ValueExpression,
-    ValueLiteral,
     ValueSlot,
 )
-from marivo._definition.relations import ReadQuery
-from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
-from marivo.analysis._scope import scope_summary
+from marivo._definition.types import LiteralValue
 from marivo.analysis.core.frame_data import (
-    CompletedFrameData,
     CompletedFrameResult,
     ExpressionFrameBacking,
     FrameBacking,
     FrameDerivation,
     FrameExpressionRoot,
-    LiteralFrameBinding,
     MemoryFrameBacking,
     OperationFrameBinding,
-    SourceFrameBinding,
     StoredFrameBacking,
 )
 from marivo.analysis.core.frame_expression import (
-    AlignFrameValues,
-    CompareFrameValues,
-    FrameUnaryOperationKind,
-    NamedFrameComparison,
     infer_frame_combine_schema,
     infer_frame_compare_schema,
-    infer_frame_schema,
 )
-from marivo.analysis.core.frame_fix import FixFrameValues
+from marivo.analysis.core.frame_interpretation import capture_value_inputs
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
+from marivo.analysis.core.frame_operations import (
+    AlignFrameValues,
+    CompareFrameValues,
+    FixFrameValues,
+    FrameUnaryOperationKind,
+    NamedFrameComparison,
+)
+from marivo.analysis.core.frame_value_analysis import infer_frame_schema
 from marivo.analysis.dsl import frame_derivation
-from marivo.analysis.dsl.baseline import ComparisonBaseline
-from marivo.analysis.dsl.baseline import baseline as declare_baseline
+from marivo.analysis.dsl._frame_attribute_api import attribute
+from marivo.analysis.dsl._frame_lifecycle import (
+    capture_lineage,
+    complete_frame,
+    require_stored,
+    stored_backing,
+)
+from marivo.analysis.dsl._frame_ops import (
+    bind_axis_pairs,
+    bind_correlation,
+    bind_partition,
+    bind_reduction,
+    bind_selection,
+    validate_pairing,
+)
+from marivo.analysis.dsl._frame_ownership import (
+    axis_index,
+    require_column,
+    validate_expression_owner,
+)
+from marivo.analysis.dsl._frame_view import (
+    export_axis_names,
+    export_fixed_frame,
+    read_fixed_page,
+    show_frame,
+    validate_time_details,
+)
+from marivo.analysis.dsl.baseline import (
+    named_baselines,
+    show_baseline,
+    validate_baseline_aliases,
+    validate_baseline_options,
+)
 from marivo.analysis.dsl.column import Column, _Statistic
 from marivo.analysis.dsl.frame_axis import FrameAxis
-from marivo.analysis.dsl.frame_disclosure import (
-    _input_kind,
-    _operation_summary,
-    _pending_source_inputs,
-)
 from marivo.analysis.materialization.carriers.frame_page import FramePage, FramePeriodPage
+from marivo.analysis.materialization.frame_paging import read_frame_periods
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization.pandas_export import export_names
 from marivo.analysis.model.artifact_data import ArtifactData, SavedFrameMethodFacts
 from marivo.analysis.model.data_schema import DataSchema
-from marivo.analysis.model.data_types import (
-    DataColumn,
-)
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_contracts import FrameIdentity
-from marivo.analysis.model.frame_metadata import (
-    MemoryInput,
-    SourceInput,
-    StoredFrameMetadata,
-    StoredInput,
-)
+from marivo.analysis.model.frame_integrity import share_contexts, validate_current_facts
+from marivo.analysis.model.frame_metadata import StoredFrameMetadata
 from marivo.analysis.model.frame_schema import (
     FrameAxisSchema,
     FrameSchema,
+    LogicalSchema,
     capture_schema,
-    column_type_summary,
 )
 from marivo.analysis.model.frame_source_reads import FrameSourceRead
 from marivo.analysis.model.frame_structure import (
-    PendingDataColumn,
-    PendingDataSchema,
     axis_role,
     column_kind,
-    require_complete_structure,
 )
 from marivo.analysis.model.layout_facts import FrameComparison
-from marivo.analysis.model.lineage import FrameLineage
-from marivo.analysis.model.lineage import validate as validate_lineage
+from marivo.analysis.model.lineage import FrameLineage, all_origins
 from marivo.analysis.model.result_reference import FrameReference
 from marivo.telemetry import traced
-
-CapturedSchema: TypeAlias = DataSchema | PendingDataSchema
-
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -121,7 +123,7 @@ class AnalysisFrame(FrameIdentity):
 
     _local: LocalFrameServices
     _input_id: str
-    _schema: CapturedSchema
+    _schema: LogicalSchema
     _backing: FrameBacking
     _derivation: FrameDerivation | None
     _lineage: FrameLineage
@@ -131,27 +133,9 @@ class AnalysisFrame(FrameIdentity):
 
     @classmethod
     def _from_expression(
-        cls, local: LocalFrameServices, schema: CapturedSchema, root: FrameExpressionRoot
+        cls, local: LocalFrameServices, schema: LogicalSchema, root: FrameExpressionRoot
     ) -> AnalysisFrame:
-        if (
-            isinstance(root, (SourceFrameBinding, LiteralFrameBinding))
-            and root.graph.signature.owner != local.owner
-        ):
-            reject(
-                "a source graph from this Store and Session",
-                repr(root.graph.signature.owner),
-                "Use the owning Session.",
-                "frame.expression",
-            )
-        if isinstance(schema, DataSchema):
-            require_complete_structure(schema)
-        elif type(schema) is not PendingDataSchema:
-            reject(
-                "a current complete or pending schema",
-                type(schema).__name__,
-                "Capture the current structure.",
-                "frame.expression",
-            )
+        validate_expression_owner(local.owner, schema, root)
         return cls._bind(
             local,
             schema,
@@ -182,24 +166,20 @@ class AnalysisFrame(FrameIdentity):
         description: str | None = None,
         derivation: FrameDerivation | None = None,
     ) -> AnalysisFrame:
-        backing = StoredFrameBacking(artifact_id, data, metadata, method_facts, description)
-        identity = dumps(
-            (local.store.store_id, local.session_ref, artifact_id), separators=(",", ":")
+        backing, input_id = stored_backing(
+            local, data, artifact_id, metadata, method_facts, description
         )
-        input_id = "stored_" + sha256(identity.encode()).hexdigest()
         return cls._bind(local, data.schema, backing, input_id, derivation)
 
     @classmethod
     def _bind(
         cls,
         local: LocalFrameServices,
-        schema: CapturedSchema,
+        schema: LogicalSchema,
         backing: FrameBacking,
         input_id: str,
         derivation: FrameDerivation | None = None,
     ) -> AnalysisFrame:
-        from marivo.analysis.model.frame_integrity import share_contexts, validate_current_facts
-
         schema = share_contexts(schema)
         validate_current_facts(schema)
         result = object.__new__(cls)
@@ -208,22 +188,7 @@ class AnalysisFrame(FrameIdentity):
         object.__setattr__(result, "_schema", schema)
         object.__setattr__(result, "_backing", backing)
         object.__setattr__(result, "_derivation", derivation)
-        if isinstance(backing, ExpressionFrameBacking):
-            if isinstance(backing.root, OperationFrameBinding):
-                from marivo.analysis.core.frame_lineage import derive
-
-                lineage = derive(schema, backing.root.operation, backing.root.inputs)
-            else:
-                from marivo.analysis.binding.lineage import source_lineage
-
-                lineage = source_lineage(schema, backing.root)
-        else:
-            assert backing.metadata.lineage is not None
-            lineage = backing.metadata.lineage
-        from dataclasses import replace
-
-        lineage = replace(lineage, input_id=input_id)
-        validate_lineage(lineage, schema)
+        lineage = capture_lineage(schema, backing, input_id)
         object.__setattr__(result, "_lineage", lineage)
         return result
 
@@ -360,29 +325,12 @@ class AnalysisFrame(FrameIdentity):
         location: str = "frame.axis",
         canonical_id: str | None = None,
     ) -> int:
-        if not isinstance(axis, FrameAxis) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            axis._input_id != self._input_id or axis._frame._local.owner != self._local.owner
-        ):
-            reject(
-                "an axis from this exact Frame input",
-                repr(axis),
-                "Acquire the axis from this Frame's axes.",
-                location,
-                canonical_id=canonical_id,
-            )
-        for index, current in enumerate(self.axes):
-            if (current.token, current.name, current.role, current.key_names) == (
-                axis.token,
-                axis.name,
-                axis.role,
-                axis.key_names,
-            ):
-                return index
-        reject(
-            "a complete current axis handle",
-            repr(axis),
-            "Acquire the axis from this Frame's axes.",
-            location,
+        return axis_index(
+            axis,
+            self.axes,
+            self._input_id,
+            self._local.owner,
+            location=location,
             canonical_id=canonical_id,
         )
 
@@ -422,58 +370,15 @@ class AnalysisFrame(FrameIdentity):
         location: str = "frame.column",
         canonical_id: str | None = None,
     ) -> None:
-        if not isinstance(column, Column) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            column._input_id != self._input_id
-            or column._frame is None
-            or column._frame._local.owner != self._local.owner
-        ):
-            reject(
-                "a Column from this exact Store/Session/Frame input",
-                repr(column),
-                "Locate the Column on this Frame, or align the two Frames first.",
-                location,
-                canonical_id=canonical_id,
-            )
-
-    def _bind_statistic(
-        self,
-        statistic: _Statistic,
-        *,
-        location: str = "frame.reduce",
-        canonical_id: str | None = None,
-    ) -> _Statistic:
-        if not isinstance(statistic, _Statistic):
-            reject(
-                "an unfinished Column statistic or row_count()",
-                type(statistic).__name__,
-                "Construct the statistic from this Frame.",
-                location,
-                canonical_id=canonical_id,
-            )
-        if (
-            statistic._input_id is None
-            and isinstance(statistic._definition, Statistic)
-            and statistic._definition.method == "row_count"
-            and statistic._definition.value is None
-        ):
-            return _Statistic(self._input_id, statistic._definition, statistic.unit, self)
-        if (
-            statistic._input_id != self._input_id
-            or statistic._frame is None
-            or statistic._frame._local.owner != self._local.owner
-        ):
-            reject(
-                "a statistic from this exact Frame input",
-                repr(statistic._input_id),
-                "Reacquire the Column on this Frame before constructing the statistic.",
-                location,
-                canonical_id=canonical_id,
-            )
-        return statistic
+        require_column(
+            column,
+            self._input_id,
+            self._local.owner,
+            location=location,
+            canonical_id=canonical_id,
+        )
 
     def _derive(self, operation: FrameUnaryOperationKind) -> AnalysisFrame:
-        from marivo.analysis.core.frame_interpretation import capture_value_inputs
-
         structure = capture_value_inputs(
             self._schema, self.lineage, infer_frame_schema(self._schema, operation), operation
         )
@@ -525,8 +430,6 @@ class AnalysisFrame(FrameIdentity):
                 canonical_id="analysis_frame.fix",
             )
         keys = key if isinstance(key, tuple) else (key,)
-        from marivo.analysis.model.lineage import all_origins
-
         return self._derive(
             FixFrameValues(
                 position, keys, all_origins(self.lineage.axes[self._schema.axes[position].token])
@@ -543,56 +446,7 @@ class AnalysisFrame(FrameIdentity):
         Constraints: An empty mapping removes all values while retaining rows, axes and presence.
         Does not recover removed values or endpoint inputs; no source reads during capture.
         """
-        if not isinstance(values, Mapping):
-            reject(
-                "a named value mapping (possibly empty)",
-                type(values).__name__,
-                "Pass select({'name': column}) or select({}) to retain only coordinates and presence.",
-                "frame.select",
-                canonical_id="analysis_frame.select",
-            )
-        expressions: list[tuple[str, ValueExpression]] = []
-        from marivo.analysis.model.value_names import value_name
-
-        for name, value in values.items():
-            value_name(name, location="frame.select", canonical_id="analysis_frame.select")
-            if isinstance(value, Column):
-                self._require_column(
-                    value, location="frame.select", canonical_id="analysis_frame.select"
-                )
-                expression = value._expression
-            else:
-                try:
-                    literal = check_literal(value, role="Frame select value")
-                except DefinitionGraphError as error:
-                    reject(
-                        "an immutable finite literal or current Column",
-                        str(error),
-                        "Select a current Column or finite typed literal.",
-                        "frame.select",
-                        canonical_id="analysis_frame.select",
-                    )
-                if literal is None:
-                    reject(
-                        "a non-null literal",
-                        "None",
-                        "Select a nullable Column or derive NA with a typed operation.",
-                        "frame.select",
-                        canonical_id="analysis_frame.select",
-                    )
-                if isinstance(literal, datetime):
-                    if literal.utcoffset() is None:
-                        reject(
-                            "an aware timestamp literal",
-                            repr(literal),
-                            "Use an aware datetime or a date value.",
-                            "frame.select",
-                            canonical_id="analysis_frame.select",
-                        )
-                    literal = literal.astimezone(timezone.utc)
-                expression = ValueLiteral(literal)
-            expressions.append((name, expression))
-        return self._derive(SelectValues(tuple(expressions)))
+        return self._derive(bind_selection(self, values))
 
     @traced(surface="analysis", operation="analysis_frame.top", capture="short")
     def top(self, n: int, *, by: Column, descending: bool = True) -> AnalysisFrame:
@@ -653,90 +507,7 @@ class AnalysisFrame(FrameIdentity):
         paths, and row_count. Expressions, pair statistics and generated paths require
         an explicit Mapping. Duplicate automatic names require distinct explicit names.
         """
-        if isinstance(values, Mapping) and values:
-            named = True
-            items = tuple(values.items())
-        elif isinstance(values, _Statistic):
-            named = False
-            items = (("", values),)
-        elif type(values) is tuple and values:
-            named = False
-            items = tuple(("", statistic) for statistic in values)
-        else:
-            reject(
-                "one statistic, a nonempty statistic tuple, or a nonempty named mapping",
-                type(values).__name__,
-                "Pass reduce(row_count()) or reduce({'your_name': statistic}).",
-                "frame.reduce",
-                canonical_id="analysis_frame.reduce",
-            )
-        if type(by) is not tuple:
-            reject(
-                "a tuple of complete current axes",
-                type(by).__name__,
-                "Use by=() for a scalar result or a tuple of this Frame's complete axes.",
-                "frame.reduce",
-                canonical_id="analysis_frame.reduce",
-            )
-        positions = tuple(
-            self._axis_index(axis, location="frame.reduce", canonical_id="analysis_frame.reduce")
-            for axis in by
-        )
-        if len(set(positions)) != len(positions):
-            reject(
-                "distinct complete current axes",
-                repr(positions),
-                "Use each complete axis once.",
-                "frame.reduce",
-                canonical_id="analysis_frame.reduce",
-            )
-        from marivo.analysis.model.value_names import value_name
-
-        statistics: list[tuple[str, Statistic | PairStatistic]] = []
-        candidates: dict[str, int] = {}
-        for position, (name, value) in enumerate(items, 1):
-            if named:
-                value_name(name, location="frame.reduce", canonical_id="analysis_frame.reduce")
-            bound = self._bind_statistic(
-                value, location="frame.reduce", canonical_id="analysis_frame.reduce"
-            )
-            if not named:
-                definition = bound._definition
-                if isinstance(definition, Statistic) and definition.method == "row_count":
-                    name = "row_count"
-                elif isinstance(definition, Statistic) and isinstance(definition.value, ValueSlot):
-                    path = self._schema.value_paths[definition.value.index]
-                    if len(path) != 1:
-                        reject(
-                            "a direct single-segment value path for an automatic statistic name",
-                            f"input {position}: {'.'.join(path)!r}",
-                            "Give this multi-segment path a single-segment output name with "
-                            "reduce({'your_name': statistic}).",
-                            "frame.reduce",
-                            canonical_id="analysis_frame.reduce",
-                        )
-                    name = f"{path[0]}_{definition.method}"
-                else:
-                    reject(
-                        "row_count() or sum/mean of a direct single-segment value Column",
-                        f"input {position}: {type(definition).__name__}",
-                        "Give this statistic an explicit name with "
-                        "reduce({'your_name': statistic}).",
-                        "frame.reduce",
-                        canonical_id="analysis_frame.reduce",
-                    )
-                value_name(name, location="frame.reduce", canonical_id="analysis_frame.reduce")
-            if name in candidates:
-                reject(
-                    "distinct statistic output names",
-                    f"{name!r} at input positions {candidates[name]} and {position}",
-                    "Give each statistic a distinct explicit name with reduce({'your_name': statistic}).",
-                    "frame.reduce",
-                    canonical_id="analysis_frame.reduce",
-                )
-            candidates[name] = position
-            statistics.append((name, bound._definition))
-        return self._derive(ReduceValues(tuple(statistics), positions))
+        return self._derive(bind_reduction(self, values, by))
 
     @traced(surface="analysis", operation="analysis_frame.attribute", capture="short")
     def attribute(
@@ -821,8 +592,6 @@ class AnalysisFrame(FrameIdentity):
         subject to its method, type and source restrictions. Independent
         reopen has no declaration; rebuild explicit source inputs using saved joint keys.
         """
-        from marivo.analysis.binding.frame_attribute import attribute
-
         return attribute(self, by=by, permutations=permutations, seed=seed)
 
     @traced(surface="analysis", operation="analysis_frame.over", capture="short")
@@ -838,42 +607,7 @@ class AnalysisFrame(FrameIdentity):
         stays empty. Nested statistics count repeated broadcast values. Filtering after
         over does not change its partition; no source regrouping or calendar matching.
         """
-        from marivo._definition.query import ValuePartition
-
-        if type(by) is not tuple:
-            reject(
-                "a tuple of complete current axes",
-                type(by).__name__,
-                "Pass over(statistic, by=(frame.axes[0],)).",
-                "frame.over",
-                canonical_id="analysis_frame.over",
-            )
-        requested = tuple(
-            self._axis_index(axis, location="frame.over", canonical_id="analysis_frame.over")
-            for axis in by
-        )
-        if len(set(requested)) != len(requested):
-            reject(
-                "distinct complete current axes",
-                repr(requested),
-                "Use each complete axis once.",
-                "frame.over",
-                canonical_id="analysis_frame.over",
-            )
-        positions = tuple(index for index in range(len(self.axes)) if index in requested)
-        bound = self._bind_statistic(
-            statistic, location="frame.over", canonical_id="analysis_frame.over"
-        )
-        schema = infer_frame_schema(
-            self._schema, ReduceValues((("statistic", bound._definition),), positions)
-        )
-        return Column(
-            self._input_id,
-            ValuePartition(bound._definition, positions),
-            bound.unit,
-            column_kind(schema.values[0]),
-            self,
-        )
+        return bind_partition(self, statistic, by)
 
     @traced(surface="analysis", operation="analysis_frame.correlate", capture="short")
     def correlate(
@@ -905,72 +639,7 @@ class AnalysisFrame(FrameIdentity):
         pairs or a constant endpoint. Construction and show read no rows. Use
         reduce with corr/pair_count to compose several named statistics.
         """
-        if method not in ("pearson", "spearman"):
-            reject(
-                "pearson or spearman",
-                repr(method),
-                "Choose an explicit supported correlation method.",
-                "frame.correlate",
-                canonical_id="analysis_frame.correlate",
-            )
-        for label, column in (("x", x), ("y", y)):
-            if not isinstance(column, Column) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                column._input_id != self._input_id
-                or column._frame is None
-                or column._frame._local.owner != self._local.owner
-            ):
-                reject(
-                    f"{label}: a Column from this exact Store/Session/Frame input",
-                    repr(column),
-                    "Acquire both Columns on this Frame; align independent Frames first.",
-                    "frame.correlate",
-                    canonical_id="analysis_frame.correlate",
-                )
-        if type(by) is not tuple:
-            reject(
-                "a tuple of complete same-input FrameAxis handles",
-                repr(by),
-                "Use by=() or by=(frame.axes[0],).",
-                "frame.correlate",
-                canonical_id="analysis_frame.correlate",
-            )
-        for axis in by:
-            if not isinstance(axis, FrameAxis) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                axis._input_id != self._input_id or axis._frame._local.owner != self._local.owner
-            ):
-                reject(
-                    "complete axes from this exact Frame/Session input",
-                    repr(axis),
-                    "Acquire by axes from this Frame.",
-                    "frame.correlate",
-                    canonical_id="analysis_frame.correlate",
-                )
-        positions = tuple(
-            self._axis_index(
-                axis, location="frame.correlate", canonical_id="analysis_frame.correlate"
-            )
-            for axis in by
-        )
-        if len(set(positions)) != len(positions):
-            reject(
-                "distinct complete current axes",
-                repr(positions),
-                "Use each complete axis once.",
-                "frame.correlate",
-                canonical_id="analysis_frame.correlate",
-            )
-        coefficient = x._pair_statistic(
-            y, method, location="frame.correlate", canonical_id="analysis_frame.correlate"
-        )
-        count = x._pair_statistic(
-            y, "pair_count", location="frame.correlate", canonical_id="analysis_frame.correlate"
-        )
-        return self._derive(
-            ReduceValues(
-                (("coefficient", coefficient._definition), ("n_pairs", count._definition)),
-                positions,
-            )
-        )
+        return self._derive(bind_correlation(self, x, y, method, by))
 
     def _axis_pairs(
         self,
@@ -981,25 +650,7 @@ class AnalysisFrame(FrameIdentity):
         location: str,
         canonical_id: str,
     ) -> tuple[tuple[int, int], ...]:
-        if (match is not None and not isinstance(match, CalendarCorrespondence)) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            on is not None
-            and (
-                type(on) is not tuple
-                or any(
-                    type(pair) is not tuple
-                    or len(pair) != 2  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                    or any(not isinstance(axis, FrameAxis) for axis in pair)
-                    for pair in on
-                )
-            )
-        ):
-            reject(
-                "a tuple of complete FrameAxis pairs and an optional CalendarCorrespondence",
-                repr((on, match)),
-                "Pass on as a tuple pairing every complete axis exactly once; pass match as a CalendarCorrespondence or omit it.",
-                location,
-                canonical_id=canonical_id,
-            )
+        validate_pairing(on, match, location=location, canonical_id=canonical_id)
         if not isinstance(other, AnalysisFrame) or other._local.owner != self._local.owner:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             reject(
                 "Frame inputs from the same Store and Session",
@@ -1008,94 +659,7 @@ class AnalysisFrame(FrameIdentity):
                 location,
                 canonical_id=canonical_id,
             )
-        left_axes, right_axes = self.axes, other.axes
-        if any(axis.role == "paired" for axis in (*left_axes, *right_axes)):
-            reject(
-                "inputs without paired axes",
-                repr((left_axes, right_axes)),
-                "Reduce away paired axes or construct new source inputs.",
-                location,
-                canonical_id=canonical_id,
-            )
-        if len(left_axes) != len(right_axes):
-            reject(
-                "equal complete axis counts",
-                repr((len(left_axes), len(right_axes))),
-                "Reduce or reconstruct inputs with compatible axes.",
-                location,
-                canonical_id=canonical_id,
-            )
-        if on is None:
-            time_roles = ("calendar", "interval")
-            left_time = tuple(axis for axis in left_axes if axis.role in time_roles)
-            right_time = tuple(axis for axis in right_axes if axis.role in time_roles)
-            if location == "frame.compare" and (len(left_time) > 1 or len(right_time) > 1):
-                reject(
-                    "at most one compatible time axis pair",
-                    f"current={len(left_time)}, baseline={len(right_time)}",
-                    "Reduce or reconstruct each input with at most one time axis before compare.",
-                    location,
-                    canonical_id=canonical_id,
-                )
-            left_ordinary = tuple(axis for axis in left_axes if axis.role not in time_roles)
-            right_ordinary = tuple(axis for axis in right_axes if axis.role not in time_roles)
-            pairs: list[tuple[FrameAxis, FrameAxis]] = []
-            valid = (
-                len(left_time) == len(right_time)
-                and len(left_time) <= 1
-                and (not left_time or left_time[0].role == right_time[0].role)
-            )
-            for axis in left_axes:
-                if axis.role in time_roles:
-                    if valid:
-                        pairs.append((axis, right_time[0]))
-                    continue
-                left_matches = tuple(
-                    candidate for candidate in left_ordinary if candidate.name == axis.name
-                )
-                right_matches = tuple(
-                    candidate for candidate in right_ordinary if candidate.name == axis.name
-                )
-                if (
-                    not axis.name
-                    or len(left_matches) != 1
-                    or len(right_matches) != 1
-                    or axis.role != right_matches[0].role
-                    or axis.key_names != right_matches[0].key_names
-                ):
-                    valid = False
-                else:
-                    pairs.append((axis, right_matches[0]))
-            if not valid or len(pairs) != len(left_axes):
-                left_description = tuple((a.name, a.role, a.key_names) for a in left_axes)
-                right_description = tuple((a.name, a.role, a.key_names) for a in right_axes)
-                reject(
-                    "a complete explicit axis bijection",
-                    f"current={left_description!r}, other={right_description!r}",
-                    "Pass on with every complete axis exactly once. Automatic pairing requires unique same-name ordinary axes with matching roles and complete key names, and at most one same-kind time axis per side.",
-                    location,
-                    canonical_id=canonical_id,
-                )
-            on = tuple(pairs)
-        if (
-            len(on) != len(left_axes)
-            or {a.token for a, _ in on} != {a.token for a in left_axes}
-            or {b.token for _, b in on} != {b.token for b in right_axes}
-        ):
-            reject(
-                "a complete explicit axis bijection",
-                repr(on),
-                f"Bind each complete axis once from {left_axes!r} to {right_axes!r}.",
-                location,
-                canonical_id=canonical_id,
-            )
-        return tuple(
-            (
-                self._axis_index(a, location=location, canonical_id=canonical_id),
-                other._axis_index(b, location=location, canonical_id=canonical_id),
-            )
-            for a, b in on
-        )
+        return bind_axis_pairs(self, other, on, location=location, canonical_id=canonical_id)
 
     @traced(surface="analysis", operation="analysis_frame.align", capture="short")
     def align(
@@ -1187,51 +751,12 @@ class AnalysisFrame(FrameIdentity):
         name and prepare inputs before compare. The reference alias retains full
         reference.baseline/absolute/relative paths.
         """
-        from marivo.analysis.model.value_names import validate_paths
-
         declarations: tuple[tuple[str, ComparisonBaseline], ...]
         if isinstance(baselines, AnalysisFrame):
-            declarations = (("reference", declare_baseline(baselines, on=on, match=match)),)
-        elif isinstance(baselines, Mapping) and baselines:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            if on is not None or match is not None:
-                reject(
-                    "correspondence rules inside each named baseline declaration",
-                    repr((on, match)),
-                    'Use compare({"alias": mv.baseline(frame, on=..., match=...)}).',
-                    "frame.compare",
-                    canonical_id="analysis_frame.compare",
-                )
-            if any(type(value) is not ComparisonBaseline for value in baselines.values()):
-                reject(
-                    "a ComparisonBaseline declaration for every named baseline",
-                    repr(tuple(type(value).__name__ for value in baselines.values())),
-                    'Use compare({"alias": mv.baseline(frame, on=..., match=...)}).',
-                    "frame.compare",
-                    canonical_id="analysis_frame.compare",
-                )
-            declarations = tuple(baselines.items())
+            declarations = (("reference", baseline(baselines, on=on, match=match)),)
         else:
-            reject(
-                "one baseline Frame or a nonempty named ComparisonBaseline mapping",
-                type(baselines).__name__,
-                'Use compare(frame), or compare({"alias": mv.baseline(frame)}).',
-                "frame.compare",
-                canonical_id="analysis_frame.compare",
-            )
-        names = tuple(name for name, _ in declarations)
-        validate_paths(
-            tuple((name,) for name in names),
-            location="frame.compare.aliases",
-            canonical_id="analysis_frame.compare",
-        )
-        if "current" in names:
-            reject(
-                "baseline aliases other than current",
-                repr(names),
-                "Rename the baseline alias.",
-                "frame.compare",
-                canonical_id="analysis_frame.compare",
-            )
+            declarations = named_baselines(baselines, ComparisonBaseline, on=on, match=match)
+        validate_baseline_aliases(tuple(name for name, _ in declarations))
         bindings = tuple(
             NamedFrameComparison(
                 name,
@@ -1275,18 +800,7 @@ class AnalysisFrame(FrameIdentity):
         """
         if isinstance(self._backing, MemoryFrameBacking):
             return self
-        if isinstance(self._backing, StoredFrameBacking):
-            return self._from_memory(
-                self._local, self._local.read_complete(self._backing), self._derivation
-            )
-        from marivo.analysis.materialization.frame_evaluation import evaluate_frame
-
-        keys: dict[str, CompletedFrameData] = {}
-        needs_keys = frame_derivation.uses_frame_keys(self._derivation)
-        result = evaluate_frame(self, declaration_keys=keys if needs_keys else None)
-        declaration = frame_derivation.complete_declaration(
-            self._derivation, keys, result.metadata, _bind_key_input
-        )
+        result, declaration = complete_frame(self, self._backing, _bind_key_input)
         return self._from_memory(self._local, result, declaration)
 
     @property
@@ -1402,15 +916,7 @@ class AnalysisFrame(FrameIdentity):
         return self._local.store.project_root
 
     def _require_stored(self, member: str) -> StoredFrameBacking:
-        if not isinstance(self._backing, StoredFrameBacking):
-            reject(
-                "an exact stored Frame root",
-                type(self._backing).__name__,
-                "Call persist() and use the returned Frame.",
-                f"frame.{member}",
-                canonical_id=f"analysis_frame.{member}",
-            )
-        return self._backing
+        return require_stored(self._backing, member)
 
     @property
     def artifact_id(self) -> str:
@@ -1450,61 +956,6 @@ class AnalysisFrame(FrameIdentity):
         """
         return self._require_stored("source_reads").metadata.source_reads
 
-    def _export_axis_names(
-        self, axis_names: Mapping[str, str] | None, member: str
-    ) -> tuple[str, ...]:
-        if axis_names is not None and not isinstance(axis_names, Mapping):
-            reject(
-                "a mapping from axis names or tokens to export names",
-                type(axis_names).__name__,
-                "Pass axis_names={'full.axis.name': 'name'}.",
-                f"frame.{member}",
-                canonical_id=f"analysis_frame.{member}",
-            )
-        names = [axis.name.rsplit(".", 1)[-1] for axis in self.axes]
-        assigned: set[int] = set()
-        for selector, name in (axis_names or {}).items():
-            matches = [
-                i
-                for i, axis in enumerate(self.axes)
-                if isinstance(selector, str) and selector in (axis.name, axis.token)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            ]
-            if len(matches) != 1 or matches[0] in assigned:
-                guidance = f"Choose a full name or token from {tuple((a.name, a.token) for a in self.axes)!r}."
-                if isinstance(selector, FrameAxis):
-                    if selector._input_id == self._input_id:
-                        guidance = f"Pass axis_names={{{selector.token!r}: 'bucket'}}; use axis.token as the key."
-                    else:
-                        guidance = "Reacquire an axis from this Frame, then use its .token string as the key."
-                reject(
-                    "one unambiguous current axis name or token string as an axis_names key, assigned once",
-                    f"{type(selector).__name__}: {selector!r}",
-                    guidance,
-                    f"frame.{member}.axis_names.key",
-                    canonical_id=f"analysis_frame.{member}",
-                )
-            if type(name) is not str or not name or name != name.strip() or not name.isprintable():
-                reject(
-                    "a nonempty printable export name without surrounding whitespace",
-                    repr(name),
-                    "Assign a distinct readable name to each renamed axis.",
-                    f"frame.{member}.axis_names[{selector!r}]",
-                    canonical_id=f"analysis_frame.{member}",
-                )
-            assigned.add(matches[0])
-            names[matches[0]] = name
-        return tuple(names)
-
-    def _validate_time_details(self, time_details: bool, member: str) -> None:
-        if type(time_details) is not bool:
-            reject(
-                "a boolean time_details",
-                repr(time_details),
-                "Pass time_details=True or False.",
-                f"frame.{member}",
-                canonical_id=f"analysis_frame.{member}",
-            )
-
     def read_page(
         self,
         *,
@@ -1531,28 +982,14 @@ class AnalysisFrame(FrameIdentity):
         consumed receipts and selected data/coordinates, not unread semantic data
         or source-read metadata. Page exports are isolated and have no attrs.
         """
-        from marivo.analysis.materialization.frame_paging import read_frame_page
-
-        if isinstance(self._backing, ExpressionFrameBacking):
-            reject(
-                "a complete memory or stored Frame",
-                "expression",
-                "Call compute() or persist() and read the returned Frame.",
-                "frame.read_page",
-                canonical_id="analysis_frame.read_page",
-            )
-        self._validate_time_details(time_details, "read_page")
-        names = self._export_axis_names(axis_names, "read_page")
-        assert isinstance(self._schema, DataSchema)
-        return read_frame_page(
-            input_id=self._input_id,
-            schema=self._schema,
-            backing=self._backing,
-            local=self._local,
+        return read_fixed_page(
+            self,
+            self._local,
+            self.axes,
             columns=columns,
             limit=limit,
             cursor=cursor,
-            axis_names=names,
+            axis_names=axis_names,
             time_details=time_details,
         )
 
@@ -1573,8 +1010,6 @@ class AnalysisFrame(FrameIdentity):
         Example: ``fixed = time_frame.compute(); page = fixed.read_periods(fixed.axes[0])``.
         Constraints: Requires complete memory or stored data; does not execute or persist. Ordinary axes and comparisons reject. Period records need not have current rows; use complete keys to join them to ``read_page().coordinates``. No source, Catalog, method-file or whole attachment buffer is retained or reconstructed.
         """
-        from marivo.analysis.materialization.frame_paging import read_frame_periods
-
         if isinstance(self._backing, ExpressionFrameBacking):
             reject(
                 "a complete memory or stored Frame",
@@ -1660,24 +1095,13 @@ class AnalysisFrame(FrameIdentity):
             Retain that Frame for typed operations; a DataFrame does not retain it.
             For another process, persist and retain exact IDs before the producer exits.
         """
-        from marivo.analysis.materialization.pandas_export import export_frame, export_names
-
-        self._validate_time_details(time_details, "to_pandas")
-        names = self._export_axis_names(axis_names, "to_pandas")
+        validate_time_details(time_details, "to_pandas")
+        names = export_axis_names(self.axes, self._input_id, axis_names, "to_pandas")
         export_names(self._schema, tuple(names), time_details=time_details)
         if isinstance(self._backing, ExpressionFrameBacking):
             return self.compute().to_pandas(axis_names=axis_names, time_details=time_details)
-        data = (
-            self._local.read_data(self._backing)
-            if isinstance(self._backing, StoredFrameBacking)
-            else self._backing.data
-        )
-        return export_frame(
-            data.schema,
-            data.copy_rows(),
-            data.copy_attachments(),
-            axis_names=tuple(names),
-            time_details=time_details,
+        return export_fixed_frame(
+            self._backing, self._local, tuple(names), time_details=time_details
         )
 
     def show(self) -> None:
@@ -1695,226 +1119,77 @@ class AnalysisFrame(FrameIdentity):
         ancestor rows, complete-result cache or fallback after a read error. Method
         facts show only counts/origins and a .method_facts pointer; no method payload read.
         """
-        from marivo._kernel.render import Card
+        show_frame(self, self._local, self.axes)
 
-        available = (
-            (".compute()", ".to_pandas()", ".persist()")
-            if isinstance(self._backing, ExpressionFrameBacking)
-            else (".read_page()", ".to_pandas()", ".persist()")
-            if isinstance(self._backing, MemoryFrameBacking)
-            else (".read_page()", ".to_pandas()", ".source_reads")
-        )
-        card = Card(
-            identity=repr(self),
-            available=(*available, *((".schema.alignments",) if self._schema.alignments else ())),
-        )
-        card.field("presence", repr(self.presence_names))
-        value_columns: tuple[DataColumn | PendingDataColumn, ...] = self._schema.values
-        card.listing(
-            "values (type, nullable, unit)",
-            (
-                f"{column.name!r}: {column_type_summary(column)}, "
-                f"{column.nullable!r}, {column.unit!r}"
-                for column in value_columns[:3]
-            ),
-        )
-        if len(value_columns) > 3:
-            card.field(
-                "value.more",
-                f"{len(value_columns) - 3} omitted; .schema.values",
-            )
-        if self._schema.value_time_semantics:
-            from marivo.analysis.model.value_time import time_summary
 
-            summaries = tuple(time_summary(fact) for _, fact in self._schema.value_time_semantics)
-            card.field(
-                "time",
-                summaries[0]
-                if len(summaries) == 1
-                else repr(
-                    tuple(
-                        (name, summary)
-                        for (name, _), summary in zip(
-                            self._schema.value_time_semantics[:6], summaries[:6], strict=True
-                        )
-                    )
-                ),
-            )
-            if any(
-                "independent" in summary or "mixed" in summary or "multiple clocks" in summary
-                for summary in summaries
-            ):
-                card.field("time_details", ".schema.value_time_semantics")
-        if self._schema.source_times:
-            from marivo.analysis.model.time_facts import source_time_summary
+@dataclass(frozen=True, slots=True, init=False, repr=False, eq=False)
+class ComparisonBaseline:
+    """One immutable Frame and its requested comparison correspondence.
 
-            card.field(
-                "source_times",
-                "\n".join(
-                    source_time_summary(fact)[:640] for fact in self._schema.source_times[:12]
-                ),
-            )
-            if len(self._schema.source_times) > 12:
-                card.field(
-                    "source_times.more",
-                    f"{len(self._schema.source_times) - 12} omitted; read .schema.source_times",
-                )
-        if self._schema.alignments:
-            card.field("alignments.count", str(len(self._schema.alignments)))
-        for index, alignment in enumerate(self._schema.alignments[:3]):
-            summary = f"{alignment.alignment_id[:80]} left={alignment.left.values[:2]!r} right={alignment.right.values[:2]!r}"
-            card.field("alignments[" + str(index) + "]", summary[:320])
-        if len(self._schema.alignments) > 3:
-            card.field("alignments.more", str(len(self._schema.alignments) - 3) + " omitted")
-        declaration = self._derivation
-        if declaration is None:
-            card.field(
-                "attribute",
-                "rebuild an explicit source observation with saved joint keys",
-            )
-        elif tuple(output.path for output in declaration.outputs) != self._schema.value_paths:
-            card.field(
-                "attribute",
-                "select direct Metric or comparison outputs for attribute",
-            )
-        else:
-            card.field(
-                "attribute",
-                "retained declaration; .attribute(by=...) reads fresh sources",
-            )
-        card.field(
-            "axes",
-            repr(tuple((axis.token, axis.name, axis.role, axis.key_names) for axis in self.axes)),
+    Args: No public constructor; use mv.baseline(frame, on=..., match=...).
+    Returns: A declaration with read-only frame, on and match fields.
+    Example: ``current.compare({'prior': mv.baseline(previous)})``.
+    Constraints: Captures inputs without reading data or binding a current Frame.
+    Direct construction and subclass extension are unsupported.
+    """
+
+    frame: AnalysisFrame
+    on: tuple[tuple[FrameAxis, FrameAxis], ...] | None
+    match: CalendarCorrespondence | None
+
+    def __init__(self) -> None:
+        raise TypeError("Use mv.baseline(frame, on=..., match=...).")
+
+    def __repr__(self) -> str:
+        axes = "inferred" if self.on is None else str(len(self.on))
+        rule = "inferred" if self.match is None else self.match.kind
+        return (
+            f"<ComparisonBaseline input={self.frame._input_id[:16]} "
+            f"axes={axes} match={rule}; use .show()>"
         )
-        if isinstance(self._backing, ExpressionFrameBacking):
-            root = self._backing.root
-            if isinstance(root, OperationFrameBinding):
-                card.field("operation", _operation_summary(root))
-                card.field(
-                    "inputs",
-                    repr(
-                        tuple(
-                            (child._input_id, _input_kind(child._backing)) for child in root.inputs
-                        )
-                    ),
-                )
-            elif isinstance(root, SourceFrameBinding):
-                node = root.graph.root
-                operation = (
-                    "read"
-                    if isinstance(node, ReadQuery)
-                    else "literal"
-                    if isinstance(node, ResultQuery)
-                    else "observe"
-                    if root.graph.signature.quantities
-                    else "frame"
-                )
-                card.field("operation", operation).field("inputs", "source")
-            else:
-                card.field("operation", "literal").field("inputs", "literal")
-            sources = _pending_source_inputs(self)
-            if sources:
-                scopes = tuple(
-                    dict.fromkeys(
-                        scope_summary(source.graph.root, source.graph.signature.observation)
-                        for _, source in sources
-                    )
-                )
-                card.field(
-                    "scope",
-                    "; ".join(scopes) if scopes else "no captured filter or member restriction",
-                )
-                anchors = tuple(
-                    (
-                        frame._input_id,
-                        axis.token,
-                        axis.at.isoformat() if isinstance(axis.at, datetime) else repr(axis.at),
-                    )
-                    for frame, _ in sources
-                    for axis in frame._schema.axes
-                    if axis.at is not None
-                )
-                if anchors:
-                    card.field("anchors", repr(anchors))
-            card.field("rows", "pending; no input rows read")
-        else:
-            from marivo.analysis.materialization.pandas_export import export_frame
 
-            if isinstance(self._backing, MemoryFrameBacking):
-                total = self._backing.data.row_count
-            else:
-                selected = self._local.open_frame(self._backing.artifact_id)
-                if selected != self._backing:
-                    reject(
-                        "the exact original committed descriptor",
-                        self._backing.artifact_id,
-                        "Preserve the selected Artifact metadata.",
-                        "frame.show",
-                        canonical_id="analysis_frame.show",
-                    )
-                total = self._backing.data.rows.receipt.realized_row_count
-            card.field("result_id", self._backing.metadata.result_id)
-            facts = self._backing.method_facts
-            card.field("method_facts", str(len(facts)))
-            if facts:
-                card.field("method_origins", repr(tuple(item.origin_result_id for item in facts)))
-                card.field(
-                    "method_facts_read", "use .method_facts for complete original explanation facts"
-                )
-            card.field("evaluated_at", self._backing.metadata.evaluated_at.isoformat())
-            if isinstance(self._backing, StoredFrameBacking):
-                card.field("session_id", self.session_id)
-                card.field("artifact_id", self.artifact_id)
-                card.field(
-                    "description",
-                    repr(self.description) if self.description is not None else "(not provided)",
-                )
-                card.field("committed_at", self._local.committed_at(self._backing).isoformat())
-            if isinstance(self._backing, StoredFrameBacking):
-                stored_metadata = self._backing.metadata
-                inputs, operations = stored_metadata.inputs, stored_metadata.operations
-            else:
-                memory_metadata = self._backing.metadata
-                inputs = memory_metadata.evaluation.inputs
-                operations = memory_metadata.evaluation.operations
-            source_reads = self._backing.metadata.source_reads
-            input_kinds = tuple(
-                "stored"
-                if isinstance(item, StoredInput)
-                else "memory"
-                if isinstance(item, MemoryInput)
-                else "source"
-                if isinstance(item, SourceInput)
-                else "literal"
-                for item in inputs
-            )
-            card.field("inputs", repr(input_kinds))
-            card.field("operations", repr(operations))
-            card.field("source_reads", str(len(source_reads)))
-            if source_reads:
-                first = source_reads[0]
-                card.field(
-                    "source_read", f"{first.scopes[0].source} at {first.completed_at.isoformat()}"
-                )
-                if len(source_reads) > 1:
-                    card.field("source_reads_omitted", str(len(source_reads) - 1))
-                card.field(
-                    "read_details",
-                    ".source_reads"
-                    if isinstance(self._backing, StoredFrameBacking)
-                    else ".persist().source_reads",
-                )
-            card.field("rows", str(total))
-            data = (
-                self._backing.data
-                if isinstance(self._backing, MemoryFrameBacking)
-                else self._local.read_data(self._backing)
-            )
-            table = export_frame(
-                data.schema, data.copy_rows(), data.copy_attachments(), validate_names=False
-            )
-            card.field("data", "\n" + table.to_string(max_rows=None, max_cols=None))
-        print(card.render(max_output_bytes=None))
+    def show(self) -> None:
+        """Print bounded captured baseline metadata without reading data.
+
+        Args: None.
+        Returns: None; prints the input identity, axis pairs and time rule.
+        Example: ``mv.baseline(previous, match=mv.ordinal()).show()``.
+        Constraints: Does not call Frame.show, evaluate inputs or bind correspondence.
+        """
+        show_baseline(repr(self), self.on, self.match)
+
+
+def baseline(
+    frame: AnalysisFrame,
+    *,
+    on: tuple[tuple[FrameAxis, FrameAxis], ...] | None = None,
+    match: CalendarCorrespondence | None = None,
+) -> ComparisonBaseline:
+    """Capture one named comparison's Frame and optional correspondence rules.
+
+    Args:
+        frame: Baseline Frame; the consuming compare requires the same Session.
+        on: Complete (current axis, baseline axis) pairs, or None for inference.
+        match: Closed calendar rule, or None for direct-relation/equality inference.
+    Returns: An immutable ComparisonBaseline declaration.
+    Example: ``current.compare({'prior': mv.baseline(previous, match=mv.ordinal())})``.
+    Constraints: Checks input shapes only, with no reads. compare binds ownership,
+    complete axes and temporal compatibility against its current Frame.
+    """
+    if not isinstance(frame, AnalysisFrame):
+        reject(
+            "an AnalysisFrame baseline",
+            type(frame).__name__,
+            "Pass mv.baseline(frame, on=..., match=...).",
+            "baseline",
+            canonical_id="baseline",
+        )
+    validate_baseline_options(on, match)
+    result = object.__new__(ComparisonBaseline)
+    object.__setattr__(result, "frame", frame)
+    object.__setattr__(result, "on", on)
+    object.__setattr__(result, "match", match)
+    return result
 
 
 def _bind_key_input(

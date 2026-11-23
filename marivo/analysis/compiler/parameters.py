@@ -7,19 +7,21 @@ from typing import TYPE_CHECKING
 
 from marivo._definition.graph import DefinitionNode, children, computation_fingerprint
 from marivo._definition.query import KeyImage, PopulationValues
-from marivo._definition.relations import AttributeKeys, FrameKeys, PopulationProgram
+from marivo._definition.relations import AttributeKeys, FrameKeys, ObserveQuery, PopulationProgram
 from marivo.analysis.binding.graph import BoundGraph
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.graph_plan import _plan_query
+from marivo.analysis.compiler.populations import frame_key_groups
+from marivo.analysis.compiler.queries import key_groups
+from marivo.analysis.compiler.query_program import (
+    ResultProgram,
+    SourceParameter,
+)
+from marivo.analysis.compiler.query_stages import (
     FrameKeysInput,
     LocalCompute,
     QueryPlan,
     SourceReadStage,
     SourceSchema,
-    _plan_query,
-)
-from marivo.analysis.compiler.query_program import (
-    ResultProgram,
-    SourceParameter,
 )
 
 if TYPE_CHECKING:
@@ -61,7 +63,6 @@ def plan_parameters(
     *,
     memo: InvocationMemo | None = None,
 ) -> QueryPlan:
-    from marivo._definition.relations import ObserveQuery
 
     assert isinstance(graph.root, ObserveQuery)
     scope_id = graph.fingerprint if memo is None else memo.fingerprint(graph)
@@ -84,8 +85,6 @@ def plan_parameters(
             offset += len(group)
         groups = tuple(groups_list)
     else:
-        from marivo.analysis.compiler.queries import key_groups
-
         groups = key_groups(
             graph,
             output.columns,
@@ -97,8 +96,6 @@ def plan_parameters(
         return base
     producers: dict[str, QueryPlan] = {}
     for name, parameter in parameters.items():
-        from marivo.analysis.compiler.populations import frame_key_groups
-
         assert isinstance(parameter.definition.root, (FrameKeys, AttributeKeys))
         leaf = FrameKeysInput(
             "framekeys:" + computation_fingerprint(parameter.definition), parameter
@@ -159,7 +156,6 @@ def plan_parameters(
         if direct is not None:
             producer = producers[direct.placeholder]
             output = next(item for item in producer.stages if item.stage_id == producer.publish)
-            from marivo.analysis.compiler.queries import key_groups
 
             groups = producer.output_groups
             input_axes = direct.definition.axes

@@ -1,5 +1,6 @@
 """Native analysis error and invalid-target resolution remains deterministic."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -59,7 +60,6 @@ def test_time_construction_help_has_only_session_entry(name: str) -> None:
 
 @pytest.mark.parametrize("filename", ("README.md", "README.zh-CN.md"))
 def test_readme_focused_help_examples_resolve(filename: str) -> None:
-    import re
 
     source = (Path(__file__).resolve().parents[2] / filename).read_text()
     targets = re.findall(r'marivo\.help\("([^"\n]+)"\)', source)

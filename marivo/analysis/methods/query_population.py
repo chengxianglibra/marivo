@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 from datetime import date, datetime, timedelta
+from itertools import product
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -10,6 +12,8 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo._definition.correspondence import ComparisonAxis, coordinate_position
+from marivo._definition.graph import computation_fingerprint
+from marivo._definition.population_builders import predicate_fields
 from marivo._definition.relations import (
     PopulationContains,
     PopulationDependency,
@@ -22,7 +26,10 @@ from marivo._definition.relations import (
     project_population_row,
 )
 from marivo._definition.types import AxisBinding, IntervalCoordinate
+from marivo.analysis.compiler.predicate import lower_condition, population_key
+from marivo.analysis.methods._ibis_numeric import evaluate_numeric
 from marivo.analysis.model.errors import reject
+from marivo.semantic.spi import numeric_failure
 
 _TICK_SCALES = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}
 
@@ -30,7 +37,6 @@ _TICK_SCALES = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}
 def _token(value: object) -> object:
     if isinstance(value, tuple):
         return tuple(_token(component) for component in value)
-    import math
 
     if value is None or value is pd.NA or value is pd.NaT:
         return None
@@ -98,9 +104,6 @@ def evaluate_population(
     layouts: tuple[tuple[tuple[str, ...], ...], ...],
 ) -> tuple[tuple[object, ...], ...]:
     """Evaluate finite set algebra without discarding upstream Query checks."""
-    from itertools import product
-
-    from marivo._definition.graph import computation_fingerprint
 
     available = {
         computation_fingerprint(atom): (frame, groups)
@@ -140,10 +143,6 @@ def evaluate_population(
             )
         if isinstance(node, PopulationFilter):
             # Resolve every leaf first so constant branches retain producer checks.
-            from marivo._definition.population_builders import predicate_fields
-            from marivo.analysis.compiler.predicate import lower_condition, population_key
-            from marivo.analysis.methods._ibis_numeric import evaluate_numeric
-            from marivo.semantic.spi import numeric_failure
 
             operand = rows(node.operand)
             values: dict[str, pd.Series] = {}

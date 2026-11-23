@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from zoneinfo import ZoneInfo
 
 from marivo._kernel.data_render import _DataCard, _DataResult
+from marivo._kernel.validation import integer
 
 if TYPE_CHECKING:
     import ibis.expr.types as ir
@@ -231,14 +232,14 @@ def validate_preview_limit(
     min_limit: int = _PREVIEW_MIN_LIMIT,
     max_limit: int = PREVIEW_MAX_LIMIT,
 ) -> int:
-    if not isinstance(limit, int) or isinstance(limit, bool):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not integer(limit):
         raise PreviewLimitError(limit, min_limit=min_limit, max_limit=max_limit)
     if limit < min_limit or limit > max_limit:
         raise PreviewLimitError(limit, min_limit=min_limit, max_limit=max_limit)
     return limit
 
 
-def display_column_names(columns: Iterable[Any]) -> tuple[str, ...]:
+def display_column_names(columns: Iterable[object]) -> tuple[str, ...]:
     display_columns: list[str] = []
     used_columns: set[str] = set()
     for column in columns:
@@ -272,7 +273,7 @@ def _is_missing(value: Any) -> bool:
     return False
 
 
-def normalize_preview_cell(value: Any, *, report_tz: str | None = None) -> object:
+def normalize_preview_cell(value: object, *, report_tz: str | None = None) -> object:
     import pandas as pd  # noqa: PLC0415  # Load pandas only when normalizing actual rows.
 
     if _is_missing(value):

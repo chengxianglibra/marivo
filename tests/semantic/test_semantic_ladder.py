@@ -5,12 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import ibis
 import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.store.authoring import DuckDBSpec
+from marivo.introspection.live.targets import semantic_target
 from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.errors import (
     SemanticDecoratorError,
@@ -28,7 +30,6 @@ def _duckdb_project_with_entity(
     tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
 ) -> SemanticProject:
     """Create a project with a single entity backed by DuckDB."""
-    import ibis
 
     db_path = tmp_path / "warehouse.duckdb"
     con = ibis.duckdb.connect(db_path)
@@ -90,8 +91,6 @@ def test_require_entity_uses_current_loaded_project(
 
     first = ms.SemanticCatalog(project).get("entity:sales.orders")
     assert first.id == "entity:sales.orders"
-
-    import ibis
 
     db_path = tmp_path / "warehouse.duckdb"
     con = ibis.duckdb.connect(db_path)
@@ -217,7 +216,6 @@ def test_layout_load_errors_have_registry_backed_structured_repairs(
 
     error = next(error for error in result.errors if error.kind == kind)
     assert error.repair is not None
-    from marivo.introspection.live.targets import semantic_target
 
     assert error.repair.help_target.canonical_id == semantic_target(target)
     assert error.repair.preserves_evidence is True

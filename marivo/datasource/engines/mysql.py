@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
 import ibis.expr.types as ir
 import pandas as pd
@@ -61,7 +61,7 @@ from marivo.datasource.metadata_types import (
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
-    from marivo.datasource.engines._mysql_backend import MySQLBackend
+    from marivo.datasource.engines._mysql_backend import MySQLBackend  # noqa: PLC0415  # Optional PyMySQL transport.
 
     host = require_field(name, kwargs, "host", help_target="mysql")
     database = require_field(name, kwargs, "database", help_target="mysql")
@@ -261,7 +261,7 @@ def _source_timezone_unavailable(name: str) -> DatasourceConnectionError:
 
 
 def _mysql_rows(
-    backend: Any,
+    backend: BaseBackend,
     statement_id: str,
     *,
     values: Mapping[str, object] = {},
@@ -318,10 +318,10 @@ def query_packet_limit(backend: BaseBackend) -> tuple[int, str]:
 def _inspect_mysql(
     *,
     datasource: str,
-    backend: Any,
+    backend: BaseBackend,
     table: str,
     database: str | tuple[str, ...] | None,
-    table_expr: Any,
+    table_expr: ir.Table,
     include_partitions: bool,
     default_database: str | None,
 ) -> TableMetadata:
@@ -643,7 +643,7 @@ def _read_issued_query(
     schema: pa.Schema,
     mark_submitted: Callable[[], None],
 ) -> pd.DataFrame:
-    from marivo.datasource.engines._mysql_backend import read_issued_query
+    from marivo.datasource.engines._mysql_backend import read_issued_query  # noqa: PLC0415  # Optional PyMySQL transport.
 
     return read_issued_query(backend, sql, expression, schema, mark_submitted)
 

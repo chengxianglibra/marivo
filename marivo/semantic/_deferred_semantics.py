@@ -7,11 +7,8 @@ from __future__ import annotations
 
 import hashlib
 import operator
-from collections import Counter
-from collections.abc import Callable
-from dataclasses import dataclass, replace
-from decimal import Decimal
-from typing import Literal, NoReturn, TypeAlias, cast
+from dataclasses import replace
+from typing import Literal, cast
 
 from ibis.common.deferred import (
     Attr,
@@ -25,7 +22,6 @@ from ibis.common.deferred import (
     Variable,
 )
 
-from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.deferred import (
     CapturedDefaultTimeResolver,
     DeclarationResolver,
@@ -36,751 +32,81 @@ from marivo._definition.deferred import (
     RescaleResolver,
     SemanticInput,
     SemanticResolver,
-    _captured_field_kind,
     attribute_name,
     canonical_recipe,
-    inspect_capture,
     inspect_deferred,
-    relationship_carrier,
 )
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
-    FieldCalendarSample,
     MeasureAssertion,
     MemberCount,
-    MetricExpression,
     MetricNode,
     MetricWindow,
-    PerReduce,
-    PerWeightedMean,
     PredicateExpression,
-    Reducer,
     RowExpression,
     RowField,
-    RowNode,
-    SampleDomainSpec,
     SourceAggregate,
     SourceWeightedMean,
 )
 from marivo._definition.graph import DefinitionNode, children, walk
-from marivo._definition.grouping import grouping_binding, normalize_groupings
-from marivo._definition.observation_time import ContributionClockBinding
 from marivo._definition.population_builders import validate_path_read
 from marivo._definition.relations import (
-    LiteralPopulation,
-    MembershipBinding,
     PopulationContains,
-    PopulationParameter,
-    PopulationProgram,
-    SampleDomain,
 )
 from marivo._definition.types import (
     Authorization,
-    AxisBinding,
-    CalendarCoordinate,
     DefinitionGraphError,
     ExactRef,
     FieldRead,
-    IntervalCoordinate,
+    NullPolicy,
     PathParameter,
     RowAttributeTime,
     SumNone,
-    SumPermission,
-    field_axis,
-    fixed_attribute_time,
 )
 from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
-from marivo._kernel.grouping import Grouping
 from marivo._kernel.refs import SemanticKind
 from marivo._kernel.refs import ref as ref_factory
-from marivo._kernel.temporal import Grain, InstantAnchor, TimeScope
+from marivo._kernel.temporal import InstantAnchor
+from marivo.semantic._deferred_composition import _compose, _row_recipe
+from marivo.semantic._deferred_facts import (
+    _REDUCERS,
+    MetricFacts,
+    PredicateFacts,
+    RowFacts,
+    _Facts,
+    _fail,
+    _Samples,
+    _Scalar,
+)
+from marivo.semantic._deferred_sample_reduction import _reduce_samples, _ReductionCall
+from marivo.semantic._deferred_time import (
+    _calendar_sample_recipe,
+    _capture_source_time,
+    _constant,
+    _field_calendar_sample,
+    _sample_domain,
+    _time,
+)
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.expressions.inputs import RecipeInput, _as_deferred
 from marivo.semantic.expressions.metric_time import (
-    calendar_sample_domain,
     validate_metric_time_consumers,
 )
-from marivo.semantic.expressions.objects import _Relationship as Relationship
-from marivo.semantic.expressions.operations import _arith_unit, _intersect, _nulls, _quantile
-from marivo.semantic.unit_algebra import (
-    FactorizedUnitV2,
-    linear_unit,
-    linear_units_conflict,
-    unit_state,
-)
-
-
-@dataclass(frozen=True, slots=True)
-class RowFacts:
-    node: RowNode
-    root: ExactRef
-    unit: str | None
-    permission: SumPermission
-    coordinates: tuple[ExactRef, ...] = ()
-    numeric: bool = True
-    boolean: bool = False
-    field: SemanticInput | None = None
-    default_time: ExactRef | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class MetricFacts:
-    node: MetricNode
-    roots: tuple[ExactRef, ...]
-    unit: str | None
-    _declared: tuple[tuple[ExactRef, MetricNode], ...] = ()
-    boolean: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class PredicateFacts:
-    node: PredicateExpression
-    roots: tuple[ExactRef, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class _Samples:
-    metric: MetricFacts
-    axes: SampleDomainSpec
-
-
-@dataclass(frozen=True, slots=True)
-class _Scalar:
-    recipe: Resolver
-    value: object
-
-
-_Facts: TypeAlias = RowFacts | MetricFacts | _Samples | _Scalar
-
-_REDUCERS = frozenset(
-    {
-        "sum",
-        "mean",
-        "min",
-        "max",
-        "median",
-        "quantile",
-        "count",
-        "count_distinct",
-        "approx_nunique",
-        "approx_median",
-        "approx_quantile",
-        "first",
-        "last",
-    }
-)
-
-
-def _fail(
-    message: str,
-    *,
-    expected: str,
-    received: str,
-    kind: ErrorKind = ErrorKind.INVALID_EXPRESSION_STAGE,
-    action: str | None = None,
-    help_target: str = "expressions",
-    scope_dependent: bool = False,
-) -> NoReturn:
-    raise SemanticExpressionError(
-        kind=kind,
-        message=message,
-        expected=expected,
-        received=received,
-        help_target=help_target,
-        details={"defer_to_scope": True} if scope_dependent else None,
-        action=action
-        or (
-            "Declare a Measure with an explicit additivity grant before summing this expression."
-            if kind is ErrorKind.MISSING_SUM_PERMISSION
-            else "Use resolved semantic fields at the same stage and reduce rows before combining Metrics."
-        ),
-    )
-
-
-def _rename_slots(recipe: Resolver, offset: int) -> Resolver:
-    if isinstance(recipe, RescaleResolver):
-        return RescaleResolver(_rename_slots(recipe.recipe, offset), recipe.divisor, recipe.unit)
-    if isinstance(recipe, Variable):
-        name = str(recipe.name)
-        return Variable(f"slot_{int(name.removeprefix('slot_')) + offset}")
-    if isinstance(recipe, BinaryOperator):
-        return BinaryOperator(
-            recipe.func, _rename_slots(recipe.left, offset), _rename_slots(recipe.right, offset)
-        )
-    if isinstance(recipe, UnaryOperator):
-        return UnaryOperator(recipe.func, _rename_slots(recipe.arg, offset))
-    if isinstance(recipe, Call):
-        return Call(
-            _rename_slots(recipe.func, offset),
-            *(_rename_slots(arg, offset) for arg in recipe.args),
-            **{key: _rename_slots(arg, offset) for key, arg in recipe.kwargs.items()},
-        )
-    if isinstance(recipe, Attr):
-        return Attr(_rename_slots(recipe.obj, offset), recipe.name)
-    if isinstance(recipe, Sequence):
-        return Sequence(tuple(_rename_slots(item, offset) for item in recipe.values))
-    return recipe
-
-
-def _row_recipe(value: RowFacts, inputs: list[RowField | MeasureAssertion]) -> Resolver:
-    if isinstance(value.node, RowExpression):
-        recipe = _rename_slots(value.node.recipe, len(inputs))
-        inputs.extend(value.node.inputs)
-        return recipe
-    if isinstance(value.node, (RowField, MeasureAssertion)):
-        recipe = Variable(f"slot_{len(inputs)}")
-        inputs.append(value.node)
-        return recipe
-    raise AssertionError("native row consumption produced an obsolete numeric node")
-
-
-def _result_branches(
-    recipe: Resolver, children: tuple[_Facts, ...], operation: str
-) -> tuple[_Facts, ...]:
-    if operation == "ifelse":
-        return children[1:]
-    if operation == "cases" and isinstance(recipe, Call):
-        results: list[_Facts] = []
-        for branch in recipe.args:
-            if not isinstance(branch, Sequence) or len(branch.values) != 2:
-                _fail(
-                    "Case branches require match/result pairs.",
-                    expected="two-element case branches",
-                    received=type(branch).__name__,
-                )
-            results.append(_consume(branch.values[1]))
-        results.append(_consume(recipe.kwargs.get("else_", Just(None))))
-        return tuple(results)
-    return children
-
-
-def _compose(
-    recipe: Resolver,
-    children: tuple[_Facts, ...],
-    rebuild: Callable[[tuple[Resolver, ...]], Resolver],
-    *,
-    operation: str,
-) -> _Facts:
-    construct = rebuild
-    rows = tuple(item for item in children if isinstance(item, RowFacts))
-    metrics = tuple(item for item in children if isinstance(item, MetricFacts))
-    if any(isinstance(item, _Samples) for item in children) or (rows and metrics):
-        _fail(
-            "Expression combines incompatible stages.",
-            expected="only row values or only completed Metrics",
-            received=operation,
-        )
-    if not rows and not metrics:
-        return _Scalar(recipe, None)
-    branches = _result_branches(recipe, children, operation)
-    boolean = operation in {
-        "eq",
-        "ne",
-        "lt",
-        "le",
-        "gt",
-        "ge",
-        "and_",
-        "or_",
-        "invert",
-        "isnull",
-        "notnull",
-        "is_null",
-        "isin",
-    }
-    if operation in {"ifelse", "coalesce", "nullif", "cases"}:
-        boolean = bool(branches) and all(
-            item.boolean
-            if isinstance(item, (RowFacts, MetricFacts))
-            else isinstance(item, _Scalar) and isinstance(item.value, bool)
-            for item in branches
-        )
-    numerical = operation not in {
-        "eq",
-        "ne",
-        "lt",
-        "le",
-        "gt",
-        "ge",
-        "and_",
-        "or_",
-        "invert",
-        "isnull",
-        "notnull",
-        "is_null",
-        "isin",
-        "ifelse",
-        "coalesce",
-        "nullif",
-        "cases",
-        "name",
-    }
-    arithmetic = operation in {"add", "sub", "mul", "truediv", "divide", "pow", "mod", "neg", "abs"}
-    comparison = operation in {"eq", "ne", "lt", "le", "gt", "ge"}
-    for child in children[:2] if operation == "divide" else children:
-        if not isinstance(child, _Scalar):
-            continue
-        if arithmetic and (
-            isinstance(child.value, bool) or not isinstance(child.value, (int, float, Decimal))
-        ):
-            _fail(
-                "Numeric arithmetic requires numeric scalar literals.",
-                expected="a finite number",
-                received=type(child.value).__name__,
-                kind=ErrorKind.INVALID_EXPRESSION_VALUE,
-            )
-        if comparison and isinstance(child.recipe, Sequence):
-            _fail(
-                "Scalar comparison cannot consume a sequence.",
-                expected="one scalar or isin(sequence)",
-                received="sequence",
-                kind=ErrorKind.INVALID_EXPRESSION_VALUE,
-            )
-        if comparison and any(row.numeric for row in rows) and isinstance(child.value, bool):
-            _fail(
-                "Numeric comparison cannot consume a boolean.",
-                expected="a numeric scalar",
-                received="bool",
-                kind=ErrorKind.INVALID_EXPRESSION_VALUE,
-            )
-        if operation in {"and_", "or_"} and not isinstance(child.value, bool):
-            _fail(
-                "Boolean composition requires predicates.",
-                expected="boolean predicates",
-                received=type(child.value).__name__,
-            )
-    if numerical and any(
-        row.field is not None
-        and row.field.field_read is not None
-        and (row.field.field_read.path or row.field.field_read.at is not None)
-        for row in rows
-    ):
-        _fail(
-            "Scalar path bindings do not authorize row arithmetic.",
-            expected="native fields for numerical row computation",
-            received=operation,
-        )
-    if numerical and any(not row.numeric or row.boolean for row in rows):
-        _fail(
-            "A categorical or time field is not a Measure.",
-            expected="numeric Measure inputs",
-            received=operation,
-        )
-    units = tuple(item.unit for item in children if isinstance(item, (RowFacts, MetricFacts)))
-
-    unit = units[0] if units else None
-    if operation in {"eq", "ne", "lt", "le", "gt", "ge", "least", "greatest", "clip"}:
-        if linear_units_conflict(units):
-            _fail(
-                "Native inputs have incompatible units.",
-                expected="commensurable comparison, bound, or selection units",
-                received=f"{operation}{units}",
-                scope_dependent=True,
-            )
-        unit = linear_unit(units)
-    if operation in {"add", "sub", "mul", "truediv", "divide"} and len(children) >= 2:
-        left, right = children[:2]
-        unit = _arith_unit(
-            cast(
-                "Literal['add', 'subtract', 'multiply', 'divide']",
-                {
-                    "add": "add",
-                    "sub": "subtract",
-                    "mul": "multiply",
-                    "truediv": "divide",
-                    "divide": "divide",
-                }[operation],
-            ),
-            left.unit if isinstance(left, (RowFacts, MetricFacts)) else None,
-            right.unit if isinstance(right, (RowFacts, MetricFacts)) else None,
-            constant="left"
-            if isinstance(left, _Scalar)
-            else "right"
-            if isinstance(right, _Scalar)
-            else None,
-            stage="Row" if rows else "Metric",
-        )
-    if operation in {"ifelse", "coalesce", "nullif", "cases"}:
-        branch_units = tuple(
-            item.unit
-            for item in branches
-            if isinstance(item, (RowFacts, MetricFacts)) and not item.boolean
-        )
-        if linear_units_conflict(branch_units):
-            _fail(
-                "Native branches have incompatible units.",
-                expected="commensurable branch units",
-                received=str(branch_units),
-                scope_dependent=True,
-            )
-        unit = linear_unit(branch_units)
-    if operation == "sqrt" and unit not in (None, "1"):
-        state = unit_state(unit)
-        if not isinstance(state, FactorizedUnitV2) or any(
-            count % 2
-            for factors in (state.numerator, state.denominator)
-            for count in Counter(factors).values()
-        ):
-            _fail(
-                "Square root requires even unit exponents.",
-                expected="a factorable unit with even exponents",
-                received=str(unit),
-                scope_dependent=True,
-            )
-        assert isinstance(state, FactorizedUnitV2)
-        unit = FactorizedUnitV2(
-            "metric-unit-algebra/v2",
-            tuple(
-                atom for atom, count in Counter(state.numerator).items() for _ in range(count // 2)
-            ),
-            tuple(
-                atom
-                for atom, count in Counter(state.denominator).items()
-                for _ in range(count // 2)
-            ),
-        ).render()
-    if operation in {"log", "ln", "exp"} and unit not in (None, "1"):
-        _fail(
-            "This native function requires a dimensionless argument.",
-            expected="unit 1",
-            received=f"{operation}({unit})",
-            scope_dependent=True,
-        )
-    if boolean:
-        unit = None
-    if rows:
-        root = rows[0].root
-        if any(row.root.ref != root.ref for row in rows):
-            _fail(
-                "Row expression crosses contribution roots.",
-                kind=ErrorKind.CROSS_ROOT_ROW_EXPRESSION,
-                expected=root.ref.key,
-                received=", ".join(row.root.ref.key for row in rows),
-            )
-        inputs: list[RowField | MeasureAssertion] = []
-        captured = tuple(
-            _row_recipe(item, inputs) if isinstance(item, RowFacts) else item.recipe
-            for item in children
-            if isinstance(item, (RowFacts, _Scalar))
-        )
-        permission: SumPermission = rows[0].permission
-        if operation in {"add", "sub"}:
-            for row in rows[1:]:
-                permission = _intersect(permission, row.permission)
-        elif operation not in {"neg", "name"} and not (
-            len(rows) == 1
-            and (
-                operation == "mul"
-                or (operation in {"truediv", "divide"} and isinstance(children[0], RowFacts))
-            )
-        ):
-            permission = SumNone()
-        return RowFacts(
-            RowExpression(
-                construct(captured),
-                tuple(inputs),
-                tuple(
-                    dict.fromkeys(
-                        origin
-                        for row in rows
-                        if isinstance(row.node, RowExpression)
-                        for origin in row.node.origins
-                    )
-                ),
-            ),
-            root,
-            unit,
-            permission,
-            tuple(dict.fromkeys(axis for row in rows for axis in row.coordinates)),
-            numeric=all(
-                row.numeric
-                for row in (
-                    tuple(item for item in branches if isinstance(item, RowFacts))
-                    if operation in {"ifelse", "cases"}
-                    else rows
-                )
-            ),
-            boolean=boolean,
-            default_time=rows[0].default_time,
-        )
-    operands: list[MetricNode] = []
-    captured_list: list[Resolver] = []
-    for child in children:
-        if isinstance(child, MetricFacts):
-            if isinstance(child.node, MetricExpression) and isinstance(child.node.recipe, Sequence):
-                captured_list.append(_rename_slots(child.node.recipe, len(operands)))
-                operands.extend(child.node.operands)
-            else:
-                captured_list.append(Variable(f"slot_{len(operands)}"))
-                operands.append(child.node)
-        elif isinstance(child, _Scalar):
-            captured_list.append(child.recipe)
-    return MetricFacts(
-        MetricExpression(construct(tuple(captured_list)), tuple(operands)),
-        tuple(dict.fromkeys(root for metric in metrics for root in metric.roots)),
-        unit,
-        tuple(pair for metric in metrics for pair in metric._declared),
-        boolean,
-    )
-
-
-def _constant(recipe: Resolver, default: object = None) -> object:
-    if isinstance(recipe, NamedResolver):
-        return _constant(recipe.recipe, default)
-    relationship = relationship_carrier(recipe)
-    if relationship is not None:
-        return relationship._parameter
-    if isinstance(recipe, Just):
-        return recipe.value._parameter if isinstance(recipe.value, Relationship) else recipe.value
-    return default
-
-
-def _native_sample_axis(axis: ComparisonAxis) -> AxisBinding:
-    if (
-        not isinstance(axis, AxisBinding)
-        or axis.role != "field"
-        or axis.path
-        or axis.field is None
-        or axis.field.ref.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
-    ):
-        _fail(
-            "Internal samples require native Dimension or TimeField groupings.",
-            expected="native field, Grain or explicit Population",
-            received=f"{type(axis).__name__}: {axis!r}",
-            action='For calendar samples use m.per(mv.grain("day")).<reducer>() or pass a native TimeField with grain=.'
-            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-            else "Use a native Dimension/TimeField or an explicit Population as the sample domain.",
-        )
-    assert isinstance(axis, AxisBinding)
-    return axis
-
-
-def _sample_domain(
-    recipe: Resolver,
-) -> tuple[AxisBinding, ...] | LiteralPopulation | PopulationProgram | SampleDomain | Grain:
-    domain = _constant(recipe)
-    if isinstance(domain, Grain):
-        return domain
-    if isinstance(domain, TimeScope):
-        _fail(
-            "Internal calendar samples take a Grain, not a time scope.",
-            expected="a Grain inheriting the observation time coordinate",
-            received=type(domain).__name__,
-            action='Use m.per(mv.grain("day")).<reducer>() and pass the finite scope in observe(where=...).',
-        )
-    if isinstance(domain, PopulationParameter):
-        return domain._definition
-    if isinstance(recipe, Sequence) and recipe.typ is not tuple:
-        _fail(
-            "Internal sample tuples must use a built-in tuple.",
-            expected="a field, membership, nonempty tuple or Population",
-            received=repr(recipe),
-        )
-    members = recipe.values if isinstance(recipe, Sequence) else (recipe,)
-    population = _constant(members[0]) if members else None
-    domain = population if isinstance(population, PopulationParameter) else None
-    items: list[ComparisonAxis | MembershipBinding] = []
-    for member in members[1:] if domain is not None else members:
-        value = _constant(member)
-        binding = grouping_binding(value) if isinstance(value, Grouping) else None
-        if isinstance(binding, MembershipBinding):
-            if domain is None:
-                for read in binding.fields:
-                    _native_sample_axis(field_axis(read))
-            items.append(binding)
-            continue
-        if domain is not None or isinstance(value, PopulationParameter):
-            _fail(
-                "A sample Population must be first and followed only by membership rules.",
-                expected="per(P) or per((P, rule, ...))",
-                received=type(value).__name__,
-            )
-        if binding is not None:
-            items.append(_native_sample_axis(binding))
-            continue
-        axis = _consume(member)
-        if (
-            not isinstance(axis, RowFacts)
-            or axis.field is None
-            or axis.field.reference.ref.kind
-            not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
-        ):
-            _fail(
-                "Internal samples require semantic fields.",
-                expected="resolved field",
-                received=type(axis).__name__,
-            )
-        assert isinstance(axis, RowFacts) and axis.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        axis_read = axis.field.field_read
-        if axis_read is not None and axis_read.path:
-            _fail(
-                "A scalar via field is not an internal sample domain.",
-                kind=ErrorKind.INVALID_TIME_PATH,
-                expected="native field or explicit Population",
-                received=axis.field.reference.ref.key,
-            )
-        items.append(
-            field_axis(axis_read)
-            if axis_read is not None
-            else AxisBinding(axis.root, axis.field.reference, (), "field")
-        )
-    try:
-        axes, memberships = normalize_groupings(
-            tuple(items), population_axes=domain._definition.axes if domain is not None else None
-        )
-    except DefinitionGraphError as error:
-        _fail(
-            "Sample coordinates and membership rules must be unique and retain captured order.",
-            expected="distinct sample coordinates with one allocation per field",
-            received=str(error),
-            kind=ErrorKind.INVALID_EXPRESSION_VALUE,
-        )
-    if domain is not None:
-        return SampleDomain(axes, memberships, domain._definition)
-    if not axes:
-        _fail(
-            "Internal sample axes must be nonempty and unique.",
-            expected="distinct semantic axes",
-            received="empty axes",
-            kind=ErrorKind.INVALID_EXPRESSION_VALUE,
-        )
-    native_axes = tuple(_native_sample_axis(axis) for axis in axes)
-    return SampleDomain(native_axes, memberships) if memberships else native_axes
-
-
-def _calendar_sample_recipe(sample: Resolver) -> bool:
-    if isinstance(sample, Sequence) and sample.values:
-        sample = sample.values[0]
-    value = _constant(sample)
-    return isinstance(value, Grain) or (
-        isinstance(value, PopulationParameter) and calendar_sample_domain(value._definition)
-    )
-
-
-def _field_calendar_sample(
-    recipe: Resolver, grain_recipe: Resolver, roots: tuple[ExactRef, ...]
-) -> FieldCalendarSample:
-    grain = _constant(grain_recipe)
-    field = _consume(recipe)
-    if (
-        not isinstance(grain, Grain)
-        or not isinstance(field, RowFacts)
-        or field.field is None
-        or (field.field.reference.ref.kind is not SemanticKind.TIME_DIMENSION)
-    ):
-        _fail(
-            "Explicit calendar samples require one native TimeField and a builtin Grain.",
-            expected="Metric.per(TimeField, grain=mv.grain(...))",
-            received=f"{type(field).__name__} with grain={grain!r}",
-            action='Use a native TimeField with mv.grain("day"), or omit grain for ordinary samples.',
-            help_target="metric.per",
-        )
-    read = field.field.field_read
-    if (read is not None and (read.path or read.at is not None)) or {
-        root.ref for root in roots
-    } != {field.root.ref}:
-        _fail(
-            "The calendar sample field must be native to every contribution root.",
-            expected="one native TimeField from the child Metric's contribution root",
-            received=field.field.reference.ref.key,
-            action="Apply a separate field calendar fold to each root before combining Metrics.",
-            help_target="metric.per",
-        )
-    return FieldCalendarSample(FieldRead(field.field.reference, field.root), grain)
+from marivo.semantic.expressions.operations import _nulls, _quantile
 
 
 def capture_source_time(
     recipe: Resolver, time: Resolver | None, *, operation: str | None = None
 ) -> CapturedDefaultTimeResolver | None:
     """Check explicit time or freeze a closed receiver's default selection."""
-
-    if operation is not None and operation not in _REDUCERS | {"weighted_mean"}:
-        return None
-    if inspect_capture(Deferred(recipe)).symbols:
-        return None
-    if time is not None and not (isinstance(time, Just) and time.value is None):
-        if _captured_field_kind(time) is not SemanticKind.TIME_DIMENSION:
-            # The complete reduction inspector owns errors on unsupported time argument shapes.
-            return None
-        if inspect_capture(Deferred(time)).symbols:
-            return None
-    try:
-        row = _consume(recipe)
-    except SemanticExpressionError as error:
-        # Named inputs can be rebound for non-time checks in a receiving scope.
-        if error.details.get("defer_to_scope") or error.kind in {
-            ErrorKind.CROSS_ROOT_ROW_EXPRESSION,
-            ErrorKind.INCOMMENSURABLE_LINEAR_UNITS,
-            ErrorKind.MISSING_SUM_PERMISSION,
-            ErrorKind.INVALID_WHERE_SCOPE,
-            ErrorKind.INVALID_TIME_PATH,
-        }:
-            return None
-        raise
-    if not isinstance(row, RowFacts):
-        return None
-    if time is not None:
-        _time(time, row)
-        return None
-    return CapturedDefaultTimeResolver(row.default_time)
-
-
-def _time(recipe: Resolver | None, row: RowFacts) -> ContributionClockBinding | None:
-    if recipe is None or isinstance(recipe, CapturedDefaultTimeResolver):
-        default = row.default_time if recipe is None else recipe.field
-        if default is None:
-            return None
-        if default.ref.path.rsplit(".", 1)[0] != row.root.ref.path:
-            _fail(
-                "Captured default time belongs to another contribution root.",
-                kind=ErrorKind.INVALID_TIME_PATH,
-                expected=row.root.ref.key,
-                received=default.ref.key,
-                action="Construct the reduction again from its current contribution fields.",
-            )
-        return ContributionClockBinding(default, source="entity_default")
-    if isinstance(recipe, Just) and recipe.value is None:
-        return None
-    value = _consume(recipe)
-    if (
-        not isinstance(value, RowFacts)
-        or value.field is None
-        or value.field.reference.ref.kind is not SemanticKind.TIME_DIMENSION
-    ):
-        _fail(
-            "Reduction time must be a semantic time field.",
-            expected="a resolved TimeField",
-            received=type(value).__name__,
-        )
-    assert isinstance(value, RowFacts) and value.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-    read = value.field.field_read
-    if read is not None and isinstance(read.at, RowAttributeTime):
-        _fail(
-            "Row attribute time is only available for observe classification.",
-            expected="a native time field or a fixed attribute anchor",
-            received=value.field.reference.ref.key,
-        )
-    if value.root.ref != row.root.ref:
-        _fail(
-            "Time field belongs to another root.",
-            kind=ErrorKind.INVALID_TIME_PATH,
-            expected=row.root.ref.key,
-            received=value.root.ref.key,
-        )
-    return ContributionClockBinding(
-        value.field.reference,
-        read.path if read is not None else (),
-        fixed_attribute_time(read.at) if read is not None else None,
-        source_at=read.source_at if read is not None else None,
-        step_ats=read.step_ats if read is not None else (),
-    )
+    return _capture_source_time(recipe, time, _consume, operation=operation)
 
 
 def _reduce(
     receiver: RowFacts | _Samples,
-    name: str,
+    name: _ReductionCall,
     args: tuple[Resolver, ...],
     kwargs: dict[str, Resolver],
 ) -> MetricFacts:
@@ -805,100 +131,18 @@ def _reduce(
         if name in {"quantile", "approx_quantile"}
         else None
     )
-    reducer = cast("Reducer", name)
     if isinstance(receiver, _Samples):
-        metric = receiver.metric
-        if name == "weighted_mean":
-            weight = _consume(kwargs.get("weight", Just(None)))
-            if not isinstance(weight, MetricFacts):
-                _fail(
-                    "Sample weight must be a Metric.",
-                    expected="completed Metric",
-                    received=type(weight).__name__,
-                )
-            assert isinstance(weight, MetricFacts)
-            node: MetricNode = PerWeightedMean(
-                metric.node,
-                weight.node,
-                receiver.axes,
-                nulls=policy,
-            )
-            return MetricFacts(
-                node,
-                tuple(dict.fromkeys((*metric.roots, *weight.roots))),
-                metric.unit,
-                tuple(dict((*metric._declared, *weight._declared)).items()),
-            )
-        order_by: ExactRef | None = None
-        include_null = _constant(kwargs.get("include_null", Just(False)))
-        if type(include_null) is not bool:
-            _fail(
-                "include_null must be boolean.",
-                expected="True or False",
-                received=str(include_null),
-            )
-        sample_axes = (
-            ()
-            if isinstance(receiver.axes, (Grain, FieldCalendarSample))
-            else receiver.axes
-            if isinstance(receiver.axes, tuple)
-            else receiver.axes.axes
-        )
-        if name in {"first", "last"}:
-            if isinstance(receiver.axes, (Grain, FieldCalendarSample)) and "order_by" in kwargs:
-                _fail(
-                    "Calendar samples use their captured calendar order.",
-                    expected="calendar first/last without a field order_by",
-                    received="Grain samples with order_by",
-                    action="Omit order_by to use the calendar cell order.",
-                )
-            if "order_by" in kwargs:
-                ordering = _consume(kwargs["order_by"])
-                if not isinstance(ordering, RowFacts) or ordering.field is None:
-                    _fail(
-                        "order_by must name an internal time axis.",
-                        expected="resolved TimeField",
-                        received=type(ordering).__name__,
-                    )
-                assert isinstance(ordering, RowFacts) and ordering.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                order_by = ordering.field.reference
-            else:
-                times = tuple(
-                    axis.field
-                    for axis in sample_axes
-                    if isinstance(axis, AxisBinding)
-                    and axis.field is not None
-                    and axis.field.ref.kind is SemanticKind.TIME_DIMENSION
-                )
-                if len(times) == 1:
-                    order_by = times[0]
-            if not isinstance(receiver.axes, (Grain, FieldCalendarSample)) and (
-                order_by is None
-                or order_by.ref.kind is not SemanticKind.TIME_DIMENSION
-                or order_by
-                not in tuple(axis.field for axis in sample_axes if isinstance(axis, AxisBinding))
-            ):
-                _fail(
-                    "Ordered sample reduction requires one internal time axis.",
-                    expected="order_by naming an internal TimeField",
-                    received=str(order_by),
-                )
-        node = PerReduce(
-            metric.node,
-            receiver.axes,
-            reducer,
-            q=q,
-            nulls=policy,
-            order_by=order_by,
-            include_null=include_null,
-        )
-        return MetricFacts(
-            node,
-            metric.roots,
-            "1" if name in {"count", "count_distinct", "approx_nunique"} else metric.unit,
-            metric._declared,
-        )
-    row = receiver
+        return _reduce_samples(receiver, name, policy, q, kwargs, _consume)
+    return _reduce_rows(receiver, name, policy, q, kwargs)
+
+
+def _reduce_rows(
+    row: RowFacts,
+    name: _ReductionCall,
+    policy: NullPolicy,
+    q: float | None,
+    kwargs: dict[str, Resolver],
+) -> MetricFacts:
     if (
         row.field is not None
         and row.field.field_read is not None
@@ -925,7 +169,7 @@ def _reduce(
             expected="an additive Measure or linear expression",
             received="non-additive expression",
         )
-    time = _time(kwargs.get("time"), row)
+    time = _time(kwargs.get("time"), row, _consume)
     independent_origin: Literal["explicit_none", "no_entity_default"] = (
         "explicit_none"
         if isinstance(kwargs.get("time"), Just) and kwargs["time"].value is None
@@ -937,6 +181,7 @@ def _reduce(
         return MetricFacts(
             EntityCount(row.root, time, independent_origin=independent_origin), (row.root,), "1"
         )
+    node: MetricNode
     if name == "weighted_mean":
         weight = _consume(kwargs.get("weight", Just(None)))
         if (
@@ -968,7 +213,7 @@ def _reduce(
     else:
         node = SourceAggregate(
             row.node,
-            reducer,
+            name,
             time,
             q=q,
             nulls=policy,
@@ -991,6 +236,306 @@ def _reduce(
         node,
         (row.root,),
         "1" if name in {"count", "count_distinct", "approx_nunique"} else row.unit,
+    )
+
+
+def _consume_window(recipe: Call, receiver: _Facts) -> MetricFacts:
+    rule = _constant(recipe.args[0]) if len(recipe.args) == 1 else None
+    if (
+        not isinstance(receiver, MetricFacts)
+        or recipe.kwargs
+        or type(rule) not in (AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods)
+    ):
+        _fail(
+            "window requires one source-free observation rule.",
+            expected="Metric.window(mv.all_history() or another window rule)",
+            received="invalid receiver or rule",
+        )
+    assert isinstance(receiver, MetricFacts) and isinstance(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        rule, (AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods)
+    )
+    definitions = dict(receiver._declared)
+    walk((receiver.node,), resolve=definitions.get)
+    pending: list[DefinitionNode] = [receiver.node]
+    seen: set[int] = set()
+    while pending:
+        node = pending.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, MetricWindow):
+            _fail(
+                "Windows cannot be nested on one dependency path.",
+                expected="a Metric with no existing window below this call",
+                received="nested window",
+            )
+        if isinstance(node, DeclaredMetricRef):
+            pending.append(definitions[node.ref])
+        else:
+            pending.extend(edge.child for edge in children(node))
+    return replace(receiver, node=MetricWindow(receiver.node, rule))
+
+
+def _consume_at(recipe: Call, receiver: _Facts) -> RowFacts:
+    anchor = _constant(recipe.args[0]) if len(recipe.args) == 1 else None
+    if anchor is None and len(recipe.args) == 1:
+        control = _consume(recipe.args[0])
+        if (
+            not isinstance(control, RowFacts)
+            or control.field is None
+            or control.field.reference.ref.kind is not SemanticKind.TIME_DIMENSION
+            or (
+                control.field.field_read is not None
+                and (control.field.field_read.path or control.field.field_read.at is not None)
+            )
+        ):
+            _fail(
+                "Row attribute time requires one native, unanchored TimeDimension.",
+                expected="a named, native TimeDimension without via/at",
+                received=control.field.reference.ref.key
+                if isinstance(control, RowFacts) and control.field is not None
+                else "a computed expression without a native field identity",
+                action="Declare the derived time as a fact-root TimeDimension, without via/at, or use session.instant(...) for a fixed attribute time.",
+            )
+        assert isinstance(control, RowFacts) and control.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        anchor = RowAttributeTime(control.field.reference, control.field.root)
+    if (
+        not isinstance(receiver, RowFacts)
+        or receiver.field is None
+        or not receiver.field.versioned
+        or not isinstance(anchor, (InstantAnchor, RowAttributeTime))
+        or (isinstance(anchor, InstantAnchor) and anchor.utcoffset() is None)
+        or (
+            isinstance(anchor, RowAttributeTime)
+            and receiver.field.reference.ref.kind is not SemanticKind.DIMENSION
+        )
+        or recipe.kwargs
+    ):
+        _fail(
+            "at requires a versioned field and a fixed instant or fact-row time.",
+            expected="Dimension.at(session.instant(...)) or Dimension.at(fact_time)",
+            received="invalid field or anchor",
+        )
+    assert (
+        isinstance(receiver, RowFacts)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        and receiver.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        and isinstance(anchor, (InstantAnchor, RowAttributeTime))
+    )
+    native = receiver.field.field_read or FieldRead(
+        receiver.field.reference,
+        receiver.field.root,
+        versioned=receiver.field.versioned,
+        unit=receiver.field.unit,
+    )
+    if native.at is not None:
+        _fail(
+            "Two time authorities bind the same field node.",
+            kind=ErrorKind.INVALID_TIME_PATH,
+            expected="one version anchor at the terminal path node",
+            received=receiver.field.reference.ref.key,
+            action="Keep either the terminal relationship.at(...) or the field.at(...) anchor.",
+        )
+    read = replace(native, at=anchor)
+    field = replace(receiver.field, field_read=read)
+    return replace(
+        receiver,
+        root=anchor.root if isinstance(anchor, RowAttributeTime) else receiver.root,
+        field=field,
+        node=RowField(
+            field.reference,
+            field.root,
+            field.unit,
+            field.permission,
+            read=read,
+            origins=receiver.node.origins,
+        ),
+    )
+
+
+def _consume_via(recipe: Call, receiver: _Facts) -> RowFacts:
+    if (
+        not isinstance(receiver, RowFacts)
+        or receiver.field is None
+        or len(recipe.args) != 1
+        or recipe.kwargs
+    ):
+        _fail(
+            "via requires a semantic field and a Path.",
+            kind=ErrorKind.INVALID_TIME_PATH,
+            expected="Field.via(mv.path(relationship, ...))",
+            received="invalid receiver or arguments",
+        )
+    assert isinstance(receiver, RowFacts) and receiver.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if receiver.field.field_read is not None and receiver.field.field_read.path:
+        _fail(
+            "via is already bound on this field.",
+            kind=ErrorKind.INVALID_TIME_PATH,
+            expected="one explicit complete path",
+            received="repeated via",
+        )
+    path = _constant(recipe.args[0])
+    if not isinstance(path, PathParameter):
+        _fail(
+            "via requires a bound Path.",
+            kind=ErrorKind.INVALID_TIME_PATH,
+            expected="mv.path(relationship, ...)",
+            received=type(path).__name__,
+        )
+    if path.target.ref != receiver.field.root.ref:
+        _fail(
+            "via path does not connect to the field owner.",
+            kind=ErrorKind.INVALID_TIME_PATH,
+            expected=receiver.field.root.ref.key,
+            received=path.target.ref.key,
+        )
+    at = receiver.field.field_read.at if receiver.field.field_read is not None else None
+    terminal_at = path.steps[-1].target_at
+    if at is not None and terminal_at is not None:
+        _fail(
+            "Two time authorities bind the same field node.",
+            kind=ErrorKind.INVALID_TIME_PATH,
+            expected=f"one anchor at node {len(path.steps)} ({path.target.ref.key})",
+            received="terminal relationship.at(...) and field.at(...)",
+            action="Keep either the terminal relationship.at(...) or the field.at(...) anchor.",
+        )
+    at = at if at is not None else terminal_at
+    try:
+        validate_path_read(path, at, True, source_row=True, scalar=True, terminal_required=False)
+    except DefinitionGraphError as error:
+        _fail(
+            "The field's directed Path cannot provide a scalar read.",
+            kind=ErrorKind.INVALID_TIME_PATH,
+            expected="a directed single-valued Path with required node anchors",
+            received=str(error),
+            action="Bind every required versioned node and choose a directed to-one Path.",
+            help_target="field.via",
+        )
+    relationships = path.relationships
+    read = FieldRead(
+        receiver.field.reference,
+        receiver.field.root,
+        tuple(item.ref for item in relationships),
+        at,
+        source_at=path.source_at,
+        step_ats=path.step_ats,
+        path_root=path.source,
+        path_facts=relationships,
+        versioned=receiver.field.versioned,
+        unit=receiver.field.unit,
+    )
+    field = replace(receiver.field, field_read=read)
+    return replace(
+        receiver,
+        root=path.source,
+        field=field,
+        default_time=relationships[0]._from_default_time,
+        node=RowField(
+            field.reference,
+            field.root,
+            field.unit,
+            field.permission,
+            read=read,
+            origins=receiver.node.origins,
+        ),
+    )
+
+
+def _consume_per(recipe: Call, receiver: _Facts) -> _Samples:
+    keywords = dict(recipe.kwargs)
+    by = keywords.pop("by", None)
+    grain = keywords.pop("grain", None)
+    if (
+        not isinstance(receiver, MetricFacts)
+        or len(recipe.args) > 1
+        or bool(recipe.args) == (by is not None)
+        or keywords
+    ):
+        _fail(
+            "per requires a Metric and one sample specification.",
+            expected="Metric.per(field, membership, tuple, Population or Grain)",
+            received="invalid receiver or arguments",
+        )
+    assert isinstance(receiver, MetricFacts)
+    sample = recipe.args[0] if recipe.args else by
+    assert sample is not None
+    return _Samples(
+        receiver,
+        _sample_domain(sample, _consume)
+        if grain is None
+        else _field_calendar_sample(sample, grain, receiver.roots, _consume),
+    )
+
+
+def _consume_where(recipe: Call, receiver: _Facts) -> MetricFacts:
+    if not isinstance(receiver, MetricFacts) or len(recipe.args) != 1:
+        _fail(
+            "where requires a Metric and predicate.",
+            expected="Metric.where(predicate)",
+            received="invalid receiver or arguments",
+            help_target="Metric.where",
+            action=(
+                "Reduce the row quantity with a business-authorized reducer, then "
+                "apply .where(predicate) to that source Metric. Do not infer sum permission."
+            ),
+        )
+    assert isinstance(receiver, MetricFacts)
+    source = receiver.node
+    declared = dict(receiver._declared)
+    while isinstance(source, (DeclaredMetricRef, ContributionFilter)):
+        source = declared[source.ref] if isinstance(source, DeclaredMetricRef) else source.operand
+    if not isinstance(source, (SourceAggregate, SourceWeightedMean, EntityCount)):
+        raise SemanticExpressionError(
+            kind=ErrorKind.INVALID_WHERE_SCOPE,
+            message="where requires one source reduction or a paired source scope.",
+            refs=(receiver.node.ref.ref.key,)
+            if isinstance(receiver.node, DeclaredMetricRef)
+            else (),
+            expected="one source Metric",
+            received=type(source).__name__,
+            action="Filter each source child Metric before combining or sampling.",
+        )
+    predicate = _consume_predicate_recipe(recipe.args[0])
+    _require_condition_roots(predicate, receiver.roots)
+    return replace(receiver, node=ContributionFilter(receiver.node, predicate.node))
+
+
+def _consume_method(recipe: Call, method: Attr) -> _Facts:
+    name = attribute_name(method)
+    receiver = _consume(method.obj)
+    if name == "window":
+        return _consume_window(recipe, receiver)
+    if name == "at":
+        return _consume_at(recipe, receiver)
+    if name == "via":
+        return _consume_via(recipe, receiver)
+    if name in _REDUCERS | {"weighted_mean"}:
+        if not isinstance(receiver, (RowFacts, _Samples)):
+            _fail(
+                "The value is already a completed Metric; choose internal samples before another reduction.",
+                expected="row or internal samples",
+                received=f"{type(receiver).__name__}.{name}",
+                action=f"Use m.per(...).{name}(...) to reduce completed Metric samples.",
+            )
+        assert isinstance(receiver, (RowFacts, _Samples))
+        return _reduce(receiver, cast("_ReductionCall", name), recipe.args, dict(recipe.kwargs))
+    if name == "per":
+        return _consume_per(recipe, receiver)
+    if name == "where":
+        return _consume_where(recipe, receiver)
+    values = (receiver, *(_consume(arg) for arg in recipe.args))
+    keyword_keys = tuple(recipe.kwargs)
+    values += tuple(_consume(recipe.kwargs[key]) for key in keyword_keys)
+    positional_count = len(recipe.args)
+    return _compose(
+        recipe,
+        values,
+        lambda parts: Call(
+            Attr(parts[0], name),
+            *parts[1 : 1 + positional_count],
+            **dict(zip(keyword_keys, parts[1 + positional_count :], strict=True)),
+        ),
+        _consume,
+        operation=name,
     )
 
 
@@ -1025,6 +570,7 @@ def _consume(recipe: Resolver) -> _Facts:
             recipe,
             (value, _Scalar(Just(recipe.divisor), recipe.divisor)),
             lambda parts: RescaleResolver(parts[0], recipe.divisor, recipe.unit),
+            _consume,
             operation="truediv",
         )
         assert isinstance(scaled, (RowFacts, MetricFacts))
@@ -1124,6 +670,7 @@ def _consume(recipe: Resolver) -> _Facts:
             recipe,
             tuple(_consume(item) for item in recipe.values),
             lambda parts: Sequence(parts),
+            _consume,
             operation="cases",
         )
     if isinstance(recipe, BinaryOperator):
@@ -1131,6 +678,7 @@ def _consume(recipe: Resolver) -> _Facts:
             recipe,
             (_consume(recipe.left), _consume(recipe.right)),
             lambda parts: BinaryOperator(recipe.func, *parts),
+            _consume,
             operation=recipe.func.__name__,
         )
     if isinstance(recipe, UnaryOperator):
@@ -1138,295 +686,12 @@ def _consume(recipe: Resolver) -> _Facts:
             recipe,
             (_consume(recipe.arg),),
             lambda parts: UnaryOperator(recipe.func, parts[0]),
+            _consume,
             operation=recipe.func.__name__,
         )
     if isinstance(recipe, Call):
         if isinstance(recipe.func, Attr):
-            name = attribute_name(recipe.func)
-            receiver = _consume(recipe.func.obj)
-            if name == "window":
-                rule = _constant(recipe.args[0]) if len(recipe.args) == 1 else None
-                if (
-                    not isinstance(receiver, MetricFacts)
-                    or recipe.kwargs
-                    or type(rule)
-                    not in (AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods)
-                ):
-                    _fail(
-                        "window requires one source-free observation rule.",
-                        expected="Metric.window(mv.all_history() or another window rule)",
-                        received="invalid receiver or rule",
-                    )
-                assert isinstance(receiver, MetricFacts) and isinstance(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                    rule, (AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods)
-                )
-                definitions = dict(receiver._declared)
-                walk((receiver.node,), resolve=definitions.get)
-                pending: list[DefinitionNode] = [receiver.node]
-                seen: set[int] = set()
-                while pending:
-                    node = pending.pop()
-                    if id(node) in seen:
-                        continue
-                    seen.add(id(node))
-                    if isinstance(node, MetricWindow):
-                        _fail(
-                            "Windows cannot be nested on one dependency path.",
-                            expected="a Metric with no existing window below this call",
-                            received="nested window",
-                        )
-                    if isinstance(node, DeclaredMetricRef):
-                        pending.append(definitions[node.ref])
-                    else:
-                        pending.extend(edge.child for edge in children(node))
-                return replace(receiver, node=MetricWindow(receiver.node, rule))
-            if name == "at":
-                anchor = _constant(recipe.args[0]) if len(recipe.args) == 1 else None
-                if anchor is None and len(recipe.args) == 1:
-                    control = _consume(recipe.args[0])
-                    if (
-                        not isinstance(control, RowFacts)
-                        or control.field is None
-                        or control.field.reference.ref.kind is not SemanticKind.TIME_DIMENSION
-                        or (
-                            control.field.field_read is not None
-                            and (
-                                control.field.field_read.path
-                                or control.field.field_read.at is not None
-                            )
-                        )
-                    ):
-                        _fail(
-                            "Row attribute time requires one native, unanchored TimeDimension.",
-                            expected="a named, native TimeDimension without via/at",
-                            received=control.field.reference.ref.key
-                            if isinstance(control, RowFacts) and control.field is not None
-                            else "a computed expression without a native field identity",
-                            action="Declare the derived time as a fact-root TimeDimension, without via/at, or use session.instant(...) for a fixed attribute time.",
-                        )
-                    assert isinstance(control, RowFacts) and control.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                    anchor = RowAttributeTime(control.field.reference, control.field.root)
-                if (
-                    not isinstance(receiver, RowFacts)
-                    or receiver.field is None
-                    or not receiver.field.versioned
-                    or not isinstance(anchor, (InstantAnchor, RowAttributeTime))
-                    or (isinstance(anchor, InstantAnchor) and anchor.utcoffset() is None)
-                    or (
-                        isinstance(anchor, RowAttributeTime)
-                        and receiver.field.reference.ref.kind is not SemanticKind.DIMENSION
-                    )
-                    or recipe.kwargs
-                ):
-                    _fail(
-                        "at requires a versioned field and a fixed instant or fact-row time.",
-                        expected="Dimension.at(session.instant(...)) or Dimension.at(fact_time)",
-                        received="invalid field or anchor",
-                    )
-                assert (
-                    isinstance(receiver, RowFacts)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                    and receiver.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                    and isinstance(anchor, (InstantAnchor, RowAttributeTime))
-                )
-                native = receiver.field.field_read or FieldRead(
-                    receiver.field.reference,
-                    receiver.field.root,
-                    versioned=receiver.field.versioned,
-                    unit=receiver.field.unit,
-                )
-                if native.at is not None:
-                    _fail(
-                        "Two time authorities bind the same field node.",
-                        kind=ErrorKind.INVALID_TIME_PATH,
-                        expected="one version anchor at the terminal path node",
-                        received=receiver.field.reference.ref.key,
-                        action="Keep either the terminal relationship.at(...) or the field.at(...) anchor.",
-                    )
-                read = replace(native, at=anchor)
-                field = replace(receiver.field, field_read=read)
-                return replace(
-                    receiver,
-                    root=anchor.root if isinstance(anchor, RowAttributeTime) else receiver.root,
-                    field=field,
-                    node=RowField(
-                        field.reference,
-                        field.root,
-                        field.unit,
-                        field.permission,
-                        read=read,
-                        origins=receiver.node.origins,
-                    ),
-                )
-            if name == "via":
-                if (
-                    not isinstance(receiver, RowFacts)
-                    or receiver.field is None
-                    or len(recipe.args) != 1
-                    or recipe.kwargs
-                ):
-                    _fail(
-                        "via requires a semantic field and a Path.",
-                        kind=ErrorKind.INVALID_TIME_PATH,
-                        expected="Field.via(mv.path(relationship, ...))",
-                        received="invalid receiver or arguments",
-                    )
-                assert isinstance(receiver, RowFacts) and receiver.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                if receiver.field.field_read is not None and receiver.field.field_read.path:
-                    _fail(
-                        "via is already bound on this field.",
-                        kind=ErrorKind.INVALID_TIME_PATH,
-                        expected="one explicit complete path",
-                        received="repeated via",
-                    )
-                path = _constant(recipe.args[0])
-                if not isinstance(path, PathParameter):
-                    _fail(
-                        "via requires a bound Path.",
-                        kind=ErrorKind.INVALID_TIME_PATH,
-                        expected="mv.path(relationship, ...)",
-                        received=type(path).__name__,
-                    )
-                if path.target.ref != receiver.field.root.ref:
-                    _fail(
-                        "via path does not connect to the field owner.",
-                        kind=ErrorKind.INVALID_TIME_PATH,
-                        expected=receiver.field.root.ref.key,
-                        received=path.target.ref.key,
-                    )
-                at = receiver.field.field_read.at if receiver.field.field_read is not None else None
-                terminal_at = path.steps[-1].target_at
-                if at is not None and terminal_at is not None:
-                    _fail(
-                        "Two time authorities bind the same field node.",
-                        kind=ErrorKind.INVALID_TIME_PATH,
-                        expected=f"one anchor at node {len(path.steps)} ({path.target.ref.key})",
-                        received="terminal relationship.at(...) and field.at(...)",
-                        action="Keep either the terminal relationship.at(...) or the field.at(...) anchor.",
-                    )
-                at = at if at is not None else terminal_at
-                try:
-                    validate_path_read(
-                        path, at, True, source_row=True, scalar=True, terminal_required=False
-                    )
-                except DefinitionGraphError as error:
-                    _fail(
-                        "The field's directed Path cannot provide a scalar read.",
-                        kind=ErrorKind.INVALID_TIME_PATH,
-                        expected="a directed single-valued Path with required node anchors",
-                        received=str(error),
-                        action="Bind every required versioned node and choose a directed to-one Path.",
-                        help_target="field.via",
-                    )
-                relationships = path.relationships
-                read = FieldRead(
-                    receiver.field.reference,
-                    receiver.field.root,
-                    tuple(item.ref for item in relationships),
-                    at,
-                    source_at=path.source_at,
-                    step_ats=path.step_ats,
-                    path_root=path.source,
-                    path_facts=relationships,
-                    versioned=receiver.field.versioned,
-                    unit=receiver.field.unit,
-                )
-                field = replace(receiver.field, field_read=read)
-                return replace(
-                    receiver,
-                    root=path.source,
-                    field=field,
-                    default_time=relationships[0]._from_default_time,
-                    node=RowField(
-                        field.reference,
-                        field.root,
-                        field.unit,
-                        field.permission,
-                        read=read,
-                        origins=receiver.node.origins,
-                    ),
-                )
-            if name in _REDUCERS | {"weighted_mean"}:
-                if not isinstance(receiver, (RowFacts, _Samples)):
-                    _fail(
-                        "The value is already a completed Metric; choose internal samples before another reduction.",
-                        expected="row or internal samples",
-                        received=f"{type(receiver).__name__}.{name}",
-                        action=f"Use m.per(...).{name}(...) to reduce completed Metric samples.",
-                    )
-                assert isinstance(receiver, (RowFacts, _Samples))
-                return _reduce(receiver, name, recipe.args, dict(recipe.kwargs))
-            if name == "per":
-                keywords = dict(recipe.kwargs)
-                by = keywords.pop("by", None)
-                grain = keywords.pop("grain", None)
-                if (
-                    not isinstance(receiver, MetricFacts)
-                    or len(recipe.args) > 1
-                    or bool(recipe.args) == (by is not None)
-                    or keywords
-                ):
-                    _fail(
-                        "per requires a Metric and one sample specification.",
-                        expected="Metric.per(field, membership, tuple, Population or Grain)",
-                        received="invalid receiver or arguments",
-                    )
-                assert isinstance(receiver, MetricFacts)
-                sample = recipe.args[0] if recipe.args else by
-                assert sample is not None
-                return _Samples(
-                    receiver,
-                    _sample_domain(sample)
-                    if grain is None
-                    else _field_calendar_sample(sample, grain, receiver.roots),
-                )
-            if name == "where":
-                if not isinstance(receiver, MetricFacts) or len(recipe.args) != 1:
-                    _fail(
-                        "where requires a Metric and predicate.",
-                        expected="Metric.where(predicate)",
-                        received="invalid receiver or arguments",
-                        help_target="Metric.where",
-                        action=(
-                            "Reduce the row quantity with a business-authorized reducer, then "
-                            "apply .where(predicate) to that source Metric. Do not infer sum permission."
-                        ),
-                    )
-                assert isinstance(receiver, MetricFacts)
-                source = receiver.node
-                declared = dict(receiver._declared)
-                while isinstance(source, (DeclaredMetricRef, ContributionFilter)):
-                    if isinstance(source, DeclaredMetricRef):
-                        source = declared[source.ref]
-                    else:
-                        source = source.operand
-                if not isinstance(source, (SourceAggregate, SourceWeightedMean, EntityCount)):
-                    raise SemanticExpressionError(
-                        kind=ErrorKind.INVALID_WHERE_SCOPE,
-                        message="where requires one source reduction or a paired source scope.",
-                        refs=(receiver.node.ref.ref.key,)
-                        if isinstance(receiver.node, DeclaredMetricRef)
-                        else (),
-                        expected="one source Metric",
-                        received=type(source).__name__,
-                        action="Filter each source child Metric before combining or sampling.",
-                    )
-                predicate = _consume_predicate_recipe(recipe.args[0])
-                _require_condition_roots(predicate, receiver.roots)
-                return replace(receiver, node=ContributionFilter(receiver.node, predicate.node))
-            values = (receiver, *(_consume(arg) for arg in recipe.args))
-            keyword_keys = tuple(recipe.kwargs)
-            values += tuple(_consume(recipe.kwargs[key]) for key in keyword_keys)
-            positional_count = len(recipe.args)
-            return _compose(
-                recipe,
-                values,
-                lambda parts: Call(
-                    Attr(parts[0], name),
-                    *parts[1 : 1 + positional_count],
-                    **dict(zip(keyword_keys, parts[1 + positional_count :], strict=True)),
-                ),
-                operation=name,
-            )
+            return _consume_method(recipe, recipe.func)
         function = _constant(recipe.func)
         name = getattr(function, "__name__", "")
         values = tuple(_consume(arg) for arg in recipe.args)
@@ -1441,6 +706,7 @@ def _consume(recipe: Resolver) -> _Facts:
                 *parts[:positional_count],
                 **dict(zip(keyword_keys, parts[positional_count:], strict=True)),
             ),
+            _consume,
             operation=name,
         )
     _fail(

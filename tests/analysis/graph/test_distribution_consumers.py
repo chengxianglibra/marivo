@@ -10,6 +10,7 @@ from typing import Literal, NoReturn
 import ibis
 import pandas as pd
 import pytest
+from psycopg import sql
 
 import marivo.analysis as mv
 import marivo.datasource as md
@@ -19,11 +20,108 @@ from marivo.datasource.runtime.adapters import SourceSession, provider_for
 from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.datasource.runtime.session_factory import open_source_session
 from marivo.semantic.reader import SemanticProject
+from marivo.semantic.spi import NumericMetric
 from tests.analysis.graph.distribution_fixtures import Carrier, distribution_data
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.datasource.source_cases import Case, datasource, source_case, source_params
+from tests.datasource.environment import postgres_analysis as pg
+from tests.datasource.source_cases import Case, SourceData, datasource, source_case, source_params
 from tests.shared_fixtures import catalog_get, catalog_value, datasource_arguments_source, run_ids
 from tests.support.source_trace import SourceTrace
+
+
+def _assert_empty_domain_is_refused(
+    members: mv.Population,
+    metric: NumericMetric,
+    session: mv.Session,
+    submissions: list[dict[str, str]],
+    facts_table: str,
+    expected_failure: str | None,
+) -> None:
+    empty = members.difference(members)
+    empty_domain = mv.product(session.time_scope(start="2026-08-01", end="2026-08-02"), empty)
+    assert isinstance(empty_domain, mv.Population)
+    before_empty = len(submissions)
+    with pytest.raises(AnalysisError) as empty_failure:
+        session.observe({"value": metric}, by=empty_domain).compute()
+    assert empty_failure.value.received == expected_failure
+    assert all(facts_table not in read["sql"] for read in submissions[before_empty:])
+
+
+def _assert_distribution(
+    observed: mv.AnalysisFrame,
+    source_trace: SourceTrace,
+    backend: str,
+    kind: str,
+    carrier: Carrier,
+    profile: str,
+    dataset: SourceData,
+    subject: Case,
+    facts: Case,
+    submissions: list[dict[str, str]],
+) -> None:
+    fixed = observed.persist()
+    source_trace.record(fixed)
+    exported = fixed.to_pandas()
+    frame = exported.set_index(ordinary_columns(fixed)[0])
+    values = frame["value"]
+    assert frame.index.tolist() == ["a", "b", "c"]
+    expected: dict[object, object] = (
+        {"a": 4, "b": 1, "c": 0}
+        if kind == "identity"
+        else {"a": 2, "b": 1, "c": 0}
+        if kind in ("distinct", "distinct_nonfinite", "approx_distinct")
+        else {"a": Decimal("9007199254740993.000002"), "b": Decimal("9007199254740993.000002")}
+        if carrier == "decimal"
+        else {"a": 4, "b": 6}
+    )
+    if backend == "postgres" and kind == "quantile" and carrier == "decimal":
+        assert isinstance(facts.source, TableSourceIR)
+        with pg.connection() as native:
+            expected_rows = native.execute(
+                sql.SQL(
+                    "SELECT owner, CAST(percentile_cont(0.25) WITHIN GROUP "
+                    "(ORDER BY amount) AS NUMERIC(38,6)) FROM {} "
+                    "WHERE amount IS NOT NULL GROUP BY owner"
+                ).format(sql.Identifier(facts.source.table))
+            ).fetchall()
+            expected = {row[0]: row[1] for row in expected_rows}
+    for owner, value in expected.items():
+        assert isinstance(owner, str)
+        if kind == "approx_quantile" and owner == "a":
+            assert 2 <= values.loc[owner] <= 6
+        else:
+            assert values.loc[owner] == value
+    if kind in ("quantile", "approx_quantile"):
+        assert pd.isna(values.loc["c"])
+    source_trace.save(
+        f"c10-source-{backend}-{kind}",
+        {**subject.environment, "profile": profile},
+        {"columns": dataset.columns, "values": dataset.values},
+        {
+            "kind": kind,
+            "input_identity_types": ["int64", "string"],
+            "values": [4, 1, 0]
+            if kind == "identity"
+            else [2, 1, 0]
+            if kind in ("distinct", "distinct_nonfinite", "approx_distinct")
+            else [str(expected["a"]), str(expected["b"]), None]
+            if kind == "quantile" and carrier == "decimal"
+            else [4, 6, None]
+            if kind == "quantile"
+            else ["bounded_2_through_6", 6, None],
+            "empty_cell": "defined"
+            if kind in ("distinct", "distinct_nonfinite", "identity", "approx_distinct")
+            else "null",
+        },
+        fixed,
+        (subject.session, facts.session),
+    )
+
+    assert submissions
+    if kind == "quantile":
+        assert any(
+            "0.25" in read["sql"] or "__quantile_lower" in read["sql"] for read in submissions
+        )
 
 
 @pytest.mark.parametrize(
@@ -226,83 +324,19 @@ def test_native_distribution(
             assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
             assert run_ids(session) == before_runs
             if backend == "postgres" and kind == "approx_distinct" and carrier == "int64":
-                empty = members.difference(members)
-                empty_domain = mv.product(
-                    session.time_scope(start="2026-08-01", end="2026-08-02"), empty
-                )
-                assert isinstance(empty_domain, mv.Population)
-                before_empty = len(submissions)
-                with pytest.raises(AnalysisError) as empty_failure:
-                    session.observe({"value": metric}, by=empty_domain).compute()
-                assert empty_failure.value.received == failure.received
-                assert all(
-                    facts.source.table not in read["sql"] for read in submissions[before_empty:]
+                _assert_empty_domain_is_refused(
+                    members, metric, session, submissions, facts.source.table, failure.received
                 )
             return
-        fixed = observed.persist()
-        source_trace.record(fixed)
-        exported = fixed.to_pandas()
-        frame = exported.set_index(ordinary_columns(fixed)[0])
-        values = frame["value"]
-        assert frame.index.tolist() == ["a", "b", "c"]
-        expected: dict[object, object] = (
-            {"a": 4, "b": 1, "c": 0}
-            if kind == "identity"
-            else {"a": 2, "b": 1, "c": 0}
-            if kind in ("distinct", "distinct_nonfinite", "approx_distinct")
-            else {"a": Decimal("9007199254740993.000002"), "b": Decimal("9007199254740993.000002")}
-            if carrier == "decimal"
-            else {"a": 4, "b": 6}
+        _assert_distribution(
+            observed,
+            source_trace,
+            backend,
+            kind,
+            carrier,
+            profile,
+            datasets[1],
+            subject,
+            facts,
+            submissions,
         )
-        if backend == "postgres" and kind == "quantile" and carrier == "decimal":
-            from psycopg import sql
-
-            from tests.datasource.environment import postgres_analysis as pg
-
-            assert isinstance(facts.source, TableSourceIR)
-            with pg.connection() as native:
-                expected_rows = native.execute(
-                    sql.SQL(
-                        "SELECT owner, CAST(percentile_cont(0.25) WITHIN GROUP "
-                        "(ORDER BY amount) AS NUMERIC(38,6)) FROM {} "
-                        "WHERE amount IS NOT NULL GROUP BY owner"
-                    ).format(sql.Identifier(facts.source.table))
-                ).fetchall()
-                expected = {row[0]: row[1] for row in expected_rows}
-        for owner, value in expected.items():
-            assert isinstance(owner, str)
-            if kind == "approx_quantile" and owner == "a":
-                assert 2 <= values.loc[owner] <= 6
-            else:
-                assert values.loc[owner] == value
-        if kind in ("quantile", "approx_quantile"):
-            assert pd.isna(values.loc["c"])
-        source_trace.save(
-            f"c10-source-{backend}-{kind}",
-            {**subject.environment, "profile": profile},
-            {"columns": datasets[1].columns, "values": datasets[1].values},
-            {
-                "kind": kind,
-                "input_identity_types": ["int64", "string"],
-                "values": [4, 1, 0]
-                if kind == "identity"
-                else [2, 1, 0]
-                if kind in ("distinct", "distinct_nonfinite", "approx_distinct")
-                else [str(expected["a"]), str(expected["b"]), None]
-                if kind == "quantile" and carrier == "decimal"
-                else [4, 6, None]
-                if kind == "quantile"
-                else ["bounded_2_through_6", 6, None],
-                "empty_cell": "defined"
-                if kind in ("distinct", "distinct_nonfinite", "identity", "approx_distinct")
-                else "null",
-            },
-            fixed,
-            (subject.session, facts.session),
-        )
-
-        assert submissions
-        if kind == "quantile":
-            assert any(
-                "0.25" in read["sql"] or "__quantile_lower" in read["sql"] for read in submissions
-            )

@@ -13,12 +13,15 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._kernel.refs import ref as ref_factory
+from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
 )
 from marivo.datasource.inspection import catalog as catalog_module
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.runtime import backends as backends
 from marivo.datasource.store import declarations as datasource_store
+from marivo.datasource.store import declarations as store
 from marivo.datasource.store.authoring import (
     ClickHouseSpec,
     DatasourceSpec,
@@ -29,6 +32,7 @@ from marivo.datasource.store.authoring import (
     _ir_from_spec,
     validate_datasource_name,
 )
+from marivo.datasource.store.evidence_payload import datasource_spec_fingerprint
 from tests.support.refs import as_ref
 from tests.support.result_protocol import assert_conforms
 
@@ -476,8 +480,6 @@ def test_datasource_spec_render_summarizes_hidden_configuration_and_credentials(
 def test_wall_clock_timezone_is_normalized_separate_from_connection_fields(
     spec: DatasourceSpec, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.store import declarations as store
-    from marivo.datasource.store.evidence_payload import datasource_spec_fingerprint
 
     declaration = _ir(spec)
     assert spec.wall_clock_timezone == "UTC+08:00"
@@ -496,9 +498,6 @@ def test_wall_clock_timezone_is_normalized_separate_from_connection_fields(
     assert default.wall_clock_timezone is None
     description = md.load(workspace_dir=tmp_path).describe(spec.name)
     assert description.wall_clock_timezone == "UTC+08:00"
-
-    from marivo.datasource.engines import require_profile_for_backend_type
-    from marivo.datasource.runtime import backends as backends
 
     profile = require_profile_for_backend_type(spec.backend_type)
     captured: dict[str, object] = {}

@@ -11,6 +11,7 @@ import duckdb
 import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+import pandas as pd
 import pytest
 import sqlglot
 from sqlglot import expressions as sge
@@ -151,7 +152,6 @@ def test_positive_hour_filter_matches_native_selection_and_keeps_boolean_nulls(
         expected_values = backend.con.execute(
             f"SELECT id, ({native_range}) AS p, NOT ({native_range}) AS complement FROM events ORDER BY id"
         ).fetchdf()
-        import pandas as pd
 
         nullable = {"p": "boolean", "complement": "boolean"}
         pd.testing.assert_frame_equal(
@@ -354,7 +354,6 @@ def test_multiday_hour_filter_matches_independent_clock_and_preserves_values(
             f"({predicate}) OR id=0 disjunction FROM events ORDER BY id",
             params * 3,
         ).fetchdf()
-        import pandas as pd
 
         nullable = {
             "p": "boolean",

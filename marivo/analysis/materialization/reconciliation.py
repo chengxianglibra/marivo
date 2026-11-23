@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+from marivo.analysis.materialization import terminal_publication
 from marivo.analysis.materialization.store import SessionStore
 
 
@@ -12,6 +13,5 @@ def reconcile_session(
     event: Callable[[str], None],
 ) -> None:
     """Resolve the selected Session obligations under its owning writer guard."""
-    from marivo.analysis.materialization.terminal_publication import reconcile
 
-    reconcile(store, session_ref, event)
+    terminal_publication.reconcile(store, session_ref, event)

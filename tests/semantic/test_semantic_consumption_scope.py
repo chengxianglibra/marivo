@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Literal
 
@@ -13,7 +14,8 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.deferred import inspect_deferred
 from marivo._definition.types import LiteralValue, SumAxes
-from marivo.semantic._consumption import bind_field, bind_metric
+from marivo.semantic._consumption import bind_field, bind_metric, bind_row
+from marivo.semantic._deferred_semantics import consume_metric, consume_row
 from marivo.semantic._expression_values import (
     MetricExpression,
     RowExpression,
@@ -124,8 +126,6 @@ def test_typed_condition_and_frozen_collection_keep_one_stage(tmp_path: Path) ->
 
 
 def test_decorators_keep_fixed_stage_for_loaded_and_forward_inputs(tmp_path: Path) -> None:
-    from marivo.semantic._consumption import bind_row
-    from marivo.semantic._deferred_semantics import consume_row
 
     _project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path)
@@ -180,7 +180,6 @@ def test_decorators_keep_fixed_stage_for_loaded_and_forward_inputs(tmp_path: Pat
 def test_local_loaded_authorization_preserves_project_and_rechecks_receiving_axes(
     tmp_path: Path,
 ) -> None:
-    from marivo.semantic._consumption import bind_row
 
     first_root, other_root = tmp_path / "first", tmp_path / "other"
     _project(first_root)
@@ -213,8 +212,6 @@ def test_local_loaded_authorization_preserves_project_and_rechecks_receiving_axe
 
 
 def test_local_declaration_defers_captured_units_to_actual_receiving_scope(tmp_path: Path) -> None:
-    from marivo.semantic._consumption import bind_row
-    from marivo.semantic._deferred_semantics import consume_metric, consume_row
 
     _project(tmp_path)
     source = tmp_path / "models/semantic/sales/objects.py"
@@ -357,7 +354,6 @@ def test_local_native_functions_defer_unit_facts_to_receiving_scope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import math
 
     _project(tmp_path)
     revenue = ms.load(workspace_dir=tmp_path).get("metric:sales.revenue")

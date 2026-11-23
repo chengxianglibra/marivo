@@ -11,13 +11,34 @@ from typing import TYPE_CHECKING, Literal
 
 from ibis.common.deferred import Deferred
 
-from marivo._definition.types import Owner
+from marivo._definition.relations import PopulationProgram, SourceIdentities
+from marivo._definition.types import AxisBinding, InputContext, Owner
 from marivo._kernel.grouping import Grouping
 from marivo._kernel.temporal import InstantAnchor, TimeScope
 from marivo.analysis.binding.observation import ObservationOwner
+from marivo.analysis.binding.temporal_predicates import normalize_temporal_predicate
+from marivo.analysis.dsl import frame_sources
+from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame_population import population_from
 from marivo.analysis.dsl.frame_reopening import reopen_frame
-from marivo.analysis.materialization.contracts import SessionRecord
+from marivo.analysis.dsl.population import (
+    Population,
+    _bind_by,
+    _owner,
+    _validate_population,
+    condition_populations,
+)
+from marivo.analysis.dsl.population_identities import validate_identity_keys
+from marivo.analysis.dsl.source_capture import _metric_inputs
+from marivo.analysis.dsl.temporal import exact_scope
+from marivo.analysis.materialization.contracts import SessionRecord, parse_timestamp
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.time_grid import exact_instant
+from marivo.analysis.session._lazy_frames import persisted_frames
+from marivo.analysis.session._lazy_history import inspect
 from marivo.analysis.session._lazy_sources import _field_input, _predicate_input, make_source_owner
+from marivo.datasource.spi import bind_resolver, check_binding
 from marivo.semantic import Entity, RowExpression, SemanticCatalog, load
 from marivo.semantic.spi import (
     DimensionExpression,
@@ -34,9 +55,7 @@ from marivo.semantic.spi import (
 from marivo.telemetry import traced
 
 if TYPE_CHECKING:
-    from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.dsl.frame_axis import FrameAxis
-    from marivo.analysis.dsl.population import Population
     from marivo.analysis.dsl.source_capture import ValueRow
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.session._lazy_read_model import PersistedFrameSummaryPage
@@ -57,10 +76,6 @@ class Session:
 
     @classmethod
     def _from_runtime(cls, runtime: DatasetRuntime) -> Session:
-        from marivo.analysis import _initialize_public
-
-        # Direct imports of the Session facade must activate the same public methods.
-        _initialize_public()
         result = object.__new__(cls)
         result._runtime = runtime
         result._sources_value = None
@@ -76,11 +91,6 @@ class Session:
     def _sources(self) -> ObservationOwner:
         with self._sources_lock:
             if self._sources_value is None:
-                from marivo.datasource.spi import (
-                    bind_resolver,
-                    check_binding,
-                )
-
                 config = self._runtime.connection_config
                 check_binding(config.resolver)
                 with bind_resolver(config.resolver):
@@ -125,14 +135,12 @@ class Session:
     @property
     def created_at(self) -> datetime:
         """Return the persisted creation timestamp."""
-        from marivo.analysis.materialization.contracts import parse_timestamp
 
         return parse_timestamp(self._record().created_at)
 
     @property
     def updated_at(self) -> datetime:
         """Return the persisted last-update timestamp."""
-        from marivo.analysis.materialization.contracts import parse_timestamp
 
         return parse_timestamp(self._record().updated_at)
 
@@ -185,14 +193,6 @@ class Session:
             Source identities include only existing rows. Literal requested
             identities use mv.coordinates(by=(mv.identity(entity),), keys=...); compute keys with session.frame(population).
         """
-        from marivo._definition.relations import PopulationProgram, SourceIdentities
-        from marivo._definition.types import AxisBinding, InputContext
-        from marivo.analysis.dsl.population import (
-            Population,
-            _owner,
-            condition_populations,
-        )
-        from marivo.analysis.model.errors import reject
 
         if not isinstance(entity, Entity):
             reject(
@@ -204,7 +204,6 @@ class Session:
         owner = self._runtime.local.owner
         resolved = bind_entity(entity, self.catalog, owner=owner)
         bound_where = _predicate_input(where, self.catalog, owner, location="Session.members.where")
-        from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
 
         frame_inputs = (
             collect_frame_key_inputs(where, owner=owner) if bound_where is not None else ()
@@ -251,7 +250,6 @@ class Session:
                 "Rebuild the predicate domain in this Session.",
                 "session.members",
             )
-        from marivo.analysis.binding.temporal_predicates import normalize_temporal_predicate
 
         node = SourceIdentities(
             entity_exact(resolved),
@@ -281,7 +279,6 @@ class Session:
         Example: ``anchor = session.instant('2026-01-01')``.
         Constraints: Rejects naive datetimes and ambiguous/nonexistent local clocks; no source reads.
         """
-        from marivo.analysis.model.time_grid import exact_instant
 
         return exact_instant(value, self.timezone if timezone is None else timezone)
 
@@ -308,7 +305,6 @@ class Session:
             Aware boundaries retain their instants. Calendar grouping uses the Session
             timezone; use another Session for a different ordinary report timezone.
         """
-        from marivo.analysis.dsl.temporal import exact_scope
 
         return exact_scope(start, end, self.timezone)
 
@@ -363,11 +359,6 @@ class Session:
             At existing keys, absent sum/count is zero; mean is NA.
             Adding Metrics can add rows.
         """
-        from marivo.analysis.dsl import frame_sources
-        from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
-        from marivo.analysis.dsl.population import Population
-        from marivo.analysis.dsl.source_capture import _metric_inputs
-        from marivo.analysis.model.errors import reject
 
         owner = self._runtime.local.owner
         selected_metrics = _metric_inputs(metrics)
@@ -467,9 +458,6 @@ class Session:
         Construction reads no source rows or schema and creates no Run; the Population must be
         unowned or belong to this exact Store and Session.
         """
-        from marivo.analysis.dsl import frame_sources
-        from marivo.analysis.dsl.population import Population, _owner
-        from marivo.analysis.model.errors import reject
 
         if not isinstance(population, Population):
             reject(
@@ -491,9 +479,7 @@ class Session:
             population._context, project_root=self.project_root, owner=self._runtime.local.owner
         )
         if population._identity_keys:
-            from marivo.analysis.dsl.population import _validate_identity_keys
-
-            _validate_identity_keys(population._identity_keys, self.catalog)
+            validate_identity_keys(population._identity_keys, self.catalog)
         needs_semantic_state = frame_sources.population_needs_state(population)
         state = catalog_state(self.catalog) if needs_semantic_state else None
         return frame_sources.frame(
@@ -527,9 +513,6 @@ class Session:
         business rows. Numeric reads preserve NULL, NaN and Infinity; finite local
         operations validate their demanded inputs. Value names follow the Frame name rules.
         """
-        from marivo.analysis.dsl import frame_sources
-        from marivo.analysis.dsl.population import Population, _validate_population
-        from marivo.analysis.model.errors import reject
 
         if not isinstance(population, Population):
             reject(
@@ -592,8 +575,6 @@ class Session:
         hand-written calendars. Zero-axis capture needs no Catalog or source configuration;
         capture never reads source rows or creates a Run.
         """
-        from marivo.analysis.dsl import frame_sources
-        from marivo.analysis.model.errors import reject
 
         if not isinstance(by, tuple):
             reject(
@@ -604,7 +585,6 @@ class Session:
             )
         if not by:
             return frame_sources.values(self._runtime.local, columns=columns, rows=rows)
-        from marivo.analysis.dsl.population import _bind_by
 
         bound_by = _bind_by(
             by, self.catalog, self._runtime.local.owner, location="Session.values.by"
@@ -637,7 +617,6 @@ class Session:
         pages do not freeze history. Descriptions are caller claims; inspect ambiguous
         candidates before selecting an exact ID for persisted_frame().
         """
-        from marivo.analysis.session._lazy_frames import persisted_frames
 
         return persisted_frames(self._runtime.local, limit=limit, cursor=cursor)
 
@@ -657,7 +636,6 @@ class Session:
         reads validate consumed files. Old Stores are refused unchanged; missing or foreign
         IDs fail. For audit metadata, use saved.
         """
-        from marivo.analysis.model.errors import reject
 
         if (
             type(artifact_id) is not str
@@ -698,9 +676,6 @@ class Session:
             A matching captured direct field can keep an unanchored time
             interpretation. Targets must preserve axis role, key types and units.
         """
-        from marivo.analysis.dsl.frame import AnalysisFrame
-        from marivo.analysis.dsl.frame_population import population_from
-        from marivo.analysis.model.errors import reject
 
         if type(frame) is not AnalysisFrame:
             reject(
@@ -756,7 +731,6 @@ class Session:
         Example: ``text = session.render()``.
         Constraints: No current catalog or source reads occur.
         """
-        from marivo.analysis.session._lazy_history import inspect
 
         return inspect(self._runtime.store, self.id).render(max_output_bytes=max_output_bytes)
 

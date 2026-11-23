@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING
 
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import SourceAggregate
+from marivo.analysis.compiler.reduction_input import ReductionInput
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.datasource.spi import (
     aggregate_operation,
@@ -15,9 +15,6 @@ from marivo.datasource.spi import (
     native_aggregate,
 )
 from marivo.semantic.spi import lower_row
-
-if TYPE_CHECKING:
-    from marivo.analysis.compiler.observation import ReductionInput
 
 
 def admit_source_aggregate(prepared: ReductionInput, fields: Mapping[str, ir.Value]) -> None:

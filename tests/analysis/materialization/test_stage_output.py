@@ -9,7 +9,8 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from marivo.analysis.methods.carriers.data_validation import normalize_stage_frame
+from marivo.analysis.core import data_validation
+from marivo.analysis.core.data_validation import normalize_stage_frame
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_types import (
     DataColumn,
@@ -174,7 +175,6 @@ def test_native_date_representation_is_normalized_without_truncating_time() -> N
 def test_exact_stage_carriers_copy_without_rebuilding_columns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.methods.carriers import data_validation
 
     frame = pd.DataFrame(
         {

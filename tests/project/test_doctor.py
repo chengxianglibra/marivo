@@ -7,6 +7,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from marivo.analysis.materialization.layout import MaterializationLayout
+from marivo.analysis.materialization.store import SessionStore
+from marivo.cli import init_project
 from marivo.cli.doctor import (
     DoctorCheck,
     DoctorOptions,
@@ -15,6 +18,11 @@ from marivo.cli.doctor import (
     run_doctor,
     status_from_checks,
 )
+from marivo.cli.doctor.datasources import _static_datasources_from_file
+from marivo.datasource.inspection import manage as datasource_manage
+from marivo.datasource.runtime import backends as backends
+from marivo.datasource.runtime.backends import BuiltDatasourceBackend
+from marivo.datasource.store import declarations as datasource_store
 
 
 def _report_with_checks(*checks: DoctorCheck) -> DoctorReport:
@@ -196,7 +204,6 @@ def test_default_doctor_reports_missing_semantic_models_as_info(tmp_path: Path) 
 
 
 def test_doctor_reports_initialized_agent_skills(tmp_path: Path) -> None:
-    from marivo.cli import init_project
 
     init_project(project_dir=tmp_path)
 
@@ -382,8 +389,6 @@ def test_default_doctor_loads_datasources_without_connecting(tmp_path: Path) -> 
 def test_doctor_reports_current_store_and_retained_old_paths_without_rewriting(
     tmp_path: Path, current: str
 ) -> None:
-    from marivo.analysis.materialization.layout import MaterializationLayout
-    from marivo.analysis.materialization.store import SessionStore
 
     _write_manifest(tmp_path)
     layout = MaterializationLayout(tmp_path)
@@ -1117,7 +1122,6 @@ def test_doctor_connect_flag_reports_failure(
 def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.inspection import manage as datasource_manage
 
     class FakeBackend:
         name = "postgres"
@@ -1163,10 +1167,6 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
             },
         )()
 
-    from marivo.datasource.runtime import backends as backends
-    from marivo.datasource.runtime.backends import BuiltDatasourceBackend
-    from marivo.datasource.store import declarations as datasource_store
-
     def fake_build_backend_with_secrets(datasource, **kwargs):  # type: ignore[no-untyped-def]
         return BuiltDatasourceBackend(backend=backend, env_sourced_secrets=())
 
@@ -1190,7 +1190,6 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
 def test_static_datasource_timezone_is_normalized_outside_connection_fields(
     tmp_path: Path, value: str
 ) -> None:
-    from marivo.cli.doctor.datasources import _static_datasources_from_file
 
     path = tmp_path / "warehouse.py"
     path.write_text(
@@ -1220,7 +1219,6 @@ def test_static_datasource_timezone_is_normalized_outside_connection_fields(
 def test_static_datasource_rejects_invalid_or_retired_timezone_authority(
     tmp_path: Path, declaration: str
 ) -> None:
-    from marivo.cli.doctor.datasources import _static_datasources_from_file
 
     path = tmp_path / "warehouse.py"
     path.write_text("import marivo.datasource as md\n" + declaration + "\n")
@@ -1281,7 +1279,6 @@ def test_default_doctor_ignores_unreferenced_ambient_secrets(
 
 
 def test_default_doctor_does_not_create_analysis_state(tmp_path: Path) -> None:
-    from marivo.analysis.materialization.layout import MaterializationLayout
 
     _write_manifest(tmp_path)
 

@@ -5,10 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import ibis
 import pytest
 
 import marivo.datasource as md
 from marivo.datasource.credentials import secrets as datasource_secrets
+from marivo.datasource.engines import clickhouse as clickhouse_profile
+from marivo.datasource.engines.duckdb import DuckDbHttpCredentials
+from marivo.datasource.engines.statements import provider_statement_log
 from marivo.datasource.errors import (
     DatasourceBackendTypeUnsupportedError,
     DatasourceEnvVarMissingError,
@@ -56,26 +60,11 @@ def test_duckdb_extra_kwargs_pass_through(
 ) -> None:
     captured: dict[str, object] = {}
 
-    class _FakeDuckdb:
-        @staticmethod
-        def connect(**kwargs: object) -> object:
-            captured.update(kwargs)
-            return SimpleNamespace(settings={}, disconnect=lambda: None)
+    def fake_connect(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace(settings={}, disconnect=lambda: None)
 
-    class _FakeIbis:
-        duckdb = _FakeDuckdb()
-
-    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
-    from marivo.datasource.engines import (
-        ENGINE_PROFILES,
-        _aggregate_compilers,  # noqa: F401
-    )
-
-    # Force every lazy engine profile to import the real ibis now: the
-    # generated datasource file reloads profiles, which must not happen
-    # under the fake ibis installed below.
-    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
-    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    monkeypatch.setitem(vars(ibis), "duckdb", SimpleNamespace(connect=fake_connect))
     datasource = datasource_store.save_one(
         DuckDBSpec(
             name="local",
@@ -183,9 +172,6 @@ def test_duckdb_http_auth_installs_scoped_secret_on_connect(
     auth_kwargs: dict[str, object],
     env_name: str,
 ) -> None:
-    from marivo.datasource.engines.duckdb import DuckDbHttpCredentials
-    from marivo.datasource.runtime.backends import build_backend_with_secrets
-
     monkeypatch.setenv(env_name, "sensitive-token")
     datasource = datasource_store.save_one(
         DuckDBSpec(
@@ -194,7 +180,7 @@ def test_duckdb_http_auth_installs_scoped_secret_on_connect(
         )
     )
 
-    built = build_backend_with_secrets(datasource)
+    built = datasource_backends.build_backend_with_secrets(datasource)
     try:
         auth = getattr(built.backend, "_marivo_duckdb_http_auth", None)
         assert isinstance(auth, DuckDbHttpCredentials)
@@ -211,8 +197,6 @@ def test_duckdb_http_auth_installs_scoped_secret_on_connect(
             "SELECT count(*) FROM duckdb_secrets() WHERE name = 'marivo_hawkeye_0'"
         ).fetchone()[0]
         assert secrets_count == 1
-        from marivo.datasource.engines.statements import provider_statement_log
-
         log = provider_statement_log(built.backend)
         assert len(log) == 1
         assert log[0].state == "succeeded"
@@ -374,14 +358,9 @@ def test_trino_session_properties_pass_through(
 ) -> None:
     captured: dict[str, object] = {}
 
-    class _FakeTrino:
-        @staticmethod
-        def connect(**kwargs: object) -> object:
-            captured.update(kwargs)
-            return SimpleNamespace()
-
-    class _FakeIbis:
-        trino = _FakeTrino()
+    def fake_connect(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace()
 
     monkeypatch.setenv("TRINO_USER", "reader")
     monkeypatch.setenv("MARIVO_WH_USER", "ambient-user")
@@ -395,17 +374,7 @@ def test_trino_session_properties_pass_through(
             session_properties={"query_max_run_time": "5m"},
         )
     )
-    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
-    from marivo.datasource.engines import (
-        ENGINE_PROFILES,
-        _aggregate_compilers,  # noqa: F401
-    )
-
-    # Force every lazy engine profile to import the real ibis now: the
-    # generated datasource file reloads profiles, which must not happen
-    # under the fake ibis installed below.
-    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
-    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    monkeypatch.setitem(vars(ibis), "trino", SimpleNamespace(connect=fake_connect))
 
     datasource_backends.build_backend(datasource)
 
@@ -418,14 +387,9 @@ def test_trino_catalog_maps_to_ibis_database_and_optional_kwargs_pass_through(
 ) -> None:
     captured: dict[str, object] = {}
 
-    class _FakeTrino:
-        @staticmethod
-        def connect(**kwargs: object) -> object:
-            captured.update(kwargs)
-            return SimpleNamespace()
-
-    class _FakeIbis:
-        trino = _FakeTrino()
+    def fake_connect(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace()
 
     monkeypatch.setenv("TRINO_USER", "reader")
     monkeypatch.setenv("TRINO_AUTH", "token")
@@ -440,17 +404,7 @@ def test_trino_catalog_maps_to_ibis_database_and_optional_kwargs_pass_through(
             client_tags="agent, semantic-authoring",  # type: ignore[arg-type]  # Exercise legacy comma-separated tags.
         )
     )
-    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
-    from marivo.datasource.engines import (
-        ENGINE_PROFILES,
-        _aggregate_compilers,  # noqa: F401
-    )
-
-    # Force every lazy engine profile to import the real ibis now: the
-    # generated datasource file reloads profiles, which must not happen
-    # under the fake ibis installed below.
-    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
-    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    monkeypatch.setitem(vars(ibis), "trino", SimpleNamespace(connect=fake_connect))
 
     datasource_backends.build_backend(datasource)
 
@@ -465,7 +419,7 @@ def test_trino_catalog_maps_to_ibis_database_and_optional_kwargs_pass_through(
 def test_mysql_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root: Path) -> None:
     captured: dict[str, object] = {}
 
-    from marivo.datasource.engines._mysql_backend import MySQLBackend as Backend
+    from marivo.datasource.engines._mysql_backend import MySQLBackend as Backend  # noqa: PLC0415  # Optional PyMySQL transport.
 
     def fake_connect(self: object, **kwargs: object) -> object:
         captured.update(kwargs)
@@ -484,26 +438,11 @@ def test_mysql_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root: P
 def test_postgres_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root: Path) -> None:
     captured: dict[str, object] = {}
 
-    class _FakePostgres:
-        @staticmethod
-        def connect(**kwargs: object) -> object:
-            captured.update(kwargs)
-            return SimpleNamespace()
+    def fake_connect(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace()
 
-    class _FakeIbis:
-        postgres = _FakePostgres()
-
-    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
-    from marivo.datasource.engines import (
-        ENGINE_PROFILES,
-        _aggregate_compilers,  # noqa: F401
-    )
-
-    # Force every lazy engine profile to import the real ibis now: the
-    # generated datasource file reloads profiles, which must not happen
-    # under the fake ibis installed below.
-    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
-    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    monkeypatch.setitem(vars(ibis), "postgres", SimpleNamespace(connect=fake_connect))
     datasource = datasource_store.save_one(
         PostgresSpec(
             name="pg_wh",
@@ -519,31 +458,14 @@ def test_postgres_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root
 
 
 def test_clickhouse_dispatch_with_host(monkeypatch: pytest.MonkeyPatch, project_root: Path) -> None:
-    from marivo.datasource.engines import clickhouse as _clickhouse_profile
-
-    assert _clickhouse_profile.PROFILE.name == "clickhouse"
+    assert clickhouse_profile.PROFILE.name == "clickhouse"
     captured: dict[str, object] = {}
 
-    class _FakeClickhouse:
-        @staticmethod
-        def connect(**kwargs: object) -> object:
-            captured.update(kwargs)
-            return SimpleNamespace()
+    def fake_connect(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace()
 
-    class _FakeIbis:
-        clickhouse = _FakeClickhouse()
-
-    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
-    from marivo.datasource.engines import (
-        ENGINE_PROFILES,
-        _aggregate_compilers,  # noqa: F401
-    )
-
-    # Force every lazy engine profile to import the real ibis now: the
-    # generated datasource file reloads profiles, which must not happen
-    # under the fake ibis installed below.
-    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
-    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    monkeypatch.setitem(vars(ibis), "clickhouse", SimpleNamespace(connect=fake_connect))
     datasource = datasource_store.save_one(ClickHouseSpec(name="ch_ds", host="ch.example.com"))
 
     datasource_backends.build_backend(datasource)
@@ -563,12 +485,10 @@ def _chained(error: Exception, *causes: Exception) -> Exception:
 
 
 def test_clickhouse_transient_failure_classifies_native_driver_errors() -> None:
-    from clickhouse_connect.driver.exceptions import DatabaseError, OperationalError
-    from urllib3.connection import HTTPConnection
-    from urllib3.connectionpool import HTTPConnectionPool
-    from urllib3.exceptions import MaxRetryError, NewConnectionError, ReadTimeoutError
-
-    from marivo.datasource.engines.clickhouse import PROFILE
+    from clickhouse_connect.driver.exceptions import DatabaseError, OperationalError  # noqa: PLC0415  # Optional ClickHouse transport.
+    from urllib3.connection import HTTPConnection  # noqa: PLC0415  # Optional ClickHouse transport.
+    from urllib3.connectionpool import HTTPConnectionPool  # noqa: PLC0415  # Optional ClickHouse transport.
+    from urllib3.exceptions import MaxRetryError, NewConnectionError, ReadTimeoutError  # noqa: PLC0415  # Optional ClickHouse transport.
 
     def status(code: int) -> OperationalError:
         return OperationalError(
@@ -605,38 +525,25 @@ def test_clickhouse_transient_failure_classifies_native_driver_errors() -> None:
         OperationalError("Failed to read response data from server"),
         RuntimeError("busy"),
     ]
-    assert [PROFILE.transient_failure(error) for error in transient] == [True] * len(transient)
-    assert [PROFILE.transient_failure(error) for error in permanent] == [False] * len(permanent)
+    assert [clickhouse_profile.PROFILE.transient_failure(error) for error in transient] == [
+        True
+    ] * len(transient)
+    assert [clickhouse_profile.PROFILE.transient_failure(error) for error in permanent] == [
+        False
+    ] * len(permanent)
 
 
 def test_clickhouse_allows_explicit_autogenerated_session_override(
     monkeypatch: pytest.MonkeyPatch, project_root: Path
 ) -> None:
-    from marivo.datasource.engines import clickhouse as _clickhouse_profile
-
-    assert _clickhouse_profile.PROFILE.name == "clickhouse"
+    assert clickhouse_profile.PROFILE.name == "clickhouse"
     captured: dict[str, object] = {}
 
-    class _FakeClickhouse:
-        @staticmethod
-        def connect(**kwargs: object) -> object:
-            captured.update(kwargs)
-            return SimpleNamespace()
+    def fake_connect(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace()
 
-    class _FakeIbis:
-        clickhouse = _FakeClickhouse()
-
-    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
-    from marivo.datasource.engines import (
-        ENGINE_PROFILES,
-        _aggregate_compilers,  # noqa: F401
-    )
-
-    # Force every lazy engine profile to import the real ibis now: the
-    # generated datasource file reloads profiles, which must not happen
-    # under the fake ibis installed below.
-    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
-    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    monkeypatch.setitem(vars(ibis), "clickhouse", SimpleNamespace(connect=fake_connect))
     datasource = datasource_store.save_one(
         ClickHouseSpec(
             name="ch_ds",
@@ -663,26 +570,11 @@ def test_clickhouse_optional_fields_pass_through(
 ) -> None:
     captured: dict[str, object] = {}
 
-    class _FakeClickhouse:
-        @staticmethod
-        def connect(**kwargs: object) -> object:
-            captured.update(kwargs)
-            return SimpleNamespace()
+    def fake_connect(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace()
 
-    class _FakeIbis:
-        clickhouse = _FakeClickhouse()
-
-    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
-    from marivo.datasource.engines import (
-        ENGINE_PROFILES,
-        _aggregate_compilers,  # noqa: F401
-    )
-
-    # Force every lazy engine profile to import the real ibis now: the
-    # generated datasource file reloads profiles, which must not happen
-    # under the fake ibis installed below.
-    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
-    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    monkeypatch.setitem(vars(ibis), "clickhouse", SimpleNamespace(connect=fake_connect))
     datasource = datasource_store.save_one(
         ClickHouseSpec(
             name="ch_ds",

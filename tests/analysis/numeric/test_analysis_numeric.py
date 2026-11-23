@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
+from decimal import ROUND_HALF_EVEN, Decimal, localcontext
+from fractions import Fraction
 from typing import Literal
 
+import duckdb
+import ibis
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.errors import AnalysisError
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.ir import AggKind
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import (
@@ -68,7 +79,6 @@ def _distribution(case: DslCase, agg: AggKind, *, overall: bool = False) -> mv.A
 def test_direct_distribution(
     analysis_dsl_case_factory: DslCaseFactory, agg: AggKind, parquet: bool, floating: bool
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j1")
     if floating:
@@ -115,9 +125,6 @@ def test_direct_distribution(
 def test_native_quantile_precision_is_source_owned(
     analysis_dsl_case_factory: DslCaseFactory, decimal_input: bool
 ) -> None:
-    from decimal import Decimal
-
-    import duckdb
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as db:
@@ -142,9 +149,6 @@ def test_native_quantile_precision_is_source_owned(
 
 
 def test_float_mean_and_decimal_original_state(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    from decimal import Decimal
-
-    import duckdb
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as db:
@@ -237,11 +241,6 @@ def test_float_mean_and_decimal_original_state(analysis_dsl_case_factory: DslCas
 
 
 def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    from decimal import ROUND_HALF_EVEN, Decimal, localcontext
-    from fractions import Fraction
-
-    import duckdb
-    import ibis
 
     case = analysis_dsl_case_factory("j1")
     dtype = "DECIMAL(30,6)"
@@ -411,11 +410,6 @@ def test_duration_matrix(
         ...,
     ],
 ) -> None:
-    from fractions import Fraction
-
-    import duckdb
-    import pyarrow as pa
-    import pyarrow.parquet as pq
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as db:
@@ -556,10 +550,6 @@ def test_duration_matrix(
 def test_typed_temporal_matrix(
     analysis_dsl_case_factory: DslCaseFactory, family: str, kinds: tuple[str, ...]
 ) -> None:
-    from decimal import Decimal
-
-    import duckdb
-    import pyarrow as pa
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as db:
@@ -635,14 +625,6 @@ def test_typed_temporal_matrix(
 def test_numeric_states_produce_offline_and_cold(
     analysis_dsl_case_factory: DslCaseFactory, family: str, parquet: bool
 ) -> None:
-    import json
-    import os
-    import subprocess
-    import sys
-
-    import duckdb
-    import pyarrow as pa
-    import pyarrow.parquet as pq
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as db:
@@ -746,8 +728,6 @@ print(json.dumps(output, sort_keys=True))
 )
 def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_kind: str) -> None:
 
-    import duckdb
-
     case = analysis_dsl_case_factory("j1")
     numbers = (
         [2**53 + 1, 0, 0]
@@ -829,9 +809,6 @@ def test_exact_and_approximate_definition_identities_never_alias(
 def test_linear_cancellation_checks_final_integer_and_float_bound(
     analysis_dsl_case_factory: DslCaseFactory, floating: bool
 ) -> None:
-    from fractions import Fraction
-
-    import duckdb
 
     case = analysis_dsl_case_factory("j1")
     large = 1e16 if floating else 2**63 - 1
@@ -885,7 +862,6 @@ def test_linear_cancellation_checks_final_integer_and_float_bound(
 def test_current_row_counts_keep_numeric_null_policy(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j1")
     session = case.session

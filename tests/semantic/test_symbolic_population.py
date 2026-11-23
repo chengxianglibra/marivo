@@ -1,5 +1,6 @@
 """Symbolic helper binding preserves complete Population definitions."""
 
+import sys
 from collections.abc import Callable
 from types import ModuleType
 
@@ -269,7 +270,6 @@ raise AssertionError("decorator accepted an invalid relationship path")
 def test_population_path_capture_keeps_closed_relationship_values(
     semantic_project_factory: Callable[..., SemanticProject], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import sys
 
     first = _catalog(semantic_project_factory, "")
     captured = ModuleType("_population_closed_path_test")

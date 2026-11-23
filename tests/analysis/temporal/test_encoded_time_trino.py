@@ -3,17 +3,19 @@
 import json
 import os
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import date
 from pathlib import Path
 
 import ibis
 import pytest
+from trino.dbapi import Cursor
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import source_time, source_time_predicate
 from marivo.semantic.reader import SemanticProject
+from marivo.semantic.spi import NumericMetric
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.datasource.environment.trino_analysis import connection
 from tests.shared_fixtures import declared_test_timezone
@@ -220,6 +222,123 @@ def test_native_partition_constraints_and_scanned_rows(
             cursor.close()
 
 
+def _seed_hour_partitions(cursor: Cursor, target: str, integer: bool, start_hour: int) -> str:
+    execute: Callable[[str], Cursor] = cursor.execute
+    encoded_hour = "CAST(h AS BIGINT)" if integer else "lpad(CAST(h AS VARCHAR), 2, '0')"
+    execute(
+        f"INSERT INTO {target} SELECT d * 1000 + h * 10 + r, r, CAST(20261000 + d AS VARCHAR), {encoded_hour} "
+        "FROM UNNEST(sequence(27,29)) AS dates(d) CROSS JOIN UNNEST(sequence(0,23)) AS hours(h) CROSS JOIN UNNEST(sequence(1,10)) AS rows(r)"
+    ).fetchall()
+    lower_hour = str(start_hour) if integer else repr(f"{start_hour:02d}")
+    execute(
+        f"INSERT INTO {target} VALUES (1,1000,'20261028',NULL),(2,1000,NULL,{lower_hour})"
+    ).fetchall()
+    return lower_hour
+
+
+def _assert_wide_hour_ranges(
+    read: Cursor,
+    session: mv.Session,
+    metrics: Mapping[str, NumericMetric],
+    hour: ms.TimeDimension,
+    identity: ms.Dimension,
+    name: str,
+    target: str,
+    native_clock: str,
+    source_trace: SourceTrace,
+) -> dict[str, object]:
+    execute: Callable[[str], Cursor] = read.execute
+    evidence: dict[str, object] = {}
+    # The exact clock predicate retains NULL semantics; the separate day
+    # bounds must still prune Iceberg's date partitions on full/multi-day scopes.
+    for label, first, last, day_end, expected_result in (
+        (
+            "full_day",
+            "2026-10-28 00:00:00",
+            "2026-10-29 00:00:00",
+            "20261029",
+            [240, 1320],
+        ),
+        (
+            "cross_day",
+            "2026-10-28 10:30:00",
+            "2026-10-29 12:30:00",
+            "20261030",
+            [260, 1430],
+        ),
+    ):
+        baseline_sql = f"SELECT count(*),sum(amount) FROM {target} WHERE day >= '20261028' AND day < '{day_end}'"
+        execute(baseline_sql).fetchall()
+        baseline_stats = dict(read.stats)
+        execute(f"SELECT count(*),sum(amount) FROM {target}").fetchall()
+        all_stats = dict(read.stats)
+        independent = (
+            f"SELECT count(*),sum(amount) FROM {target} "
+            f"WHERE {native_clock} >= TIMESTAMP '{first}' AND {native_clock} < TIMESTAMP '{last}'"
+        )
+        assert execute(independent).fetchone() == expected_result
+        scope = session.time_scope(start=first, end=last)
+        for mode in ("scope", "calendar", "range", "and"):
+            source_trace.native_sql.clear()
+            if mode in ("scope", "calendar"):
+                frame = session.observe(
+                    metrics,
+                    by=(scope.by(mv.grain("day")),) if mode == "calendar" else (),
+                    where=None if mode == "calendar" else scope,
+                )
+            else:
+                predicate = (hour >= scope.start) & (hour < scope.end)
+                if mode == "and":
+                    predicate = predicate & (identity > 0)
+                frame = session.observe(metrics, where=predicate)
+            actual = frame.compute().to_pandas()
+            assert actual[["n", "total"]].sum().tolist() == expected_result
+            sql = next(sql for sql in source_trace.native_sql if name in sql and "WHERE" in sql)
+            plan_row = execute("EXPLAIN (TYPE IO, FORMAT JSON) " + sql).fetchone()
+            assert plan_row is not None and isinstance(plan_row[0], str)
+            plan = json.loads(plan_row[0])
+            assert any(
+                item["columnName"] == "day" and item["domain"]["ranges"]
+                for entry in plan["inputTableColumnInfos"]
+                for item in entry["constraint"]["columnConstraints"]
+            ), plan
+            execute(sql).fetchall()
+            stats = dict(read.stats)
+            assert 0 < stats["processedRows"] <= baseline_stats["processedRows"]
+            assert stats["processedRows"] < all_stats["processedRows"]
+            evidence[f"{label}-{mode}"] = {"sql": sql, "plan": plan, "stats": stats}
+    return evidence
+
+
+def _record_hour_partition(
+    integer: bool,
+    start_hour: int,
+    raw_sql: str,
+    raw_stats: dict[str, object],
+    native_sql: str,
+    native_stats: dict[str, object],
+    day_stats: dict[str, object],
+    evidence: dict[str, object],
+) -> None:
+    destination = os.environ.get("MARIVO_TEMPORAL_EVIDENCE_DIR")
+    if destination:
+        Path(destination).mkdir(parents=True, exist_ok=True)
+        Path(destination, f"hour-partition-{integer}-{start_hour:02d}.json").write_text(
+            json.dumps(
+                {
+                    "raw_sql": raw_sql,
+                    "raw_stats": raw_stats,
+                    "native_sql": native_sql,
+                    "native_stats": native_stats,
+                    "day_stats": day_stats,
+                    "public": evidence,
+                },
+                default=str,
+                sort_keys=True,
+            )
+        )
+
+
 @pytest.mark.parametrize("integer", [False, True])
 @pytest.mark.parametrize("start_hour", [0, 3])
 def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
@@ -243,15 +362,7 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
                 "WITH (partitioning=ARRAY['day','hour'], format='PARQUET')"
             ).fetchall()
             created = True
-            encoded_hour = "CAST(h AS BIGINT)" if integer else "lpad(CAST(h AS VARCHAR), 2, '0')"
-            cursor.execute(
-                f"INSERT INTO {target} SELECT d * 1000 + h * 10 + r, r, CAST(20261000 + d AS VARCHAR), {encoded_hour} "
-                "FROM UNNEST(sequence(27,29)) AS dates(d) CROSS JOIN UNNEST(sequence(0,23)) AS hours(h) CROSS JOIN UNNEST(sequence(1,10)) AS rows(r)"
-            ).fetchall()
-            lower_hour = str(start_hour) if integer else repr(f"{start_hour:02d}")
-            cursor.execute(
-                f"INSERT INTO {target} VALUES (1,1000,'20261028',NULL),(2,1000,NULL,{lower_hour})"
-            ).fetchall()
+            lower_hour = _seed_hour_partitions(cursor, target, integer, start_hour)
             semantic_project_factory(
                 {
                     "datasources/warehouse.py": "import marivo.datasource as md\n"
@@ -335,87 +446,29 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
                         assert stats["processedRows"] == raw_stats["processedRows"] == 10
                         assert stats["processedRows"] < day_stats["processedRows"]
                         evidence[mode] = {"sql": sql, "plan": plan, "stats": stats}
-                    # The exact clock predicate retains NULL semantics; the separate day
-                    # bounds must still prune Iceberg's date partitions on full/multi-day scopes.
-                    for label, first, last, day_end, expected_result in (
-                        (
-                            "full_day",
-                            "2026-10-28 00:00:00",
-                            "2026-10-29 00:00:00",
-                            "20261029",
-                            [240, 1320],
-                        ),
-                        (
-                            "cross_day",
-                            "2026-10-28 10:30:00",
-                            "2026-10-29 12:30:00",
-                            "20261030",
-                            [260, 1430],
-                        ),
-                    ):
-                        baseline_sql = f"SELECT count(*),sum(amount) FROM {target} WHERE day >= '20261028' AND day < '{day_end}'"
-                        read.execute(baseline_sql).fetchall()
-                        baseline_stats = dict(read.stats)
-                        read.execute(f"SELECT count(*),sum(amount) FROM {target}").fetchall()
-                        all_stats = dict(read.stats)
-                        independent = (
-                            f"SELECT count(*),sum(amount) FROM {target} "
-                            f"WHERE {native_clock} >= TIMESTAMP '{first}' AND {native_clock} < TIMESTAMP '{last}'"
+                    evidence.update(
+                        _assert_wide_hour_ranges(
+                            read,
+                            session,
+                            metrics,
+                            hour,
+                            identity,
+                            name,
+                            target,
+                            native_clock,
+                            source_trace,
                         )
-                        assert read.execute(independent).fetchone() == expected_result
-                        scope = session.time_scope(start=first, end=last)
-                        for mode in ("scope", "calendar", "range", "and"):
-                            source_trace.native_sql.clear()
-                            if mode in ("scope", "calendar"):
-                                frame = session.observe(
-                                    metrics,
-                                    by=(scope.by(mv.grain("day")),) if mode == "calendar" else (),
-                                    where=None if mode == "calendar" else scope,
-                                )
-                            else:
-                                predicate = (hour >= scope.start) & (hour < scope.end)
-                                if mode == "and":
-                                    predicate = predicate & (identity > 0)
-                                frame = session.observe(metrics, where=predicate)
-                            actual = frame.compute().to_pandas()
-                            assert actual[["n", "total"]].sum().tolist() == expected_result
-                            sql = next(
-                                sql
-                                for sql in source_trace.native_sql
-                                if name in sql and "WHERE" in sql
-                            )
-                            plan = json.loads(
-                                read.execute("EXPLAIN (TYPE IO, FORMAT JSON) " + sql).fetchone()[0]
-                            )
-                            assert any(
-                                item["columnName"] == "day" and item["domain"]["ranges"]
-                                for entry in plan["inputTableColumnInfos"]
-                                for item in entry["constraint"]["columnConstraints"]
-                            ), plan
-                            read.execute(sql).fetchall()
-                            stats = dict(read.stats)
-                            assert 0 < stats["processedRows"] <= baseline_stats["processedRows"]
-                            assert stats["processedRows"] < all_stats["processedRows"]
-                            evidence[f"{label}-{mode}"] = {"sql": sql, "plan": plan, "stats": stats}
-                    destination = os.environ.get("MARIVO_TEMPORAL_EVIDENCE_DIR")
-                    if destination:
-                        Path(destination).mkdir(parents=True, exist_ok=True)
-                        Path(
-                            destination, f"hour-partition-{integer}-{start_hour:02d}.json"
-                        ).write_text(
-                            json.dumps(
-                                {
-                                    "raw_sql": raw_sql,
-                                    "raw_stats": raw_stats,
-                                    "native_sql": native_sql,
-                                    "native_stats": native_stats,
-                                    "day_stats": day_stats,
-                                    "public": evidence,
-                                },
-                                default=str,
-                                sort_keys=True,
-                            )
-                        )
+                    )
+                    _record_hour_partition(
+                        integer,
+                        start_hour,
+                        raw_sql,
+                        raw_stats,
+                        native_sql,
+                        native_stats,
+                        day_stats,
+                        evidence,
+                    )
                 finally:
                     read.close()
         finally:

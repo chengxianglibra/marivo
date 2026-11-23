@@ -7,6 +7,8 @@ import pytest
 
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.model.receipts import canonical_json
+from marivo.datasource.runtime.adapters import SourceSession
+from tests.analysis.statistics.deviation_oracle import forbidden
 from tests.analysis.statistics.pandas_workflows import orders
 from tests.shared_fixtures import DslCaseFactory, run_ids
 
@@ -15,8 +17,6 @@ def test_artifact_rejects_unknown_evidence_without_source_replay(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")
     artifact = orders(case).persist()

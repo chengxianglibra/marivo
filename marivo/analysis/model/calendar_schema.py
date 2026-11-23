@@ -5,13 +5,15 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Literal
 
-from marivo._definition.types import CalendarCoordinate
+from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 from marivo._kernel.time_types import Grain
 from marivo.analysis.model.data_schema import (
     BuiltinCalendarData,
     CalendarDataAxis,
     FrozenCalendarData,
     FrozenCalendarOrigin,
+    FrozenIntervalData,
+    IntervalDataAxis,
 )
 from marivo.analysis.model.data_types import DataColumn
 
@@ -64,4 +66,16 @@ def calendar_descriptor(
         coordinate.timezone,
         name=name,
         frozen=FrozenCalendarData(definition, f"calendar.{token}", direct=direct),
+    )
+
+
+def interval_descriptor(
+    coordinate: IntervalCoordinate, *, token: str, name: str, key: DataColumn
+) -> IntervalDataAxis:
+    return IntervalDataAxis(
+        token,
+        (key,),
+        FrozenIntervalData(f"interval.{token}"),
+        timezone=coordinate.timezone,
+        name=name,
     )

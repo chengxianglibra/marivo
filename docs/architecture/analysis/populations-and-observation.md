@@ -613,10 +613,16 @@ requires its complete period-specific joint keys, not a global region projection
 [frame_population.py](../../../marivo/analysis/dsl/frame_population.py) owns bridges.
 [binding/observe.py](../../../marivo/analysis/binding/observe.py) and
 [binding/membership.py](../../../marivo/analysis/binding/membership.py) own source
-bindings; [binding/sampling.py](../../../marivo/analysis/binding/sampling.py) owns
-internal sample admission. [binding/frame_attribute.py](../../../marivo/analysis/binding/frame_attribute.py)
-and [attribute_rules.py](../../../marivo/analysis/binding/attribute_rules.py) own
-endpoint and contribution rules. [compiler/populations.py](../../../marivo/analysis/compiler/populations.py)
+bindings and internal sample admission. The calendar sample binder checks the
+relationship between internal and parent time grids. [Calendar sample binding](../../../marivo/analysis/binding/calendar_samples.py)
+
+The DSL captures Attribute endpoints and projects their
+parent domains. [Endpoint binding](../../../marivo/analysis/dsl/frame_attribute_binding.py) ·
+[Parent domain projection](../../../marivo/analysis/dsl/frame_attribute_projection.py)
+
+The binding layer validates contribution rules. [Attribute rules](../../../marivo/analysis/binding/attribute_rules.py)
+
+[compiler/populations.py](../../../marivo/analysis/compiler/populations.py)
 and [compiler/observation.py](../../../marivo/analysis/compiler/observation.py)
 compile their explicit dependencies into the shared schedule.
 

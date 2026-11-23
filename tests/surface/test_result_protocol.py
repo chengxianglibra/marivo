@@ -7,6 +7,7 @@ from datetime import datetime
 
 import pytest
 
+import marivo.analysis as mv
 from marivo._kernel.compat import UTC
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult, result_repr
@@ -200,7 +201,6 @@ def test_terminal_type_protocol_and_byte_contract(builder: Callable[[], object])
 def test_session_metadata_satisfies_terminal_protocol(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import marivo.analysis as mv
 
     case = analysis_dsl_case_factory("j2")
     output = case.session.observe(

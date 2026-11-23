@@ -49,7 +49,13 @@ from marivo.analysis.model.frame_structure import (
     PendingDataColumn,
     PendingDataSchema,
 )
-from marivo.analysis.model.time_facts import FramePairedAxisSchema
+from marivo.analysis.model.lineage import SemanticObjectIdentity
+from marivo.analysis.model.time_facts import (
+    FrameAxisTime,
+    FrameObservationContext,
+    FramePairedAxisSchema,
+    FrameTrailingPeriodsWindow,
+)
 from marivo.analysis.session.core import Session
 from marivo.datasource.runtime.adapters import SourceSession
 
@@ -365,12 +371,6 @@ def test_public_zero_axis_zero_value_page_retains_empty_or_unit_row(
 def test_interpretation_records_validate_closed_fields_and_bound_display(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.analysis.model.lineage import SemanticObjectIdentity
-    from marivo.analysis.model.time_facts import (
-        FrameAxisTime,
-        FrameObservationContext,
-        FrameTrailingPeriodsWindow,
-    )
 
     subject = SemanticObjectIdentity("metric", "sales.revenue", "definition")
     context = FrameObservationContext(subject, FrameAxisTime("day"), FrameTrailingPeriodsWindow(7))

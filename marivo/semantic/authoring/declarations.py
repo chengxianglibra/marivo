@@ -16,7 +16,8 @@ from marivo._kernel.symbolic import (
     native_symbol_ref,
     symbol_factory,
 )
-from marivo.semantic._expression_binding import construct_metric_expression
+from marivo._kernel.validation import nonblank_text
+from marivo.semantic._declarative_expression_compiler import construct_metric_expression
 from marivo.semantic._expression_values import (
     MetricExpression,
     NumericMetric,
@@ -79,7 +80,7 @@ def domain(
     """
     ctx = _require_ctx()
     ref = ref_factory.domain(name)
-    if not isinstance(owner, str) or not owner.strip():  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not nonblank_text(owner):
         _raise(
             ErrorKind.INVALID_DOMAIN_OWNER,
             f"{name!r}: owner must be a non-empty string; got {owner!r}.",

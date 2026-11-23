@@ -2,7 +2,7 @@
 
 import itertools
 import math
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 from fractions import Fraction
 
 import pytest
@@ -115,7 +115,6 @@ def test_distinct_union_replaces_all_group_memberships_without_double_counting()
 def test_decimal_quantile_uses_original_rounding_after_exact_rank(
     values: tuple[str, str], q: float
 ) -> None:
-    from decimal import ROUND_HALF_UP, localcontext
 
     dtype = DecimalDataType(22, 2)
     native = tuple(Decimal(value) for value in values)

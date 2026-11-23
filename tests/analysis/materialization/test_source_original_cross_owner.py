@@ -1,10 +1,11 @@
 """Public cross-owner temporal originals have a concrete compacting target."""
 
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -12,6 +13,8 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
@@ -251,12 +254,6 @@ def test_native_calendar_merge_rejects_conflicting_executor_interpretations(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     shifted: bool,
 ) -> None:
-    from datetime import timedelta
-
-    import pandas as pd
-
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = _session(tmp_path, monkeypatch, semantic_project_factory)
     one = catalog_value(session.catalog, "sales.one.amount", kind="measure")

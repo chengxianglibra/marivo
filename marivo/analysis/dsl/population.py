@@ -12,7 +12,11 @@ from marivo._definition import population_builders as build
 from marivo._definition.correspondence import (
     ComparisonAxis,
 )
-from marivo._definition.deferred import PopulationContainsResolver, inspect_capture
+from marivo._definition.deferred import (
+    PopulationContainsResolver,
+    PopulationCountResolver,
+    inspect_capture,
+)
 from marivo._definition.graph import computation_fingerprint
 from marivo._definition.grouping import _CoordinateGrouping, _MembershipGrouping, grouping_binding
 from marivo._definition.population_parameters import (
@@ -26,6 +30,7 @@ from marivo._definition.population_parameters import (
 from marivo._definition.population_parameters import has_parameters as _native_parameters
 from marivo._definition.relations import (
     CalendarKeys,
+    IntervalKeys,
     LiteralPopulation,
     MembershipBinding,
     PopulationDependency,
@@ -55,8 +60,13 @@ from marivo._kernel.grouping import Grouping
 from marivo._kernel.symbolic import EntitySymbol, PathSymbol
 from marivo._kernel.temporal import CalendarAxis, TimeScope
 from marivo.analysis._scope import scope_summary
-from marivo.analysis.core.frame_data import FrameKeyDependency
-from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
+from marivo.analysis.core.frame_data import (
+    FrameKeyDependency,
+    MemoryFrameBacking,
+    StoredFrameBacking,
+)
+from marivo.analysis.dsl._frame_inputs import PopulationFrameInputs, collect_frame_key_inputs
+from marivo.analysis.dsl.population_identities import validate_identity_keys
 from marivo.analysis.dsl.temporal import interval_coordinate
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_contracts import merge_frame_key_inputs
@@ -150,21 +160,7 @@ def _validate_population(
             "population",
         )
     validate_context(value._context, project_root=catalog.workspace_dir, owner=owner)
-    _validate_identity_keys(value._identity_keys, catalog)
-
-
-def _validate_identity_keys(
-    keys: tuple[tuple[str, tuple[str, ...]], ...], catalog: SemanticCatalog
-) -> None:
-    for identity, captured in keys:
-        entity = catalog.get(identity)
-        if not isinstance(entity, Entity) or entity.primary_key != captured:
-            reject(
-                "the captured complete primary-key interpretation",
-                identity,
-                "Rebuild the literal Population with the receiving Catalog's complete identity.",
-                "population",
-            )
+    validate_identity_keys(value._identity_keys, catalog)
 
 
 def _bind_by(
@@ -191,7 +187,7 @@ def _bind_by(
             result.append(bind_field(value, catalog, owner=owner))
         elif isinstance(value, Grouping):
             validate_context(value._context, project_root=catalog.workspace_dir, owner=owner)
-            _validate_identity_keys(value._identity_keys, catalog)
+            validate_identity_keys(value._identity_keys, catalog)
             result.append(value)
         elif isinstance(value, Population):
             _validate_population(value, catalog, owner)
@@ -380,7 +376,7 @@ def _owner(definition: PopulationDependency) -> Owner | None:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class Population(PopulationParameter):
+class Population(PopulationParameter, PopulationFrameInputs):
     """A lazy finite set of complete coordinates; use a Session to execute it.
 
     Acquire through mv.coordinates/product, session.members/population_from or
@@ -434,7 +430,6 @@ class Population(PopulationParameter):
         Existing compatible time keys support rows; missing report time broadcasts only
         over established output coordinates. Use an explicit by=Population for a full time domain.
         """
-        from marivo._definition.deferred import PopulationCountResolver
 
         return MetricExpression(PopulationCountResolver(self), self._context, "numeric")
 
@@ -456,7 +451,6 @@ class Population(PopulationParameter):
         Example: ``population.show()``.
         Constraints: No schema/source reads or evaluation; full axes remain in axes.
         """
-        from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 
         owner = _owner(self._definition)
         fixed_frames = sum(
@@ -793,7 +787,6 @@ def in_population(population: Population | Deferred) -> Deferred | RowPredicate:
 
 
 def _interval_population(scope: TimeScope) -> Population:
-    from marivo._definition.relations import IntervalKeys
 
     coordinate = interval_coordinate(scope)
     return Population(PopulationProgram(IntervalKeys(coordinate), None, (coordinate,)))

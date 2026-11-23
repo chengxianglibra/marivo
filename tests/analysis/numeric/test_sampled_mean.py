@@ -1,11 +1,14 @@
 """Native sample reducers preserve timestamp weighting and NULL checks."""
 
+import json
+import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from math import isnan
 from pathlib import Path
+from time import perf_counter
 from typing import Literal
 from unittest.mock import Mock
 
@@ -16,15 +19,33 @@ import pandas as pd
 import pytest
 import sqlglot
 import sqlglot.expressions as sge
+from psycopg import sql
 
 import marivo.analysis as mv
+from marivo._definition.expressions import MetricNode, PerReduce, RowField, SourceAggregate
+from marivo._definition.types import AxisBinding, ExactRef, SumAll
+from marivo._kernel.refs import ref
+from marivo.analysis.binding.programs import FormulaProgram
+from marivo.analysis.compiler.observation import lower_observation
+from marivo.analysis.compiler.reduction_input import ReductionInput
+from marivo.analysis.compiler.sample_reductions import SampleLowerer, SampleRelation
 from marivo.analysis.materialization import sample_fusion
+from marivo.analysis.methods import _sample_numeric
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.programs import FormulaInput
+from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
+from tests.datasource.environment import clickhouse_analysis as ch
+from tests.datasource.environment import postgres_analysis as pg
+from tests.datasource.environment.clickhouse_analysis import connection as ch_connection
+from tests.datasource.environment.mysql_analysis import connection as mysql_connection
+from tests.datasource.environment.postgres_analysis import connection as postgres_connection
+from tests.datasource.environment.trino_analysis import connection as trino_connection
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
 from tests.shared_fixtures import catalog_value, time_population
 from tests.support.source_trace import capture_source
@@ -47,10 +68,6 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
     reducer: Literal["mean", "min", "max"],
     presence: bool,
 ) -> None:
-    from marivo._definition.expressions import RowField, SourceAggregate
-    from marivo._definition.types import ExactRef, SumAll
-    from marivo._kernel.refs import ref
-    from marivo.analysis.compiler.observation import ReductionInput, lower_observation
 
     table = ibis.table(
         {
@@ -87,12 +104,6 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
         },
         (),
     )
-    from marivo._definition.expressions import PerReduce
-    from marivo._definition.types import AxisBinding
-    from marivo.analysis.binding.programs import FormulaProgram
-    from marivo.analysis.compiler.sample_reductions import SampleLowerer
-    from marivo.analysis.model.data_types import DataColumn, ScalarDataType
-    from marivo.analysis.model.programs import FormulaInput
 
     sample = AxisBinding(field.root, field.ref, (), "field")
     node = PerReduce(prepared.node, (sample,), reducer, nulls="error")
@@ -128,13 +139,6 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
     "marker", [None, "__sample_scope_1", "__sample_present", "__numeric_present"]
 )
 def test_sample_presence_filters_rows_without_discarding_present_nulls(marker: str | None) -> None:
-    from marivo._definition.expressions import RowField, SourceAggregate
-    from marivo._definition.types import ExactRef, SumAll
-    from marivo._kernel.refs import ref
-    from marivo.analysis.binding.programs import FormulaProgram
-    from marivo.analysis.compiler.sample_reductions import SampleLowerer
-    from marivo.analysis.model.data_types import DataColumn, ScalarDataType
-    from marivo.analysis.model.programs import FormulaInput
 
     table = ibis.memtable(
         {"key.0": [1, 2, 3, 4], "value": [10.0, 1000.0, 2000.0, None]},
@@ -297,7 +301,6 @@ def test_clickhouse_set_index_sample_mean_omits_true_filters(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from tests.datasource.environment import clickhouse_analysis as ch
 
     with mean_session(
         "clickhouse",
@@ -506,20 +509,14 @@ def test_native_mean_keeps_backend_null_and_large_value_results(
 
 def _driver_rows(backend: str, case: Case, sql: str) -> tuple[tuple[object, ...], ...]:
     if backend == "postgres":
-        from tests.datasource.environment.postgres_analysis import connection
-
-        with connection() as pg_reader, pg_reader.cursor() as pg_cursor:
+        with postgres_connection() as pg_reader, pg_reader.cursor() as pg_cursor:
             pg_cursor.execute(sql)
             return tuple(pg_cursor.fetchall())
     if backend == "mysql":
-        from tests.datasource.environment.mysql_analysis import connection as mysql_connection
-
         with mysql_connection() as mysql_reader, mysql_reader.cursor() as mysql_cursor:
             mysql_cursor.execute(sql)
             return tuple(mysql_cursor.fetchall())
     if backend == "trino":
-        from tests.datasource.environment.trino_analysis import connection as trino_connection
-
         with trino_connection() as trino_reader:
             trino_cursor = trino_reader.cursor()
             try:
@@ -528,8 +525,6 @@ def _driver_rows(backend: str, case: Case, sql: str) -> tuple[tuple[object, ...]
             finally:
                 trino_cursor.close()
     if backend == "clickhouse":
-        from tests.datasource.environment.clickhouse_analysis import connection as ch_connection
-
         with ch_connection() as ch_reader:
             return tuple(tuple(row) for row in ch_reader.query(sql).result_rows)
     # Reuse the fixture's DuckDB driver connection and its exact configuration.
@@ -928,11 +923,6 @@ def test_trino_four_day_mean_transport_and_cost(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    import json
-    import os
-    from time import perf_counter
-
-    from tests.datasource.environment.trino_analysis import connection
 
     if os.environ.get("MARIVO_TRINO_ANALYSIS_TEST") != "1":
         pytest.skip("Set MARIVO_TRINO_ANALYSIS_TEST=1 after starting the trino profile")
@@ -941,7 +931,7 @@ def test_trino_four_day_mean_transport_and_cost(
         case,
     ):
         assert isinstance(case.source, TableSourceIR)
-        with connection(admin=True) as admin:
+        with trino_connection(admin=True) as admin:
             cursor = admin.cursor()
             try:
                 target = f'iceberg.analysis."{case.source.table}"'
@@ -992,7 +982,7 @@ def test_trino_four_day_mean_transport_and_cost(
             (output / "trino-mean-cost.json").write_text(json.dumps(measurements, indent=2))
             for index, sql in enumerate(trace.native_sql):
                 (output / f"trino-mean-{index}.sql").write_text(sql)
-            with connection() as reader:
+            with trino_connection() as reader:
                 cursor = reader.cursor()
                 try:
                     plan = cursor.execute(
@@ -1817,9 +1807,6 @@ def test_postgres_sample_domain_preserves_nonnullable_char_padding(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from psycopg import sql
-
-    from tests.datasource.environment import postgres_analysis as pg
 
     with mean_session(
         "postgres", "table", tmp_path, monkeypatch, semantic_project_factory, fixed_status=False
@@ -1878,8 +1865,6 @@ def test_native_ordered_samples_preserve_null_endpoints_and_duplicate_time_check
     backend: str,
     profile: str,
 ) -> None:
-    from marivo._definition.expressions import MetricNode, PerReduce
-    from marivo.analysis.compiler.sample_reductions import SampleLowerer, SampleRelation
 
     ordered_checks: list[tuple[tuple[str, str, str], ...]] = []
     original_lower = SampleLowerer.lower
@@ -2010,7 +1995,6 @@ def test_ordered_single_axis_proofs_reach_native_and_local_consumers(
     native: bool,
     sample_axis: str,
 ) -> None:
-    from marivo.analysis.methods import _sample_numeric
 
     with mean_session(
         "duckdb",
@@ -2045,14 +2029,6 @@ def test_ordered_single_axis_proofs_reach_native_and_local_consumers(
 
 
 def test_native_ordered_concat_does_not_inherit_each_fragment_unique_time() -> None:
-    from marivo._definition.expressions import PerReduce, RowField, SourceAggregate
-    from marivo._definition.types import AxisBinding, ExactRef, SumAll
-    from marivo._kernel.refs import ref
-    from marivo.analysis.binding.programs import FormulaProgram
-    from marivo.analysis.compiler.sample_reductions import SampleLowerer
-    from marivo.analysis.model.data_types import DataColumn, ScalarDataType
-    from marivo.analysis.model.programs import FormulaInput
-    from marivo.analysis.model.unique_keys import UniqueKeys
 
     field = RowField(
         ExactRef(ref.measure("sales.facts.amount"), "v1"),

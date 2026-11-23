@@ -11,7 +11,7 @@ import marivo.semantic as ms
 from marivo.analysis.dsl import source_capture
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.runtime.adapters import SourceSession
-from marivo.semantic._deferred_semantics import MetricFacts
+from marivo.semantic._deferred_facts import MetricFacts
 from marivo.semantic.compiled_types import CompiledSemanticState
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.state_consumption import consume_metric_in_state

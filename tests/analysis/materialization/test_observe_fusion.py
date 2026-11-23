@@ -9,11 +9,12 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.materialization import frame_source_preparation
+from marivo.analysis.materialization import frame_source_preparation, query_terminal_fusion
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.numeric.test_remote_numeric_query import _project
-from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.analysis.numeric.test_remote_numeric_query import DATA, _project
+from tests.datasource.environment.clickhouse_analysis import connection
+from tests.datasource.source_cases import SourceData, receipt, source_case, source_params
 from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
@@ -144,8 +145,6 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
             }[backend]
             sql = f"SELECT {algorithm} AS median FROM {case.source.table} WHERE category = 'A'"
             if backend == "clickhouse":
-                from tests.datasource.environment.clickhouse_analysis import connection
-
                 with connection() as reader:
                     row = reader.query(sql).first_row
                     assert row is not None
@@ -181,9 +180,6 @@ def test_count_and_quantiles_share_actual_scan(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from marivo.analysis.materialization import query_key_fusion
-    from tests.analysis.numeric.test_remote_numeric_query import DATA
-    from tests.datasource.source_cases import receipt
 
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
@@ -206,7 +202,7 @@ def test_count_and_quantiles_share_actual_scan(
         with monkeypatch.context() as control:
             control.setattr(frame_source_preparation, "optimize_query", lambda plan: plan)
             control.setattr(
-                query_key_fusion, "fuse_query_terminal", lambda prepared, lowered: lowered
+                query_terminal_fusion, "fuse_query_terminal", lambda prepared, lowered: lowered
             )
             baseline_trace = capture_source(control)
             baseline = query.compute().to_pandas()
@@ -233,8 +229,6 @@ def test_count_and_quantiles_share_actual_scan(
             plans = [str(row[1]) for row in plan]
             assert sum(plan.count("SEQ_SCAN") for plan in plans) == 1
         elif backend == "clickhouse":
-            from tests.datasource.environment.clickhouse_analysis import connection
-
             with connection() as reader:
                 plans = [
                     str(row[0])

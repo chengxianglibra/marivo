@@ -12,6 +12,7 @@ from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+from urllib.error import HTTPError
 from uuid import uuid4
 
 import ibis
@@ -19,6 +20,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from _pytest.mark.structures import ParameterSet
+from psycopg import sql
 
 from marivo.datasource.ir import (
     AiContextIR,
@@ -33,6 +35,11 @@ from marivo.datasource.ir import (
 from marivo.datasource.runtime.adapters import SourceSession, provider_for
 from marivo.datasource.runtime.read_types import SourceIR
 from marivo.datasource.runtime.session_factory import open_source_session
+from tests.datasource.environment import clickhouse_analysis as ch
+from tests.datasource.environment import mysql_analysis as mysql
+from tests.datasource.environment import postgres_analysis as pg
+from tests.datasource.environment import trino_analysis as trino
+from tests.datasource.environment.credentials import password
 from tests.support import json as freeze
 
 PROFILES: dict[str, tuple[str, ...]] = {
@@ -155,6 +162,134 @@ def json_server(
         thread.join()
 
 
+def _duckdb_source_case(
+    profile: str,
+    name: str,
+    columns: str,
+    values: str,
+    monkeypatch: pytest.MonkeyPatch,
+    root: Path,
+    rows: list[dict[str, object]] | None,
+) -> Iterator[Case]:
+    backend = "duckdb"
+    path = root / f"source.{backend}"
+    admin = ibis.duckdb.connect(path)
+    try:
+        admin.raw_sql(f"CREATE TABLE {name} ({columns})")
+        admin.raw_sql(f"INSERT INTO {name} VALUES {values}")
+        admin.raw_sql(f"CREATE VIEW {name}_view AS SELECT * FROM {name}")
+
+    finally:
+        admin.disconnect()
+    fields: dict[str, object] = {"path": str(path), "read_only": True}
+    ds = datasource(backend, fields)
+    with open_source_session(provider_for(backend), ds) as session:
+        environment: dict[str, object] = {"backend": backend, "read_only": True}
+        if profile.startswith("http-json"):
+            auth = profile.endswith("auth")
+            with json_server(auth, rows) as (url, seen):
+                if auth:
+                    session.close()
+                    monkeypatch.setenv(
+                        "MARIVO_SOURCE_PROFILE_HTTP_TOKEN", "synthetic-source_profile"
+                    )
+                    ds = datasource(
+                        backend,
+                        {
+                            "path": str(path),
+                            "read_only": True,
+                            "secrets": [{"type": "http", "scope": url + "/private/"}],
+                        },
+                        {f"http@{url}/private/.token": "MARIVO_SOURCE_PROFILE_HTTP_TOKEN"},
+                    )
+                with (
+                    open_source_session(provider_for(backend), ds)
+                    if auth
+                    else nullcontext(session) as http_session
+                ):
+                    if auth:
+                        with pytest.raises(HTTPError) as failure:
+                            http_session.bind(
+                                JsonSourceIR(url + "/private/redirect"),
+                                source_identity="redirect",
+                            )
+                        assert failure.value.code == 302
+                        assert not any(path == "/outside" for path, _ in seen)
+                        http_session.bind(JsonSourceIR(url + "/outside"), source_identity="outside")
+                        assert seen[-1] == ("/outside", False)
+                    http_source = JsonSourceIR(
+                        url + "/private/data", query_params=(("page", SourceParamIR("page")),)
+                    )
+                    environment["http_requests"] = seen
+                    yield Case(http_session, http_source, environment, {"page": 7})
+                    assert seen[-1] == ("/private/data?page=7", auth)
+                    environment["http_requests"] = [[path, authorized] for path, authorized in seen]
+            return
+        source: SourceIR = TableSourceIR(name + ("_view" if "view" in profile else ""))
+        if profile == "csv":
+            file = root / "facts.csv"
+            file.write_text("id,amount,tenant,revision\n10,2,a,1\n11,,a,2\n11,4,b,1\n")
+            source = CsvSourceIR(str(file))
+        elif profile == "parquet":
+            file = root / "facts.parquet"
+            pq.write_table(pa.Table.from_pylist(ROWS), file)
+            source = ParquetSourceIR(str(file))
+        elif profile == "local-json":
+            file = root / "facts.json"
+            file.write_text(json.dumps(ROWS))
+            source = JsonSourceIR(str(file))
+        yield Case(session, source, environment)
+
+
+def _postgres_source_case(
+    profile: str, name: str, columns: str, values: str, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Case]:
+    backend = "postgres"
+    environment = pg.setup()
+    monkeypatch.setenv("MARIVO_SOURCE_PROFILE_PASSWORD", pg.password())
+    with pg.connection(admin=True) as admin:
+        schema = name if profile.startswith("namespace") else "public"
+        try:
+            if schema != "public":
+                admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+                admin.execute(
+                    sql.SQL("GRANT USAGE ON SCHEMA {} TO analysis_reader").format(
+                        sql.Identifier(schema)
+                    )
+                )
+                admin.execute(f"CREATE TABLE public.{name} (wrong TEXT)")
+            admin.execute(f"CREATE TABLE {schema}.{name} ({columns})")
+            admin.execute(f"INSERT INTO {schema}.{name} VALUES {values}")
+            admin.execute(f"CREATE VIEW {schema}.{name}_view AS SELECT * FROM {schema}.{name}")
+            # Public fixtures inherit SELECT from pg.setup(); isolated schemas need their own grant.
+            if schema != "public":
+                admin.execute(
+                    sql.SQL("GRANT SELECT ON {}.{}, {}.{} TO analysis_reader").format(
+                        sql.Identifier(schema),
+                        sql.Identifier(name),
+                        sql.Identifier(schema),
+                        sql.Identifier(name + "_view"),
+                    )
+                )
+            ds = datasource(
+                backend,
+                {"host": pg.HOST, "port": pg.PORT, "database": pg.DATABASE, "user": pg.READER},
+                {"password": "MARIVO_SOURCE_PROFILE_PASSWORD"},
+            )
+            with open_source_session(provider_for(backend), ds) as session:
+                yield Case(
+                    session,
+                    TableSourceIR(name + ("_view" if "view" in profile else ""), database=schema),
+                    environment,
+                )
+        finally:
+            if schema != "public":
+                admin.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+            else:
+                admin.execute(f"DROP VIEW IF EXISTS public.{name}_view")
+            admin.execute(f"DROP TABLE IF EXISTS public.{name}")
+
+
 @contextmanager
 def source_case(
     backend: str,
@@ -184,134 +319,14 @@ def source_case(
             data.clickhouse_columns,
         )
     if backend == "duckdb":
-        path = root / f"source.{backend}"
-        admin = ibis.duckdb.connect(path)
-        try:
-            admin.raw_sql(f"CREATE TABLE {name} ({columns})")
-            admin.raw_sql(f"INSERT INTO {name} VALUES {values}")
-            admin.raw_sql(f"CREATE VIEW {name}_view AS SELECT * FROM {name}")
-
-        finally:
-            admin.disconnect()
-        fields: dict[str, object] = {"path": str(path), "read_only": True}
-        ds = datasource(backend, fields)
-        with open_source_session(provider_for(backend), ds) as session:
-            environment: dict[str, object] = {"backend": backend, "read_only": True}
-            if profile.startswith("http-json"):
-                from urllib.error import HTTPError
-
-                auth = profile.endswith("auth")
-                with json_server(auth, rows if data is not None else None) as (url, seen):
-                    if auth:
-                        session.close()
-                        monkeypatch.setenv(
-                            "MARIVO_SOURCE_PROFILE_HTTP_TOKEN", "synthetic-source_profile"
-                        )
-                        ds = datasource(
-                            backend,
-                            {
-                                "path": str(path),
-                                "read_only": True,
-                                "secrets": [{"type": "http", "scope": url + "/private/"}],
-                            },
-                            {f"http@{url}/private/.token": "MARIVO_SOURCE_PROFILE_HTTP_TOKEN"},
-                        )
-                    with (
-                        open_source_session(provider_for(backend), ds)
-                        if auth
-                        else nullcontext(session) as http_session
-                    ):
-                        if auth:
-                            with pytest.raises(HTTPError) as failure:
-                                http_session.bind(
-                                    JsonSourceIR(url + "/private/redirect"),
-                                    source_identity="redirect",
-                                )
-                            assert failure.value.code == 302
-                            assert not any(path == "/outside" for path, _ in seen)
-                            http_session.bind(
-                                JsonSourceIR(url + "/outside"), source_identity="outside"
-                            )
-                            assert seen[-1] == ("/outside", False)
-                        http_source = JsonSourceIR(
-                            url + "/private/data", query_params=(("page", SourceParamIR("page")),)
-                        )
-                        environment["http_requests"] = seen
-                        yield Case(http_session, http_source, environment, {"page": 7})
-                        assert seen[-1] == ("/private/data?page=7", auth)
-                        environment["http_requests"] = [
-                            [path, authorized] for path, authorized in seen
-                        ]
-                return
-            source: SourceIR = TableSourceIR(name + ("_view" if "view" in profile else ""))
-            if profile == "csv":
-                file = root / "facts.csv"
-                file.write_text("id,amount,tenant,revision\n10,2,a,1\n11,,a,2\n11,4,b,1\n")
-                source = CsvSourceIR(str(file))
-            elif profile == "parquet":
-                file = root / "facts.parquet"
-                pq.write_table(pa.Table.from_pylist(ROWS), file)
-                source = ParquetSourceIR(str(file))
-            elif profile == "local-json":
-                file = root / "facts.json"
-                file.write_text(json.dumps(ROWS))
-                source = JsonSourceIR(str(file))
-            yield Case(session, source, environment)
+        yield from _duckdb_source_case(
+            profile, name, columns, values, monkeypatch, root, rows if data is not None else None
+        )
         return
     if backend == "postgres":
-        from psycopg import sql
-
-        from tests.datasource.environment import postgres_analysis as pg
-
-        environment = pg.setup()
-        monkeypatch.setenv("MARIVO_SOURCE_PROFILE_PASSWORD", pg.password())
-        with pg.connection(admin=True) as admin:
-            schema = name if profile.startswith("namespace") else "public"
-            try:
-                if schema != "public":
-                    admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
-                    admin.execute(
-                        sql.SQL("GRANT USAGE ON SCHEMA {} TO analysis_reader").format(
-                            sql.Identifier(schema)
-                        )
-                    )
-                    admin.execute(f"CREATE TABLE public.{name} (wrong TEXT)")
-                admin.execute(f"CREATE TABLE {schema}.{name} ({columns})")
-                admin.execute(f"INSERT INTO {schema}.{name} VALUES {values}")
-                admin.execute(f"CREATE VIEW {schema}.{name}_view AS SELECT * FROM {schema}.{name}")
-                # Public fixtures inherit SELECT from pg.setup(); isolated schemas need their own grant.
-                if schema != "public":
-                    admin.execute(
-                        sql.SQL("GRANT SELECT ON {}.{}, {}.{} TO analysis_reader").format(
-                            sql.Identifier(schema),
-                            sql.Identifier(name),
-                            sql.Identifier(schema),
-                            sql.Identifier(name + "_view"),
-                        )
-                    )
-                ds = datasource(
-                    backend,
-                    {"host": pg.HOST, "port": pg.PORT, "database": pg.DATABASE, "user": pg.READER},
-                    {"password": "MARIVO_SOURCE_PROFILE_PASSWORD"},
-                )
-                with open_source_session(provider_for(backend), ds) as session:
-                    yield Case(
-                        session,
-                        TableSourceIR(
-                            name + ("_view" if "view" in profile else ""), database=schema
-                        ),
-                        environment,
-                    )
-            finally:
-                if schema != "public":
-                    admin.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
-                else:
-                    admin.execute(f"DROP VIEW IF EXISTS public.{name}_view")
-                admin.execute(f"DROP TABLE IF EXISTS public.{name}")
+        yield from _postgres_source_case(profile, name, columns, values, monkeypatch)
         return
     if backend == "mysql":
-        from tests.datasource.environment import mysql_analysis as mysql
-
         port = mysql.MARIADB_PORT if profile == "mariadb" else mysql.PORT
         environment = mysql.setup(port=port)
         monkeypatch.setenv("MARIVO_SOURCE_PROFILE_PASSWORD", mysql.password())
@@ -341,13 +356,11 @@ def source_case(
                 cursor.execute(f"DROP TABLE IF EXISTS {name}")
         return
     if backend == "trino":
-        from tests.datasource.environment import trino_analysis as trino
-
         catalog = "iceberg" if profile == "iceberg" else "noniceberg"
         environment = trino.setup() if catalog == "iceberg" else trino.setup_non_iceberg()
         environment["connector"] = "iceberg" if catalog == "iceberg" else "memory"
-        with trino.connection(admin=True, catalog=catalog) as admin:
-            cursor = admin.cursor()
+        with trino.connection(admin=True, catalog=catalog) as trino_admin:
+            cursor = trino_admin.cursor()
             try:
                 cursor.execute(f"CREATE TABLE {catalog}.analysis.{name} ({columns})").fetchall()
                 cursor.execute(f"INSERT INTO {catalog}.analysis.{name} VALUES {values}").fetchall()
@@ -369,25 +382,23 @@ def source_case(
                 cursor.execute(f"DROP TABLE IF EXISTS {catalog}.analysis.{name}").fetchall()
                 cursor.close()
         return
-    from tests.datasource.environment import clickhouse_analysis as ch
-    from tests.datasource.environment.credentials import password
 
     distributed = profile == "distributed"
     environment = ch.setup()
     database = "qualification"
     monkeypatch.setenv("MARIVO_SOURCE_PROFILE_PASSWORD", password())
-    with ch.connection(admin=True) as admin:
+    with ch.connection(admin=True) as client:
         try:
-            admin.command(
+            client.command(
                 f"CREATE TABLE {database}.{name} ({ch_columns}) ENGINE=MergeTree ORDER BY tuple()"
             )
-            admin.insert(
+            client.insert(
                 f"{database}.{name}",
                 [list(row.values()) for row in rows],
                 column_names=list(rows[0]),
             )
             if distributed:
-                admin.command(
+                client.command(
                     f"CREATE TABLE {database}.{name}_distributed AS {database}.{name} "
                     f"ENGINE=Distributed({ch.CLUSTER}, {database}, {name}, rand())"
                 )
@@ -411,8 +422,8 @@ def source_case(
                 )
         finally:
             if distributed:
-                admin.command(f"DROP TABLE IF EXISTS {database}.{name}_distributed")
-            admin.command(f"DROP TABLE IF EXISTS {database}.{name}")
+                client.command(f"DROP TABLE IF EXISTS {database}.{name}_distributed")
+            client.command(f"DROP TABLE IF EXISTS {database}.{name}")
 
 
 def receipt(name: str, value: dict[str, object]) -> None:

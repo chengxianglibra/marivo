@@ -22,7 +22,9 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.runtime.adapters import SourceSession, provider_for
 from marivo.datasource.runtime.session_factory import open_source_session
 from marivo.semantic.reader import SemanticProject
+from marivo.semantic.spi import NumericMetric
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
+from tests.datasource.environment import clickhouse_analysis as clickhouse_environment
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case, source_params
 from tests.shared_fixtures import (
     catalog_get,
@@ -62,6 +64,266 @@ def _data(
             for identity, owner, amount in rows
         ],
     )
+
+
+def _root_datasets(
+    backend: str,
+    mode: str,
+    numeric_type: Literal["int64", "float64", "decimal"],
+    amounts: tuple[int | float | Decimal, ...],
+) -> list[SourceData]:
+    ratio = mode.startswith("ratio")
+    composite = mode == "linear_fanout"
+    spatial_fold = mode.startswith("spatial_")
+    datasets = [
+        _data(
+            backend,
+            [(1, "a", 0), (2, "b", 0)] + ([(3, "c", 0)] if ratio else []),
+            numeric_type,
+        ),
+        _data(
+            backend,
+            [(index, "a", amounts[0]) for index in range(11, 17)]
+            if mode.startswith("ratio_decimal_overflow")
+            else [(11, "a", 10), (14, "a", 5), (12, "a", 20), (22, "a", 1)]
+            if spatial_fold
+            else [(11, "a", amounts[0]), (12, "a", amounts[1])],
+            numeric_type,
+        ),
+        _data(
+            backend,
+            [(21, "a", amounts[2]), (22, "a", amounts[3]), (23, "b", amounts[4])],
+            numeric_type,
+        ),
+    ]
+    if composite:
+        composite_rows = (
+            ((1, "a", 0, 1), (2, "a", 0, 2)),
+            ((11, "a", 10, 1),),
+            ((21, "a", 2, 1),),
+        )
+        datasets = []
+        for composite_root in composite_rows:
+            base = _data(
+                backend,
+                [(identity, owner, amount) for identity, owner, amount, _ in composite_root],
+            )
+            datasets.append(
+                replace(
+                    base,
+                    columns=base.columns + ", tenant BIGINT",
+                    values=",".join(
+                        _data(backend, [(identity, owner, amount)]).values[:-1] + f",{tenant})"
+                        for identity, owner, amount, tenant in composite_root
+                    ),
+                    clickhouse_columns=base.clickhouse_columns + ", tenant Int64",
+                    rows=[
+                        {**record, "tenant": tenant}
+                        for record, (_, _, _, tenant) in zip(base.rows, composite_root, strict=True)
+                    ],
+                )
+            )
+    if mode.startswith("ratio_decimal_overflow") or mode in (
+        "ratio_decimal_boundary",
+        "ratio_decimal_output_overflow",
+    ):
+        datasets = [
+            replace(
+                data,
+                columns=data.columns.replace("DECIMAL(18,6)", "DECIMAL(38,6)"),
+                clickhouse_columns=data.clickhouse_columns.replace(
+                    "Decimal(18,6)", "Decimal(38,6)"
+                ),
+            )
+            for data in datasets
+        ]
+    return datasets
+
+
+def _author_root_cases(
+    stack: ExitStack,
+    root: Path,
+    backend: str,
+    profile: str,
+    mode: str,
+    datasets: list[SourceData],
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> tuple[Case, Case, Case]:
+    composite = mode == "linear_fanout"
+    runtime_mode = mode.startswith(("linear", "ratio"))
+    fold = mode.removeprefix("spatial_")
+    if backend == "duckdb":
+        path = root / "source.duckdb"
+        admin = ibis.duckdb.connect(path)
+        for name, rows in zip(("subjects", "left_facts", "right_facts"), datasets, strict=True):
+            admin.raw_sql(f"CREATE TABLE {name} ({rows.columns})")
+            admin.raw_sql(f"INSERT INTO {name} VALUES {rows.values}")
+        admin.disconnect()
+        connection = stack.enter_context(
+            open_source_session(
+                provider_for("duckdb"),
+                datasource("duckdb", {"path": str(path), "read_only": True}),
+            )
+        )
+        subject, left, right = [
+            Case(connection, TableSourceIR(name), {"backend": "duckdb", "read_only": True})
+            for name in ("subjects", "left_facts", "right_facts")
+        ]
+    else:
+        subject, left, right = [
+            stack.enter_context(source_case(backend, profile, root, monkeypatch, rows))
+            for rows in datasets
+        ]
+    args = {
+        **subject.session.datasource.fields,
+        **{k: md.env(v) for k, v in subject.session.datasource.env_refs.items()},
+    }
+    if isinstance(args.get("user"), str):
+        monkeypatch.setenv("MARIVO_R93_READER", str(args.pop("user")))
+        args["user"] = md.env("MARIVO_R93_READER")
+    argtext = datasource_arguments_source(args)
+    models = "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+    # Native MySQL/ClickHouse timestamps already own their clock.
+    time_parser = (
+        "" if backend in ("mysql", "clickhouse") else ",parse=ms.timestamp(timezone='UTC')"
+    )
+    for name, case in (("subjects", subject), ("left", left), ("right", right)):
+        assert isinstance(case.source, TableSourceIR)
+        primary_key = (
+            ["owner", "tenant"]
+            if name == "subjects" and composite
+            else ["owner" if name == "subjects" else "id"]
+        )
+        models += f"{name}=ms.entity(name={name!r},datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key={primary_key!r})\n"
+        models += f"{name}_owner=ms.dimension_column(name='owner',entity={name},column='owner')\n"
+        if composite:
+            models += (
+                f"{name}_tenant=ms.dimension_column(name='tenant',entity={name},column='tenant')\n"
+            )
+        models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened'{time_parser})\n"
+        if name != "subjects":
+            models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
+            models += f"{name}_subject=ms.relationship(name={name + '_subject'!r},from_entity={name},to_entity=subjects,keys=[ms.join_on({name}_owner,subjects_owner)])\n"
+    models += ""
+    for name in ("left", "right"):
+        models += f"{name}_row={name}_amount\n{name}_clock={name}_time\n"
+        models += (
+            f"@ms.metric()\ndef {name}_total():\n    return {name}_row.sum(time={name}_clock)\n"
+        )
+        if not runtime_mode:
+            models += f"@ms.metric()\ndef {name}_folded():\n    return {name}_total.per({name}_clock).{fold}()\n"
+    files = {
+        "datasources/warehouse.py": "import marivo.datasource as md\n"
+        + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',{argtext})\n",
+        "semantic/sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",
+        "semantic/sales/models.py": models,
+    }
+    semantic_project_factory(
+        {name.removeprefix("semantic/"): content for name, content in files.items()}
+    )
+    return subject, left, right
+
+
+def _assert_rolled_ratio(
+    session: mv.Session,
+    source_trace: SourceTrace,
+    monkeypatch: pytest.MonkeyPatch,
+    members: mv.Population,
+    amounts: tuple[int | float | Decimal, ...],
+    left_total: NumericMetric,
+    right_total: NumericMetric,
+    expression: NumericMetric,
+    result: mv.AnalysisFrame,
+    exported: pd.DataFrame,
+    actual: pd.Series,
+    expected_value: int | float | Decimal,
+) -> Fraction:
+    ratio_total = (Fraction(amounts[0]) + Fraction(amounts[1])) / sum(
+        (Fraction(value) for value in amounts[2:]), Fraction()
+    )
+    assert pd.isna(actual.loc["c"])
+    components = session.observe({"left": left_total, "right": right_total}, by=members).persist()
+    component_rows = components.to_pandas()
+    component_rows = component_rows.set_index(ordinary_columns(components)[0])
+    numerators = component_rows["left"]
+    denominators = component_rows["right"]
+    assert Fraction(numerators.loc["a"]) == Fraction(amounts[0]) + Fraction(amounts[1])
+    assert Fraction(denominators.loc["a"]) == Fraction(amounts[2]) + Fraction(amounts[3])
+    assert denominators.loc["b"] == amounts[4]
+    rolled = session.observe({"value": expression}, by=()).persist()
+    assert rolled.to_pandas()["value"].tolist() == pytest.approx([float(ratio_total)], rel=1e-14)
+    assert rolled.to_pandas()["value"].iloc[0] != pytest.approx(float(expected_value) / 2)
+    # The terminal component output is explicit data, sufficient for an
+    # external calculation without restoring a hidden original graph.
+    before_reads = len(source_trace.native_sql)
+    with monkeypatch.context() as isolated:
+
+        def forbidden(*args: object, **kwargs: object) -> NoReturn:
+            pytest.fail("terminal ratio calculation accessed its source")
+
+        isolated.setattr(SourceSession, "execute", forbidden)
+        saved = components.to_pandas()
+        assert float(saved["left"].sum() / saved["right"].sum()) == pytest.approx(
+            float(ratio_total), rel=1e-14
+        )
+        assert session.persisted_frame(result.artifact_id).to_pandas().equals(exported)
+    assert len(source_trace.native_sql) == before_reads
+    source_trace.record(components)
+    source_trace.record(rolled)
+    return ratio_total
+
+
+def _assert_ratio_overflow(
+    backend: str,
+    cases: tuple[Case, Case, Case],
+    amount: int | float | Decimal,
+    root: Path,
+    session: mv.Session,
+    values: mv.AnalysisFrame,
+    source_trace: SourceTrace,
+) -> None:
+    subject, left, right = cases
+    if backend == "clickhouse":
+        assert isinstance(left.source, TableSourceIR)
+        assert isinstance(right.source, TableSourceIR)
+        with clickhouse_environment.connection(admin=True) as native:
+            sums = [
+                native.query(
+                    f"SELECT sum(amount) FROM qualification.{table} WHERE owner='a'"
+                ).first_row
+                for table in (left.source.table, right.source.table)
+            ]
+        assert all(row is not None for row in sums)
+        numerator, denominator = (row[0] for row in sums if row is not None)
+        assert numerator != amount * 6
+        result = values.persist()
+        actual = result.to_pandas().set_index(ordinary_columns(result)[0])["value"]
+        assert actual.loc["a"] == pytest.approx(float(numerator) / float(denominator))
+        assert actual.loc["b"] == 0 and pd.isna(actual.loc["c"])
+        assert session.persisted_frame(result.artifact_id).to_pandas().equals(result.to_pandas())
+        assert session._runtime.store.resources(session.id) == ()
+        source_trace.record(result)
+        return
+    before = set(root.rglob("*.parquet"))
+    with pytest.raises(AnalysisError) as refused:
+        values.persist()
+    assert refused.value.expected and refused.value.received and refused.value.repair
+    diagnostic = str(refused.value) + str(refused.value.__cause__)
+    assert "overflow" in diagnostic.lower() or "precision" in diagnostic.lower()
+    if backend == "mysql":
+        assert isinstance(refused.value, MaterializationError)
+        assert refused.value.stage == "source_conversion"
+        assert "precision 38" in refused.value.received
+        executions = [
+            owner
+            for owner in source_trace.owners
+            if owner not in (subject.session, left.session, right.session)
+        ]
+        assert executions and all(owner._closed for owner in executions)
+    assert set(root.rglob("*.parquet")) == before
+    assert session._runtime.store.resources(session.id) == ()
+    return
 
 
 @pytest.mark.parametrize(
@@ -129,7 +391,6 @@ def test_independent_roots_and_temporal_fold(
         composite = mode == "linear_fanout"
         ratio = mode.startswith("ratio")
         runtime_mode = linear or ratio
-        fold = mode.removeprefix("spatial_")
         spatial_fold = mode.startswith("spatial_")
         numeric_type: Literal["int64", "float64", "decimal"] = (
             "float64"
@@ -180,138 +441,9 @@ def test_independent_roots_and_temporal_fold(
                 Decimal("0.000001"),
                 Decimal("0.04"),
             )
-        datasets = [
-            _data(
-                backend,
-                [(1, "a", 0), (2, "b", 0)] + ([(3, "c", 0)] if ratio else []),
-                numeric_type,
-            ),
-            _data(
-                backend,
-                [(index, "a", amounts[0]) for index in range(11, 17)]
-                if mode.startswith("ratio_decimal_overflow")
-                else [(11, "a", 10), (14, "a", 5), (12, "a", 20), (22, "a", 1)]
-                if spatial_fold
-                else [(11, "a", amounts[0]), (12, "a", amounts[1])],
-                numeric_type,
-            ),
-            _data(
-                backend,
-                [(21, "a", amounts[2]), (22, "a", amounts[3]), (23, "b", amounts[4])],
-                numeric_type,
-            ),
-        ]
-        if composite:
-            composite_rows = (
-                ((1, "a", 0, 1), (2, "a", 0, 2)),
-                ((11, "a", 10, 1),),
-                ((21, "a", 2, 1),),
-            )
-            datasets = []
-            for composite_root in composite_rows:
-                base = _data(
-                    backend,
-                    [(identity, owner, amount) for identity, owner, amount, _ in composite_root],
-                )
-                datasets.append(
-                    replace(
-                        base,
-                        columns=base.columns + ", tenant BIGINT",
-                        values=",".join(
-                            _data(backend, [(identity, owner, amount)]).values[:-1] + f",{tenant})"
-                            for identity, owner, amount, tenant in composite_root
-                        ),
-                        clickhouse_columns=base.clickhouse_columns + ", tenant Int64",
-                        rows=[
-                            {**record, "tenant": tenant}
-                            for record, (_, _, _, tenant) in zip(
-                                base.rows, composite_root, strict=True
-                            )
-                        ],
-                    )
-                )
-        if mode.startswith("ratio_decimal_overflow") or mode in (
-            "ratio_decimal_boundary",
-            "ratio_decimal_output_overflow",
-        ):
-            datasets = [
-                replace(
-                    data,
-                    columns=data.columns.replace("DECIMAL(18,6)", "DECIMAL(38,6)"),
-                    clickhouse_columns=data.clickhouse_columns.replace(
-                        "Decimal(18,6)", "Decimal(38,6)"
-                    ),
-                )
-                for data in datasets
-            ]
-        if backend == "duckdb":
-            path = root / "source.duckdb"
-            admin = ibis.duckdb.connect(path)
-            for name, rows in zip(("subjects", "left_facts", "right_facts"), datasets, strict=True):
-                admin.raw_sql(f"CREATE TABLE {name} ({rows.columns})")
-                admin.raw_sql(f"INSERT INTO {name} VALUES {rows.values}")
-            admin.disconnect()
-            connection = stack.enter_context(
-                open_source_session(
-                    provider_for("duckdb"),
-                    datasource("duckdb", {"path": str(path), "read_only": True}),
-                )
-            )
-            subject, left, right = [
-                Case(connection, TableSourceIR(name), {"backend": "duckdb", "read_only": True})
-                for name in ("subjects", "left_facts", "right_facts")
-            ]
-        else:
-            subject, left, right = [
-                stack.enter_context(source_case(backend, profile, root, monkeypatch, rows))
-                for rows in datasets
-            ]
-        args = {
-            **subject.session.datasource.fields,
-            **{k: md.env(v) for k, v in subject.session.datasource.env_refs.items()},
-        }
-        if isinstance(args.get("user"), str):
-            monkeypatch.setenv("MARIVO_R93_READER", str(args.pop("user")))
-            args["user"] = md.env("MARIVO_R93_READER")
-        argtext = datasource_arguments_source(args)
-        models = "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        # Native MySQL/ClickHouse timestamps already own their clock.
-        time_parser = (
-            "" if backend in ("mysql", "clickhouse") else ",parse=ms.timestamp(timezone='UTC')"
-        )
-        for name, case in (("subjects", subject), ("left", left), ("right", right)):
-            assert isinstance(case.source, TableSourceIR)
-            primary_key = (
-                ["owner", "tenant"]
-                if name == "subjects" and composite
-                else ["owner" if name == "subjects" else "id"]
-            )
-            models += f"{name}=ms.entity(name={name!r},datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key={primary_key!r})\n"
-            models += (
-                f"{name}_owner=ms.dimension_column(name='owner',entity={name},column='owner')\n"
-            )
-            if composite:
-                models += f"{name}_tenant=ms.dimension_column(name='tenant',entity={name},column='tenant')\n"
-            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened'{time_parser})\n"
-            if name != "subjects":
-                models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
-                models += f"{name}_subject=ms.relationship(name={name + '_subject'!r},from_entity={name},to_entity=subjects,keys=[ms.join_on({name}_owner,subjects_owner)])\n"
-        models += ""
-        for name in ("left", "right"):
-            models += f"{name}_row={name}_amount\n{name}_clock={name}_time\n"
-            models += (
-                f"@ms.metric()\ndef {name}_total():\n    return {name}_row.sum(time={name}_clock)\n"
-            )
-            if not runtime_mode:
-                models += f"@ms.metric()\ndef {name}_folded():\n    return {name}_total.per({name}_clock).{fold}()\n"
-        files = {
-            "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',{argtext})\n",
-            "semantic/sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",
-            "semantic/sales/models.py": models,
-        }
-        semantic_project_factory(
-            {name.removeprefix("semantic/"): content for name, content in files.items()}
+        datasets = _root_datasets(backend, mode, numeric_type, amounts)
+        subject, left, right = _author_root_cases(
+            stack, root, backend, profile, mode, datasets, monkeypatch, semantic_project_factory
         )
         session = mv.session.get_or_create("r93-multiroot", timezone="UTC")
         members = session.members(
@@ -349,51 +481,9 @@ def test_independent_roots_and_temporal_fold(
             ),
         )
         if mode.startswith("ratio_decimal_overflow") or mode == "ratio_decimal_output_overflow":
-            if backend == "clickhouse":
-                from tests.datasource.environment import clickhouse_analysis as ch
-
-                assert isinstance(left.source, TableSourceIR)
-                assert isinstance(right.source, TableSourceIR)
-                with ch.connection(admin=True) as native:
-                    sums = [
-                        native.query(
-                            f"SELECT sum(amount) FROM qualification.{table} WHERE owner='a'"
-                        ).first_row
-                        for table in (left.source.table, right.source.table)
-                    ]
-                assert all(row is not None for row in sums)
-                numerator, denominator = (row[0] for row in sums if row is not None)
-                assert numerator != amounts[0] * 6
-                result = values.persist()
-                actual = result.to_pandas().set_index(ordinary_columns(result)[0])["value"]
-                assert actual.loc["a"] == pytest.approx(float(numerator) / float(denominator))
-                assert actual.loc["b"] == 0 and pd.isna(actual.loc["c"])
-                assert (
-                    session.persisted_frame(result.artifact_id)
-                    .to_pandas()
-                    .equals(result.to_pandas())
-                )
-                assert session._runtime.store.resources(session.id) == ()
-                source_trace.record(result)
-                return
-            before = set(root.rglob("*.parquet"))
-            with pytest.raises(AnalysisError) as refused:
-                values.persist()
-            assert refused.value.expected and refused.value.received and refused.value.repair
-            diagnostic = str(refused.value) + str(refused.value.__cause__)
-            assert "overflow" in diagnostic.lower() or "precision" in diagnostic.lower()
-            if backend == "mysql":
-                assert isinstance(refused.value, MaterializationError)
-                assert refused.value.stage == "source_conversion"
-                assert "precision 38" in refused.value.received
-                executions = [
-                    owner
-                    for owner in source_trace.owners
-                    if owner not in (subject.session, left.session, right.session)
-                ]
-                assert executions and all(owner._closed for owner in executions)
-            assert set(root.rglob("*.parquet")) == before
-            assert session._runtime.store.resources(session.id) == ()
+            _assert_ratio_overflow(
+                backend, (subject, left, right), amounts[0], root, session, values, source_trace
+            )
             return
         result = values.persist()
         exported = result.to_pandas()
@@ -435,42 +525,20 @@ def test_independent_roots_and_temporal_fold(
             assert isinstance(actual.loc["a"], Decimal) and isinstance(actual.loc["b"], Decimal)
         ratio_total = None
         if ratio:
-            ratio_total = (Fraction(amounts[0]) + Fraction(amounts[1])) / sum(
-                (Fraction(value) for value in amounts[2:]), Fraction()
+            ratio_total = _assert_rolled_ratio(
+                session,
+                source_trace,
+                monkeypatch,
+                members,
+                amounts,
+                left_total,
+                right_total,
+                expression,
+                result,
+                exported,
+                actual,
+                expected[mode],
             )
-            assert pd.isna(actual.loc["c"])
-            components = session.observe(
-                {"left": left_total, "right": right_total}, by=members
-            ).persist()
-            component_rows = components.to_pandas()
-            component_rows = component_rows.set_index(ordinary_columns(components)[0])
-            numerators = component_rows["left"]
-            denominators = component_rows["right"]
-            assert Fraction(numerators.loc["a"]) == Fraction(amounts[0]) + Fraction(amounts[1])
-            assert Fraction(denominators.loc["a"]) == Fraction(amounts[2]) + Fraction(amounts[3])
-            assert denominators.loc["b"] == amounts[4]
-            rolled = session.observe({"value": expression}, by=()).persist()
-            assert rolled.to_pandas()["value"].tolist() == pytest.approx(
-                [float(ratio_total)], rel=1e-14
-            )
-            assert rolled.to_pandas()["value"].iloc[0] != pytest.approx(float(expected[mode]) / 2)
-            # The terminal component output is explicit data, sufficient for an
-            # external calculation without restoring a hidden original graph.
-            before_reads = len(source_trace.native_sql)
-            with monkeypatch.context() as isolated:
-
-                def forbidden(*args: object, **kwargs: object) -> NoReturn:
-                    pytest.fail("terminal ratio calculation accessed its source")
-
-                isolated.setattr(SourceSession, "execute", forbidden)
-                saved = components.to_pandas()
-                assert float(saved["left"].sum() / saved["right"].sum()) == pytest.approx(
-                    float(ratio_total), rel=1e-14
-                )
-                assert session.persisted_frame(result.artifact_id).to_pandas().equals(exported)
-            assert len(source_trace.native_sql) == before_reads
-            source_trace.record(components)
-            source_trace.record(rolled)
         assert session._runtime.store.resources(session.id) == ()
         source_trace.save(
             f"c04-c06-source-{backend}-{mode}",

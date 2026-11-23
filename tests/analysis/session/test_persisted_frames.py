@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -80,7 +81,6 @@ def test_directory_is_source_and_payload_free_read_only_metadata(
     monkeypatch.setattr(LocalFrameServices, "open_frame", forbidden)
     monkeypatch.setattr(LocalFrameServices, "read_data", forbidden)
     # Even absent result files must not prevent metadata discovery.
-    import shutil
 
     shutil.rmtree(session._runtime.store.layout.artifact_dir(session.id, saved.artifact_id))
     original_read = session._runtime.store._read

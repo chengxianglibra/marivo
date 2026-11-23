@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from ibis.common.deferred import Resolver
+from ibis.common.deferred import Attr, BinaryOperator, Call, Just, Resolver, UnaryOperator, Variable
 
+from marivo._definition.deferred import RescaleResolver, attribute_name
 from marivo._definition.expressions import (
     EntityCount,
     MeasureAssertion,
@@ -27,22 +28,18 @@ from marivo.analysis.binding.attribute_rules import (
     RuleSubtract,
 )
 from marivo.analysis.model.errors import CoreRuleError
+from marivo.semantic.spi import arith_unit as _arith_unit
+from marivo.semantic.spi import (
+    linear_unit,
+    multiply_unit_states,
+    ratio_unit,
+    render_unit,
+    unit_state,
+)
 
 
 def row_unit(node: RowNode) -> str | None:
     """Read captured row units through the existing semantic unit algebra."""
-    from ibis.common.deferred import (
-        Attr,
-        BinaryOperator,
-        Call,
-        Just,
-        UnaryOperator,
-        Variable,
-    )
-
-    from marivo._definition.deferred import attribute_name
-    from marivo.semantic.spi import arith_unit as _arith_unit
-    from marivo.semantic.spi import linear_unit
 
     if isinstance(node, RowField):
         return node.unit
@@ -51,7 +48,6 @@ def row_unit(node: RowNode) -> str | None:
     inputs = tuple(row_unit(item) for item in node.inputs)
 
     def visit(recipe: Resolver) -> tuple[str | None, bool]:
-        from marivo._definition.deferred import RescaleResolver
 
         if isinstance(recipe, RescaleResolver):
             return recipe.unit, False
@@ -102,11 +98,6 @@ def row_unit(node: RowNode) -> str | None:
 def component_unit(
     node: SourceAggregate | SourceWeightedMean | EntityCount, role: str
 ) -> str | None:
-    from marivo.semantic.spi import (
-        multiply_unit_states,
-        render_unit,
-        unit_state,
-    )
 
     if role in (
         "input_count",
@@ -134,10 +125,6 @@ def source_component_unit(source: AttributeSourceRequest, role: str) -> str | No
 
 def rule_unit(rule: AttributeRule) -> str | None:
     """Derive a closed rule's unit without preparing or reading sources."""
-    from marivo.semantic.spi import (
-        linear_unit,
-        ratio_unit,
-    )
 
     operation = rule.operation
     if isinstance(operation, AdditiveSource):

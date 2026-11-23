@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import textwrap
 from dataclasses import replace
 from datetime import timedelta
@@ -19,7 +20,7 @@ from marivo._kernel.refs import DatasourceKind, Ref
 from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.credentials import remember_injected
 from marivo.datasource.inspection.inspection import _inspect_in_project
-from marivo.datasource.inspection.projection import _ibis_table_type
+from marivo.datasource.inspection.projection import _canonical_catalog_type, _ibis_table_type
 from marivo.datasource.inspection.source import SourceInspection
 from marivo.datasource.metadata_types import ColumnMetadata
 from marivo.datasource.runtime.connections import DatasourceConnectionService
@@ -261,7 +262,6 @@ def test_loaded_source_check_retains_project_before_connection(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
-    import shutil
 
     catalog, _ = _catalog(tmp_path, monkeypatch, semantic_project_factory)
     other_root = tmp_path / "other-project"
@@ -1021,7 +1021,6 @@ def test_unavailable_type_propagates_through_bound_dimension_dependencies(
 @pytest.mark.parametrize("engine", ["mysql", "postgres", "trino"])
 @pytest.mark.parametrize("physical", ["char", "char(1)", "character(8)", "CHAR(8)"])
 def test_char_mapping_retains_physical_metadata(engine: str, physical: str) -> None:
-    from marivo.datasource.inspection.projection import _canonical_catalog_type
 
     assert _canonical_catalog_type(physical, backend_type=engine) == physical.lower()
     assert _ibis_table_type(physical, backend_type=engine) == "string"

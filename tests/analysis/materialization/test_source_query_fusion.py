@@ -2,24 +2,30 @@
 
 from collections.abc import Callable
 from pathlib import Path
+from unittest.mock import Mock
 
 import duckdb
+import ibis
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 from marivo._definition.query import TopValues
-from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.lowered_query import LoweredRead
+from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
+from marivo.analysis.compiler.query_stages import (
     FrameCompute,
     LocalCompute,
     NativeRead,
     SourceReadStage,
 )
-from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
-from marivo.analysis.materialization import graph_local_execution, graph_source_execution
+from marivo.analysis.compiler.source_predicates import parameter_string_comparisons
+from marivo.analysis.materialization import graph_local_execution, source_reads
 from marivo.analysis.materialization.graph_local_execution import LocalKernel
-from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.materialization.query_key_values import _distinct
+from marivo.analysis.materialization.query_parameters import _replace_parameter
+from marivo.analysis.methods import _sample_numeric
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
@@ -38,7 +44,7 @@ def _capture_stages(
     reads: list[tuple[SourceReadStage, LoweredRead]] = []
     outputs: list[StageOutput] = []
     locals_: list[tuple[LocalCompute | FrameCompute, tuple[StageOutput, ...], StageOutput]] = []
-    read_stage = graph_source_execution.read_stage
+    read_stage = source_reads.read_stage
     run_local = graph_local_execution.run_local
 
     def read(
@@ -63,7 +69,7 @@ def _capture_stages(
         locals_.append((stage, inputs, output))
         return output
 
-    monkeypatch.setattr(graph_source_execution, "read_stage", read)
+    monkeypatch.setattr(source_reads, "read_stage", read)
     monkeypatch.setattr(graph_local_execution, "run_local", local)
     return reads, outputs, locals_
 
@@ -176,11 +182,6 @@ def test_collated_strings_keep_host_comparison_and_order(
 def test_collated_string_membership_uses_exact_utf8_bytes(
     tmp_path: Path, default_collation: str
 ) -> None:
-    import ibis
-
-    from marivo.analysis.compiler.source_predicates import parameter_string_comparisons
-    from marivo.analysis.materialization.query_key_fusion import _distinct
-    from marivo.analysis.materialization.query_parameters import _replace_parameter
 
     database = tmp_path / "membership.duckdb"
     with duckdb.connect(str(database)) as connection:
@@ -766,9 +767,6 @@ def test_public_frame_bridge_evidence_keeps_producer_and_consumer_scopes(
 def test_native_sample_domain_keeps_returned_string_identity(
     collated_source_query_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from unittest.mock import Mock
-
-    from marivo.analysis.methods import _sample_numeric
 
     session = collated_source_query_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")

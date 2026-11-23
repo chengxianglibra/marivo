@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 
-from marivo.analysis.compiler.attribute_inputs import AttributeRootLayout, input_failure
+from marivo.analysis.compiler.attribute_inputs import input_failure
 from marivo.analysis.compiler.original import ComponentLayout
+from marivo.analysis.compiler.query_stages import AttributeRootLayout
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.unique_keys import UniqueKeys
 

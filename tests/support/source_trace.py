@@ -19,6 +19,7 @@ from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacki
 from marivo.analysis.materialization import query_parameters
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_types import DataColumn
+from marivo.datasource.engines.calendar_relations import CalendarData
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.datasource.runtime.read_types import (
     BoundSource,
@@ -132,7 +133,6 @@ def capture_source(monkeypatch: pytest.MonkeyPatch, *, measure_cost: bool = Fals
                 trace.returned_arrow_bytes.append(
                     pa.Table.from_pandas(result, preserve_index=False).nbytes
                 )
-            from marivo.datasource.engines.calendar_relations import CalendarData
 
             trace.calendar_payload_bytes.append(
                 sum(len(node.payload.encode()) for node in read.expression.op().find(CalendarData))

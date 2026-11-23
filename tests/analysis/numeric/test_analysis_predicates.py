@@ -1,12 +1,20 @@
 """Strict selection with independent row and consumption expectations."""
 
+import os
+import subprocess
+import sys
 from decimal import Decimal
 
+import duckdb
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.model.errors import CoreRuleError
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import (
     DslCase,
@@ -45,7 +53,6 @@ def _amounts(case: DslCase) -> mv.AnalysisFrame:
 def test_numeric_string_category_persists_and_exports(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
@@ -112,11 +119,6 @@ def test_public_multi_input_source_and_exported_pandas(
 def test_nullable_selection_keeps_positive_values_and_offline_export(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import os
-    import subprocess
-    import sys
-
-    import duckdb
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -179,7 +181,6 @@ assert len(terminal_runs(session)) == 2
 def test_public_decimal_field_comparison(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -210,10 +211,6 @@ def test_public_duration_field_comparison(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
     export_dsl_parquet_models(case, case.root)
@@ -236,7 +233,6 @@ def test_public_duration_field_comparison(
     result = values.where(values["value"] == values["value"]).persist()
     frame = result.to_pandas()
     assert set(frame[ordinary_columns(result)[0]]) == expected
-    import pandas as pd
 
     dtype = frame["value"].dtype
     assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.duration("ns")

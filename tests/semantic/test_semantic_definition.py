@@ -7,12 +7,16 @@ import inspect
 import textwrap
 from pathlib import Path
 
+import ibis
 import pytest
 from ibis.common.deferred import Deferred
 
+import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._kernel.refs import Ref, SemanticKindTag
 from marivo._kernel.refs import ref as ref_factory
+from marivo.datasource.runtime.connections import DatasourceConnectionService
+from marivo.semantic import _expression_binding
 from marivo.semantic._deferred_semantics import consume_field, consume_predicate
 from marivo.semantic._definition_expression import describe_expression
 from marivo.semantic._definition_expression_types import (
@@ -141,11 +145,6 @@ def test_contract_reads_do_not_execute_or_print(
     catalog: ms.SemanticCatalog,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import ibis
-
-    import marivo.analysis as mv
-    from marivo.datasource.runtime.connections import DatasourceConnectionService
-    from marivo.semantic import _expression_binding
 
     references = [
         entry.id
@@ -177,7 +176,6 @@ def test_contract_reads_do_not_execute_or_print(
 def test_description_does_not_change_fingerprint(
     workspace: Path, catalog: ms.SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.semantic import _expression_binding
 
     def unavailable(*args: object, **kwargs: object) -> _UnsupportedExpression:
         return _UnsupportedExpression("description_unavailable")

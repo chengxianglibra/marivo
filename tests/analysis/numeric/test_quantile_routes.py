@@ -11,12 +11,14 @@ import pytest
 from marivo._definition.expressions import RowField, SourceAggregate
 from marivo._definition.types import ExactRef, SumAll
 from marivo._kernel.refs import ref
-from marivo.analysis.compiler.graph_plan import ReductionRead, SourceReadStage
-from marivo.analysis.compiler.observation import ReductionInput, lower_observation
+from marivo.analysis.compiler.observation import lower_observation
+from marivo.analysis.compiler.query_stages import ReductionRead, SourceReadStage
+from marivo.analysis.compiler.reduction_input import ReductionInput
 from marivo.analysis.core.value_types import data_type
-from marivo.analysis.materialization.graph_source_execution import _complete_source_frame
+from marivo.analysis.materialization.source_completion import _complete_source_frame
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.semantic.errors import SemanticExpressionError
+from tests.datasource.aggregate_fixtures import compiler_backend
 
 
 def _reduction(
@@ -50,7 +52,6 @@ def test_quantile_native_sql_preserves_algorithm(backend: str) -> None:
         if (approximate and backend == "postgres") or (not approximate and backend == "trino"):
             continue
         expression, _ = lower_observation(reduction, table, {"sales.facts.x": "x"}, ())
-        from tests.datasource.aggregate_fixtures import compiler_backend
 
         sql = compiler_backend(backend).compile(expression).lower()
         if approximate:

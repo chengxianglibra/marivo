@@ -2,15 +2,27 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import sys
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
+import duckdb
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.datasource.errors import DatasourceConnectionError
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
+from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.numeric.pandas_coordinates import plain
 from tests.shared_fixtures import (
     DslCase,
@@ -20,6 +32,7 @@ from tests.shared_fixtures import (
     export_dsl_parquet_models,
     terminal_runs,
 )
+from tests.support.json import encode
 from tests.support.paths import PROJECT_ROOT
 
 Order = Literal["ascending", "descending"]
@@ -102,9 +115,6 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    import duckdb
-
-    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
@@ -230,9 +240,6 @@ def test_display_precision_matrix(
     parquet: bool,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    import duckdb
-    import pyarrow as pa
-    import pyarrow.parquet as pq
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
@@ -314,13 +321,6 @@ def test_static_display_errors_are_zero_read(
 def test_cold_display_continuations(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import os
-    import shutil
-    import subprocess
-    import sys
-
-    from tests.analysis.materialization.domain_recovery_worker import snapshot
-    from tests.support.json import encode
 
     case = analysis_dsl_case_factory("j4_ties")
     export_dsl_parquet_models(case, case.root)
@@ -385,10 +385,6 @@ assert len(terminal_runs(session)) == before
 def test_shared_rank_fresh_source_fixed_and_no_fallback(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import duckdb
-
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     case = analysis_dsl_case_factory("j2")
     values = _values(case)
@@ -413,7 +409,6 @@ def test_shared_rank_fresh_source_fixed_and_no_fallback(
     assert _rank(plain(values.compute()), ties="dense")["key_0"].tolist()[0] == "B"
     assert _rank(plain(captured), ties="dense").head(1)["key_0"].tolist() == ["A"]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    from marivo.datasource.errors import DatasourceConnectionError
 
     with pytest.raises(DatasourceConnectionError):
         values.compute()
@@ -423,9 +418,6 @@ def test_shared_rank_fresh_source_fixed_and_no_fallback(
 def test_complete_composite_keys_scalar_columns_and_nulls(
     analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from datetime import date
-
-    import duckdb
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:

@@ -28,12 +28,8 @@ from marivo._definition.deferred import (
 from marivo._definition.types import (
     SumNone,
 )
-from marivo.semantic._deferred_semantics import (
-    MetricFacts,
-    _fail,
-    _inspect,
-    consume_metric,
-)
+from marivo.semantic._deferred_facts import MetricFacts, _fail
+from marivo.semantic._deferred_semantics import _inspect, consume_metric
 from marivo.semantic.definition_resolution import _Resolver, author_value
 from marivo.semantic.errors import ErrorKind
 from marivo.semantic.expressions.objects import _Entity, _Relationship

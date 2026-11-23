@@ -1,5 +1,6 @@
 """Variant attribute identities stay attached to their public receivers."""
 
+from dataclasses import fields, is_dataclass
 from datetime import timedelta
 
 import pytest
@@ -7,26 +8,30 @@ import pytest
 import marivo.analysis as mv
 from marivo._definition.windows import AllHistory, TrailingDuration
 from marivo._help.render import render_help_text
-from marivo.analysis.core.frame_method_facts import (
-    FrameAdditiveMethod,
-    FrameAttributeMetric,
-    FrameDivisionMethod,
+from marivo.analysis.core.frame_level_facts import (
     FrameLevelAdditiveMethod,
     FrameLevelDivisionMethod,
     FrameLevelLinearMethod,
     FrameLevelLinearTerm,
     FrameLevelRatioMethod,
     FrameLevelSupport,
+)
+from marivo.analysis.core.frame_method_facts import (
+    FrameAdditiveMethod,
+    FrameAttributeMetric,
+    FrameDivisionMethod,
     FrameLinearMethod,
     FrameLinearTerm,
     FrameMethodCoordinate,
     FrameMethodParent,
     FrameMethodSupport,
     FrameRatioMethod,
+    FrameShapleyMethod,
+)
+from marivo.analysis.core.frame_shapley_facts import (
     FrameShapleyCapture,
     FrameShapleyGame,
     FrameShapleyLeaf,
-    FrameShapleyMethod,
     FrameShapleyNativeQuantile,
     FrameShapleyQuantile,
     FrameShapleyQuery,
@@ -126,7 +131,6 @@ def test_attribute_record_fields_have_exact_static_public_help(
     owner: type[object],
     target: str,
 ) -> None:
-    from dataclasses import fields, is_dataclass
 
     assert is_dataclass(owner)
     for field in fields(owner):

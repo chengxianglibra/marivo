@@ -12,7 +12,7 @@ from marivo.analysis.binding.correspondence import ComparisonEndpoint
 from marivo.analysis.model.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 
 if TYPE_CHECKING:
-    from marivo.analysis.core.frame_expression import (
+    from marivo.analysis.core.frame_operations import (
         AlignFrameValues,
         CompareFrameValues,
         FrameUnaryOperationKind,

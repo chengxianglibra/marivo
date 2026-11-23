@@ -13,8 +13,10 @@ import marivo.analysis as mv
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import frame_evaluation
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization.graph_reading import FrameReader, OutputRead
 from marivo.analysis.model.data_schema import DataAxis, DataColumn, DataSchema
 from marivo.analysis.model.data_types import ScalarDataType
 from marivo.analysis.model.frame_integrity import validate_current_facts
@@ -22,8 +24,11 @@ from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMe
 from marivo.analysis.model.layout_facts import (
     FrameAlignmentAxis,
     FrameAxisGroup,
+    FrameDecomposition,
+    FrameDecompositionField,
     FrameDerivedValueInput,
     FrameFixedGroup,
+    FrameLevelTarget,
     FrameNamedValueInput,
     FramePairStatisticContext,
     FrameShareContext,
@@ -477,11 +482,6 @@ def test_pending_statistic_fixed_groups_rebind_without_replacing_operand_snapsho
 def test_nested_target_context_keeps_parent_axes_without_claiming_fine_axes(
     local: LocalFrameServices,
 ) -> None:
-    from marivo.analysis.model.layout_facts import (
-        FrameDecomposition,
-        FrameDecompositionField,
-        FrameLevelTarget,
-    )
 
     frame = _frame(local)
     share = frame.select({"share": frame["input.x"].share(along=(frame.axes[1],))})
@@ -513,7 +513,6 @@ def test_schema_and_frame_cards_disclose_bounded_alignment_directory_without_row
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.materialization.graph_reading import FrameReader, OutputRead
 
     frame = _frame(local)
     leaf = frame.select({"v": frame["input.x"]})
@@ -539,8 +538,6 @@ def test_comparison_schema_cards_disclose_names_without_reading_data(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.materialization import frame_evaluation
-    from marivo.analysis.materialization.graph_reading import FrameReader, OutputRead
 
     frame = _frame(local)
     current = frame.select({"revenue": frame["input.x"]})

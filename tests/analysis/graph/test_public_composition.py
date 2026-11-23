@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+from dataclasses import replace
 from typing import Literal
 
 import pandas as pd
@@ -16,6 +18,7 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.terminal_protocol import InvocationInput
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import (
     DslCase,
@@ -221,7 +224,6 @@ def _correlation_input(case: DslCase) -> mv.AnalysisFrame:
 def test_public_exact_cold_output_after_source_and_models_are_deleted(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import shutil
 
     case = analysis_dsl_case_factory("j4")
     saved = _correlation_input(case).persist()
@@ -267,7 +269,6 @@ def test_members_schema_preflight_does_not_submit_business_rows(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j1")
 
@@ -313,7 +314,6 @@ def test_large_integer_threshold_retains_exact_comparison(
 def test_public_parquet_spearman_retains_source_reads(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from dataclasses import replace
 
     case = analysis_dsl_case_factory("j4_ties")
     export_dsl_parquet_models(case, case.root)

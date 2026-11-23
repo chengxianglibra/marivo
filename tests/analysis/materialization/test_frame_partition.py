@@ -6,6 +6,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 import pyarrow as pa
@@ -13,11 +14,28 @@ import pyarrow.compute as pc
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition.correspondence import CalendarCorrespondence
+from marivo._definition.query import (
+    ReduceValues,
+    SelectValues,
+    Statistic,
+    ValueBinary,
+    ValuePartition,
+    ValueSlot,
+)
+from marivo.analysis.compiler.frame_plan import frame_program
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.model.data_schema import DataAxis, DataColumn, DataSchema
+from marivo.analysis.methods import query_values
+from marivo.analysis.model.data_schema import (
+    DataAxis,
+    DataColumn,
+    DataSchema,
+    IntervalDataAxis,
+    PairedDataAxis,
+)
 from marivo.analysis.model.data_types import (
     DataType,
     DecimalDataType,
@@ -26,7 +44,8 @@ from marivo.analysis.model.data_types import (
     TimestampDataType,
 )
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
-from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value
+from marivo.analysis.session.core import Session
+from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value, time_population
 
 INT64 = ScalarDataType("int64")
 
@@ -303,7 +322,6 @@ def test_public_pending_values_partition_and_reopened_source_free_share(
 def test_empty_scalar_over_and_all_null_statistic_keep_domains(
     local: LocalFrameServices, tmp_path: Path
 ) -> None:
-    from marivo.analysis.session.core import Session
 
     session = Session._from_runtime(
         DatasetRuntime.create(tmp_path / "scalar", "scalar", timezone="UTC")
@@ -328,9 +346,6 @@ def test_empty_scalar_over_and_all_null_statistic_keep_domains(
 def test_over_keeps_interval_and_paired_current_axis_facts(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo._definition.correspondence import CalendarCorrespondence
-    from marivo.analysis.model.data_schema import IntervalDataAxis, PairedDataAxis
-    from tests.shared_fixtures import time_population
 
     case = analysis_dsl_case_factory("j2")
     scope = case.session.time_scope(start="2026-08-01", end="2026-08-03")
@@ -544,18 +559,6 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
 
 
 def test_partition_evaluation_reuses_typed_results_without_sorting() -> None:
-    from unittest.mock import patch
-
-    from marivo._definition.query import (
-        ReduceValues,
-        SelectValues,
-        Statistic,
-        ValueBinary,
-        ValuePartition,
-        ValueSlot,
-    )
-    from marivo.analysis.compiler.frame_plan import frame_program
-    from marivo.analysis.methods import frame_values
 
     group = DataColumn("group", "group", INT64, True)
     row = DataColumn("row", "row", INT64, False)
@@ -574,22 +577,22 @@ def test_partition_evaluation_reuses_typed_results_without_sorting() -> None:
         SelectValues((("total", total), ("share", ValueBinary("div", ValueSlot(0), denominator)))),
     )
     with patch.object(
-        frame_values, "partition_series", wraps=frame_values.partition_series
+        query_values, "partition_series", wraps=query_values.partition_series
     ) as partition:
         with patch.object(
             pd.DataFrame, "sort_values", side_effect=AssertionError("broadcast sorted")
         ):
-            result = frame_values.evaluate_frame(program, (source,))
+            result = query_values.evaluate_frame(program, (source,))
         assert partition.call_count == 1
         assert result[program.output_schema.values[0].slot_id].tolist() == [40, 20, 40, 40]
         assert result[program.output_schema.values[1].slot_id].tolist() == [0.25, 1, 0.75, 1]
         changed = source.copy()
         changed["group"] = pd.Series([2, 2, None, 1], dtype=object)
         changed["x"] = [1, 2, 30, 40]
-        again = frame_values.evaluate_frame(program, (changed,))
+        again = query_values.evaluate_frame(program, (changed,))
         assert partition.call_count == 2
         assert again[program.output_schema.values[0].slot_id].tolist() == [3, 3, 30, 40]
-    reduced = frame_values.evaluate_frame(
+    reduced = query_values.evaluate_frame(
         frame_program(schema, ReduceValues((("sum", Statistic("sum", ValueSlot(0))),), (0,))),
         (source,),
     )
@@ -619,7 +622,6 @@ def test_partition_cache_distinguishes_literal_carriers(local: LocalFrameService
 
 
 def test_top_zero_checks_score_without_sorting(local: LocalFrameServices) -> None:
-    from unittest.mock import patch
 
     frame = _frame(local, (1, 3, None))
     with patch.object(pd.DataFrame, "sort_values", side_effect=AssertionError("empty Top sorted")):

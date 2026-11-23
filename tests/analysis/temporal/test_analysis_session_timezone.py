@@ -10,6 +10,7 @@ import pytest
 
 import marivo._kernel.timezones as timezone_names
 import marivo.analysis.session as session_attach
+import marivo.analysis.timezone as timezone_owner
 from marivo.analysis.errors import ReportTimezoneUnresolved, SessionStateError
 from tests.support.paths import PROJECT_ROOT
 
@@ -131,7 +132,6 @@ def test_windows_without_tz_requires_explicit_input(monkeypatch: pytest.MonkeyPa
 def test_explicit_session_and_recovery_never_resolve_host_timezone(
     host_timezone: str | None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis.timezone as timezone_owner
 
     if host_timezone is None:
         monkeypatch.delenv("TZ", raising=False)

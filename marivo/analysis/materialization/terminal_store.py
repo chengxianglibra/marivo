@@ -4,82 +4,24 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Literal
 
 from marivo.analysis.materialization.contracts import (
     ResourceRecord,
-    RunFailure,
-    decode_failure,
-    parse_timestamp,
 )
 from marivo.analysis.materialization.ownership import owns_resource, validate_receipt_owner
-from marivo.analysis.materialization.store import SessionStore, _now, _one, _optional, _rows, _text
-from marivo.analysis.materialization.terminal_protocol import (
-    InvocationInput,
-    decode,
-    encode,
-    invalid,
-)
+from marivo.analysis.materialization.run_records import load_run
+from marivo.analysis.materialization.sqlite_values import _now, _one, _rows, _text
+from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.materialization.terminal_protocol import InvocationInput, decode, encode
 from marivo.analysis.model.artifact_data import ArtifactManifest
 from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.execution_errors import terminal_output_integrity_error as invalid
 from marivo.analysis.model.frame_metadata import (
     EvaluationRecord,
     FrameResultMetadata,
     StoredFrameMetadata,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class TerminalRun:
-    run_ref: str
-    session_ref: str
-    invocation_id: str
-    dataset_input: InvocationInput
-    lifecycle: Literal["incomplete", "succeeded", "failed"]
-    admitted_at: str
-    terminal_at: str | None
-    output_artifact_ref: str | None
-    failure: RunFailure | None
-
-
-def run(store: SessionStore, conn: sqlite3.Connection, ref: str) -> TerminalRun | None:
-    row = _one(conn, "SELECT * FROM analysis_action_runs WHERE run_ref=?", (ref,))
-    if row is None:
-        return None
-    selected = decode(_text(row, "dataset_input_payload"), InvocationInput)
-    session = _text(row, "session_ref")
-    terminal = _one(conn, "SELECT * FROM analysis_action_run_terminals WHERE run_ref=?", (ref,))
-    lifecycle: Literal["incomplete", "succeeded", "failed"] = "incomplete"
-    output = None
-    failure = None
-    time = None
-    if terminal is not None:
-        time = _text(terminal, "terminal_at")
-        if _text(terminal, "session_ref") != session or parse_timestamp(time) < parse_timestamp(
-            _text(row, "admitted_at")
-        ):
-            raise invalid("terminal Run ownership or time differs")
-        output = _optional(terminal, "output_artifact_ref")
-        text = _optional(terminal, "failure_payload")
-        status = _text(terminal, "outcome")
-        if status == "succeeded" and output is not None and text is None:
-            lifecycle = "succeeded"
-        elif status == "failed" and output is None and text is not None:
-            lifecycle, failure = "failed", decode_failure(text)
-        else:
-            raise invalid("contradictory terminal Run")
-    return TerminalRun(
-        ref,
-        session,
-        _text(row, "invocation_id"),
-        selected,
-        lifecycle,
-        _text(row, "admitted_at"),
-        time,
-        output,
-        failure,
-    )
+from marivo.analysis.model.lineage import validate
 
 
 def admit(store: SessionStore, session: str, ref: str, result_id: str) -> None:
@@ -105,7 +47,7 @@ def manifest(store: SessionStore, conn: sqlite3.Connection, ref: str) -> Artifac
     if row is None:
         return None
     value = decode(_text(row, "descriptor_payload"), ArtifactManifest)
-    producer = run(store, conn, value.run_id)
+    producer = load_run(conn, value.run_id)
     if (
         value.store_id != store.store_id
         or value.artifact_id != ref
@@ -164,7 +106,6 @@ def describe(value: FrameResultMetadata) -> StoredFrameMetadata:
 
 
 def validate_result_metadata(schema: DataSchema, metadata: FrameResultMetadata) -> None:
-    from marivo.analysis.model.lineage import validate
 
     if metadata.lineage is None:
         raise invalid("missing saved column lineage")
@@ -184,7 +125,7 @@ def publish(
     decode(payload, ArtifactManifest)
     validate_result_metadata(value.data.schema, metadata)
     with store._write() as conn:
-        producer = run(store, conn, value.run_id)
+        producer = load_run(conn, value.run_id)
         if (
             producer is None
             or producer.lifecycle != "incomplete"

@@ -1,20 +1,26 @@
 """PostgreSQL original rewrites retain exact physical integer fibers."""
 
+import os
 from collections.abc import Callable, Iterator
 from decimal import Decimal
 from numbers import Integral, Real
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 import pandas as pd
 import pyarrow as pa
 import pytest
+from psycopg import sql
 
 import marivo.analysis as mv
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
+from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.analysis.numeric.test_remote_numeric_query import _project
+from tests.datasource.environment import postgres_analysis as pg
 from tests.datasource.source_cases import Case, SourceData, source_case
 from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
@@ -78,10 +84,6 @@ def test_postgres_integer_original_rollup_preserves_native_values(
 def test_postgres_drill_preserves_large_integer_values_and_null_categories(
     postgres_original_session: tuple[Session, Case], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from psycopg import sql
-
-    from marivo.datasource.ir import TableSourceIR
-    from tests.datasource.environment import postgres_analysis as pg
 
     session, case = postgres_original_session
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
@@ -197,7 +199,6 @@ def test_postgres_native_sum_transport_failure_precedes_publication(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from tests.analysis.materialization.publication_fixtures import publication_counts
 
     data = SourceData(
         "id BIGINT NOT NULL, tenant CHAR(4) NOT NULL, category CHAR(4), amount BIGINT NOT NULL, big BIGINT, weight BIGINT NOT NULL, day DATE",
@@ -250,12 +251,6 @@ def test_postgres_nondeterministic_coordinate_collation_keeps_parent_labels(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    import os
-    from uuid import uuid4
-
-    from psycopg import sql
-
-    from tests.datasource.environment import postgres_analysis as pg
 
     if os.environ.get("MARIVO_POSTGRES_ANALYSIS_TEST") != "1":
         pytest.skip("Explicit ready PostgreSQL service required")
@@ -301,15 +296,26 @@ def test_postgres_nondeterministic_coordinate_collation_keeps_parent_labels(
             admin.execute(sql.SQL("DROP COLLATION {}").format(sql.Identifier(collation)))
 
 
+def _assert_exact_attribute_rows(attributed: pd.DataFrame) -> None:
+    assert list(attributed[["tenant", "category"]].itertuples(index=False, name=None)) == [
+        ("EAST", "A"),
+        ("EAST", "B"),
+    ]
+    assert attributed["detail.current.change"].tolist() == [
+        9007199254741013,
+        80,
+    ]
+    assert attributed["contribution.change"].tolist() == [80, -20]
+    assert attributed["total.change"].tolist() == [60, 60]
+    assert attributed["observed_total.change"].tolist() == [40, 40]
+    assert attributed["contribution_share.change"].tolist() == pytest.approx([4 / 3, -1 / 3])
+
+
 def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from psycopg import sql
-
-    from marivo.datasource.ir import TableSourceIR
-    from tests.datasource.environment import postgres_analysis as pg
 
     data = SourceData(
         "id BIGINT NOT NULL, tenant CHAR(4) NOT NULL, category VARCHAR(4), amount BIGINT, big BIGINT, weight BIGINT NOT NULL, day DATE",
@@ -486,18 +492,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
             )
         report = target.attribute(by=(category,)).compute()
         attributed = report.to_pandas()
-        assert list(attributed[["tenant", "category"]].itertuples(index=False, name=None)) == [
-            ("EAST", "A"),
-            ("EAST", "B"),
-        ]
-        assert attributed["detail.current.change"].tolist() == [
-            9007199254741013,
-            80,
-        ]
-        assert attributed["contribution.change"].tolist() == [80, -20]
-        assert attributed["total.change"].tolist() == [60, 60]
-        assert attributed["observed_total.change"].tolist() == [40, 40]
-        assert attributed["contribution_share.change"].tolist() == pytest.approx([4 / 3, -1 / 3])
+        _assert_exact_attribute_rows(attributed)
         pd.testing.assert_frame_equal(target.to_pandas(), observed)
 
 

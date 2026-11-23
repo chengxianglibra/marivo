@@ -22,6 +22,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import terminal_publication
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.numeric.attribution_workflows import (
     Method,
@@ -560,8 +561,6 @@ def test_attribution_publication_cleans_only_failed_run(
         def fail(event: str, stage: str = point) -> None:
             if event == stage:
                 raise RuntimeError("injected basis publication failure")
-
-        from marivo.analysis.materialization import terminal_publication
 
         with monkeypatch.context() as patch:
             patch.setattr(terminal_publication, "_event", fail)

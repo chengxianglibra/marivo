@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import math
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from fractions import Fraction
 
 import ibis.expr.operations as ops
@@ -38,8 +40,6 @@ class Domain:
         if isinstance(value, (int, float, Fraction)):
             bound = Fraction(value)
         else:
-            from decimal import Decimal
-
             if not isinstance(value, Decimal):
                 raise DomainProofError(f"unsupported domain literal {type(value).__name__}")
             if not value.is_finite():
@@ -215,6 +215,198 @@ def evaluate_domain(
     return _carrier_domain(node, _evaluate_domain(node, fields, assumptions))
 
 
+def _comparison_domain(node: ops.Value, a: Domain, b: Domain) -> Domain:
+    if not a.finite or not b.finite:
+        return Domain(Fraction(0), Fraction(1), a.nullable or b.nullable, finite=False)
+    if a.only_null or b.only_null:
+        return Domain.null()
+    if isinstance(node, (ops.Less, ops.LessEqual)):
+        a, b = b, a
+    if isinstance(node, (ops.Greater, ops.GreaterEqual, ops.Less, ops.LessEqual)):
+        inclusive = isinstance(node, (ops.GreaterEqual, ops.LessEqual))
+        definitely = (
+            a.low is not None
+            and b.high is not None
+            and (
+                a.low >= b.high
+                if inclusive
+                else a.low > b.high or (a.low == b.high and (a.low_open or b.high_open))
+            )
+        )
+        impossible = (
+            a.high is not None
+            and b.low is not None
+            and (
+                a.high < b.low or (a.high == b.low and (a.high_open or b.low_open))
+                if inclusive
+                else a.high <= b.low
+            )
+        )
+    else:
+        disjoint = (
+            a.high is not None
+            and b.low is not None
+            and (a.high < b.low or (a.high == b.low and (a.high_open or b.low_open)))
+        ) or (
+            b.high is not None
+            and a.low is not None
+            and (b.high < a.low or (b.high == a.low and (b.high_open or a.low_open)))
+        )
+        disjoint = (
+            disjoint or (a.nonzero and b.low == b.high == 0) or (b.nonzero and a.low == a.high == 0)
+        )
+        equal = a.low is not None and a.low == a.high == b.low == b.high
+        definitely, impossible = (
+            (equal, disjoint) if isinstance(node, ops.Equals) else (disjoint, equal)
+        )
+    possibilities = (
+        frozenset((True,))
+        if definitely
+        else frozenset((False,))
+        if impossible
+        else frozenset((False, True))
+    )
+    return replace(_boolean(possibilities), nullable=a.nullable or b.nullable)
+
+
+def _binary_domain(
+    node: ops.Add | ops.Subtract | ops.Multiply | ops.Divide, a: Domain, b: Domain
+) -> Domain:
+    if a.only_null or b.only_null:
+        return Domain.null()
+    nullable = a.nullable or b.nullable
+    if not a.finite or not b.finite:
+        return Domain(None, None, nullable, finite=False)
+    if isinstance(node, ops.Divide) and not b.excludes_zero():
+        raise DomainProofError("a demanded dynamic denominator interval includes zero")
+    if None in (a.low, a.high, b.low, b.high):
+        return Domain(None, None, nullable)
+    assert a.low is not None and a.high is not None and b.low is not None and b.high is not None
+    if isinstance(node, ops.Add):
+        return Domain(
+            a.low + b.low,
+            a.high + b.high,
+            nullable,
+            a.low_open or b.low_open,
+            a.high_open or b.high_open,
+        )
+    if isinstance(node, ops.Subtract):
+        return Domain(
+            a.low - b.high,
+            a.high - b.low,
+            nullable,
+            a.low_open or b.high_open,
+            a.high_open or b.low_open,
+        )
+    if isinstance(node, ops.Divide) and (b.low <= 0 <= b.high):
+        nonzero_quantum = _nonzero_quantum(node.right)
+        if nonzero_quantum is None:
+            return Domain(None, None, nullable, finite=False)
+        radius = max(abs(a.low), abs(a.high)) / nonzero_quantum
+        return Domain(-radius, radius, nullable)
+    cells = tuple(
+        x * y if isinstance(node, ops.Multiply) else x / y
+        for x in (a.low, a.high)
+        for y in (b.low, b.high)
+    )
+    return Domain(min(cells), max(cells), nullable)
+
+
+def _math_domain(
+    node: ops.Sqrt | ops.Ln | ops.Log | ops.Log2 | ops.Log10 | ops.Exp | ops.Round,
+    a: Domain,
+    visit: Callable[[ops.Value], Domain],
+) -> Domain:
+    if a.only_null:
+        return a
+    if not a.finite:
+        return Domain(None, None, a.nullable, finite=False)
+    if isinstance(node, ops.Sqrt):
+        if a.low is None or a.low < 0:
+            raise DomainProofError("a demanded sqrt argument is not proven nonnegative")
+    elif isinstance(node, (ops.Ln, ops.Log, ops.Log2, ops.Log10)) and (
+        a.low is None or a.low < 0 or (a.low == 0 and not a.low_open)
+    ):
+        raise DomainProofError("a demanded log argument is not proven positive")
+    if isinstance(node, ops.Round):
+        return Domain(
+            None if a.low is None else a.low - 1,
+            None if a.high is None else a.high + 1,
+            a.nullable,
+        )
+    if isinstance(node, ops.Exp):
+        # exp(709) fits Float64. Larger or unbounded inputs need another
+        # proof; checking only sampled coalitions would miss overflow.
+        if a.high is None or a.high > 709:
+            return Domain(None, None, a.nullable, finite=False)
+        # e < 11/4 supplies a simple outward bound without evaluating or
+        # changing the original numeric function.
+        upper_exp = min(Fraction(11, 4) ** max(0, math.ceil(a.high)), Fraction(sys.float_info.max))
+        return Domain(Fraction(0), upper_exp, a.nullable)
+    if isinstance(node, ops.Sqrt):
+        if a.high is None or a.high < 0:
+            return Domain(None, None, a.nullable, finite=False)
+        return Domain(Fraction(0), Fraction(math.isqrt(math.ceil(a.high)) + 1), a.nullable)
+    if isinstance(node, ops.Log) and node.base is not None:
+        base = visit(node.base)
+        if base.low is None or base.high is None:
+            return Domain(None, None, a.nullable, finite=False)
+        lower, upper = float(base.low), float(base.high)
+        if lower <= 0 or lower <= 1 <= upper:
+            return Domain(None, None, a.nullable, finite=False)
+        return Domain(Fraction(-(2**66)), Fraction(2**66), a.nullable)
+    # All positive finite Float64 values lie between 2**-1074 and 2**1024;
+    # the supported natural/base-2/base-10 logarithms fit this outer bound.
+    return Domain(Fraction(-2048), Fraction(2048), a.nullable)
+
+
+def _conditional_domain(
+    node: ops.IfElse | ops.SearchedCase | ops.Coalesce,
+    fields: dict[str, Domain],
+    assumptions: dict[ops.Value, Domain],
+) -> Domain:
+    def visit(child: ops.Value, state: dict[ops.Value, Domain] = assumptions) -> Domain:
+        return evaluate_domain(child, fields, state)
+
+    if isinstance(node, ops.IfElse):
+        possibilities = _truth(visit(node.bool_expr))
+        branches = []
+        if True in possibilities:
+            branches.append(
+                visit(node.true_expr, _assume(node.bool_expr, True, assumptions, fields))
+            )
+        if False in possibilities:
+            branches.append(
+                visit(node.false_null_expr, _assume(node.bool_expr, False, assumptions, fields))
+            )
+        return branches[0] if len(branches) == 1 else _union(branches[0], branches[1])
+    if isinstance(node, ops.SearchedCase):
+        remaining = assumptions
+        result: Domain | None = None
+        for condition, branch in zip(node.cases, node.results, strict=True):
+            possibilities = _truth(visit(condition, remaining))
+            if True in possibilities:
+                part = visit(branch, _assume(condition, True, remaining, fields))
+                result = part if result is None else _union(result, part)
+            if False not in possibilities:
+                return result if result is not None else Domain.null()
+            remaining = _assume(condition, False, remaining, fields)
+        final = visit(node.default, remaining)
+        return final if result is None else _union(result, final)
+    coalesced: Domain | None = None
+    remaining = assumptions
+    for child in node.arg:
+        part = visit(child, remaining)
+        if not part.only_null:
+            nonnull = replace(part, nullable=False)
+            coalesced = nonnull if coalesced is None else _union(coalesced, nonnull)
+        if not part.nullable:
+            assert coalesced is not None
+            return coalesced
+        remaining = _assume(ops.IsNull(child), True, remaining, fields)
+    return Domain.null() if coalesced is None else replace(coalesced, nullable=True)
+
+
 def _evaluate_domain(
     node: ops.Value, fields: dict[str, Domain], assumptions: dict[ops.Value, Domain] | None = None
 ) -> Domain:
@@ -247,44 +439,8 @@ def _evaluate_domain(
                     high_open=False,
                 )
         return arg
-    if isinstance(node, ops.IfElse):
-        possibilities = _truth(visit(node.bool_expr))
-        branches = []
-        if True in possibilities:
-            branches.append(
-                visit(node.true_expr, _assume(node.bool_expr, True, assumptions, fields))
-            )
-        if False in possibilities:
-            branches.append(
-                visit(node.false_null_expr, _assume(node.bool_expr, False, assumptions, fields))
-            )
-        return branches[0] if len(branches) == 1 else _union(branches[0], branches[1])
-    if isinstance(node, ops.SearchedCase):
-        remaining = assumptions
-        result: Domain | None = None
-        for condition, branch in zip(node.cases, node.results, strict=True):
-            possibilities = _truth(visit(condition, remaining))
-            if True in possibilities:
-                part = visit(branch, _assume(condition, True, remaining, fields))
-                result = part if result is None else _union(result, part)
-            if False not in possibilities:
-                return result if result is not None else Domain.null()
-            remaining = _assume(condition, False, remaining, fields)
-        final = visit(node.default, remaining)
-        return final if result is None else _union(result, final)
-    if isinstance(node, ops.Coalesce):
-        coalesced: Domain | None = None
-        remaining = assumptions
-        for child in node.arg:
-            part = visit(child, remaining)
-            if not part.only_null:
-                nonnull = replace(part, nullable=False)
-                coalesced = nonnull if coalesced is None else _union(coalesced, nonnull)
-            if not part.nullable:
-                assert coalesced is not None
-                return coalesced
-            remaining = _assume(ops.IsNull(child), True, remaining, fields)
-        return Domain.null() if coalesced is None else replace(coalesced, nullable=True)
+    if isinstance(node, (ops.IfElse, ops.SearchedCase, ops.Coalesce)):
+        return _conditional_domain(node, fields, assumptions)
     if isinstance(node, (ops.IsNull, ops.NotNull, ops.IsNan, ops.IsInf)):
         arg = visit(node.arg)
         if not arg.finite:
@@ -316,100 +472,9 @@ def _evaluate_domain(
     if isinstance(
         node, (ops.Equals, ops.NotEquals, ops.Greater, ops.GreaterEqual, ops.Less, ops.LessEqual)
     ):
-        a, b = visit(node.left), visit(node.right)
-        if not a.finite or not b.finite:
-            return Domain(Fraction(0), Fraction(1), a.nullable or b.nullable, finite=False)
-        if a.only_null or b.only_null:
-            return Domain.null()
-        if isinstance(node, (ops.Less, ops.LessEqual)):
-            a, b = b, a
-        if isinstance(node, (ops.Greater, ops.GreaterEqual, ops.Less, ops.LessEqual)):
-            inclusive = isinstance(node, (ops.GreaterEqual, ops.LessEqual))
-            definitely = (
-                a.low is not None
-                and b.high is not None
-                and (
-                    a.low >= b.high
-                    if inclusive
-                    else a.low > b.high or (a.low == b.high and (a.low_open or b.high_open))
-                )
-            )
-            impossible = (
-                a.high is not None
-                and b.low is not None
-                and (
-                    a.high < b.low or (a.high == b.low and (a.high_open or b.low_open))
-                    if inclusive
-                    else a.high <= b.low
-                )
-            )
-        else:
-            disjoint = (
-                a.high is not None
-                and b.low is not None
-                and (a.high < b.low or (a.high == b.low and (a.high_open or b.low_open)))
-            ) or (
-                b.high is not None
-                and a.low is not None
-                and (b.high < a.low or (b.high == a.low and (b.high_open or a.low_open)))
-            )
-            disjoint = (
-                disjoint
-                or (a.nonzero and b.low == b.high == 0)
-                or (b.nonzero and a.low == a.high == 0)
-            )
-            equal = a.low is not None and a.low == a.high == b.low == b.high
-            definitely, impossible = (
-                (equal, disjoint) if isinstance(node, ops.Equals) else (disjoint, equal)
-            )
-        possibilities = (
-            frozenset((True,))
-            if definitely
-            else frozenset((False,))
-            if impossible
-            else frozenset((False, True))
-        )
-        return replace(_boolean(possibilities), nullable=a.nullable or b.nullable)
+        return _comparison_domain(node, visit(node.left), visit(node.right))
     if isinstance(node, (ops.Add, ops.Subtract, ops.Multiply, ops.Divide)):
-        a, b = visit(node.left), visit(node.right)
-        if a.only_null or b.only_null:
-            return Domain.null()
-        nullable = a.nullable or b.nullable
-        if not a.finite or not b.finite:
-            return Domain(None, None, nullable, finite=False)
-        if isinstance(node, ops.Divide) and not b.excludes_zero():
-            raise DomainProofError("a demanded dynamic denominator interval includes zero")
-        if None in (a.low, a.high, b.low, b.high):
-            return Domain(None, None, nullable)
-        assert a.low is not None and a.high is not None and b.low is not None and b.high is not None
-        if isinstance(node, ops.Add):
-            return Domain(
-                a.low + b.low,
-                a.high + b.high,
-                nullable,
-                a.low_open or b.low_open,
-                a.high_open or b.high_open,
-            )
-        if isinstance(node, ops.Subtract):
-            return Domain(
-                a.low - b.high,
-                a.high - b.low,
-                nullable,
-                a.low_open or b.high_open,
-                a.high_open or b.low_open,
-            )
-        if isinstance(node, ops.Divide) and (b.low <= 0 <= b.high):
-            nonzero_quantum = _nonzero_quantum(node.right)
-            if nonzero_quantum is None:
-                return Domain(None, None, nullable, finite=False)
-            radius = max(abs(a.low), abs(a.high)) / nonzero_quantum
-            return Domain(-radius, radius, nullable)
-        cells = tuple(
-            x * y if isinstance(node, ops.Multiply) else x / y
-            for x in (a.low, a.high)
-            for y in (b.low, b.high)
-        )
-        return Domain(min(cells), max(cells), nullable)
+        return _binary_domain(node, visit(node.left), visit(node.right))
     if isinstance(node, (ops.Negate, ops.Abs)):
         a = visit(node.arg)
         if a.only_null:
@@ -432,50 +497,7 @@ def _evaluate_domain(
             a.nullable,
         )
     if isinstance(node, (ops.Sqrt, ops.Ln, ops.Log, ops.Log2, ops.Log10, ops.Exp, ops.Round)):
-        a = visit(node.arg)
-        if a.only_null:
-            return a
-        if not a.finite:
-            return Domain(None, None, a.nullable, finite=False)
-        if isinstance(node, ops.Sqrt):
-            if a.low is None or a.low < 0:
-                raise DomainProofError("a demanded sqrt argument is not proven nonnegative")
-        elif isinstance(node, (ops.Ln, ops.Log, ops.Log2, ops.Log10)) and (
-            a.low is None or a.low < 0 or (a.low == 0 and not a.low_open)
-        ):
-            raise DomainProofError("a demanded log argument is not proven positive")
-        if isinstance(node, ops.Round):
-            return Domain(
-                None if a.low is None else a.low - 1,
-                None if a.high is None else a.high + 1,
-                a.nullable,
-            )
-        if isinstance(node, ops.Exp):
-            # exp(709) fits Float64. Larger or unbounded inputs need another
-            # proof; checking only sampled coalitions would miss overflow.
-            if a.high is None or a.high > 709:
-                return Domain(None, None, a.nullable, finite=False)
-            # e < 11/4 supplies a simple outward bound without evaluating or
-            # changing the original numeric function.
-            upper_exp = min(
-                Fraction(11, 4) ** max(0, math.ceil(a.high)), Fraction(sys.float_info.max)
-            )
-            return Domain(Fraction(0), upper_exp, a.nullable)
-        if isinstance(node, ops.Sqrt):
-            if a.high is None or a.high < 0:
-                return Domain(None, None, a.nullable, finite=False)
-            return Domain(Fraction(0), Fraction(math.isqrt(math.ceil(a.high)) + 1), a.nullable)
-        if isinstance(node, ops.Log) and node.base is not None:
-            base = visit(node.base)
-            if base.low is None or base.high is None:
-                return Domain(None, None, a.nullable, finite=False)
-            lower, upper = float(base.low), float(base.high)
-            if lower <= 0 or lower <= 1 <= upper:
-                return Domain(None, None, a.nullable, finite=False)
-            return Domain(Fraction(-(2**66)), Fraction(2**66), a.nullable)
-        # All positive finite Float64 values lie between 2**-1074 and 2**1024;
-        # the supported natural/base-2/base-10 logarithms fit this outer bound.
-        return Domain(Fraction(-2048), Fraction(2048), a.nullable)
+        return _math_domain(node, visit(node.arg), visit)
     if isinstance(node, ops.NullIf):
         return replace(visit(node.arg), nullable=True)
     if isinstance(node, (ops.Least, ops.Greatest)):

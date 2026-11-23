@@ -14,11 +14,12 @@ from unittest.mock import DEFAULT, Mock, patch
 import duckdb
 import pandas as pd
 import pytest
+import sqlglot
 
 import marivo.analysis as mv
 from marivo._definition.types import CalendarCoordinate
 from marivo._kernel.refs import ref
-from marivo.analysis.compiler.graph_lowering import LoweredQuery
+from marivo.analysis.compiler.lowered_query import LoweredQuery
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -27,10 +28,13 @@ from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.materialization import (
     frame_source_preparation,
     graph_execution,
-    graph_source_execution,
+    query_sources,
+    source_reads,
 )
-from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.prepared_sources import PreparedSources
 from marivo.analysis.materialization.terminal_store import describe
+from marivo.analysis.methods.carriers import frame_calendar
 from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 from marivo.analysis.model.data_types import DataColumn, TimestampDataType
 from marivo.analysis.model.execution_errors import MaterializationError
@@ -217,7 +221,7 @@ def _source_lifecycle(
     enter = SourceSession.__enter__
     close = SourceSession.close
     execute = SourceSession.execute
-    qualify = graph_source_execution.qualify_query_sources
+    qualify = source_reads.qualify_query_sources
 
     @contextmanager
     def connection(config: DatasourceConnectionConfig) -> Iterator[DatasourceConnectionService]:
@@ -259,9 +263,9 @@ def _source_lifecycle(
     monkeypatch.setattr(SourceSession, "close", source_close)
     monkeypatch.setattr(SourceSession, "execute", read)
     monkeypatch.setattr(
-        graph_source_execution,
+        query_sources,
         "prepare_query_sources",
-        Mock(wraps=graph_source_execution.prepare_query_sources, side_effect=prepare),
+        Mock(wraps=query_sources.prepare_query_sources, side_effect=prepare),
     )
     monkeypatch.setattr(frame_source_preparation, "qualify_query_sources", qualified)
     return events, owners
@@ -480,7 +484,6 @@ def test_general_population_zero_axis_preserves_empty_or_singleton(
 
 
 def test_complete_memory_releases_source_scope_and_runtime(session: Session) -> None:
-    from marivo.analysis.materialization.admission import DatasetRuntime
 
     runtime = DatasetRuntime.create(session.project_root, "independent-runtime", timezone="UTC")
     reference = weakref.ref(runtime)
@@ -541,8 +544,6 @@ def test_source_top_keeps_entire_frozen_calendar_directory(
         by=(calendar_scope.by(mv.grain("day")),),
     )
 
-    from marivo.analysis.methods.carriers import frame_calendar
-
     freeze = Mock(wraps=frame_calendar.freeze_calendar)
     monkeypatch.setattr(frame_calendar, "freeze_calendar", freeze)
     source.show()
@@ -582,7 +583,6 @@ def test_pending_read_top_is_bounded_with_complete_key_ties_and_na_last(
     top = pending.top(1, by=pending["score"], descending=descending).compute().to_pandas()
     assert top.iloc[:, 0].tolist() == ([("t1", 1)] if descending else [("t2", 1)])
     assert trace.returned_rows == [1]
-    import sqlglot
 
     compiled = sqlglot.parse_one(trace.native_sql[0], read="duckdb")
     assert not list(compiled.find_all(sqlglot.exp.RowNumber))

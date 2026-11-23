@@ -1,5 +1,6 @@
 """Immutable analysis data with explicit computation and persistence."""
 
+from importlib import import_module
 from types import ModuleType
 from typing import TYPE_CHECKING, Literal
 
@@ -48,13 +49,13 @@ if TYPE_CHECKING:
     from marivo._kernel.temporal import InstantAnchor as InstantAnchor
     from marivo.analysis import session as session
     from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
-    from marivo.analysis.dsl.baseline import ComparisonBaseline as ComparisonBaseline
-    from marivo.analysis.dsl.baseline import baseline as baseline
     from marivo.analysis.dsl.column import Column as Column
     from marivo.analysis.dsl.column import row_count as row_count
     from marivo.analysis.dsl.correspondence import offset as offset
     from marivo.analysis.dsl.correspondence import ordinal as ordinal
     from marivo.analysis.dsl.frame import AnalysisFrame as AnalysisFrame
+    from marivo.analysis.dsl.frame import ComparisonBaseline as ComparisonBaseline
+    from marivo.analysis.dsl.frame import baseline as baseline
     from marivo.analysis.dsl.frame_axis import FrameAxis as FrameAxis
     from marivo.analysis.dsl.population import Population as Population
     from marivo.analysis.dsl.population import coordinates as coordinates
@@ -178,14 +179,13 @@ if not TYPE_CHECKING:
             # A from-list import can resolve the pure package directly.
             raise AttributeError(name)
         if name == "TimeScope":
-            from marivo._kernel.temporal import TimeScope
+            from marivo._kernel.temporal import TimeScope  # noqa: PLC0415  # Keep the pure model import free of Pydantic.
 
             return TimeScope
         return getattr(_initialize_public(), name)
 
 
 def _initialize_public() -> ModuleType:
-    from importlib import import_module
 
     return import_module("marivo.analysis._public")
 

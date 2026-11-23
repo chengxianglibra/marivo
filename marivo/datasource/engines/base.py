@@ -12,6 +12,11 @@ from ibis.backends import BaseBackend
 
 from marivo.datasource.engines.query import EngineQueryPolicy, QueryDialectProfile
 from marivo.datasource.engines.requirements import ModuleRequirement
+from marivo.datasource.errors import (
+    DatasourceBackendTypeUnsupportedError,
+    DatasourceFieldInvalidError,
+    repair,
+)
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
 from marivo.datasource.metadata_types import MetadataWarning, TableMetadata, schema_only_metadata
 
@@ -241,7 +246,6 @@ def require_field(
     *,
     help_target: str,
 ) -> object:
-    from marivo.datasource.errors import DatasourceFieldInvalidError, repair
 
     if key not in kwargs:
         raise DatasourceFieldInvalidError(
@@ -259,7 +263,6 @@ def require_field(
 
 
 def _generic_connect_unsupported(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
-    from marivo.datasource.errors import DatasourceBackendTypeUnsupportedError, repair
 
     raise DatasourceBackendTypeUnsupportedError(
         message=f"datasource {name!r} cannot connect through GENERIC_PROFILE",

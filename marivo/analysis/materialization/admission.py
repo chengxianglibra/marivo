@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
+import marivo.analysis.timezone as timezone_resolution
 from marivo._kernel.timezones import normalize_timezone
 from marivo.analysis.binding.observation import ObservationOwner
 from marivo.analysis.materialization.errors import (
@@ -16,6 +17,7 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.model.time_authority import ReportTimeAuthority
+from marivo.analysis.timezone import resolve_timezone
 from marivo.datasource.spi import (
     DatasourceConnectionConfig,
     DatasourceConnectionService,
@@ -86,9 +88,12 @@ class DatasetRuntime:
         domains: tuple[str, ...] | None = None,
         event: Callable[[str], None] | None = None,
     ) -> DatasetRuntime:
-        from marivo.analysis.timezone import resolve_system_timezone, resolve_timezone
 
-        zone = resolve_system_timezone() if timezone is None else resolve_timezone(timezone)
+        zone = (
+            timezone_resolution.resolve_system_timezone()
+            if timezone is None
+            else resolve_timezone(timezone)
+        )
         store = SessionStore(project_root)
         candidate_ref = "session_" + uuid4().hex
         with session_writer_guard(

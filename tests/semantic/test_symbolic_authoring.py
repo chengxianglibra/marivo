@@ -13,12 +13,15 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.deferred import inspect_capture, inspect_deferred, root_declaration
 from marivo._definition.expressions import SourceAggregate
+from marivo._definition.graph import computation_fingerprint
 from marivo._kernel.refs import SemanticKind
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.symbolic import native_symbol_ref
+from marivo.semantic._compiled_state import definition_graph
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
 from marivo.semantic._expression_values import _ExpressionCarrier
 from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.definition_resolution import _Resolver
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.expressions.inputs import _as_deferred
 from marivo.semantic.loading_context import (
@@ -320,7 +323,6 @@ def right():
 def test_direct_and_symbolic_named_metric_dependencies_bind_to_one_definition(
     semantic_project_factory: ProjectFactory,
 ) -> None:
-    from marivo._definition.graph import computation_fingerprint
 
     source = (
         _PHYSICAL
@@ -541,8 +543,6 @@ def all_valid_top_calls():
 def test_publication_graph_matches_full_reconstruction_and_survives_failed_reload(
     semantic_project_factory: ProjectFactory,
 ) -> None:
-    from marivo.semantic._compiled_state import definition_graph
-    from marivo.semantic.definition_resolution import _Resolver
 
     metrics = """
 @ms.measure()

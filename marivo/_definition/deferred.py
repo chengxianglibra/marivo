@@ -34,6 +34,12 @@ from ibis.common.deferred import (
     Variable,
 )
 
+from marivo._definition.deferred_sample_validation import (
+    capture_sample,
+    captured_field_kind,
+    captured_scalar_path,
+)
+from marivo._definition.deferred_signatures import method_arity
 from marivo._definition.deferred_values import (
     CapturedDefaultTimeResolver as CapturedDefaultTimeResolver,
 )
@@ -82,8 +88,6 @@ from marivo._definition.graph_traversal import _collect_refs, direct_refs
 from marivo._definition.grouping import grouping_binding
 from marivo._definition.parameter_recipes import (
     CoordinatesParameter,
-    IdentityParameter,
-    MembershipParameter,
     ParameterResolver,
     PathRecipe,
     parameter_role,
@@ -280,131 +284,6 @@ def _permission(value: SumPermission | None) -> tuple[str, ...]:
     invalid("Expected a closed sum permission; supply a semantic permission rule.")
 
 
-def _captured_field_kind(recipe: Resolver) -> SemanticKind | None:
-    """Read a field role only from native leaves and admitted field modifiers."""
-    if isinstance(recipe, NamedResolver):
-        return _captured_field_kind(recipe.recipe)
-    if isinstance(recipe, SymbolResolver):
-        return (
-            recipe.reference.kind
-            if recipe.reference.kind
-            in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION, SemanticKind.MEASURE}
-            else None
-        )
-    if isinstance(recipe, SemanticResolver):
-        return (
-            recipe.input.reference.ref.kind
-            if recipe.input.reference.ref.kind
-            in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION, SemanticKind.MEASURE}
-            else None
-        )
-    if (
-        isinstance(recipe, Call)
-        and isinstance(recipe.func, Attr)
-        and attribute_name(recipe.func) in {"via", "at", "name"}
-    ):
-        return _captured_field_kind(recipe.func.obj)
-    return None
-
-
-def _captured_scalar_path(recipe: Resolver) -> bool:
-    if isinstance(recipe, NamedResolver):
-        return _captured_scalar_path(recipe.recipe)
-    if isinstance(recipe, SemanticResolver):
-        return recipe.input.field_read is not None and bool(recipe.input.field_read.path)
-    if isinstance(recipe, Call) and isinstance(recipe.func, Attr):
-        name = attribute_name(recipe.func)
-        return name == "via" or (name in {"at", "name"} and _captured_scalar_path(recipe.func.obj))
-    return False
-
-
-def _capture_sample(recipe: Resolver, path: tuple[str, ...]) -> None:
-    """Validate the finite sample-parameter grammar without resolving fields."""
-    if isinstance(recipe, Just) and isinstance(recipe.value, (Grain,)):
-        return
-    if isinstance(recipe, Sequence):
-        if recipe.typ is not tuple or not recipe.values:
-            invalid("per requires a nonempty tuple of fields or grouping parameters.", path=path)
-        members = recipe.values
-    else:
-        members = (recipe,)
-    population = parameter_role(members[0]) == "population"
-    for index, member in enumerate(members):
-        role = parameter_role(member)
-        if index == 0 and population:
-            continue
-        binding = (
-            grouping_binding(member.value)
-            if isinstance(member, Just) and isinstance(member.value, Grouping)
-            else None
-        )
-        membership = (
-            isinstance(member, ParameterResolver)
-            and isinstance(member.parameter, MembershipParameter)
-        ) or isinstance(binding, MembershipBinding)
-        if membership:
-            if not population:
-                if isinstance(member, ParameterResolver) and isinstance(
-                    member.parameter, MembershipParameter
-                ):
-                    if any(
-                        _captured_field_kind(resolver_of(field))
-                        not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
-                        or _captured_scalar_path(resolver_of(field))
-                        for field in member.parameter.fields
-                    ):
-                        invalid(
-                            "Internal membership samples require native Dimension or TimeDimension fields.",
-                            path=path,
-                        )
-                elif isinstance(binding, MembershipBinding) and any(
-                    read.field.ref.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
-                    or read.path
-                    for read in binding.fields
-                ):
-                    invalid(
-                        "Internal membership samples require native Dimension or TimeDimension fields.",
-                        path=path,
-                    )
-            continue
-        if population:
-            invalid(
-                "A sample Population can be followed only by membership rules.",
-                path=(*path, f"item:{index}"),
-            )
-        if isinstance(member, ParameterResolver) and isinstance(
-            member.parameter, IdentityParameter
-        ):
-            invalid(
-                "per requires native Dimension or TimeDimension coordinates, not an identity grouping.",
-                path=path,
-            )
-        if binding is not None:
-            if (
-                not isinstance(binding, AxisBinding)
-                or binding.role != "field"
-                or binding.path
-                or binding.field is None
-                or binding.field.ref.kind
-                not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
-            ):
-                invalid(
-                    "per requires native Dimension or TimeDimension coordinate groupings.",
-                    path=path,
-                )
-            continue
-        if role == "grouping":
-            continue
-        if _captured_scalar_path(member) or _captured_field_kind(member) not in {
-            SemanticKind.DIMENSION,
-            SemanticKind.TIME_DIMENSION,
-        }:
-            invalid(
-                "per requires Dimension or TimeDimension fields, grouping rules, or a Population.",
-                path=(*path, f"item:{index}"),
-            )
-
-
 class _Inspector:
     def __init__(self, slots: tuple[str, ...] = (), *, capture: bool = False) -> None:
         self.slots = slots
@@ -438,20 +317,75 @@ class _Inspector:
             validate_parameter_call(recipe, path)
 
         if isinstance(recipe, ParameterResolver):
-            self.contexts.append(recipe.parameter._context)
-            if isinstance(recipe.parameter, CoordinatesParameter):
-                self.capture_identity_keys(recipe.parameter._identity_keys)
-            self.token("parameter", type(recipe.parameter).__name__)
-            if isinstance(recipe.parameter, PathRecipe):
-                self.token("source_at", attribute_time_key(recipe.parameter.source_at))
-                for index, path_step in enumerate(recipe.parameter.steps):
-                    if isinstance(path_step, RelationshipStepParameter):
-                        self.literal(path_step, (*path, f"step:{index}"))
-                    else:
-                        self.token("symbolic_step", str(index))
-            for index, parameter_value in enumerate(validate_parameter(recipe, path)):
-                self.visit(resolver_of(parameter_value), (*path, f"input:{index}"), identity=True)
-        elif type(recipe) is SymbolResolver:
+            self._visit_parameter(recipe, path)
+        elif self._visit_captured(recipe, path, identity=identity):
+            return
+        elif type(recipe) is RescaleResolver:
+            self.operations.append(RecipeUse(path, "rescale", recipe))
+            self.token("rescale", recipe.unit)
+            self.literal(recipe.divisor, (*path, "divisor"))
+            self.visit(recipe.recipe, (*path, "rescale"))
+            self.token("end_rescale")
+        elif type(recipe) is NamedResolver:
+            self.dependency(recipe.reference)
+            self.visit(recipe.recipe, path)
+        elif type(recipe) is DeclarationResolver:
+            self._visit_declaration(recipe, path)
+        elif type(recipe) is Variable and recipe.name in self.slots:
+            self.token("slot", recipe.name)
+        elif type(recipe) is Just:
+            self.literal(recipe.value, path)
+        elif isinstance(recipe, JustUnhashable):
+            relationship = relationship_carrier(recipe)
+            if relationship is None:
+                self.reject(recipe, path)
+            self.literal(relationship, path)
+        elif self._visit_operator(recipe, path):
+            return
+        elif type(recipe) is Sequence:
+            if recipe.typ is not tuple and recipe.typ is not list:
+                invalid(
+                    "Expected a captured tuple or list; use a built-in sequence.",
+                    path=path,
+                )
+            values: tuple[Resolver, ...] = recipe.values
+            self.token("tuple", str(len(values)))
+            for index, value in enumerate(values):
+                self.visit(value, (*path, f"item:{index}"), identity=identity)
+            self.token("end_tuple")
+        else:
+            self.reject(recipe, path)
+
+    def _visit_declaration(self, recipe: DeclarationResolver, path: tuple[str, ...]) -> None:
+        declaration = recipe.declaration
+        self.declarations.append(declaration)
+        if declaration.reference is not None:
+            self.dependency(declaration.reference)
+        asserted = declaration.unit is not None or declaration.permission is not None
+        if asserted:
+            self.operations.append(RecipeUse(path, "assertion", recipe))
+            self.token("assertion", declaration.unit or "", *_permission(declaration.permission))
+        self.visit(recipe.recipe, (*path, "assertion") if asserted else path)
+        if asserted:
+            self.token("end_assertion")
+
+    def _visit_parameter(self, recipe: ParameterResolver, path: tuple[str, ...]) -> None:
+        self.contexts.append(recipe.parameter._context)
+        if isinstance(recipe.parameter, CoordinatesParameter):
+            self.capture_identity_keys(recipe.parameter._identity_keys)
+        self.token("parameter", type(recipe.parameter).__name__)
+        if isinstance(recipe.parameter, PathRecipe):
+            self.token("source_at", attribute_time_key(recipe.parameter.source_at))
+            for index, path_step in enumerate(recipe.parameter.steps):
+                if isinstance(path_step, RelationshipStepParameter):
+                    self.literal(path_step, (*path, f"step:{index}"))
+                else:
+                    self.token("symbolic_step", str(index))
+        for index, parameter_value in enumerate(validate_parameter(recipe, path)):
+            self.visit(resolver_of(parameter_value), (*path, f"input:{index}"), identity=True)
+
+    def _visit_captured(self, recipe: Resolver, path: tuple[str, ...], *, identity: bool) -> bool:
+        if type(recipe) is SymbolResolver:
             if (
                 self.capture
                 and not identity
@@ -518,39 +452,12 @@ class _Inspector:
                 self.token("step_ats", *(attribute_time_key(anchor) for anchor in read.step_ats))
             self.token("versioned", str(value.versioned))
             self.token("end_semantic")
-        elif type(recipe) is RescaleResolver:
-            self.operations.append(RecipeUse(path, "rescale", recipe))
-            self.token("rescale", recipe.unit)
-            self.literal(recipe.divisor, (*path, "divisor"))
-            self.visit(recipe.recipe, (*path, "rescale"))
-            self.token("end_rescale")
-        elif type(recipe) is NamedResolver:
-            self.dependency(recipe.reference)
-            self.visit(recipe.recipe, path)
-        elif type(recipe) is DeclarationResolver:
-            declaration = recipe.declaration
-            self.declarations.append(declaration)
-            if declaration.reference is not None:
-                self.dependency(declaration.reference)
-            asserted = declaration.unit is not None or declaration.permission is not None
-            if asserted:
-                self.operations.append(RecipeUse(path, "assertion", recipe))
-                self.token(
-                    "assertion", declaration.unit or "", *_permission(declaration.permission)
-                )
-            self.visit(recipe.recipe, (*path, "assertion") if asserted else path)
-            if asserted:
-                self.token("end_assertion")
-        elif type(recipe) is Variable and recipe.name in self.slots:
-            self.token("slot", recipe.name)
-        elif type(recipe) is Just:
-            self.literal(recipe.value, path)
-        elif isinstance(recipe, JustUnhashable):
-            relationship = relationship_carrier(recipe)
-            if relationship is None:
-                self.reject(recipe, path)
-            self.literal(relationship, path)
-        elif type(recipe) is BinaryOperator:
+        else:
+            return False
+        return True
+
+    def _visit_operator(self, recipe: Resolver, path: tuple[str, ...]) -> bool:
+        if type(recipe) is BinaryOperator:
             symbol = next(
                 (name for function, name in _BINARY_SYMBOLS if recipe.func is function), None
             )
@@ -577,19 +484,9 @@ class _Inspector:
                     self.reject(recipe, path)
                 self.visit(recipe.obj, (*path, "axes"))
                 self.literal(recipe.indexer.value, (*path, "index"))
-        elif type(recipe) is Sequence:
-            if recipe.typ is not tuple and recipe.typ is not list:
-                invalid(
-                    "Expected a captured tuple or list; use a built-in sequence.",
-                    path=path,
-                )
-            values: tuple[Resolver, ...] = recipe.values
-            self.token("tuple", str(len(values)))
-            for index, value in enumerate(values):
-                self.visit(value, (*path, f"item:{index}"), identity=identity)
-            self.token("end_tuple")
         else:
-            self.reject(recipe, path)
+            return False
+        return True
 
     def reject(self, recipe: Resolver, path: tuple[str, ...]) -> NoReturn:
         invalid(
@@ -822,75 +719,9 @@ class _Inspector:
         self, symbol: str, recipe: Call, path: tuple[str, ...], *, population: bool = False
     ) -> None:
         """Reject known method arity and keyword mistakes at capture time."""
-        reducers = {
-            "sum",
-            "mean",
-            "min",
-            "max",
-            "median",
-            "count",
-            "count_distinct",
-            "first",
-            "last",
-            "approx_median",
-            "approx_nunique",
-            "weighted_mean",
-            "quantile",
-            "approx_quantile",
-        }
-        signatures = {
-            "via": (1, 1, set()),
-            "at": (1, 1, set()),
-            "within": (1, 1, set()),
-            "where": (1, 1, set()),
-            "per": (0, 1, {"by", "grain"}),
-            "window": (1, 1, set()),
-            "abs": (0, 0, set()),
-            "sqrt": (0, 0, set()),
-            "exp": (0, 0, set()),
-            "isnull": (0, 0, set()),
-            "notnull": (0, 0, set()),
-            "cast": (1, 1, set()),
-            "ifelse": (2, 2, set()),
-            "nullif": (1, 1, set()),
-            "round": (0, 1, {"digits"}),
-            "name": (1, 1, set()),
-            "isin": (1, 1, set()),
-            "clip": (0, 2, {"lower", "upper"}),
-            "log": (0, 1, {"base"}),
-            "coalesce": (0, len(recipe.args), set()),
-            "greatest": (0, len(recipe.args), set()),
-            "least": (0, len(recipe.args), set()),
-            "cases": (1, max(1, len(recipe.args)), {"else_"}),
-        }
-        if population:
-            signatures = {
-                "count": (0, 0, set()),
-                "project": (0, 0, {"by"}),
-                "classify": (0, 0, {"by", "on"}),
-                "identities": (0, 0, {"on"}),
-                "union": (1, 1, set()),
-                "intersection": (1, 1, set()),
-                "difference": (1, 1, set()),
-                "image": (0, 0, {"via", "on"}),
-                "preimage": (1, 1, {"via", "on"}),
-                "where": (1, 1, set()),
-            }
-        elif symbol in reducers:
-            keywords = {"time", "nulls", "where"}
-            if symbol in {"quantile", "approx_quantile"}:
-                keywords.add("q")
-            if symbol in {"first", "last"}:
-                keywords.update({"order_by", "include_null"})
-            if symbol == "weighted_mean":
-                keywords.add("weight")
-            signatures[symbol] = (
-                0,
-                1 if symbol in {"quantile", "approx_quantile"} else 0,
-                keywords,
-            )
-        if symbol in signatures:
-            minimum, maximum, keywords = signatures[symbol]
+        arity = method_arity(symbol, len(recipe.args), population=population)
+        if arity is not None:
+            minimum, maximum, keywords = arity
             if not minimum <= len(recipe.args) <= maximum or set(recipe.kwargs) - keywords:
                 invalid(
                     f"unsupported arguments for {symbol}; expected {minimum}..{maximum} positional arguments and keywords {sorted(keywords)}.",
@@ -962,61 +793,13 @@ class _Inspector:
                             or (isinstance(value, Just) and value.value is None)
                         )
                     )
-                    and _captured_field_kind(value) is not SemanticKind.TIME_DIMENSION
+                    and captured_field_kind(value) is not SemanticKind.TIME_DIMENSION
                 ):
                     invalid(
                         f"{parameter} requires a native or closed TimeDimension field, including supported field paths.",
                         path=(*path, f"parameter:{parameter}"),
                     )
-            if symbol == "per":
-                by = recipe.kwargs.get("by")
-                if bool(recipe.args) == (by is not None):
-                    invalid("per requires one sample specification named by.", path=path)
-                sample = recipe.args[0] if recipe.args else by
-                assert sample is not None
-                grain = recipe.kwargs.get("grain")
-                if grain is None:
-                    _capture_sample(sample, (*path, "samples"))
-                elif (
-                    not isinstance(grain, Just)
-                    or not isinstance(grain.value, Grain)
-                    or _captured_field_kind(sample) is not SemanticKind.TIME_DIMENSION
-                    or _captured_scalar_path(sample)
-                ):
-                    invalid(
-                        'Use per(TimeField, grain=mv.grain("day")) with one native time field and a builtin Grain.',
-                        path=(*path, "samples"),
-                    )
-            if symbol == "at" and (
-                not (
-                    isinstance(recipe.args[0], Just)
-                    and isinstance(recipe.args[0].value, InstantAnchor)
-                    and recipe.args[0].value.utcoffset() is not None
-                )
-                and (
-                    _captured_field_kind(recipe.args[0]) is not SemanticKind.TIME_DIMENSION
-                    or captured_relationship(recipe.func.obj)
-                )
-            ):
-                invalid(
-                    "at requires session.instant(...) for a fixed attribute time, or a named "
-                    "fact-root TimeDimension for per-row observe classification. TimeScope "
-                    "and CalendarAxis do not select attribute versions.",
-                    path=path,
-                )
-            if symbol == "within" and (
-                not isinstance(recipe.args[0], Just)
-                or not isinstance(recipe.args[0].value, TimeScope)
-            ):
-                invalid("within requires one immutable TimeScope.", path=path)
-            if symbol == "window" and (
-                not isinstance(recipe.args[0], Just)
-                or not isinstance(
-                    recipe.args[0].value,
-                    (AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods),
-                )
-            ):
-                invalid("window requires one immutable observation-window rule.", path=path)
+            self._temporal_arguments(symbol, recipe, path)
             weight = recipe.kwargs.get("weight")
             if weight is not None and (
                 (
@@ -1038,7 +821,7 @@ class _Inspector:
         if receiver is not None and symbol == "at" and captured_relationship(receiver):
             return
         if not population and receiver is not None and symbol in {"via", "at", "within"}:
-            kind = _captured_field_kind(receiver)
+            kind = captured_field_kind(receiver)
             if kind is None or (symbol == "within" and kind is not SemanticKind.TIME_DIMENSION):
                 invalid(
                     f"{symbol} requires a semantic {'TimeDimension' if symbol == 'within' else 'field'} receiver.",
@@ -1059,6 +842,56 @@ class _Inspector:
                     f"A {kind.value} symbol is an identity parameter and cannot receive {symbol}().",
                     path=path,
                 )
+
+    def _temporal_arguments(self, symbol: str, recipe: Call, path: tuple[str, ...]) -> None:
+        if symbol == "per":
+            by = recipe.kwargs.get("by")
+            if bool(recipe.args) == (by is not None):
+                invalid("per requires one sample specification named by.", path=path)
+            sample = recipe.args[0] if recipe.args else by
+            assert sample is not None
+            grain = recipe.kwargs.get("grain")
+            if grain is None:
+                capture_sample(sample, (*path, "samples"))
+            elif (
+                not isinstance(grain, Just)
+                or not isinstance(grain.value, Grain)
+                or captured_field_kind(sample) is not SemanticKind.TIME_DIMENSION
+                or captured_scalar_path(sample)
+            ):
+                invalid(
+                    'Use per(TimeField, grain=mv.grain("day")) with one native time field and a builtin Grain.',
+                    path=(*path, "samples"),
+                )
+        if symbol == "at" and (
+            not (
+                isinstance(recipe.args[0], Just)
+                and isinstance(recipe.args[0].value, InstantAnchor)
+                and recipe.args[0].value.utcoffset() is not None
+            )
+            and (
+                captured_field_kind(recipe.args[0]) is not SemanticKind.TIME_DIMENSION
+                or captured_relationship(recipe.func.obj)
+            )
+        ):
+            invalid(
+                "at requires session.instant(...) for a fixed attribute time, or a named "
+                "fact-root TimeDimension for per-row observe classification. TimeScope "
+                "and CalendarAxis do not select attribute versions.",
+                path=path,
+            )
+        if symbol == "within" and (
+            not isinstance(recipe.args[0], Just) or not isinstance(recipe.args[0].value, TimeScope)
+        ):
+            invalid("within requires one immutable TimeScope.", path=path)
+        if symbol == "window" and (
+            not isinstance(recipe.args[0], Just)
+            or not isinstance(
+                recipe.args[0].value,
+                (AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods),
+            )
+        ):
+            invalid("window requires one immutable observation-window rule.", path=path)
 
     def call(
         self,

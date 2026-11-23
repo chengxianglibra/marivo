@@ -8,13 +8,13 @@ from marivo._kernel.temporal import InstantAnchor as InstantAnchor
 from marivo._kernel.temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
-from marivo.analysis.dsl.baseline import ComparisonBaseline as ComparisonBaseline
-from marivo.analysis.dsl.baseline import baseline as baseline
 from marivo.analysis.dsl.column import Column as Column
 from marivo.analysis.dsl.column import row_count as row_count
 from marivo.analysis.dsl.correspondence import offset as offset
 from marivo.analysis.dsl.correspondence import ordinal as ordinal
 from marivo.analysis.dsl.frame import AnalysisFrame as AnalysisFrame
+from marivo.analysis.dsl.frame import ComparisonBaseline as ComparisonBaseline
+from marivo.analysis.dsl.frame import baseline as baseline
 from marivo.analysis.dsl.frame_axis import FrameAxis as FrameAxis
 from marivo.analysis.dsl.population import Population as Population
 from marivo.analysis.dsl.population import coordinates as coordinates

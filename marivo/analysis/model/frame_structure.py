@@ -443,3 +443,9 @@ def coordinate_attachments(schema: DataSchema | PendingDataSchema) -> tuple[str,
             visit(binding.baseline)
             attachment(binding.mapping_name, "comparison", binding)
     return tuple(attachments)
+
+
+def pending_column(column: DataColumn | PendingDataColumn) -> PendingDataColumn:
+    return PendingDataColumn(
+        column.slot_id, column.name, column_kind(column), column.nullable, column.unit
+    )

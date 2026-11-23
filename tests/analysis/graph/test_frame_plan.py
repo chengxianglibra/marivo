@@ -8,42 +8,51 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._definition.query import (
     ReduceValues,
     SelectValues,
     Statistic,
+    ValueBinary,
     ValueSlot,
 )
 from marivo.analysis.binding.graph import BoundGraph
-from marivo.analysis.compiler.frame_plan import CompiledSourceFrame, plan_frame
+from marivo.analysis.compiler.compiled_frame import CompiledSourceFrame
+from marivo.analysis.compiler.frame_plan import plan_frame
 from marivo.analysis.compiler.graph_lowering import lower_query
-from marivo.analysis.compiler.graph_plan import (
-    FrameCompute,
-    FrameInput,
-    plan_query,
-)
 from marivo.analysis.compiler.optimization import optimize_query
+from marivo.analysis.compiler.query_planning import plan_query
+from marivo.analysis.compiler.query_program import FrameCombineProgram
+from marivo.analysis.compiler.query_stages import FrameCompute, FrameInput
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     ExpressionFrameBacking,
     LiteralFrameBinding,
     SourceFrameBinding,
 )
-from marivo.analysis.core.frame_expression import (
+from marivo.analysis.core.frame_expression import infer_frame_combine_schema
+from marivo.analysis.core.frame_operations import (
+    AlignFrameValues,
     FixedFrameInput,
     FrameOperation,
     SourceFrameInput,
-    infer_frame_schema,
 )
+from marivo.analysis.core.frame_value_analysis import infer_frame_schema
 from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.materialization.graph_source_execution import (
-    open_query_sources,
-    qualify_query_sources,
-    run_frame_plan,
-)
-from marivo.analysis.materialization.query_key_fusion import fuse_query_keys, fuse_query_terminal
+from marivo.analysis.materialization.graph_source_execution import run_frame_plan
+from marivo.analysis.materialization.query_key_fusion import fuse_query_keys
+from marivo.analysis.materialization.query_sources import open_query_sources
+from marivo.analysis.materialization.query_terminal_fusion import fuse_query_terminal
+from marivo.analysis.materialization.source_reads import qualify_query_sources
 from marivo.analysis.methods.carriers.stages import StageOutput
-from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_schema import (
+    BuiltinCalendarData,
+    CalendarDataAxis,
+    DataAxis,
+    DataSchema,
+    FrozenCalendarData,
+    PairedDataAxis,
+)
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.frame_structure import (
     PendingDataAxis,
@@ -85,15 +94,6 @@ def test_concrete_and_pending_inference_share_directories_and_units() -> None:
 
 
 def test_calendar_binary_pending_and_concrete_share_one_closed_program() -> None:
-    from marivo._definition.correspondence import CalendarCorrespondence
-    from marivo.analysis.compiler.query_program import FrameCombineProgram
-    from marivo.analysis.core.frame_expression import AlignFrameValues, infer_frame_combine_schema
-    from marivo.analysis.model.data_schema import (
-        BuiltinCalendarData,
-        CalendarDataAxis,
-        FrozenCalendarData,
-        PairedDataAxis,
-    )
 
     ordinary = _schema()
     axis = CalendarDataAxis(
@@ -238,7 +238,6 @@ def test_native_source_child_keeps_one_prefixed_schedule(
 
 
 def test_native_division_inference_uses_typed_nonnull_proxy() -> None:
-    from marivo._definition.query import ValueBinary
 
     schema = _schema()
     selected = infer_frame_schema(

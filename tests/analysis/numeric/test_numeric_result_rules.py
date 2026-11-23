@@ -1,5 +1,8 @@
 """Bound result metadata and native execution have independent numeric oracles."""
 
+import os
+import subprocess
+import sys
 from decimal import ROUND_DOWN, Decimal, Inexact, Rounded, localcontext
 
 import ibis
@@ -7,10 +10,16 @@ import ibis.expr.datatypes as dt
 import pandas as pd
 import pyarrow as pa
 import pytest
+from ibis.common.deferred import resolver
 
 import marivo.analysis as mv
+from marivo._definition.expressions import PerWeightedMean, RowExpression, SourceAggregate
+from marivo._definition.types import AxisBinding, ExactRef
+from marivo._kernel.refs import ref
 from marivo.analysis.methods._ibis_numeric import evaluate_numeric
+from marivo.analysis.methods._sample_numeric import reduce_samples
 from marivo.analysis.methods.numeric_state import finish_decimal, sum_values
+from marivo.analysis.model.data_types import ScalarDataType
 from marivo.semantic._numeric_lowering import _source_sum
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.numeric_operations import (
@@ -18,6 +27,7 @@ from marivo.semantic.numeric_operations import (
     numeric_binary,
 )
 from tests.shared_fixtures import DslCaseFactory, catalog_value
+from tests.support.paths import PROJECT_ROOT
 
 
 @pytest.mark.parametrize(
@@ -100,13 +110,6 @@ def test_decimal_convergence_handles_ties_and_carry() -> None:
 
 @pytest.mark.parametrize("side", ("value", "weight"))
 def test_internal_weighted_samples_check_nonfinite_before_pair_mask(side: str) -> None:
-    from ibis.common.deferred import resolver
-
-    from marivo._definition.expressions import PerWeightedMean, RowExpression, SourceAggregate
-    from marivo._definition.types import AxisBinding, ExactRef
-    from marivo._kernel.refs import ref
-    from marivo.analysis.methods._sample_numeric import reduce_samples
-    from marivo.analysis.model.data_types import ScalarDataType
 
     source = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
     axis = AxisBinding(
@@ -215,11 +218,6 @@ def test_public_decimal_nodes_and_integer_sum_preserve_saved_values(
 def test_integer_sum_and_decimal_product_cold_read_without_sources(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import os
-    import subprocess
-    import sys
-
-    from tests.support.paths import PROJECT_ROOT
 
     case = analysis_dsl_case_factory("j1")
     frame = case.session.values(

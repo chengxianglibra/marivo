@@ -24,7 +24,8 @@ from marivo._definition.types import (
 from marivo._kernel.refs import (
     SemanticKind,
 )
-from marivo.semantic._deferred_semantics import RowFacts, consume_row
+from marivo.semantic._deferred_facts import RowFacts
+from marivo.semantic._deferred_semantics import consume_row
 from marivo.semantic.errors import ErrorKind
 from marivo.semantic.expressions.objects import (
     _fail,

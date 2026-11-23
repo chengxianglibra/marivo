@@ -1,17 +1,29 @@
 """Closed one-endpoint records preserve reread and historical totals independently."""
 
+import subprocess
+import sys
 from dataclasses import fields, replace
+from datetime import datetime, timezone
 from pathlib import Path
 
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
+from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.core.frame_level_facts import (
+    FrameLevelAdditiveMethod,
+    FrameLevelLinearTerm,
+    FrameLevelSupport,
+)
 from marivo.analysis.core.frame_method_facts import (
     FrameAttributeMetric,
-    FrameLevelAdditiveMethod,
-    FrameLevelSupport,
     FrameMethodFacts,
     FrameMethodParent,
 )
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.graph_reading import open_manifest
 from marivo.analysis.materialization.terminal_protocol import (
     decode_method_record,
     encode_method_record,
@@ -19,6 +31,7 @@ from marivo.analysis.materialization.terminal_protocol import (
 from marivo.analysis.methods.frame_method_facts import validate_method_facts
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
 from marivo.analysis.model.method_values import FrameMethodValue
 
@@ -95,18 +108,6 @@ def test_level_facts_keep_single_endpoint_and_independent_observed_total() -> No
 def test_level_facts_survive_independent_store_read_and_reject_changed_payload(
     tmp_path: Path,
 ) -> None:
-    import subprocess
-    import sys
-    from datetime import datetime, timezone
-    from pathlib import Path
-
-    import pandas as pd
-    import pyarrow.parquet as pq
-
-    from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-    from marivo.analysis.materialization.admission import DatasetRuntime
-    from marivo.analysis.materialization.graph_reading import open_manifest
-    from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 
     facts = level_facts()
     local = DatasetRuntime.create(tmp_path, "one-endpoint-facts", timezone="UTC").local
@@ -160,7 +161,6 @@ with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceS
     payload = pq.read_table(path)
     altered = payload.to_pandas()
     altered.loc[0, "record"] = altered.loc[0, "record"].replace("240.0", "241.0")
-    import pyarrow as pa
 
     pq.write_table(pa.Table.from_pandas(altered, schema=payload.schema, preserve_index=False), path)
 
@@ -191,7 +191,6 @@ def test_empty_parent_facts_retain_and_validate_explicit_output_directory() -> N
 def test_one_endpoint_record_show_bounds_large_counts_and_coefficients(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.analysis.core.frame_method_facts import FrameLevelLinearTerm
 
     count = 10**5000
     support = FrameLevelSupport("one-endpoint", "rows", count, count)

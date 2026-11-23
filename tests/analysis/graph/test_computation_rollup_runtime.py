@@ -7,11 +7,18 @@ import os
 import shutil
 import subprocess
 import sys
+from decimal import Decimal
 from pathlib import Path
 
+import duckdb
 import pytest
 
-from tests.analysis.numeric.rollup_worker import MONTH_EXPECTED
+import marivo.analysis as mv
+from tests.analysis.numeric.rollup_worker import (
+    DAY_ROWS,
+    MONTH_EXPECTED,
+    author_decimal_mean_project,
+)
 from tests.shared_fixtures import catalog_get
 from tests.support.json import Json, checked, obj
 
@@ -54,12 +61,6 @@ def test_duckdb_decimal_mean_retains_captured_scale(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Source mean and saved Frame reads retain captured Decimal scale."""
-    from decimal import Decimal
-
-    import duckdb
-
-    import marivo.analysis as mv
-    from tests.analysis.numeric.rollup_worker import DAY_ROWS, author_decimal_mean_project
 
     project = author_decimal_mean_project(tmp_path)
     with duckdb.connect(str(project / "warehouse.duckdb")) as connection:

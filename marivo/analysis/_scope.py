@@ -32,7 +32,8 @@ from marivo._definition.relations import (
     SampleDomain,
     SourceIdentities,
 )
-from marivo._definition.types import AxisBinding, attribute_time_key
+from marivo._definition.types import AxisBinding, FieldRead, attribute_time_key
+from marivo._kernel.time_types import grain_token
 
 
 def _bounded(text: str, limit: int) -> str:
@@ -96,7 +97,7 @@ def _observation_summary(observation: ObservationBinding) -> str:
         )
         samples.append(
             f"sample[{'.'.join(map(str, occurrence))}] field={clocks}, "
-            f"grain={sample.grain_spec._to_token()}, timezone={sample.timezone}, order=instant"
+            f"grain={grain_token(sample.grain_spec)}, timezone={sample.timezone}, order=instant"
         )
     if len(observation.calendar_samples) > len(samples):
         samples.append("... sample layers omitted")
@@ -152,8 +153,6 @@ def _node_summary(node: DefinitionNode) -> str:
     if isinstance(node, PopulationProject):
         return f"PopulationProject positions={node.positions}"
     if isinstance(node, PopulationClassify):
-        from marivo._definition.types import FieldRead
-
         return "PopulationClassify reads=" + ", ".join(
             (read.field if isinstance(read, FieldRead) else read.entity).ref.path
             for read in node.reads[:6]

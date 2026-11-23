@@ -1,30 +1,69 @@
 """Private Attribute preparation retains independently checked source roles."""
 
 from collections.abc import Callable, Mapping
+from dataclasses import replace
+from decimal import Decimal
 from pathlib import Path
 from typing import NoReturn
 
 import duckdb
+import ibis
 import ibis.expr.types as ir
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 from marivo._kernel.grouping import Grouping
-from marivo.analysis.binding.frame_attribute import source_inputs
-from marivo.analysis.binding.frame_attribute_inputs import AttributeInputRequest
-from marivo.analysis.compiler.frame_plan import CompiledFramePlan, CompiledSourceFrame, plan_frame
-from marivo.analysis.compiler.graph_plan import SourceReadStage, read_attribute, require_reduction
-from marivo.analysis.core.frame_expression import FrameExpression
+from marivo.analysis.binding.attribute_rules import AttributeRuleError
+from marivo.analysis.compiler import attribute_input_lowering
+from marivo.analysis.compiler.compiled_frame import CompiledFramePlan, CompiledSourceFrame
+from marivo.analysis.compiler.frame_plan import plan_frame
+from marivo.analysis.compiler.query_stages import (
+    AttributeCheckLayout,
+    AttributeRootLayout,
+    FrameCompute,
+    LocalCompute,
+    SourceReadStage,
+    read_attribute,
+    require_reduction,
+)
+from marivo.analysis.core import data_validation
+from marivo.analysis.core.attribute import AttributeInputError, AttributeInputProgram
+from marivo.analysis.core.frame_attribute_inputs import AttributeInputRequest
+from marivo.analysis.core.frame_operations import FrameExpression
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame_attribute_binding import source_inputs
 from marivo.analysis.dsl.population import Population
+from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import (
+    attribute_source_preparation,
+    frame_evaluation,
+    graph_local_execution,
+    source_completion,
+)
 from marivo.analysis.materialization.frame_evaluation import evaluate_attribute_inputs
+from marivo.analysis.materialization.graph_local_execution import LocalKernel
+from marivo.analysis.materialization.query_components import complete_attribute_parent_domain
+from marivo.analysis.methods import frame_attribute
+from marivo.analysis.methods.carriers.stage_components import (
+    AttributeRootInputs,
+    select_attribute_root,
+)
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.attribute_failures import AttributePartitionWitness
+from marivo.analysis.model.data_types import DecimalDataType, DurationDataType, ScalarDataType
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.frame_contracts import CheckedStageInputT
+from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.analysis.session.core import Session
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic._expression_values import FieldExpression
+from marivo.semantic.numeric_operations import NumericCheck
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.support.source_trace import capture_source
 
 
 def _compare(current: AnalysisFrame, baseline: AnalysisFrame) -> AnalysisFrame:
@@ -92,7 +131,6 @@ def session(
 def test_same_root_ratio_has_direct_parent_and_fine_reads_per_endpoint(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
@@ -139,17 +177,6 @@ def test_attribute_subtables_originals_and_fibers_consume_exact_key_facts(
     session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from dataclasses import replace
-
-    from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
-    from marivo.analysis.core.attribute import AttributeInputProgram
-    from marivo.analysis.errors import AnalysisError
-    from marivo.analysis.materialization import graph_local_execution
-    from marivo.analysis.materialization.graph_local_execution import LocalKernel
-    from marivo.analysis.methods import frame_attribute
-    from marivo.analysis.methods.carriers import data_validation
-    from marivo.analysis.methods.carriers.stage_components import select_attribute_root
-    from marivo.analysis.methods.carriers.stages import StageOutput
 
     scans: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
     scan = data_validation._validate_stage_keys
@@ -412,12 +439,11 @@ def test_outer_fine_group_has_typed_empty_components(session: Session) -> None:
 def test_default_path_collects_no_attribute_input_proof(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization import graph_source_execution
 
     def unexpected(*args: object, **kwargs: object) -> None:
         raise AssertionError("default requested Attribute input proof")
 
-    monkeypatch.setattr(graph_source_execution, "prepare_attribute_sources", unexpected)
+    monkeypatch.setattr(attribute_source_preparation, "prepare_attribute_sources", unexpected)
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     assert (
@@ -436,9 +462,6 @@ def test_default_path_collects_no_attribute_input_proof(
 def test_decimal_native_mean_preserves_original_finisher_and_component_types(
     session: Session, tmp_path: Path
 ) -> None:
-    from decimal import Decimal
-
-    from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
 
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER value TYPE DECIMAL(18,2)")
@@ -470,9 +493,6 @@ def test_decimal_native_mean_preserves_original_finisher_and_component_types(
 def test_duration_native_mean_keeps_exact_ticks_and_original_finisher(
     session: Session, tmp_path: Path
 ) -> None:
-    import pyarrow as pa
-
-    from marivo.analysis.model.data_types import DecimalDataType, DurationDataType
 
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute(
@@ -507,9 +527,6 @@ def test_duration_native_mean_keeps_exact_ticks_and_original_finisher(
 def test_native_mean_retains_wider_sum_without_imposing_sum_int64_overflow(
     session: Session, tmp_path: Path
 ) -> None:
-    from decimal import Decimal
-
-    from marivo.analysis.model.data_types import DecimalDataType
 
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("UPDATE facts SET value=9223372036854775807")
@@ -531,7 +548,6 @@ def test_native_mean_retains_wider_sum_without_imposing_sum_int64_overflow(
 def test_additional_root_has_two_independent_roles_without_fact_fanout(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     other = catalog_value(session.catalog, "sales.otherfacts.value", kind="measure")
@@ -570,10 +586,6 @@ def test_additional_root_has_two_independent_roles_without_fact_fanout(
 def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.compiler.graph_plan import FrameCompute, SourceReadStage
-    from marivo.analysis.core.attribute import AttributeInputProgram
-    from marivo.analysis.materialization import frame_evaluation
-    from marivo.datasource.runtime.adapters import SourceSession
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
@@ -676,12 +688,6 @@ def test_complete_compound_identity_parent_mapping(session: Session) -> None:
 def test_unknown_duplicate_complete_compound_parent_aggregate_is_rejected(
     session: Session,
 ) -> None:
-    from dataclasses import replace
-
-    from marivo.analysis.materialization.query_components import complete_attribute_parent_domain
-    from marivo.analysis.methods.carriers.stages import StageOutput
-    from marivo.analysis.model.execution_errors import MaterializationError
-    from marivo.analysis.model.unique_keys import UniqueKeys
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
@@ -712,8 +718,6 @@ def test_unknown_duplicate_complete_compound_parent_aggregate_is_rejected(
 def test_missing_checked_parent_aggregate_cannot_turn_into_known_empty(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.core.attribute import AttributeInputError
-    from marivo.datasource.runtime.adapters import SourceSession
 
     execute = SourceSession.execute
 
@@ -755,8 +759,6 @@ def test_empty_zero_axis_parent_has_no_required_weighted_total(session: Session)
 def test_unproved_sample_sequence_stays_closed_before_source_read(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.binding.attribute_rules import AttributeRuleError
-    from marivo.datasource.runtime.adapters import SourceSession
 
     calls = []
     monkeypatch.setattr(SourceSession, "execute", lambda *args: calls.append(args))
@@ -784,7 +786,6 @@ def _keyed_values(
 def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
@@ -1074,9 +1075,6 @@ def test_known_empty_weighted_parent_retains_na_original_total(session: Session)
 def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
     session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing_scope: str
 ) -> None:
-    from marivo.analysis.materialization import graph_source_execution
-    from marivo.analysis.model.execution_errors import MaterializationError
-    from marivo.datasource.runtime.adapters import SourceSession
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
@@ -1099,7 +1097,7 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
         failed_axes = (region, channel)
         expected_coordinates = [{"key.0": "east", "key.1": "B"}]
     coordinates = []
-    failure = graph_source_execution._source_check_failure
+    failure = source_completion._source_check_failure
 
     def failed(
         stage: SourceReadStage, name: str, expected: str, received: str, rows: pd.DataFrame
@@ -1107,7 +1105,7 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
         coordinates.append(rows.to_dict(orient="records"))
         failure(stage, name, expected, received, rows)
 
-    monkeypatch.setattr(graph_source_execution, "_source_check_failure", failed)
+    monkeypatch.setattr(source_completion, "_source_check_failure", failed)
     with pytest.raises(MaterializationError) as ordinary:
         session.observe({"q": metric}, by=failed_axes, where=region == "east").compute()
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
@@ -1188,7 +1186,6 @@ def test_joint_compound_identity_counts_preserve_prepared_axis_groups(session: S
 def test_source_capture_copies_metrics_without_business_reads(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     metrics = {"sum": value.sum(), "mean": value.mean()}
@@ -1206,15 +1203,6 @@ def test_source_capture_copies_metrics_without_business_reads(
 def test_role_specific_native_carriers_and_shuffled_rows_survive_direct_inputs(
     session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from decimal import Decimal
-
-    import pyarrow as pa
-
-    from marivo.analysis.compiler.graph_plan import FrameCompute
-    from marivo.analysis.core.attribute import AttributeInputProgram
-    from marivo.analysis.materialization import graph_local_execution
-    from marivo.analysis.model.data_types import DecimalDataType
-    from marivo.datasource.runtime.adapters import SourceSession
 
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER value TYPE DECIMAL(18,2)")
@@ -1226,7 +1214,6 @@ def test_role_specific_native_carriers_and_shuffled_rows_survive_direct_inputs(
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     selected = session.observe({"q": value.sum() * Decimal("0.5")}, by=(region,)).compute()
     execute = SourceSession.execute
-    from marivo.analysis.methods.carriers.stage_components import AttributeRootInputs
 
     captured: list[AttributeRootInputs] = []
     local = graph_local_execution.run_local
@@ -1251,9 +1238,6 @@ def test_role_specific_native_carriers_and_shuffled_rows_survive_direct_inputs(
         return rows.iloc[::-1].reset_index(drop=True)
 
     monkeypatch.setattr(SourceSession, "execute", read)
-    from marivo.analysis.compiler.graph_plan import LocalCompute
-    from marivo.analysis.materialization.graph_local_execution import LocalKernel
-    from marivo.analysis.methods.carriers.stages import StageOutput
 
     def run_local(
         stage: LocalCompute | FrameCompute,
@@ -1315,7 +1299,6 @@ def test_known_empty_parent_native_formula_has_defined_original_zero(session: Se
 def test_attribute_transport_depends_on_groups_not_source_rows(
     session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_rows: int
 ) -> None:
-    from tests.support.source_trace import capture_source
 
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("DELETE FROM facts")
@@ -1336,9 +1319,6 @@ def test_attribute_transport_depends_on_groups_not_source_rows(
 def test_distinct_failure_returns_one_key_and_six_ordered_groups(
     session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reverse: bool
 ) -> None:
-    from marivo.analysis.core.attribute import AttributeInputError
-    from marivo.analysis.model.attribute_failures import AttributePartitionWitness
-    from tests.support.source_trace import capture_source
 
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("DELETE FROM facts")
@@ -1364,14 +1344,8 @@ def test_distinct_failure_returns_one_key_and_six_ordered_groups(
 def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
     session: Session, monkeypatch: pytest.MonkeyPatch, kind: str
 ) -> None:
-    import ibis
 
-    from marivo.analysis.compiler import attribute_inputs
-    from marivo.analysis.compiler.attribute_inputs import AttributeCheckLayout, AttributeRootLayout
-    from marivo.analysis.errors import AnalysisError
-    from marivo.semantic.numeric_operations import NumericCheck
-
-    original = attribute_inputs.lower_attribute_inputs
+    original = attribute_input_lowering.lower_attribute_inputs
     compiled: set[str] = set()
 
     def lower(
@@ -1387,7 +1361,7 @@ def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
             compiled.add(dialect)
         return result
 
-    monkeypatch.setattr(attribute_inputs, "lower_attribute_inputs", lower)
+    monkeypatch.setattr(attribute_input_lowering, "lower_attribute_inputs", lower)
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     by: tuple[FieldExpression | Grouping, ...] = (channel,)
@@ -1427,7 +1401,6 @@ def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
 def test_paired_rate_mix_membership_requires_one_joint_group_per_fact(
     session: Session, tmp_path: Path, unique: bool
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
 
     if unique:
         with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:

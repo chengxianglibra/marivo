@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from dataclasses import dataclass, field, replace
+from typing import Literal, TypeAlias
 
 import ibis
 import ibis.expr.operations as ops
@@ -12,46 +12,57 @@ import ibis.expr.types as ir
 import pandas as pd
 
 from marivo._definition.expressions import EntityCount, SourceAggregate, SourceWeightedMean
+from marivo._definition.graph import computation_fingerprint
 from marivo.analysis.binding.attribute_game import formula_id
 from marivo.analysis.compiler.attribute_native_queries import lower_native_coalition, native_failure
-from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead
+from marivo.analysis.compiler.query_stages import (
     AttributeCoalitionRead,
+    QueryPlan,
     SourceReadStage,
     read_reduction,
 )
-from marivo.analysis.core.attribute_game import CoalitionValue, CompletedGame, GameContext
-from marivo.analysis.core.frame_method_facts import (
+from marivo.analysis.core.attribute_game import (
+    AttributeGameProgram,
+    CoalitionValue,
+    CompletedGame,
+    GameContext,
+)
+from marivo.analysis.core.frame_data import required_attachments
+from marivo.analysis.core.frame_method_facts import FrameShapleyMethod
+from marivo.analysis.core.frame_shapley_facts import (
     FrameShapleyLeaf,
-    FrameShapleyMethod,
     FrameShapleyNativeQuantile,
     FrameShapleyQuery,
     FrameShapleyQueryGame,
     FrameShapleyReduction,
 )
 from marivo.analysis.core.value_types import data_type, ibis_type
+from marivo.analysis.materialization import query_parameters, source_reads
+from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.materialization.query_runtime_types import effective_game_program
+from marivo.analysis.materialization.source_reads import qualify_query_sources
 from marivo.analysis.methods._ibis_numeric import evaluate_numeric
-from marivo.analysis.methods.carriers.stages import StageOutput
-from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary
-from marivo.analysis.methods.frame_attribute_shapley import (
-    _attribute_numeric_context,
+from marivo.analysis.methods.attribute_game_diagnostics import attribute_numeric_context
+from marivo.analysis.methods.attribute_game_sampling import (
     _null,
     _number,
     _series,
-    assemble_game_report,
     game_contexts,
     sample_game,
 )
+from marivo.analysis.methods.attribute_numeric import _numeric_binary
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.methods.frame_game_report import assemble_game_report
+from marivo.analysis.model.attribute_game_errors import AttributeGameError
 from marivo.analysis.model.data_types import DataColumn, DataType
 from marivo.analysis.model.method_values import FrameMethodValue
 from marivo.semantic.spi import (
     NumericValue,
     lower_metric_formula,
     lower_row,
+    numeric_failure,
 )
-
-if TYPE_CHECKING:
-    from marivo.analysis.materialization.graph_source_execution import PreparedSources
 
 Keys: TypeAlias = tuple[tuple[object, ...], ...]
 NativeCacheKey: TypeAlias = tuple[tuple[object, ...], Keys, Keys]
@@ -78,13 +89,6 @@ def prepare_native_game(
     stage: SourceReadStage, prepared_sources: Mapping[str, PreparedSources]
 ) -> PreparedNativeGame:
     """Rebind foreign physical recipes to one compatible owner and precompile."""
-    from marivo.analysis.compiler.graph_lowering import LoweredQuery
-    from marivo.analysis.compiler.graph_plan import QueryPlan
-    from marivo.analysis.materialization.graph_source_execution import (
-        PreparedSources,
-        qualify_query_sources,
-    )
-    from marivo.analysis.materialization.query_parameters import instantiate
 
     assert isinstance(stage.program, AttributeCoalitionRead)
     current, baseline = stage.program.endpoints
@@ -134,7 +138,7 @@ def prepare_native_game(
                     parameter.columns,
                     tuple(c.slot_id for c in parameter.columns),
                 )
-                relation = instantiate(
+                relation = query_parameters.instantiate(
                     relation,
                     parameter.placeholder,
                     parameter.columns,
@@ -154,7 +158,6 @@ def prepare_native_game(
         )
         plan = QueryPlan((probe,), (), probe.stage_id)
         qualify_query_sources(selected, LoweredQuery(plan, (lowered,)))
-        from marivo._definition.graph import computation_fingerprint
 
         def identity(read: SourceReadStage, relation: ir.Table) -> tuple[object, ...]:
             reduction = read_reduction(read)
@@ -212,190 +215,139 @@ def _query_fact(
     )
 
 
-def run_native_game(
-    stage: SourceReadStage,
-    inputs: tuple[StageOutput, ...],
-    prepared: PreparedNativeGame,
-    cache: NativeCache,
-    observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None,
-) -> StageOutput:
-    """Execute unseen native leaf requests and assemble the shared pure game report."""
-    from marivo.analysis.materialization.graph_source_execution import read_stage
-    from marivo.analysis.materialization.query_parameters import instantiate
+@dataclass(slots=True)
+class _NativeCoalition:
+    stage_id: str
+    inputs: tuple[StageOutput, ...]
+    program: AttributeGameProgram
+    context: GameContext
+    prepared: PreparedNativeGame
+    directory: dict[str, StageOutput]
+    cache: NativeCache
+    receipts: dict[str, FrameShapleyQuery]
+    observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None
+    leaf_outputs: dict[tuple[int, ...], DataColumn] = field(default_factory=dict, init=False)
+    leaf_inputs: dict[tuple[int, ...], tuple[DataType, ...]] = field(
+        default_factory=dict, init=False
+    )
 
-    assert isinstance(stage.program, AttributeCoalitionRead)
-    from marivo.analysis.materialization.query_runtime_types import effective_game_program
-
-    source_inputs = inputs[:5]
-    program = effective_game_program(stage.program.game, source_inputs)
-    game = program.operation.games[0]
-    directory = dict(zip(stage.inputs, inputs, strict=True))
-    receipts: dict[str, FrameShapleyQuery] = {}
-    for index, source in enumerate(source_inputs[1:3]):
-        for fact in _query_fact(
-            source, "current" if index == 0 else "baseline", "group_diagnostic"
-        ):
-            previous = receipts.get(fact.capture_id)
-            receipts[fact.capture_id] = (
-                replace(fact, endpoint="both") if previous is not None else fact
+    def keys(self, mask: int, side: int) -> Keys:
+        source = self.inputs[side + 1]
+        schema = self.program.left_schema if side == 0 else self.program.right_schema
+        rows = dict(self.context.current_rows if side == 0 else self.context.baseline_rows)
+        return tuple(
+            tuple(
+                None if _null(value := source.table[column.slot_id].iloc[rows[player]]) else value
+                for axis in schema.axes
+                for column in axis.columns
             )
-    directory_receipts = dict(receipts)
-    complete = []
-    for context in game_contexts(program, source_inputs):
-        receipts = dict(directory_receipts)
-        leaf_outputs: dict[tuple[int, ...], DataColumn] = {}
-        leaf_inputs: dict[tuple[int, ...], tuple[DataType, ...]] = {}
+            for i, player in enumerate(self.context.players)
+            if player in rows and bool(mask & (1 << i)) == (side == 0)
+        )
 
-        def evaluate(
-            mask: int,
-            context: GameContext = context,
-            leaf_outputs: dict[tuple[int, ...], DataColumn] = leaf_outputs,
-            leaf_inputs: dict[tuple[int, ...], tuple[DataType, ...]] = leaf_inputs,
-            receipts: dict[str, FrameShapleyQuery] = receipts,
-        ) -> CoalitionValue:
-            leaf_values = {}
-            for pair in prepared.pairs:
-                selected_keys = []
-                for side in (0, 1):
-                    source = source_inputs[side + 1]
-                    schema = program.left_schema if side == 0 else program.right_schema
-                    rows = dict(context.current_rows if side == 0 else context.baseline_rows)
-                    keys = tuple(
-                        tuple(
-                            None
-                            if _null(value := source.table[column.slot_id].iloc[rows[player]])
-                            else value
-                            for axis in schema.axes
-                            for column in axis.columns
-                        )
-                        for i, player in enumerate(context.players)
-                        if player in rows and bool(mask & (1 << i)) == (side == 0)
+    def read(self, pair: NativePair, selected_keys: tuple[Keys, Keys]) -> StageOutput:
+        cache_key = (pair.identity, selected_keys[0], selected_keys[1])
+        output = self.cache.get(cache_key)
+        if output is None:
+            tables = []
+            for read, relation in (
+                (pair.current, pair.current_table),
+                (pair.baseline, pair.baseline_table),
+            ):
+                owner = pair.prepared.source
+                for parameter in read.parameters:
+                    relation = query_parameters.instantiate(
+                        relation,
+                        parameter.placeholder,
+                        parameter.columns,
+                        self.directory[parameter.stage_id],
+                        provider=owner.provider.name,
+                        source=owner,
                     )
-                    selected_keys.append(keys)
-                cache_key = (pair.identity, selected_keys[0], selected_keys[1])
-                output = cache.get(cache_key)
-                if output is None:
-                    tables = []
-                    for read, relation in (
-                        (pair.current, pair.current_table),
-                        (pair.baseline, pair.baseline_table),
-                    ):
-                        owner = pair.prepared.source
-                        for parameter in read.parameters:
-                            relation = instantiate(
-                                relation,
-                                parameter.placeholder,
-                                parameter.columns,
-                                directory[parameter.stage_id],
-                                provider=owner.provider.name,
-                                source=owner,
-                            )
-                        tables.append(relation)
-                    query_id = f"{stage.stage_id}:native:{len(cache)}"
-                    read, request = lower_native_coalition(
-                        pair.current,
-                        pair.baseline,
-                        tables[0],
-                        tables[1],
-                        selected_keys[0],
-                        selected_keys[1],
-                        stage_id=query_id,
-                    )
-                    read = replace(
-                        read, attribute_native=True, native_reads=(pair.current, pair.baseline)
-                    )
-                    output = read_stage(pair.prepared, read, request)
-                    cache[cache_key] = output
-                    if observe_read is not None:
-                        observe_read(read, request, output)
-                for fact in _query_fact(
-                    output,
-                    "baseline"
-                    if mask == 0
-                    else "current"
-                    if mask == (1 << len(context.players)) - 1
-                    else "both",
-                    "coalition",
-                ):
-                    receipts[fact.capture_id] = fact
-                column = output.columns[0]
-                leaf_outputs[pair.occurrence] = column
-                reduction = read_reduction(pair.current)
-                assert reduction is not None
-                fields = {
-                    path: pair.current_table[name] for path, name in pair.current.field_columns
-                }
-                node = reduction.node
-                operands = (
-                    (node.operand,)
-                    if isinstance(node, SourceAggregate)
-                    else (node.value, node.weight)
-                    if isinstance(node, SourceWeightedMean)
-                    else ()
-                )
-                leaf_inputs[pair.occurrence] = tuple(
-                    data_type(lower_row(operand, fields).value.type()) for operand in operands
-                )
-                leaf_values[pair.occurrence] = output.table[column.slot_id]
-            table = ibis.table(
-                {
-                    f"leaf_{i}": ibis_type(leaf_outputs[leaf.occurrence].dtype)
-                    for i, leaf in enumerate(game.leaves)
-                },
-                name="_attribute_native_formula",
+                tables.append(relation)
+            query_id = f"{self.stage_id}:native:{len(self.cache)}"
+            read, request = lower_native_coalition(
+                pair.current,
+                pair.baseline,
+                tables[0],
+                tables[1],
+                selected_keys[0],
+                selected_keys[1],
+                stage_id=query_id,
             )
-            values = {
-                f"leaf_{i}": leaf_values[leaf.occurrence] for i, leaf in enumerate(game.leaves)
-            }
-            expression = lower_metric_formula(
-                game.node,
-                (0,),
-                {
-                    leaf.occurrence: NumericValue(table[f"leaf_{i}"])
-                    for i, leaf in enumerate(game.leaves)
-                },
-                dict(game.declared),
+            read = replace(read, attribute_native=True, native_reads=(pair.current, pair.baseline))
+            output = source_reads.read_stage(pair.prepared, read, request)
+            self.cache[cache_key] = output
+            if self.observe_read is not None:
+                self.observe_read(read, request, output)
+        return output
+
+    def evaluate(self, mask: int) -> CoalitionValue:
+        game = self.program.operation.games[0]
+        leaf_values: dict[tuple[int, ...], pd.Series] = {}
+        for pair in self.prepared.pairs:
+            selected = (self.keys(mask, 0), self.keys(mask, 1))
+            output = self.read(pair, selected)
+            for fact in _query_fact(
+                output,
+                "baseline"
+                if mask == 0
+                else "current"
+                if mask == (1 << len(self.context.players)) - 1
+                else "both",
+                "coalition",
+            ):
+                self.receipts[fact.capture_id] = fact
+            column = output.columns[0]
+            self.leaf_outputs[pair.occurrence] = column
+            reduction = read_reduction(pair.current)
+            assert reduction is not None
+            fields = {path: pair.current_table[name] for path, name in pair.current.field_columns}
+            node = reduction.node
+            operands = (
+                (node.operand,)
+                if isinstance(node, SourceAggregate)
+                else (node.value, node.weight)
+                if isinstance(node, SourceWeightedMean)
+                else ()
             )
-            result = evaluate_numeric(expression.value.op(), values, pd.RangeIndex(1))
-            for check in expression.checks:
-                if bool(
-                    evaluate_numeric(check.violation.op(), values, pd.RangeIndex(1))
-                    .fillna(False)
-                    .any()
-                ):
-                    from marivo.semantic.spi import numeric_failure
-
-                    numeric_failure(check.expected, check.received)
-            return CoalitionValue(
-                DataColumn("coalition", "coalition", data_type(expression.value.type()), False),
-                _number(result.iloc[0], reason="invalid_value"),
+            self.leaf_inputs[pair.occurrence] = tuple(
+                data_type(lower_row(operand, fields).value.type()) for operand in operands
             )
+            leaf_values[pair.occurrence] = output.table[column.slot_id]
+        table = ibis.table(
+            {
+                f"leaf_{i}": ibis_type(self.leaf_outputs[leaf.occurrence].dtype)
+                for i, leaf in enumerate(game.leaves)
+            },
+            name="_attribute_native_formula",
+        )
+        values = {f"leaf_{i}": leaf_values[leaf.occurrence] for i, leaf in enumerate(game.leaves)}
+        expression = lower_metric_formula(
+            game.node,
+            (0,),
+            {
+                leaf.occurrence: NumericValue(table[f"leaf_{i}"])
+                for i, leaf in enumerate(game.leaves)
+            },
+            dict(game.declared),
+        )
+        result = evaluate_numeric(expression.value.op(), values, pd.RangeIndex(1))
+        for check in expression.checks:
+            if bool(
+                evaluate_numeric(check.violation.op(), values, pd.RangeIndex(1)).fillna(False).any()
+            ):
+                numeric_failure(check.expected, check.received)
+        return CoalitionValue(
+            DataColumn("coalition", "coalition", data_type(expression.value.type()), False),
+            _number(result.iloc[0], reason="invalid_value"),
+        )
 
-        from marivo.analysis.model.attribute_game_errors import AttributeGameError
-
-        parent_columns = tuple(c for axis in program.parent_schema.axes for c in axis.columns)
-        with _attribute_numeric_context(
-            source_inputs[1:3], game.metric, context.parent, parent_columns
-        ):
-            try:
-                sample = sample_game(
-                    context.parent,
-                    context.players,
-                    program.operation.permutations,
-                    program.operation.seed,
-                    evaluate,
-                )
-            except AttributeGameError as error:
-                raise AttributeGameError(
-                    reason=error.reason,
-                    metric=game.metric,
-                    parent=context.parent,
-                    occurrence=error.occurrence,
-                    received=error.received if error.received is not None else str(error),
-                ) from error
+    def leaf_facts(self) -> tuple[FrameShapleyLeaf, ...]:
+        game = self.program.operation.games[0]
         leaf_facts = []
         for leaf in game.leaves:
-            pair = next(p for p in prepared.pairs if p.occurrence == leaf.occurrence)
+            pair = next(p for p in self.prepared.pairs if p.occurrence == leaf.occurrence)
             original_reduction = read_reduction(pair.current)
             assert original_reduction is not None
             node = original_reduction.node
@@ -430,11 +382,11 @@ def run_native_game(
                     native_failure(f"unadmitted native reducer fact: {node.reducer}")
             dependencies = []
             for side in (0, 1):
-                slot = dict(program.original_value_slots[side])[leaf.occurrence]
+                slot = dict(self.program.original_value_slots[side])[leaf.occurrence]
                 dependencies.append(
                     tuple(
                         c.stage_id
-                        for c in source_inputs[side + 1].attribute_state_captures
+                        for c in self.inputs[side + 1].attribute_state_captures
                         if slot in c.value_slots
                     )
                 )
@@ -445,8 +397,8 @@ def run_native_game(
                     dependencies[0],
                     dependencies[1],
                     reduction_fact,
-                    leaf_inputs[leaf.occurrence],
-                    leaf_outputs[leaf.occurrence],
+                    self.leaf_inputs[leaf.occurrence],
+                    self.leaf_outputs[leaf.occurrence],
                     "rows"
                     if isinstance(node, EntityCount)
                     else "co_valid_value_weight"
@@ -456,6 +408,69 @@ def run_native_game(
                     policy if leaf.kind == "weighted_mean" else "not_applicable",
                 )
             )
+        return tuple(leaf_facts)
+
+
+def run_native_game(
+    stage: SourceReadStage,
+    inputs: tuple[StageOutput, ...],
+    prepared: PreparedNativeGame,
+    cache: NativeCache,
+    observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None,
+) -> StageOutput:
+    """Execute unseen native leaf requests and assemble the shared pure game report."""
+
+    assert isinstance(stage.program, AttributeCoalitionRead)
+    source_inputs = inputs[:5]
+    program = effective_game_program(stage.program.game, source_inputs)
+    game = program.operation.games[0]
+    directory = dict(zip(stage.inputs, inputs, strict=True))
+    receipts: dict[str, FrameShapleyQuery] = {}
+    for index, source in enumerate(source_inputs[1:3]):
+        for fact in _query_fact(
+            source, "current" if index == 0 else "baseline", "group_diagnostic"
+        ):
+            previous = receipts.get(fact.capture_id)
+            receipts[fact.capture_id] = (
+                replace(fact, endpoint="both") if previous is not None else fact
+            )
+    directory_receipts = dict(receipts)
+    complete = []
+    for context in game_contexts(program, source_inputs):
+        receipts = dict(directory_receipts)
+        coalition = _NativeCoalition(
+            stage.stage_id,
+            source_inputs,
+            program,
+            context,
+            prepared,
+            directory,
+            cache,
+            receipts,
+            observe_read,
+        )
+
+        parent_columns = tuple(c for axis in program.parent_schema.axes for c in axis.columns)
+        with attribute_numeric_context(
+            source_inputs[1:3], game.metric, context.parent, parent_columns
+        ):
+            try:
+                sample = sample_game(
+                    context.parent,
+                    context.players,
+                    program.operation.permutations,
+                    program.operation.seed,
+                    coalition.evaluate,
+                )
+            except AttributeGameError as error:
+                raise AttributeGameError(
+                    reason=error.reason,
+                    metric=game.metric,
+                    parent=context.parent,
+                    occurrence=error.occurrence,
+                    received=error.received if error.received is not None else str(error),
+                ) from error
+        leaf_facts = coalition.leaf_facts()
         paths = dict(
             zip(program.output_schema.value_paths, program.output_schema.values, strict=True)
         )
@@ -510,8 +525,6 @@ def run_native_game(
         )
         complete.append(CompletedGame(context, sample, method))
     frame, payload = assemble_game_report(program, source_inputs, tuple(complete))
-    from marivo.analysis.core.frame_data import required_attachments
-
     required = required_attachments(program.output_schema)
     return StageOutput.from_frame(
         frame,

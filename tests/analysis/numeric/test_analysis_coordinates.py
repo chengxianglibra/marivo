@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from dataclasses import replace
 from typing import Literal
 
@@ -272,9 +275,6 @@ def test_row_statistics_grouped_merge_preserves_mean_state_and_identity(
 def test_cold_grouped_statistic_recovers_without_models_source_or_duckdb(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import os
-    import subprocess
-    import sys
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:

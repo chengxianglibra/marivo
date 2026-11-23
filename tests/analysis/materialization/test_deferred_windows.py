@@ -1,5 +1,8 @@
 """Window endpoints reevaluate complete native formulas over actual source rows."""
 
+import os
+import subprocess
+import sys
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,9 +20,13 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.model.data_schema import CalendarDataAxis
 from marivo.analysis.model.errors import CoreRuleError
 from marivo.analysis.session.core import Session
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, frozen_coordinates, time_population
+from tests.support.paths import PROJECT_ROOT
+from tests.support.source_trace import capture_source
 
 
 @pytest.fixture
@@ -215,8 +222,6 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
     assert session.observe(
         {"revenue": revenue}, where=((at >= scope.start) & (at < scope.end))
     ).compute().to_pandas()["revenue"].tolist() == [20]
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     execute = SourceSession.execute
 
@@ -968,11 +973,6 @@ def test_time_product_reuses_checked_domain(
     monkeypatch: pytest.MonkeyPatch,
     predicate: bool,
 ) -> None:
-    import pandas as pd
-
-    from marivo.analysis.errors import AnalysisError
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = window_session
     people = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
@@ -1008,7 +1008,6 @@ def test_sparse_sample_reductions_keep_groups_and_offgrid_clocks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from tests.support.source_trace import capture_source
 
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders")
@@ -1268,8 +1267,6 @@ def test_sparse_month_comparison_distinguishes_missing_rows_from_explicit_zero(
 def test_extra_native_key_requires_complete_shift_mapping_before_completion(
     window_session: Session, monkeypatch: pytest.MonkeyPatch, shifted: bool
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     execute = SourceSession.execute
     injected: list[str] = []
@@ -1302,11 +1299,6 @@ def test_extra_native_key_requires_complete_shift_mapping_before_completion(
 def test_direct_shift_comparison_reopens_in_fresh_process_without_source(
     window_session: Session, tmp_path: Path
 ) -> None:
-    import os
-    import subprocess
-    import sys
-
-    from tests.support.paths import PROJECT_ROOT
 
     session = window_session
     revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")

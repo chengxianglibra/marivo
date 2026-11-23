@@ -7,15 +7,19 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from marivo._definition.types import Owner
+from marivo.analysis.core.frame_data import StoredFrameBacking
+from marivo.analysis.materialization import terminal_publication
 from marivo.analysis.materialization.contracts import SessionRecord, parse_timestamp
+from marivo.analysis.materialization.graph_reading import FrameReader, open_manifest
+from marivo.analysis.materialization.run_records import load_run
 from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.model.errors import reject
 from marivo.analysis.model.receipts import invalid
 
 if TYPE_CHECKING:
     from marivo.analysis.core.frame_data import (
         CompletedFrameData,
         CompletedFrameResult,
-        StoredFrameBacking,
     )
     from marivo.analysis.core.frame_method_facts import FrameMethodFacts
     from marivo.analysis.materialization.graph_reading import FramePreview
@@ -52,9 +56,6 @@ class LocalFrameServices:
 
     def _manifest(self, backing: StoredFrameBacking) -> ArtifactManifest:
         """Validate the exact captured commit without opening result payloads."""
-        from marivo.analysis.core.frame_data import StoredFrameBacking
-        from marivo.analysis.materialization.graph_reading import open_manifest
-
         manifest = open_manifest(self.store, self.session_ref, backing.artifact_id)
         selected = StoredFrameBacking(
             manifest.artifact_id,
@@ -69,19 +70,14 @@ class LocalFrameServices:
 
     def committed_at(self, backing: StoredFrameBacking) -> datetime:
         """Read the validated commit time without result payload reads."""
-        from marivo.analysis.materialization import terminal_store
-
         manifest = self._manifest(backing)
         with self.store._read() as conn:
-            producer = terminal_store.run(self.store, conn, manifest.run_id)
+            producer = load_run(conn, manifest.run_id)
         assert producer is not None and producer.terminal_at is not None
         return parse_timestamp(producer.terminal_at)
 
     def open_frame(self, artifact_id: str) -> StoredFrameBacking:
         """Validate one same-Session committed descriptor, without payload reads."""
-        from marivo.analysis.core.frame_data import StoredFrameBacking
-        from marivo.analysis.materialization.graph_reading import open_manifest
-
         value = open_manifest(self.store, self.session_ref, artifact_id)
         return StoredFrameBacking(
             value.artifact_id, value.data, value.metadata, value.method_facts, value.description
@@ -89,32 +85,31 @@ class LocalFrameServices:
 
     def read_method_facts(self, backing: StoredFrameBacking) -> tuple[FrameMethodFacts, ...]:
         """Consume checked owned method payloads without reading current rows."""
-        from marivo.analysis.materialization.graph_reading import FrameReader
-
         return FrameReader(self.store, self.session_ref).method_facts(backing)
 
     def read_data(self, backing: StoredFrameBacking) -> CompletedFrameData:
         """Consume current rows and coordinates without historical method payloads."""
-        from marivo.analysis.materialization.graph_reading import FrameReader
-
         return FrameReader(self.store, self.session_ref).data(backing)
 
     def read_complete(self, backing: StoredFrameBacking) -> CompletedFrameResult:
         """Load and fully validate independent saved data, preserving result facts."""
-        from marivo.analysis.materialization.graph_reading import FrameReader
-
         return FrameReader(self.store, self.session_ref).complete(backing)
 
     def preview(self, backing: StoredFrameBacking, n: int) -> FramePreview:
         """Decode an ordered prefix and only its necessary coordinate records."""
-        from marivo.analysis.materialization.graph_reading import FrameReader
-
         return FrameReader(self.store, self.session_ref).preview(backing, n)
 
     def publish(
         self, result: CompletedFrameResult, *, description: str | None = None
     ) -> StoredFrameBacking:
         """Publish an already completed result through the original local Store."""
-        from marivo.analysis.materialization.terminal_publication import publish_completed
-
-        return publish_completed(self, result, description=description)
+        if type(self) is not LocalFrameServices:
+            reject(
+                "local Frame services and one completed result",
+                type(result).__name__,
+                "Compute through the owning Frame before publishing.",
+                "frame.persist",
+            )
+        return terminal_publication.publish_completed(
+            self.store, self.session_ref, result, description=description
+        )

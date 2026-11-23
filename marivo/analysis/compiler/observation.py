@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import datetime
 
 import ibis
@@ -29,7 +28,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
-from marivo._definition.observations import CalendarGrouping
+from marivo._definition.graph import children
 from marivo._definition.types import (
     CalendarCoordinate,
     ExactRef,
@@ -38,17 +37,19 @@ from marivo._definition.types import (
     coordinate_read_keys,
     field_read_key,
 )
-from marivo._kernel.timezones import normalize_timezone
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.binding.programs import FormulaProgram
+from marivo.analysis.compiler.calendar import bind_calendar
 from marivo.analysis.compiler.predicate import lower_condition
+from marivo.analysis.compiler.reduction_input import ReductionInput
+from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
 from marivo.analysis.core.value_types import data_type, ibis_type
+from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.model.data_types import (
     DataColumn,
     DataType,
     DurationDataType,
 )
-from marivo.datasource.spi import DEFAULT_BACKEND_TYPE
 from marivo.semantic.spi import (
     NumericCheck,
     NumericValue,
@@ -59,25 +60,6 @@ from marivo.semantic.spi import (
     numeric_failure,
     recipe_duration,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class ReductionInput:
-    """Closed physical input to a source reduction; no Session or Signature."""
-
-    node: SourceAggregate | SourceWeightedMean | EntityCount
-    axes: tuple[tuple[str, str], ...]
-    value_slot: str
-    calendar: CalendarCoordinate | IntervalCoordinate | None = None
-    time_column: str | None = None
-    duration: DurationDataType | None = None
-    window_key: int | datetime | None = None
-    window_coordinates: tuple[tuple[str, int | datetime], ...] = ()
-    preserve_sample_presence: bool = False
-    calendars: tuple[tuple[str, CalendarGrouping], ...] = ()
-    sampled: bool = False
-    provider: str = DEFAULT_BACKEND_TYPE
-    sample_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
 
 
 def calendar_field(slot: str) -> str:
@@ -137,7 +119,6 @@ def reduction_input(
 def bind_reduction_calendars(
     prepared: ReductionInput, table: ir.Table, columns: Mapping[str, str]
 ) -> tuple[ir.Table, Mapping[str, str]]:
-    from marivo.analysis.compiler.calendar import bind_calendar
 
     bound = dict(columns)
     calendars = prepared.calendars or (
@@ -286,12 +267,9 @@ def lower_observation(
     if window_slot is not None:
         fields[window_slot] = filtered[window_slot]
     axes = _reduction_axes(prepared, fields, window_slot)
-    from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
 
     admit_source_aggregate(prepared, fields)
     if frequency:
-        from marivo.analysis.errors import AnalysisStageUnavailableError
-
         assert isinstance(prepared.node, SourceAggregate)
         dtype = lower_row(prepared.node.operand, fields).value.type()
         distinct = prepared.node.reducer == "count_distinct"
@@ -401,7 +379,6 @@ def lower_common_observations(
     axes = _reduction_axes(first, fields)
     metrics: dict[str, ir.Value] = {}
     checks: list[tuple[str, NumericCheck]] = []
-    from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
 
     for index, reduction in enumerate(reductions):
         admit_source_aggregate(reduction, fields)
@@ -469,16 +446,6 @@ def formula_columns(program: FormulaProgram) -> tuple[DataColumn, ...]:
     )
 
 
-def temporal_bound(value: ir.Value, boundary: datetime, zone: str) -> ir.Value:
-    """Compare civil dates in the captured boundary zone, instants by exact instant."""
-    if value.type().is_date():
-        return ibis.literal(
-            boundary.astimezone(normalize_timezone(zone).tz).replace(tzinfo=None),
-            type="timestamp(6)",
-        )
-    return ibis.literal(boundary, type="timestamp('UTC', 6)")
-
-
 def duration_type(
     node: MetricNode | RowNode,
     fields: Mapping[str, DataType],
@@ -488,8 +455,6 @@ def duration_type(
     occurrence: tuple[int, ...] = (),
 ) -> DurationDataType | None:
     """Preserve fixed tick units through admitted Row and Metric operations."""
-    from marivo._definition.graph import children
-
     if values is not None and occurrence in values:
         dtype = values[occurrence]
         return dtype if isinstance(dtype, DurationDataType) else None

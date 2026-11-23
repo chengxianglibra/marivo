@@ -6,7 +6,7 @@ re-exported from ``marivo.semantic.authoring``."""
 from __future__ import annotations
 
 import inspect
-from typing import Any
+from types import FrameType
 
 from ibis.common.deferred import Deferred
 
@@ -18,6 +18,7 @@ from marivo._kernel.refs import (
 )
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.symbolic import DatasourceSymbol, DomainSymbol, EntitySymbol, native_symbol_ref
+from marivo._kernel.validation import nonempty_text
 from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.declaration_records import (
@@ -87,7 +88,7 @@ def _register_authoring_file(path: str) -> None:
     _AUTHORING_FILES.add(path)
 
 
-def _is_internal_caller_frame(frame: Any) -> bool:
+def _is_internal_caller_frame(frame: FrameType) -> bool:
     """Return whether a frame belongs to authoring or transparent instrumentation."""
     return (
         frame.f_code.co_filename in _AUTHORING_FILES
@@ -132,7 +133,7 @@ def _resolve_domain(explicit: DomainSymbol | None, ctx: LoaderContext) -> str:
     )
 
 
-def _ir_kind(ir: Any) -> str:
+def _ir_kind(ir: DefinitionIR) -> str:
     """Return a human-readable kind label for an IR object."""
     if isinstance(ir, DimensionIR):
         return "time dimension" if ir.is_time_dimension else "dimension"
@@ -236,7 +237,7 @@ def _entity_lookup(value: Entity | EntitySymbol, *, parameter: str) -> Ref[Entit
 
 
 def _require_non_empty_column(column: str, *, semantic_id: str) -> str:
-    if isinstance(column, str) and column:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if nonempty_text(column):
         return column
     _raise(
         ErrorKind.INVALID_REF,

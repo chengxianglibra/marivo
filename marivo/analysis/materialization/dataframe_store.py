@@ -14,6 +14,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from marivo._kernel.validation import nonempty_text
 from marivo.analysis.materialization.carriers.dataframe_result import DataFrameResult
 from marivo.analysis.materialization.result_files import (
     ResultStorageError,
@@ -82,7 +83,7 @@ def _table(frame: pd.DataFrame) -> pa.Table:
     names: list[str] = []
     arrays: list[pa.Array] = []
     for index, name in enumerate(frame.columns):
-        if not isinstance(name, str) or not name or name in names:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not nonempty_text(name) or name in names:
             raise _unencodable(f"columns[{index}]", "expected a unique nonempty string column name")
         try:
             # Column conversion preserves Arrow-backed validity without serializing attrs.

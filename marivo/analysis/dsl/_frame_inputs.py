@@ -17,6 +17,8 @@ from marivo._definition.deferred import (
     DeclarationResolver,
     NamedResolver,
     PopulationContainsResolver,
+    PopulationCountResolver,
+    RescaleResolver,
     resolver_of,
 )
 from marivo._definition.relations import PopulationParameter
@@ -26,18 +28,22 @@ from marivo.analysis.model.frame_contracts import merge_frame_key_inputs
 from marivo.semantic.spi import ExpressionCarrier as _ExpressionCarrier
 
 
-def _recipe_inputs(recipe: Resolver) -> tuple[FrameKeyDependency, ...]:
-    from marivo._definition.deferred import PopulationCountResolver, RescaleResolver
-    from marivo.analysis.dsl.population import Population
+class PopulationFrameInputs:
+    """Nominal owner of the strong inputs carried by a bound Population."""
 
+    __slots__ = ()
+    _frame_inputs: tuple[FrameKeyDependency, ...]
+
+
+def _recipe_inputs(recipe: Resolver) -> tuple[FrameKeyDependency, ...]:
     if isinstance(recipe, (PopulationCountResolver, PopulationContainsResolver)):
         value = recipe.population
-        return value._frame_inputs if isinstance(value, Population) else ()
+        return value._frame_inputs if isinstance(value, PopulationFrameInputs) else ()
     if isinstance(recipe, (DeclarationResolver, NamedResolver, RescaleResolver)):
         return _recipe_inputs(recipe.recipe)
     if isinstance(recipe, Just):
         value = recipe.value
-        return value._frame_inputs if isinstance(value, Population) else ()
+        return value._frame_inputs if isinstance(value, PopulationFrameInputs) else ()
     if isinstance(recipe, BinaryOperator):
         return (*_recipe_inputs(recipe.left), *_recipe_inputs(recipe.right))
     if isinstance(recipe, UnaryOperator):
@@ -60,11 +66,9 @@ def collect_frame_key_inputs(
     owner: Owner | None = None,
 ) -> tuple[FrameKeyDependency, ...]:
     """Extract original special literals before semantic consumption drops wrappers."""
-    from marivo.analysis.dsl.population import Population
-
     groups: list[tuple[FrameKeyDependency, ...]] = []
     for value in values:
-        if isinstance(value, Population):
+        if isinstance(value, PopulationFrameInputs):
             groups.append(value._frame_inputs)
         elif isinstance(value, _ExpressionCarrier):
             groups.append(_recipe_inputs(value._recipe))

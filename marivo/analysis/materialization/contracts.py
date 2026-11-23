@@ -204,8 +204,8 @@ def run_failure_phase(stage: str, owning_phase: str) -> RunFailurePhase:
 def _failure_json(value: object, *, depth: int = 0) -> JsonValue:
     if depth > 6:
         raise invalid("Run failure JSON depth exceeded")
-    if value is None or type(value) in (bool, int):
-        return cast("bool | int | None", value)
+    if value is None or type(value) is bool or type(value) is int:
+        return value
     if isinstance(value, str):
         return _text(value, empty=True)
     if isinstance(value, float) and math.isfinite(value):

@@ -12,6 +12,7 @@ from marivo._definition.expressions import BuiltinSampleCoordinate
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 from marivo._kernel.temporal import Grain
 from marivo._kernel.timezones import normalize_timezone, same_timezone
+from marivo.analysis.compiler import source_time
 from marivo.datasource.spi import localize, query_dialect, render, timestamp
 
 KEY_TYPE = dt.Timestamp(timezone="UTC", scale=6)
@@ -19,8 +20,6 @@ KEY_TYPE = dt.Timestamp(timezone="UTC", scale=6)
 
 def reusable_date_day(calendar: CalendarCoordinate, date_timezone: str, engine: str) -> bool:
     """Qualify a one-to-one DATE/day mapping across every selected day."""
-    from marivo.analysis.compiler.source_time import endpoint_rewrite_safe
-
     grain = calendar.grain_spec
     return (
         grain.unit == "day"
@@ -35,7 +34,7 @@ def reusable_date_day(calendar: CalendarCoordinate, date_timezone: str, engine: 
             for bounds in calendar.civil_bounds
         )
         and all(
-            endpoint_rewrite_safe(point, date_timezone, engine)
+            source_time.endpoint_rewrite_safe(point, date_timezone, engine)
             for cell in calendar.cells
             for point in cell[:2]
         )
@@ -124,14 +123,12 @@ def bind_calendar(
     engine: str | None = None,
 ) -> ir.Table:
     """Attach a native bucket identity without a calendar directory or JOIN."""
-    from marivo.analysis.compiler.observation import temporal_bound
-
     if isinstance(calendar, BuiltinSampleCoordinate):
         return table.mutate(**{slot: builtin_sample_key(time, calendar, engine=engine)})
     if isinstance(calendar, IntervalCoordinate):
-        condition = (time >= temporal_bound(time, calendar.start, calendar.timezone)) & (
-            time < temporal_bound(time, calendar.end, calendar.timezone)
-        )
+        condition = (
+            time >= source_time.temporal_bound(time, calendar.start, calendar.timezone)
+        ) & (time < source_time.temporal_bound(time, calendar.end, calendar.timezone))
         return table.mutate(
             **{
                 slot: condition.ifelse(
@@ -143,8 +140,8 @@ def bind_calendar(
         return table.mutate(**{slot: builtin_key(time, calendar, engine=engine)})
     selected: ir.BooleanValue | None = None
     for start, end in calendar.ranges:
-        condition = (time >= temporal_bound(time, start, calendar.timezone)) & (
-            time < temporal_bound(time, end, calendar.timezone)
+        condition = (time >= source_time.temporal_bound(time, start, calendar.timezone)) & (
+            time < source_time.temporal_bound(time, end, calendar.timezone)
         )
         selected = condition if selected is None else selected | condition
     if selected is None:

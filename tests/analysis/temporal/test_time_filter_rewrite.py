@@ -7,6 +7,8 @@ from pathlib import Path
 
 import ibis
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from marivo.analysis.compiler.source_time import source_time
@@ -109,8 +111,6 @@ def test_selection_matches_native_gap_fold_and_non_hour_rules(
 
 @pytest.mark.parametrize("representation", ["utc", "fixed", "encoded", "civil_date"])
 def test_common_filter_reaches_parquet_scan(tmp_path: Path, representation: str) -> None:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
 
     values: list[object] = [datetime(2025, 1, 1), datetime(2025, 1, 2), datetime(2025, 1, 3)]
     if representation in ("encoded", "civil_date"):

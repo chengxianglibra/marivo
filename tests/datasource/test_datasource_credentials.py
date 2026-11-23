@@ -10,22 +10,32 @@ import sys
 import threading
 import traceback
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import replace
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import ibis
 import pytest
 from ibis.backends import BaseBackend
+from ibis.backends.duckdb import Backend
 
 import marivo
+import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._help.render import help as show_help
 from marivo.datasource import credentials
 from marivo.datasource.credentials import secrets as secrets
 from marivo.datasource.engines import require_profile_for_backend_type
-from marivo.datasource.errors import CredentialFailureReason, DatasourceConnectionError
+from marivo.datasource.engines.trino import PROFILE
+from marivo.datasource.errors import (
+    CredentialFailureReason,
+    DatasourceConnectionError,
+    DatasourceMetadataError,
+    DatasourceRawSqlError,
+)
 from marivo.datasource.inspection import manage as manage
 from marivo.datasource.runtime import backends as backends
 from marivo.datasource.runtime.connections import (
@@ -317,9 +327,6 @@ def test_observe_source_materialization_failure_redacts_credentials(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from ibis.backends.duckdb import Backend
-
-    import marivo.analysis as mv
 
     project = authoring_evidence_project
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(project))
@@ -361,10 +368,6 @@ def test_raw_sql_failure_keeps_contract_and_redacts_credentials(
     monkeypatch: pytest.MonkeyPatch,
     injected: bool,
 ) -> None:
-    from ibis.backends.duckdb import Backend
-
-    import marivo.semantic as ms
-    from marivo.datasource.errors import DatasourceRawSqlError
 
     project = authoring_evidence_project
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(project))
@@ -408,9 +411,6 @@ def test_raw_sql_failure_keeps_contract_and_redacts_credentials(
 def test_injected_metadata_denial_keeps_projected_schema_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, injected: bool, error_name: str
 ) -> None:
-    import marivo.semantic as ms
-    from marivo.datasource.engines.trino import PROFILE
-    from marivo.datasource.errors import DatasourceMetadataError
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
@@ -484,8 +484,6 @@ def test_public_semantic_analysis_and_resume(
     authoring_evidence_project: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import marivo.analysis as mv
-    import marivo.semantic as ms
 
     project = authoring_evidence_project
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(project))
@@ -534,7 +532,6 @@ def test_public_semantic_analysis_and_resume(
         assert scope_failure.value.repair is not None
         assert scope_failure.value.repair.help_target.canonical_id == "credential_scope"
         session_id = session.id
-        from ibis.backends.duckdb import Backend
 
         def fail_query(self: Backend, expr: object, **kwargs: object) -> object:
             raise RuntimeError("query echoed " + resolver.value)
@@ -584,7 +581,6 @@ def test_public_semantic_analysis_and_resume(
 
 
 def test_real_http_authentication(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     for key in ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
         monkeypatch.delenv(key, raising=False)
@@ -643,7 +639,6 @@ def test_real_http_authentication(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 def test_concurrent_contexts_keep_resolvers_separate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from concurrent.futures import ThreadPoolExecutor
 
     register_project(tmp_path, monkeypatch)
     barrier = threading.Barrier(2)

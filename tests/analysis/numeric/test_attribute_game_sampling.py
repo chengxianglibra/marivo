@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 from marivo.analysis.core.attribute_game import CoalitionValue
-from marivo.analysis.methods.frame_attribute_shapley import sample_game
+from marivo.analysis.methods.attribute_game_sampling import sample_game
 from marivo.analysis.model.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.model.frozen_keys import FrozenKey
 

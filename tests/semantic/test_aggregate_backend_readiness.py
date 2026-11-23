@@ -11,6 +11,7 @@ from typing import Literal, NoReturn
 import pytest
 
 import marivo.semantic as ms
+from marivo.semantic._aggregate_accuracy import aggregate_repair
 from marivo.semantic.check import run_check
 from marivo.semantic.ir import AggKind
 from marivo.semantic.reader import SemanticProject
@@ -115,7 +116,6 @@ def test_aggregate_accuracy_remains_owned_by_execution(
     aggregate: AggKind,
     unsupported: bool,
 ) -> None:
-    from marivo.semantic._aggregate_accuracy import aggregate_repair
 
     action = aggregate_repair(aggregate, backend)
     assert (action is not None) == unsupported

@@ -18,6 +18,7 @@ import marivo.analysis as mv
 from marivo._definition.expressions import MetricNode
 from marivo._definition.relations import ObserveQuery
 from marivo._definition.types import Owner
+from marivo._help.render import help as public_help
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.signature import BoundQuantity
 from marivo.analysis.core.frame_data import (
@@ -43,6 +44,8 @@ from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMe
 from marivo.analysis.model.lineage import empty as empty_lineage
 from marivo.analysis.model.receipts import FileEntry, LocalReceipt
 from marivo.analysis.session.core import Session
+from marivo.datasource.runtime import backends as backends
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._expression_values import MetricExpression
 from marivo.semantic.reader import SemanticProject
@@ -130,7 +133,6 @@ def test_catalog_metrics_capture_the_r1_definition_closure(
     monkeypatch: pytest.MonkeyPatch,
     composition: str,
 ) -> None:
-    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Deferred capture opened a datasource")
@@ -294,7 +296,6 @@ def test_old_session_is_not_found_without_rewriting_files(
 def test_zero_axis_values_reject_malformed_mapping_before_catalog_or_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, columns: object
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("invalid-columns")
@@ -316,7 +317,6 @@ def test_zero_axis_values_reject_malformed_mapping_before_catalog_or_source(
 def test_new_help_targets_resolve_and_disclose_phase_boundary(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo._help.render import help as public_help
 
     assert marivo.help is public_help
     for target in (
@@ -341,7 +341,6 @@ def test_new_help_targets_resolve_and_disclose_phase_boundary(
 def test_lifecycle_help_discloses_actual_effects_for_string_and_callable(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo._help.render import help as public_help
 
     assert marivo.help is public_help
     for target in ("analysis.analysis_frame.compute", mv.AnalysisFrame.compute):
@@ -356,7 +355,6 @@ def test_lifecycle_help_discloses_actual_effects_for_string_and_callable(
 def test_artifact_read_help_discloses_committed_reading_for_string_and_callable(
     capsys: pytest.CaptureFixture[str], name: str
 ) -> None:
-    from marivo._help.render import help as public_help
 
     assert marivo.help is public_help
     for target in (f"analysis.analysis_frame.{name}", getattr(mv.AnalysisFrame, name)):

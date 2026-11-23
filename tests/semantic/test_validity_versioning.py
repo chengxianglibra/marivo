@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+import duckdb
 import pytest
 
+import marivo.analysis as mv
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.catalog_model.objects import Entity
 from marivo.semantic.errors import SemanticLoadFailed
@@ -182,9 +184,6 @@ def test_encoded_validity_open_end_matches_the_authored_source_sentinel(
     monkeypatch: pytest.MonkeyPatch,
     sentinel: str,
 ) -> None:
-    import duckdb
-
-    import marivo.analysis as mv
 
     database = tmp_path / "validity.duckdb"
     with duckdb.connect(str(database)) as connection:

@@ -19,6 +19,7 @@ from marivo._help.render import PublicHelpTarget
 from marivo._help.render import help as public_help
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.statistics.deviation_fixture import prepare_profiles
+from tests.analysis.statistics.pandas_workflows import forecast
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 BASELINE = Path(__file__).with_name("analysis_context_baseline.json")
@@ -89,6 +90,41 @@ def test_baseline_retains_complete_outputs() -> None:
         assert len(baseline["outputs"][name]) == metrics["pages"]
         assert sum(len(text) for _, text in baseline["outputs"][name]) == metrics["raw_characters"]
         assert sum(map(len, baseline["normalized_outputs"][name])) == metrics["characters"]
+
+
+def _assert_task_context_budget(traces: dict[str, Trace]) -> None:
+    measured = {name: trace.metrics() for name, trace in traces.items()}
+    recording = os.environ.get("MARIVO_HELP_BUDGET_RECORD")
+    if recording is not None:
+        Path(recording).write_text(
+            json.dumps(
+                {
+                    "metrics": measured,
+                    "outputs": {name: trace.pages for name, trace in traces.items()},
+                    "normalized_outputs": {
+                        name: trace.normalized_outputs() for name, trace in traces.items()
+                    },
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        return  # Explicit baseline collection, not optimization acceptance.
+    reference = json.loads(BASELINE.read_text())["budget_reference"]
+    # Compare the explicit overall source construction to the historical overall
+    # journey; this test mapping is not a retired public API alias.
+    assert set(measured) == (set(reference) - {"observation_rollup"}) | {"source_overall"}
+    for name, metrics in measured.items():
+        previous = "observation_rollup" if name == "source_overall" else name
+        limits = reference[previous]
+        assert metrics["characters"] <= limits["characters"] * 1.10, (name, metrics)
+        assert metrics["pages"] <= limits["pages"], (name, metrics)
+        assert metrics["repeated_pages"] <= limits["repeated_pages"], (name, metrics)
+    assert measured["current_mean"]["pages"] < reference["current_mean"]["pages"]
+    assert (
+        sum(m["characters"] for m in measured.values())
+        <= sum(m["characters"] for m in reference.values()) * 0.85
+    ), measured
 
 
 @pytest.mark.slow
@@ -195,44 +231,12 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace = traces["drift"] = Trace(case.root)
     trace.help("analysis.session.observe")
     trace.help("analysis.analysis_frame.to_pandas")
-    from tests.analysis.statistics.pandas_workflows import forecast
 
     future = forecast(daily.to_pandas()["value"], model="drift")
     trace.read("pandas forecast", lambda: print(future.to_string(index=False)))
     assert future["prediction"].tolist() == [10.0, 13.0]
 
-    measured = {name: trace.metrics() for name, trace in traces.items()}
-    recording = os.environ.get("MARIVO_HELP_BUDGET_RECORD")
-    if recording is not None:
-        Path(recording).write_text(
-            json.dumps(
-                {
-                    "metrics": measured,
-                    "outputs": {name: trace.pages for name, trace in traces.items()},
-                    "normalized_outputs": {
-                        name: trace.normalized_outputs() for name, trace in traces.items()
-                    },
-                },
-                indent=2,
-            )
-            + "\n"
-        )
-        return  # Explicit baseline collection, not optimization acceptance.
-    reference = json.loads(BASELINE.read_text())["budget_reference"]
-    # Compare the explicit overall source construction to the historical overall
-    # journey; this test mapping is not a retired public API alias.
-    assert set(measured) == (set(reference) - {"observation_rollup"}) | {"source_overall"}
-    for name, metrics in measured.items():
-        previous = "observation_rollup" if name == "source_overall" else name
-        limits = reference[previous]
-        assert metrics["characters"] <= limits["characters"] * 1.10, (name, metrics)
-        assert metrics["pages"] <= limits["pages"], (name, metrics)
-        assert metrics["repeated_pages"] <= limits["repeated_pages"], (name, metrics)
-    assert measured["current_mean"]["pages"] < reference["current_mean"]["pages"]
-    assert (
-        sum(m["characters"] for m in measured.values())
-        <= sum(m["characters"] for m in reference.values()) * 0.85
-    ), measured
+    _assert_task_context_budget(traces)
 
 
 @pytest.mark.slow

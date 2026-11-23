@@ -28,9 +28,12 @@ from marivo.analysis.binding.calendar_keys import require_window_endpoints, wind
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.windows import bind_windows
 from marivo.analysis.compiler.calendar import builtin_key, builtin_wall_key
+from marivo.analysis.core.attachments import OutputAttachment
+from marivo.analysis.core.frozen_calendar import read_calendar_directory, read_direct_mapping
 from marivo.analysis.materialization.temporal_sql import lower_temporal
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.methods.carriers import frame_calendar
 from marivo.analysis.model.data_schema import CalendarDataAxis, DataAxis, DataSchema
+from marivo.analysis.model.errors import reject
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.datasource.spi import (
     SourceSession,
@@ -244,8 +247,6 @@ def _source_output_calendar(
             key_mapping[old_key] = point
         if point in seen:
             if windows and seen[point] != (finish_point, low, high):
-                from marivo.analysis.model.errors import reject
-
                 reject(
                     "unique native output keys and window parameters",
                     point.isoformat(),
@@ -652,7 +653,6 @@ def freeze_output_calendars(
     key_owners: Mapping[str, Mapping[datetime, SourceSession]],
 ) -> tuple[DataSchema, tuple[OutputAttachment, ...]]:
     """Freeze S∪O after values finish; extra native keys retain their identity."""
-    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar, freeze_interval
 
     axes: list[DataAxis] = []
     attachments: list[OutputAttachment] = []
@@ -735,18 +735,13 @@ def freeze_output_calendars(
                         *((label, label, label, label) for label in labels),
                     ),
                 )
-            frozen = freeze_calendar(
+            frozen = frame_calendar.freeze_calendar(
                 coordinate,
                 token=axis.token,
                 name=axis.name,
                 key=axis.columns[0],
             )
             if frozen.axis.frozen is not None and frozen.axis.frozen.direct is not None:
-                from marivo.analysis.core.frozen_calendar import (
-                    read_calendar_directory,
-                    read_direct_mapping,
-                )
-
                 direct = frozen.axis.frozen.direct
                 assert direct.axis.frozen is not None
                 tables = {part.name: part for part in frozen.additional}
@@ -762,7 +757,7 @@ def freeze_output_calendars(
             axes.append(frozen.axis)
             attachments.extend(frozen.attachments)
         elif isinstance(coordinate, IntervalCoordinate):
-            frozen_interval = freeze_interval(
+            frozen_interval = frame_calendar.freeze_interval(
                 coordinate, token=axis.token, name=axis.name, key=axis.columns[0]
             )
             axes.append(frozen_interval.axis)

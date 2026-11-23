@@ -18,7 +18,9 @@ from marivo.analysis.core.frame_method_facts import (
     FrameMethodParent,
     FrameMethodSupport,
     FrameRatioMethod,
+    same_method_facts,
 )
+from marivo.analysis.methods.frame_method_facts import validate_method_facts
 from marivo.analysis.model.coordinate_schema import calendar_directory_schema
 from marivo.analysis.model.data_schema import (
     BuiltinCalendarData,
@@ -445,7 +447,6 @@ def test_opaque_metric_unit_keeps_dimensionless_share_policy() -> None:
 
 
 def test_same_origin_payload_comparison_preserves_scalar_representation() -> None:
-    from marivo.analysis.core.frame_method_facts import same_method_facts
 
     rule = ratio()
     first = FrameLinearMethod(
@@ -463,7 +464,6 @@ def test_same_origin_payload_comparison_preserves_scalar_representation() -> Non
 
 
 def test_pure_decimal_scale_uses_captured_actual_carrier_and_preserves_direct_scalar() -> None:
-    from marivo.analysis.methods.frame_method_facts import validate_method_facts
 
     dtype = DecimalDataType(38, 9)
     leaf = FrameAdditiveMethod(

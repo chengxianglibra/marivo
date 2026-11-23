@@ -40,6 +40,7 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.graph import computation_fingerprint
 from marivo._kernel.symbolic import MeasureSymbol
+from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR
 from marivo.semantic._deferred_semantics import (
     consume_field,
     consume_metric,
@@ -62,9 +63,12 @@ from marivo.semantic.ir import (
     DimensionKind,
     DomainIR,
     EntityIR,
+    HourPrefixParse,
     MeasureIR,
     RelationshipIR,
+    StrptimeParse,
     TableSourceIR,
+    TimestampParse,
 )
 from marivo.semantic.loading_context import (
     _LOADER_CTX,
@@ -342,7 +346,6 @@ def test_entity_returns_value_and_pushes_ir_without_callable() -> None:
 
 
 def test_dataset_records_parquet_and_csv_sources() -> None:
-    from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR
 
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -677,7 +680,6 @@ def test_time_dimension_body_error_uses_time_dimension_label() -> None:
 
 
 def test_time_field_ir_has_time_metadata() -> None:
-    from marivo.semantic.ir import HourPrefixParse
 
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -753,7 +755,6 @@ def test_time_field_body_rejects_sql_escape_hatch() -> None:
 
 
 def test_time_field_accepts_timezone_metadata() -> None:
-    from marivo.semantic.ir import TimestampParse
 
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -775,7 +776,6 @@ def test_time_field_accepts_timezone_metadata() -> None:
 
 
 def test_time_field_accepts_missing_timezone_for_datetime_metadata() -> None:
-    from marivo.semantic.ir import TimestampParse
 
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -796,7 +796,6 @@ def test_time_field_accepts_missing_timezone_for_datetime_metadata() -> None:
 
 
 def test_time_field_accepts_missing_timezone_for_timestamp_metadata() -> None:
-    from marivo.semantic.ir import TimestampParse
 
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -873,7 +872,6 @@ def test_time_field_accepts_canonical_strptime() -> None:
 
         ir, _ = _pending_objects(ctx)[-1]
         assert isinstance(ir, DimensionIR)
-        from marivo.semantic.ir import StrptimeParse
 
         assert isinstance(ir.parse, StrptimeParse)
         assert ir.parse.format == "%Y%m%d"
@@ -895,7 +893,6 @@ def test_time_field_strips_whitespace_from_strptime() -> None:
 
         ir, _ = _pending_objects(ctx)[-1]
         assert isinstance(ir, DimensionIR)
-        from marivo.semantic.ir import StrptimeParse
 
         assert isinstance(ir.parse, StrptimeParse)
         assert ir.parse.format == "%Y-%m-%d"
@@ -916,7 +913,6 @@ def test_time_dimension_accepts_sample_interval() -> None:
             return None
 
         irs = [obj for obj, _ in _pending_objects(ctx) if isinstance(obj, DimensionIR)]
-        from marivo.semantic.ir import TimestampParse
 
         ir = irs[-1]
         assert isinstance(ir.parse, TimestampParse)
@@ -941,7 +937,6 @@ def test_strptime_time_dimension_accepts_sample_interval() -> None:
             return None
 
         irs = [obj for obj, _ in _pending_objects(ctx) if isinstance(obj, DimensionIR)]
-        from marivo.semantic.ir import StrptimeParse
 
         ir = irs[-1]
         assert isinstance(ir.parse, StrptimeParse)
@@ -1024,7 +1019,6 @@ def test_time_dimensions_reject_invalid_or_duplicate_cadence() -> None:
 
 
 def test_hour_prefix_accepts_sample_interval() -> None:
-    from marivo.semantic.ir import HourPrefixParse
 
     ctx = _enter_ctx(default_domain="sales")
     try:

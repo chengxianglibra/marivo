@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import TypeAlias
 
@@ -22,16 +22,18 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
+from marivo._definition.graph import children
 from marivo._definition.types import ExactRef
 from marivo.analysis.compiler.observation import (
-    ReductionInput,
     _reduction_axes,
+    bind_reduction_calendars,
     calendar_field,
     common_slot,
     lower_common_observations,
     lower_observation,
 )
 from marivo.analysis.compiler.predicate import lower_condition
+from marivo.analysis.compiler.reduction_input import ReductionInput
 from marivo.analysis.core.value_types import data_type
 from marivo.analysis.model.data_types import DataColumn
 from marivo.analysis.model.unique_keys import UniqueKeys
@@ -157,7 +159,6 @@ def component_layout(
         else:
             payload = AggregatePayload(column)
     layout = ComponentLayout(reduction, columns, identity, payload)
-    from dataclasses import replace
 
     # Identity is the full version-row grain. Membership preparation has
     # distinct root-identity/bucket pairs; expansion retains the whole tuple.
@@ -173,7 +174,6 @@ def component_layout(
 
 def require_original_formula(node: MetricNode, declared: Mapping[ExactRef, MetricNode]) -> None:
     """Reject semantic boundaries without an admitted full-input route."""
-    from marivo._definition.graph import children
 
     if isinstance(node, DeclaredMetricRef):
         require_original_formula(declared[node.ref], declared)
@@ -200,7 +200,6 @@ def lower_components(
     joined raw rows are used only by admitted later original Metric consumers.
     """
     reduction = layout.reduction
-    from marivo.analysis.compiler.observation import bind_reduction_calendars
 
     table, field_columns = bind_reduction_calendars(reduction, table, field_columns)
     completed, checks = lower_observation(reduction, table, field_columns, predicates)
@@ -269,7 +268,6 @@ def lower_common_components(
     predicates: tuple[PredicateExpression, ...],
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """One checked aggregate and raw projection for a compiled source block."""
-    from marivo.analysis.compiler.observation import bind_reduction_calendars
 
     table, field_columns = bind_reduction_calendars(reductions[0], table, field_columns)
     completed, checks = lower_common_observations(reductions, table, field_columns, predicates)

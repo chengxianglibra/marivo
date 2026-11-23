@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 from marivo.analysis.model.frame_structure import AxisRole
 
 if TYPE_CHECKING:
-    from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.analysis.core.frame_data import FrameNode
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False, eq=False)
@@ -27,7 +27,7 @@ class FrameAxis:
     equality across inputs; complete composite keys stay together.
     """
 
-    _frame: AnalysisFrame
+    _frame: FrameNode
     _input_id: str
     token: str
     name: str
@@ -39,7 +39,7 @@ class FrameAxis:
 
     @classmethod
     def _from_frame(
-        cls, frame: AnalysisFrame, token: str, name: str, role: AxisRole, key_names: tuple[str, ...]
+        cls, frame: FrameNode, token: str, name: str, role: AxisRole, key_names: tuple[str, ...]
     ) -> FrameAxis:
         result = object.__new__(cls)
         for key, value in (

@@ -12,7 +12,7 @@ from marivo.analysis.errors import (
     SessionStateError,
 )
 from marivo.analysis.materialization.contracts import parse_timestamp
-from marivo.analysis.materialization.store import _one
+from marivo.analysis.materialization.sqlite_values import _one
 from marivo.analysis.model.pages import decode_keyset_cursor, encode_keyset_cursor
 from marivo.analysis.model.receipts import invalid
 from marivo.introspection.live.model import LiveHelpTarget

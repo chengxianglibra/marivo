@@ -19,7 +19,7 @@ from marivo.semantic.loading_context import (
     LoaderContext,
 )
 from marivo.semantic.policies import AdditivityPolicy
-from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
+from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir, load_inline_semantic
 from tests.shared_fixtures import resolve_test_symbol as resolve
 
 
@@ -127,7 +127,6 @@ def revenue():
 
 
 def test_validator_accepts_complete_derived_formula_for_all_window_rules() -> None:
-    from tests.shared_fixtures import load_inline_semantic
 
     rules = (
         "mv.all_history()",
@@ -156,7 +155,6 @@ def test_validator_accepts_complete_derived_formula_for_all_window_rules() -> No
 
 
 def test_loader_retains_explicit_time_role_and_window_rule() -> None:
-    from tests.shared_fixtures import load_inline_semantic
 
     cases = (
         ("mv.all_history()", AllHistory),

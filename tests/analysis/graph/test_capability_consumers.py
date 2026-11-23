@@ -1,20 +1,23 @@
 """Public C-family source counterexamples; invocations alone grant no qualification."""
 
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal, NoReturn
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
+from marivo._kernel.temporal import bind_grid
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.datasource.source_receipts import receipt
 from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 from tests.support.source_trace import SourceTrace
 
@@ -564,7 +567,6 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    from marivo._kernel.temporal import bind_grid
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
@@ -664,7 +666,6 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    from datetime import date
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
@@ -766,7 +767,6 @@ def test_native_timestamp_retains_reader_and_grid_authority(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    import pyarrow as pa
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
@@ -873,7 +873,6 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    import pyarrow as pa
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
@@ -963,7 +962,6 @@ def test_native_observation_does_not_audit_wall_times_outside_its_scope(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    from tests.datasource.source_receipts import receipt
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))

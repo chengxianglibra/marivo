@@ -20,25 +20,24 @@ from marivo._definition.query import (
     ValueSlot,
 )
 from marivo.analysis.compiler.graph_lowering import lower_query
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.optimization import optimize_query
+from marivo.analysis.compiler.query_planning import plan_query
+from marivo.analysis.compiler.query_program import ResultProgram
+from marivo.analysis.compiler.query_stages import (
     LocalCompute,
     QueryPlan,
     SourceReadStage,
     checked_output,
-    plan_query,
 )
-from marivo.analysis.compiler.optimization import optimize_query
-from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.materialization import (
     frame_source_preparation,
     query_key_fusion,
+    query_terminal_fusion,
     sample_fusion,
 )
-from marivo.analysis.materialization.graph_source_execution import (
-    execute_numeric_query,
-    open_query_sources,
-)
+from marivo.analysis.materialization.graph_source_execution import execute_numeric_query
+from marivo.analysis.materialization.query_sources import open_query_sources
 from marivo.analysis.methods.query_values import evaluate_result
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.execution_errors import MaterializationError
@@ -401,7 +400,7 @@ def _without_query_rewrites(patch: pytest.MonkeyPatch) -> None:
     patch.setattr(frame_source_preparation, "optimize_query", lambda plan: plan)
     patch.setattr(sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered)
     patch.setattr(query_key_fusion, "fuse_query_keys", lambda prepared, lowered: lowered)
-    patch.setattr(query_key_fusion, "fuse_query_terminal", lambda prepared, lowered: lowered)
+    patch.setattr(query_terminal_fusion, "fuse_query_terminal", lambda prepared, lowered: lowered)
 
 
 @pytest.mark.parametrize("loose_lane,split,alternate", product((False, True), repeat=3))

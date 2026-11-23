@@ -7,13 +7,14 @@ from marivo.datasource.ir import ParquetSourceIR
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringSourceInput,
+    AuthoringSourceRole,
     TableSource,
     derive_status,
 )
+from marivo.semantic.ir import source_from_dict
 
 
 def test_file_source_parquet_dict_round_trips_through_semantic_ir_parser() -> None:
-    from marivo.semantic.ir import source_from_dict
 
     src = ParquetSourceIR(path="/data/orders.parquet", hive_partitioning=True)
 
@@ -25,7 +26,6 @@ def test_file_source_parquet_dict_round_trips_through_semantic_ir_parser() -> No
 
 
 def test_parameterized_json_source_round_trips_through_semantic_ir_parser() -> None:
-    from marivo.semantic.ir import source_from_dict
 
     src = md.json(
         "https://api.example/query",
@@ -39,7 +39,6 @@ def test_parameterized_json_source_round_trips_through_semantic_ir_parser() -> N
 
 
 def test_post_json_source_round_trips_through_semantic_ir_parser() -> None:
-    from marivo.semantic.ir import source_from_dict
 
     src = md.json(
         "https://api.example/graphql",
@@ -71,7 +70,6 @@ def test_authoring_source_input_to_dict_is_json_safe() -> None:
 
 
 def test_authoring_source_role_is_finite_public_vocabulary() -> None:
-    from marivo.semantic.dtos import AuthoringSourceRole
 
     assert get_args(AuthoringSourceRole) == ("primary", "from", "to", "component")
     assert get_type_hints(AuthoringSourceInput)["role"] == AuthoringSourceRole

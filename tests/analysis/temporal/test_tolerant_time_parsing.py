@@ -7,8 +7,12 @@ from pathlib import Path
 import ibis
 import pandas as pd
 import pytest
+from clickhouse_connect.driver.exceptions import DatabaseError
+from duckdb import ConversionException
+from psycopg.errors import DatetimeFieldOverflow, InvalidDatetimeFormat, InvalidTextRepresentation
 
 import marivo.analysis as mv
+from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.source_time import parse_strptime, source_time, source_time_predicate
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.datasource.errors import DatasourceError
@@ -130,7 +134,6 @@ def test_postgres_parser_preserves_native_relaxed_timestamps(
 def test_postgres_parser_propagates_invalid_data(
     point: str, consumer: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from psycopg.errors import DatetimeFieldOverflow, InvalidDatetimeFormat
 
     data = SourceData(
         "id BIGINT, point VARCHAR(100)",
@@ -212,8 +215,6 @@ def test_native_parser_rejects_bad_data_without_losing_legal_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     if backend == "clickhouse" and any(token in fmt for token in ("%a", "%A", "%f")):
-        from marivo.analysis.compiler.errors import DatasetCompilationError
-
         with pytest.raises(DatasetCompilationError):
             parse_strptime(backend, ibis.literal(good), StrptimeParse(fmt))
         return
@@ -437,16 +438,10 @@ def test_native_input_expression_error_boundary(
         else:
             native_error: type[Exception]
             if backend == "duckdb":
-                from duckdb import ConversionException
-
                 native_error = ConversionException
             elif backend == "postgres":
-                from psycopg.errors import InvalidTextRepresentation
-
                 native_error = InvalidTextRepresentation
             else:
-                from clickhouse_connect.driver.exceptions import DatabaseError
-
                 native_error = DatabaseError
             with pytest.raises((DatasourceError, native_error)):
                 case.session.collect_bounded(expression, purpose="parser.input", max_rows=2)

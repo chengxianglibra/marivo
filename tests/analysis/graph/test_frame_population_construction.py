@@ -63,7 +63,9 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_predicate
 from marivo.semantic._expression_values import RowExpression as RowValue
+from marivo.semantic._expression_values import _ExpressionCarrier
 from marivo.semantic.definition_resolution import _Resolver
+from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_get, catalog_value
 
@@ -492,10 +494,8 @@ def test_mixed_native_predicate_and_declared_metric_retain_all_frame_inputs(
 
 @pytest.mark.parametrize("operation", ["add", "compare", "cast", "ifelse", "sum"])
 def test_membership_methods_reject_at_shared_intake(session: Session, operation: str) -> None:
-    from marivo.semantic.errors import SemanticExpressionError
 
     member = in_population(_bridge(session, _fields(session)))
-    from marivo.semantic._expression_values import _ExpressionCarrier
 
     operations: dict[str, Callable[[], _ExpressionCarrier]] = {
         "add": lambda: member + 1,  # type: ignore[dict-item,operator,return-value]  # Invalid boolean arithmetic.

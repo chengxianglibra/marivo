@@ -7,6 +7,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 import duckdb
+import ibis
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -15,9 +16,13 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._definition.expressions import RowField, SourceAggregate
+from marivo._definition.types import ExactRef, SumAll
+from marivo._kernel.refs import ref
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.datasource.ir import TableSourceIR
+from marivo.semantic._numeric_lowering import lower_source_reduction
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.datasource.source_cases import SourceData, source_case
 from tests.shared_fixtures import catalog_value, datasource_arguments_source
@@ -41,12 +46,6 @@ def _value(result: mv.AnalysisFrame) -> pd.Series:
 
 @pytest.mark.parametrize("backend", ["duckdb", "postgres", "mysql", "trino", "clickhouse"])
 def test_native_mean_makes_only_nonnullable_inputs_nullable(backend: str) -> None:
-    import ibis
-
-    from marivo._definition.expressions import RowField, SourceAggregate
-    from marivo._definition.types import ExactRef, SumAll
-    from marivo._kernel.refs import ref
-    from marivo.semantic._numeric_lowering import lower_source_reduction
 
     field = RowField(
         ExactRef(ref.measure("sales.facts.value"), "v1"),

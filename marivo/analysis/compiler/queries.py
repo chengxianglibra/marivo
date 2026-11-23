@@ -2,25 +2,31 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, localcontext
 from typing import TYPE_CHECKING
 
+import ibis.expr.datatypes as dt
+
+from marivo._definition.correspondence import coordinate_matches
 from marivo._definition.query import (
     LiteralValues,
     ReadFields,
 )
 from marivo._definition.relations import ReadQuery
-from marivo.analysis.binding.correspondence import ComparisonEndpoint
-from marivo.analysis.binding.graph import BoundGraph, read_input_graph
-from marivo.analysis.compiler.graph_plan import (
-    LocalCompute,
-    QueryPlan,
-    SourceField,
-    SourceSchema,
-    plan_query,
+from marivo._definition.types import (
+    AxisBinding,
+    CalendarCoordinate,
+    IntervalCoordinate,
+    LiteralValue,
+    coordinate_read_keys,
 )
+from marivo.analysis.binding.correspondence import ComparisonEndpoint
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.query_program import ResultProgram
+from marivo.analysis.compiler.query_stages import LocalCompute, QueryPlan, SourceField, SourceSchema
 from marivo.analysis.core.value_types import data_type
 from marivo.analysis.model.data_types import (
     DataColumn,
@@ -35,7 +41,6 @@ from marivo.analysis.model.unique_keys import UniqueKeys
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.programs import MemberInput
-    from marivo.analysis.compiler.optimization import InvocationMemo
 
 
 def endpoint(graph: BoundGraph, plan: QueryPlan) -> ComparisonEndpoint:
@@ -73,12 +78,6 @@ def key_groups(
         return ()
     observation = graph.signature.observation
     if observation is not None and observation.contributions:
-        from marivo._definition.types import (
-            CalendarCoordinate,
-            IntervalCoordinate,
-            coordinate_read_keys,
-        )
-
         contribution = observation.contributions[0]
         widths = iter(len(coordinate_read_keys(read)) for read in contribution.coordinates)
         result = []
@@ -91,9 +90,6 @@ def key_groups(
             offset += width
         return tuple(result)
     if counts:
-        from marivo._definition.correspondence import coordinate_matches
-        from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
-
         prepared = counts[-1].axis_mapping
         grouped = []
         offset = 0
@@ -122,17 +118,10 @@ def key_groups(
     return tuple((key,) for key in keys)
 
 
-def plan_read(
-    graph: BoundGraph,
-    schemas: tuple[SourceSchema, ...],
-    *,
-    memo: InvocationMemo | None = None,
-) -> QueryPlan:
+def plan_read(graph: BoundGraph, source_graph: BoundGraph, plan: QueryPlan) -> QueryPlan:
     """Project requested attributes after the complete explicit identity-domain read."""
     root = graph.root
     assert isinstance(root, ReadQuery)
-    source_graph = read_input_graph(graph)
-    plan = plan_query(source_graph, schemas, memo=memo)
     source = next(stage for stage in plan.stages if stage.stage_id == plan.publish)
     groups = plan.output_groups
     columns = {column.slot_id: column for column in source.columns}
@@ -191,13 +180,6 @@ def plan_literal(
     graph: BoundGraph, operation: LiteralValues, schemas: tuple[SourceSchema, ...] = ()
 ) -> QueryPlan:
     """Infer finite literal carriers once and execute through a pandas input stage."""
-    import math
-    from datetime import datetime, timezone
-    from decimal import Decimal
-
-    import ibis.expr.datatypes as dt
-
-    from marivo._definition.types import AxisBinding, LiteralValue
 
     normalized = []
     for index in range(len(operation.columns)):
@@ -265,8 +247,6 @@ def plan_literal(
             )
 
     def check_key(value: LiteralValue, column: SourceField) -> None:
-        from datetime import date, datetime, timedelta
-        from decimal import Decimal, localcontext
 
         dtype = column.dtype
         valid = (

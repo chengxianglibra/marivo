@@ -24,10 +24,13 @@ from marivo._definition.query import (
     ValueSlot,
 )
 from marivo.analysis.compiler.frame_plan import plan_frame
-from marivo.analysis.compiler.graph_plan import FrameInput
 from marivo.analysis.compiler.optimization import optimize_query
+from marivo.analysis.compiler.query_stages import FrameInput
+from marivo.analysis.core import data_validation, frozen_calendar
+from marivo.analysis.core.attachments import OutputAttachment
+from marivo.analysis.core.data_validation import normalize_complete_frame
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-from marivo.analysis.core.frame_expression import (
+from marivo.analysis.core.frame_operations import (
     FixedFrameInput,
     FrameOperation,
     FrameOperationKind,
@@ -35,9 +38,8 @@ from marivo.analysis.core.frame_expression import (
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.frame_paging import _memory_range
 from marivo.analysis.materialization.graph_source_execution import run_frame_plan
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
-from marivo.analysis.methods.carriers.data_validation import normalize_complete_frame
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.coordinate_schema import calendar_directory_schema
 from marivo.analysis.model.data_schema import (
@@ -103,9 +105,6 @@ def test_completed_stage_handoff_keeps_independent_typed_rows() -> None:
 def test_completed_chain_and_memory_page_do_not_rescan_proven_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.core import frozen_calendar
-    from marivo.analysis.materialization.frame_paging import _memory_range
-    from marivo.analysis.methods.carriers import data_validation
 
     data = _data()
 

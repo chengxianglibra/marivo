@@ -13,7 +13,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo._kernel.render import Card, RenderableResult
-from marivo.analysis.core.frame_interpretation import FrameKeyScalar as FrameKeyScalar
+from marivo.analysis.core.arrow_keys import FrameKeyScalar as FrameKeyScalar
 from marivo.analysis.model.frame_schema import FrameExportColumn
 from marivo.analysis.model.layout_facts import FrameComparison
 from marivo.analysis.model.time_facts import FrameAxisSchema

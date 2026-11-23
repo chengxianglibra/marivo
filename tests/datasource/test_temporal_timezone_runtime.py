@@ -23,16 +23,24 @@ from marivo.analysis.compiler.source_time import (
     source_time_predicate,
 )
 from marivo.analysis.materialization.temporal_sql import lower_temporal
+from marivo.datasource.engines.mysql import verify_source_timezone as verify_mysql
 from marivo.datasource.engines.statements import provider_statement_log
+from marivo.datasource.engines.temporal_lowering import lower_temporal as lower_native
 from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.runtime.adapters import provider_for
 from marivo.datasource.runtime.session_factory import open_source_session
 from marivo.datasource.runtime.timezone import verify_source_timezone
+from marivo.datasource.temporal_primitives import localize, timestamp
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.ir import HourPrefixParse, StrptimeParse, TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
+from tests.datasource.aggregate_fixtures import compiler_backend
+from tests.datasource.environment import clickhouse_analysis as ch
+from tests.datasource.environment.clickhouse_analysis import connection as clickhouse_connection
+from tests.datasource.environment.credentials import password
+from tests.datasource.environment.trino_analysis import connection as trino_connection
 from tests.datasource.source_cases import SourceData, receipt, source_case
 from tests.shared_fixtures import declared_test_timezone
 
@@ -46,8 +54,6 @@ pytestmark = pytest.mark.runtime
     os.environ.get("MARIVO_TRINO_ANALYSIS_TEST") != "1", reason="opt-in Trino service"
 )
 def test_trino_dynamic_seconds_preserve_sign_null_and_integer_precision() -> None:
-    from tests.datasource.aggregate_fixtures import compiler_backend
-    from tests.datasource.environment.trino_analysis import connection
 
     seconds = [-18000, -14400, 0, 20700, 2**53 - 1, -(2**53 - 1), None]
     table = ibis.table({"n": "int64"}, name="offsets")
@@ -59,7 +65,7 @@ def test_trino_dynamic_seconds_preserve_sign_null_and_integer_precision() -> Non
         f"WITH offsets(n) AS (VALUES {values}) "
         f"SELECT n, to_milliseconds(duration), typeof(duration) FROM ({compiled}) AS converted"
     )
-    with connection() as owner:
+    with trino_connection() as owner:
         cursor = owner.cursor()
         try:
             rows = cursor.execute(sql).fetchall()
@@ -155,8 +161,6 @@ def test_clickhouse_catalog_validation_shares_preview_and_analysis_contracts(
 def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tests.datasource.environment import clickhouse_analysis as ch
-    from tests.datasource.environment.credentials import password
 
     instant = datetime(2026, 4, 30, 16, 30, tzinfo=timezone.utc)
     data = SourceData(
@@ -323,8 +327,6 @@ def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
 def test_mysql_utc_timestamp_transport_and_source_timezones(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.engines.mysql import verify_source_timezone as verify_mysql
-    from marivo.datasource.temporal_primitives import localize
 
     data = SourceData(
         columns="point TIMESTAMP(6), clock DATETIME(6)",
@@ -501,13 +503,10 @@ def test_gap_fold_ranges_match_native_source_localization(
 def test_clickhouse_date_offsets_ignore_server_timezone(
     zone: str, hours: int, analysis: bool
 ) -> None:
-    from marivo.datasource.engines.temporal_lowering import lower_temporal as lower_native
-    from marivo.datasource.temporal_primitives import localize, timestamp
-    from tests.datasource.environment.clickhouse_analysis import connection
 
     expression = localize(zone, timestamp(ibis.literal(date(2026, 7, 1))))
     lowered = (lower_temporal if analysis else lower_native)(expression, "clickhouse")
-    with connection() as client:
+    with clickhouse_connection() as client:
         assert client.query("SELECT timezone()").result_rows == [("Asia/Shanghai",)]
         expected = client.query(
             f"SELECT toDateTime64('2026-07-01 00:00:00', 6, 'UTC') - INTERVAL {hours} HOUR"

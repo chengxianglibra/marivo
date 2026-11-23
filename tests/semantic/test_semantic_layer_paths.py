@@ -9,6 +9,7 @@ import duckdb
 import pytest
 
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo._kernel.config import load_semantic_layer_paths
 from marivo.semantic._deferred_semantics import consume_metric
@@ -251,7 +252,6 @@ def _write_project_with_external_layer(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def test_ms_load_reads_local_and_external_models_roots(tmp_path: Path) -> None:
-    import marivo.semantic as ms
 
     project_root, _ = _write_project_with_external_layer(tmp_path)
 
@@ -273,7 +273,6 @@ def test_ms_load_reads_local_and_external_models_roots(tmp_path: Path) -> None:
 
 
 def test_domain_filter_applies_across_external_models_roots(tmp_path: Path) -> None:
-    import marivo.semantic as ms
 
     project_root, _ = _write_project_with_external_layer(tmp_path)
 
@@ -288,7 +287,6 @@ def test_domain_filter_applies_across_external_models_roots(tmp_path: Path) -> N
 
 
 def test_catalog_load_reloads_external_models_roots(tmp_path: Path) -> None:
-    import marivo.semantic as ms
 
     project_root, external_models = _write_project_with_external_layer(tmp_path)
 
@@ -318,7 +316,6 @@ def test_external_layer_datasource_supports_entity_verify_and_preview(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import marivo.semantic as ms
 
     project_root = tmp_path / "project"
     external_models = tmp_path / "external" / "models"

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
+from marivo._authoring.model import AuthoringCapability
 from marivo._help.model import MarivoHelpTargetError, NativeHelpRoute
 from marivo._help.render import render_help_text
 from marivo._help.route import route_help_target
@@ -301,7 +302,6 @@ def test_discovery_and_parameter_links_support_a_fresh_question(
 
 
 def test_authoring_parameters_keep_complete_native_acquisition_and_real_links() -> None:
-    from marivo._authoring.model import AuthoringCapability
 
     expected = {
         "entity.define": {

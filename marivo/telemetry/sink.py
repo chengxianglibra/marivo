@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from contextlib import suppress
 from datetime import date, datetime
 from pathlib import Path
-from typing import cast
+from typing import TypedDict
 
 from marivo._kernel import jsonl
 from marivo._kernel.compat import UTC
@@ -32,15 +32,37 @@ _DROPPED_EVENTS = 0
 _LAST_PRUNED_DATE: dict[Path, date] = {}
 
 
+class _LogRecord(TypedDict):
+    timeUnixNano: str
+    severityText: str
+    body: dict[str, str]
+    attributes: list[dict[str, object]]
+
+
+class _ScopeLogs(TypedDict):
+    scope: dict[str, str]
+    logRecords: list[_LogRecord]
+
+
+class _ResourceLogs(TypedDict):
+    resource: dict[str, list[dict[str, object]]]
+    scopeLogs: list[_ScopeLogs]
+
+
+class _LogEntry(TypedDict):
+    resourceLogs: list[_ResourceLogs]
+
+
+def _log_record(entry: _LogEntry) -> _LogRecord:
+    return entry["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
+
+
 def _output_dir(root: Path) -> Path:
     return root / STATE_DIR / "telemetry"
 
 
-def _entry_date(entry: dict[str, object]) -> date:
-    resource_logs = cast("list[dict[str, object]]", entry["resourceLogs"])
-    scope_logs = cast("list[dict[str, object]]", resource_logs[0]["scopeLogs"])
-    log_records = cast("list[dict[str, object]]", scope_logs[0]["logRecords"])
-    timestamp = cast("str", log_records[0]["timeUnixNano"])
+def _entry_date(entry: _LogEntry) -> date:
+    timestamp = _log_record(entry)["timeUnixNano"]
     return datetime.fromtimestamp(int(timestamp) // 1_000_000_000, UTC).date()
 
 
@@ -130,7 +152,7 @@ def _log_entry(
     *,
     status: str,
     attributes: Mapping[str, TelemetryValue],
-) -> dict[str, object]:
+) -> _LogEntry:
     record_attrs = [
         _attribute("marivo.event.name", event_name),
         _attribute("marivo.event.schema_version", _SCHEMA_VERSION),
@@ -159,20 +181,13 @@ def _log_entry(
     }
 
 
-def _record_attributes(entry: dict[str, object]) -> list[dict[str, object]]:
-    resource_logs = cast("list[dict[str, object]]", entry["resourceLogs"])
-    scope_logs = cast("list[dict[str, object]]", resource_logs[0]["scopeLogs"])
-    log_records = cast("list[dict[str, object]]", scope_logs[0]["logRecords"])
-    return cast("list[dict[str, object]]", log_records[0]["attributes"])
-
-
-def _write_entry(root: Path, entry: dict[str, object]) -> None:
+def _write_entry(root: Path, entry: _LogEntry) -> None:
     global _DROPPED_EVENTS
     try:
         with _WRITE_LOCK:
             dropped = _DROPPED_EVENTS
             if dropped:
-                _record_attributes(entry).append(
+                _log_record(entry)["attributes"].append(
                     _attribute("marivo.telemetry.dropped_since_last_write", dropped)
                 )
             payload = (json.dumps(entry, separators=(",", ":")) + "\n").encode()

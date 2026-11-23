@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from dataclasses import (
     replace,
 )
-from typing import Any, Literal
+from typing import Literal
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -64,11 +64,10 @@ from marivo.datasource.metadata_types import (
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
-    import ibis
 
     host = require_field(name, kwargs, "host", help_target="postgres")
     database = require_field(name, kwargs, "database", help_target="postgres")
-    connect_kwargs: dict[str, Any] = dict(kwargs)
+    connect_kwargs: dict[str, object] = dict(kwargs)
     connect_kwargs["host"] = host
     connect_kwargs["database"] = database
     return ibis.postgres.connect(**connect_kwargs)
@@ -209,20 +208,99 @@ def deterministic_collation(
 
 
 def _postgres_rows(
-    backend: Any, statement_id: str, values: Mapping[str, object] = {}
+    backend: BaseBackend, statement_id: str, values: Mapping[str, object] = {}
 ) -> tuple[dict[str, object], ...]:
     return execute_provider_statement(
         backend, PROFILE, statement_id, values=values, purpose="datasource.metadata.postgres"
     )
 
 
+def _postgres_partitions(
+    backend: BaseBackend,
+    schema_name: str,
+    table: str,
+    columns: tuple[ColumnMetadata, ...],
+    warnings: list[MetadataWarning],
+    *,
+    include_partitions: bool,
+) -> tuple[tuple[PartitionMetadata, ...], Literal["known", "none", "unknown"]]:
+    column_lookup = {column.name: column for column in columns}
+    partitions_by_name: dict[str, PartitionMetadata] = {}
+    partition_state: Literal["known", "none", "unknown"] = "unknown"
+    if include_partitions:
+        try:
+            partition_rows = _postgres_rows(
+                backend, "postgres.partition.key", {"schema": schema_name, "table": table}
+            )
+            saw_partition_expression = False
+            for row in partition_rows:
+                partition_key = str(row.get("partition_key") or "")
+                if partition_key:
+                    saw_partition_expression = True
+                for column_name in _partition_columns_from_expression(partition_key):
+                    column = column_lookup.get(column_name or "")
+                    if column is not None:
+                        partitions_by_name[column.name] = PartitionMetadata(
+                            name=column.name,
+                            type=column.type,
+                            transform=None,
+                            comment=None,
+                        )
+            if partitions_by_name:
+                partition_state = "known"
+            elif not saw_partition_expression:
+                partition_state = "none"
+        except Exception as exc:
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=(
+                        "postgres partition metadata query failed: "
+                        f"{_backend_failure_summary(exc).message}"
+                    ),
+                )
+            )
+        if partition_state == "unknown":
+            warnings.append(
+                MetadataWarning(
+                    kind="partitions_unavailable",
+                    message="postgres partition metadata did not expose mappable column partitions",
+                )
+            )
+    return tuple(partitions_by_name.values()), partition_state
+
+
+def _postgres_view(
+    backend: BaseBackend, qualified: str, warnings: list[MetadataWarning]
+) -> tuple[bool | None, str | None]:
+    is_view: bool | None = None
+    view_definition: str | None = None
+    try:
+        kind_rows = _postgres_rows(backend, "postgres.tables.kind", {"qualified": qualified})
+        if kind_rows:
+            relation_kind = str(kind_rows[0].get("relation_kind") or "")
+            is_view = relation_kind in ("v", "m")
+            if is_view:
+                view_definition = _empty_to_none(kind_rows[0].get("view_definition"))
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=(
+                    f"postgres view metadata query failed: {_backend_failure_summary(exc).message}"
+                ),
+            )
+        )
+    return is_view, view_definition
+
+
 def _inspect_postgres(
     *,
     datasource: str,
-    backend: Any,
+    backend: BaseBackend,
     table: str,
     database: str | tuple[str, ...] | None,
-    table_expr: Any,
+    table_expr: ir.Table,
     include_partitions: bool,
     default_schema: str | None,
 ) -> TableMetadata:
@@ -341,69 +419,12 @@ def _inspect_postgres(
             )
         )
 
-    is_view: bool | None = None
-    view_definition: str | None = None
-    try:
-        kind_rows = _postgres_rows(backend, "postgres.tables.kind", {"qualified": qualified})
-        if kind_rows:
-            relation_kind = str(kind_rows[0].get("relation_kind") or "")
-            is_view = relation_kind in ("v", "m")
-            if is_view:
-                view_definition = _empty_to_none(kind_rows[0].get("view_definition"))
-    except Exception as exc:
-        warnings.append(
-            MetadataWarning(
-                kind="metadata_query_failed",
-                message=(
-                    f"postgres view metadata query failed: {_backend_failure_summary(exc).message}"
-                ),
-            )
-        )
+    is_view, view_definition = _postgres_view(backend, qualified, warnings)
 
     columns = _merge_columns(schema_columns, catalog_columns)
-    column_lookup = {column.name: column for column in columns}
-    partitions_by_name: dict[str, PartitionMetadata] = {}
-    partition_state: Literal["known", "none", "unknown"] = "unknown"
-    if include_partitions:
-        try:
-            partition_rows = _postgres_rows(
-                backend, "postgres.partition.key", {"schema": schema_name, "table": table}
-            )
-            saw_partition_expression = False
-            for row in partition_rows:
-                partition_key = str(row.get("partition_key") or "")
-                if partition_key:
-                    saw_partition_expression = True
-                for column_name in _partition_columns_from_expression(partition_key):
-                    column = column_lookup.get(column_name or "")
-                    if column is not None:
-                        partitions_by_name[column.name] = PartitionMetadata(
-                            name=column.name,
-                            type=column.type,
-                            transform=None,
-                            comment=None,
-                        )
-            if partitions_by_name:
-                partition_state = "known"
-            elif not saw_partition_expression:
-                partition_state = "none"
-        except Exception as exc:
-            warnings.append(
-                MetadataWarning(
-                    kind="metadata_query_failed",
-                    message=(
-                        "postgres partition metadata query failed: "
-                        f"{_backend_failure_summary(exc).message}"
-                    ),
-                )
-            )
-        if partition_state == "unknown":
-            warnings.append(
-                MetadataWarning(
-                    kind="partitions_unavailable",
-                    message="postgres partition metadata did not expose mappable column partitions",
-                )
-            )
+    partitions, partition_state = _postgres_partitions(
+        backend, schema_name, table, columns, warnings, include_partitions=include_partitions
+    )
 
     try:
         profile_rows = _postgres_rows(
@@ -441,7 +462,7 @@ def _inspect_postgres(
         backend_type="postgres",
         comment=table_comment,
         columns=columns,
-        partitions=tuple(partitions_by_name.values()) if include_partitions else (),
+        partitions=partitions,
         partition_state=partition_state,
         warnings=tuple(warnings),
         is_view=is_view,

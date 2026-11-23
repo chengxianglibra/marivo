@@ -6,15 +6,20 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from marivo.analysis.binding.attribute_game import AttributeGame
+from marivo.analysis.core.attribute import _common_report_type, _type, attribute_schema
+from marivo.analysis.core.frame_interpretation import decomposition_facts
+from marivo.analysis.core.frame_operations import AttributeGameValues
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.data_types import DataColumn, DataType, ScalarDataType
-from marivo.analysis.model.frame_structure import PendingDataColumn, PendingDataSchema
+from marivo.analysis.model.frame_structure import (
+    PendingDataColumn,
+    PendingDataSchema,
+    pending_column,
+)
 from marivo.analysis.model.frozen_keys import FrozenKey
 from marivo.analysis.model.layout_facts import FrameDecompositionField, FrameDecompositionRole
 
 if TYPE_CHECKING:
-    from marivo.analysis.core.frame_expression import AttributeFrameValues, FrameAttributeTarget
     from marivo.analysis.core.frame_method_facts import FrameShapleyMethod
 
 
@@ -51,15 +56,6 @@ class CompletedGame:
 
 
 @dataclass(frozen=True, slots=True)
-class AttributeGameValues:
-    mapping: AttributeFrameValues
-    games: tuple[AttributeGame, AttributeGame]
-    target: FrameAttributeTarget
-    permutations: int
-    seed: int
-
-
-@dataclass(frozen=True, slots=True)
 class AttributeGameProgram:
     operation: AttributeGameValues
     parent_schema: DataSchema
@@ -78,8 +74,6 @@ def game_schema(
     parent: DataSchema | PendingDataSchema,
     operation: AttributeGameValues,
 ) -> DataSchema | PendingDataSchema:
-    from marivo.analysis.core.attribute import _common_report_type, _type, attribute_schema
-    from marivo.analysis.core.frame_expression import _pending_column
 
     if isinstance(left, DataSchema):
         left_one: DataSchema | PendingDataSchema = replace(
@@ -151,9 +145,8 @@ def game_schema(
         if common is not None and index in (1, 2) and isinstance(value, DataColumn):
             value = replace(value, dtype=common)
         if isinstance(base, PendingDataSchema) and isinstance(value, DataColumn):
-            value = _pending_column(value)
+            value = pending_column(value)
         values.append(value)
-    from marivo.analysis.core.frame_interpretation import decomposition_facts
 
     roles: tuple[FrameDecompositionRole, ...] = (
         "contribution",

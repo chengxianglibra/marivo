@@ -13,6 +13,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+from marivo.analysis.core.attachments import OutputAttachment
+from marivo.analysis.core.data_validation import normalize_complete_frame
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -38,16 +40,14 @@ from marivo.analysis.errors import ArtifactNotFoundError
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.carriers.frame_page import FrameReadStats, detached_rows
 from marivo.analysis.materialization.frame_method_facts import decode_method_payload
+from marivo.analysis.materialization.sqlite_values import _one, _text
 from marivo.analysis.materialization.storage import (
     _checked_path,
     _manifest_bytes,
     _open_payload,
 )
-from marivo.analysis.materialization.store import SessionStore, _one, _text
-from marivo.analysis.materialization.terminal_protocol import invalid
+from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.terminal_storage import POLICY, arrow_schema, physical_schema
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
-from marivo.analysis.methods.carriers.data_validation import normalize_complete_frame
 from marivo.analysis.methods.frame_method_facts import validate_method_facts
 from marivo.analysis.model.artifact_data import ArtifactManifest, ParquetHandle
 from marivo.analysis.model.data_schema import (
@@ -61,6 +61,7 @@ from marivo.analysis.model.data_schema import (
 from marivo.analysis.model.data_types import DataColumn
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.execution_errors import MaterializationError, StorageAccessError
+from marivo.analysis.model.execution_errors import terminal_output_integrity_error as invalid
 from marivo.analysis.model.frozen_keys import FrozenKey
 from marivo.analysis.model.unique_keys import UniqueKeys
 
@@ -310,6 +311,11 @@ class OutputRead:
         return normalize_complete_frame(
             table.to_pandas(types_mapper=pd.ArrowDtype), schema.columns, schema.key_fields
         )
+
+
+def read_output(root: Path, schema: DataSchema, handle: ParquetHandle) -> pd.DataFrame:
+    """Read the complete physical output through the shared terminal data reader."""
+    return OutputRead(root).read(ReadLayout(schema, handle), ExportRead())
 
 
 def selected_manifest(store: SessionStore, value: ArtifactManifest) -> ArtifactManifest:

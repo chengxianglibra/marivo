@@ -59,8 +59,8 @@ from marivo._kernel.refs import (
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.symbolic import SymbolResolver, symbol_factory
 from marivo.semantic._compiled_state import CompilationGraph, dependent_closure
+from marivo.semantic._deferred_facts import MetricFacts
 from marivo.semantic._deferred_semantics import (
-    MetricFacts,
     capture_source_time,
     consume_field,
     consume_metric,
@@ -351,31 +351,26 @@ def _row_roots(recipe: Resolver, registry: Registry) -> set[str]:
     return result
 
 
-def publish_declarations(
+def _index_declarations(
     contexts: Sequence[LoaderContext],
     registry: Registry,
-    sidecar: CompiledExpressionSidecar,
-    *,
-    graph: CompilationGraph | None = None,
-    excluded: set[Ref[SemanticKindTag]] | None = None,
-    original_registry: Registry | None = None,
-) -> list[SemanticError]:
-    """Index, order, and bind all declarations before publishing the closed scope."""
-
-    values = tuple(value for context in contexts for value in context.declarations)
+    authoring_registry: Registry,
+    authored: dict[str, SemanticKind],
+) -> tuple[
+    dict[Ref[SemanticKindTag], Deferred],
+    dict[int, Ref[SemanticKindTag]],
+    list[SemanticError],
+]:
     context_by_id = {id(value): context for context in contexts for value in context.declarations}
     indexed: dict[Ref[SemanticKindTag], Deferred] = {}
     by_recipe: dict[int, Ref[SemanticKindTag]] = {}
     errors: list[SemanticError] = []
-    physical = _defined_kinds(registry)
-    authoring_registry = original_registry or registry
-    authored = physical if original_registry is None else _defined_kinds(original_registry)
-
     target: Ref[SemanticKindTag]
+    values = tuple(value for context in contexts for value in context.declarations)
     for value in values:
         declaration = root_declaration(value)
         assert declaration is not None
-        inspection = inspect_capture(value)
+        inspect_capture(value)
         context = context_by_id[id(value)]
         input_context = context.declaration_contexts.get(id(resolver_of(value)))
         if input_context is not None:
@@ -448,12 +443,23 @@ def publish_declarations(
             continue
         indexed[target] = value
         by_recipe[id(resolver_of(value))] = target
-    if errors:
-        return errors
+    return indexed, by_recipe, errors
 
+
+def _declaration_dependencies(
+    indexed: dict[Ref[SemanticKindTag], Deferred],
+    by_recipe: dict[int, Ref[SemanticKindTag]],
+    available: dict[str, SemanticKind],
+    *,
+    pruning: bool,
+) -> tuple[
+    dict[Ref[SemanticKindTag], set[Ref[SemanticKindTag]]],
+    dict[Ref[SemanticKindTag], set[Ref[SemanticKindTag]]],
+    list[SemanticError],
+]:
+    errors: list[SemanticError] = []
     dependencies: dict[Ref[SemanticKindTag], set[Ref[SemanticKindTag]]] = {}
     pruning_edges: dict[Ref[SemanticKindTag], set[Ref[SemanticKindTag]]] = {}
-    available = {**authored, **{reference.path: reference.kind for reference in indexed}}
     for target, value in indexed.items():
         inspection = inspect_capture(value)
         dependencies[target] = set(inspection.symbols)
@@ -465,7 +471,7 @@ def publish_declarations(
                 dependencies[target].add(declared)
             else:
                 pending.extend(_children(recipe))
-        if excluded:
+        if pruning:
             pruning_edges[target] = dependencies[target] | {
                 exact.ref for exact in inspection.dependencies
             }
@@ -486,9 +492,13 @@ def publish_declarations(
                         location_label=_declaration_site(value),
                     )
                 )
-    if errors:
-        return errors
+    return dependencies, pruning_edges, errors
 
+
+def _declaration_order(
+    indexed: dict[Ref[SemanticKindTag], Deferred],
+    dependencies: dict[Ref[SemanticKindTag], set[Ref[SemanticKindTag]]],
+) -> list[Ref[SemanticKindTag]]:
     order: list[Ref[SemanticKindTag]] = []
     active: list[Ref[SemanticKindTag]] = []
     visited: set[Ref[SemanticKindTag]] = set()
@@ -515,9 +525,38 @@ def publish_declarations(
         visited.add(target)
         order.append(target)
 
+    for target in sorted(indexed, key=lambda item: item.key):
+        visit(target)
+    return order
+
+
+def publish_declarations(
+    contexts: Sequence[LoaderContext],
+    registry: Registry,
+    sidecar: CompiledExpressionSidecar,
+    *,
+    graph: CompilationGraph | None = None,
+    excluded: set[Ref[SemanticKindTag]] | None = None,
+    original_registry: Registry | None = None,
+) -> list[SemanticError]:
+    """Index, order, and bind all declarations before publishing the closed scope."""
+
+    authored = _defined_kinds(registry if original_registry is None else original_registry)
+    indexed, by_recipe, errors = _index_declarations(
+        contexts, registry, original_registry or registry, authored
+    )
+    if errors:
+        return errors
+
+    available = {**authored, **{reference.path: reference.kind for reference in indexed}}
+    dependencies, pruning_edges, errors = _declaration_dependencies(
+        indexed, by_recipe, available, pruning=bool(excluded)
+    )
+    if errors:
+        return errors
+
     try:
-        for target in sorted(indexed, key=lambda item: item.key):
-            visit(target)
+        order = _declaration_order(indexed, dependencies)
     except SemanticError as error:
         return [error]
 

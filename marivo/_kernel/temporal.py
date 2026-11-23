@@ -8,10 +8,10 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from pydantic_core import core_schema
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, model_validator
+from pydantic_core import CoreSchema, core_schema
 
 from marivo._kernel.errors import invalid
 from marivo._kernel.grouping import Grouping
@@ -130,16 +130,22 @@ class TimeScope(BaseModel):
     end: InstantAnchor
     boundary_timezone: str
 
-    def __init__(self, **data: Any) -> None:
+    def __init__(self, **data: object) -> None:
         if not _TIME_SCOPE_INTERNAL.get():
             raise TypeError("TimeScope values are returned by session.time_scope(...)")
         super().__init__(**data)
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+    def __get_pydantic_core_schema__(
+        cls, source: object, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
         schema = handler(source)
 
-        def validate(value: Any, validator: Any, info: Any) -> Any:
+        def validate(
+            value: object,
+            validator: core_schema.ValidatorFunctionWrapHandler,
+            info: core_schema.ValidationInfo,
+        ) -> object:
             if _TIME_SCOPE_INTERNAL.get() or info.field_name is not None:
                 with _trusted_time_scope_validation():
                     return validator(value)
@@ -149,7 +155,7 @@ class TimeScope(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_bounds(cls, data: Any) -> Any:
+    def _normalize_bounds(cls, data: object) -> object:
         if not isinstance(data, Mapping):
             return data
         payload = dict(data)
@@ -229,12 +235,12 @@ def session_time_scope(
         return TimeScope(start=start, end=end, boundary_timezone=boundary_timezone)
 
 
-def _validate_time_scope_data(data: Mapping[str, Any]) -> TimeScope:
+def _validate_time_scope_data(data: Mapping[str, object]) -> TimeScope:
     with _trusted_time_scope_validation():
         return TimeScope.model_validate(data)
 
 
-def _time_scope_from_contract_data(data: Mapping[str, Any]) -> TimeScope:
+def _time_scope_from_contract_data(data: Mapping[str, object]) -> TimeScope:
     contract = TimeScopeContractV1.model_validate(data)
     return session_time_scope(
         anchor_from_datetime(contract.start),

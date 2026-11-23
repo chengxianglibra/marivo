@@ -14,7 +14,7 @@ from marivo.semantic._consumption import (
     bind_predicate,
     bind_predicate_in_state,
 )
-from marivo.semantic._deferred_semantics import (
+from marivo.semantic._deferred_composition import (
     _rename_slots as rename_deferred_slots,
 )
 from marivo.semantic._deferred_semantics import (

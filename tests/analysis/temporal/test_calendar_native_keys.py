@@ -9,8 +9,11 @@ import pandas as pd
 import pytest
 import sqlglot as sg
 import sqlglot.expressions as sge
+from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
 
 import marivo.analysis as mv
+from marivo.analysis.dsl.population import _calendar_population
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
@@ -366,10 +369,6 @@ def test_source_free_calendar_preserves_pandas_native_ambiguity(
     clocks: list[str],
     error_name: str,
 ) -> None:
-    from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
-
-    from marivo.analysis.dsl.population import _calendar_population
-    from marivo.analysis.model.execution_errors import MaterializationError
 
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("pandas-native-calendar", timezone=zone)

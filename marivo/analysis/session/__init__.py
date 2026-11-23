@@ -5,21 +5,27 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from marivo._kernel.config import PROJECT_MANIFEST, load_project_config
 from marivo._kernel.project import resolve_project_root
 from marivo._kernel.timezones import same_timezone
+from marivo._kernel.validation import nonblank_text, trimmed_text
 from marivo.analysis.errors import (
     AnalysisRepair,
     SessionAlreadyExistsError,
     SessionStateError,
 )
+from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.prior_generations import warn_prior_generations
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.model.errors import DatasetConstructionError
+from marivo.analysis.session import _lazy_history
 from marivo.analysis.session._lazy_read_model import SessionSummary, SessionSummaryPage
+from marivo.analysis.session._lazy_runtime_reads import page_after
 from marivo.analysis.session.core import Session
+from marivo.analysis.timezone import resolve_timezone
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.telemetry import traced
 
@@ -36,7 +42,6 @@ def _invalid(expected: str, received: str) -> DatasetConstructionError:
 
 
 def _validate_project_manifest(root: Path) -> None:
-    from marivo._kernel.config import PROJECT_MANIFEST, load_project_config
 
     try:
         load_project_config(root)
@@ -80,7 +85,7 @@ def get_or_create(
     Example: ``session = mv.session.get_or_create('revenue-review', timezone='UTC')``.
     Constraints: None means unspecified: use creation defaults for a new name and retain saved values for an existing name. No current Session is set; saved question, timezone and domains are never rewritten. A recovery with no pending work leaves updated_at unchanged. Explicit conflicts raise SessionStateError before recovery. Recovery uses the same writer guard as resume and never replays sources. Earlier Stores remain independent and unchanged; creation may initialize the current generation in the same project. Older Store paths trigger one warning per observed set per process, without reading or migrating them.
     """
-    if not isinstance(name, str) or not name.strip() or name != name.strip():  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not trimmed_text(name):
         raise _invalid(
             "a nonempty exact Session name without surrounding whitespace", "empty or invalid name"
         )
@@ -94,7 +99,7 @@ def get_or_create(
         if (
             not isinstance(names, Sequence)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or not names
-            or any(not isinstance(name, str) or not name or name != name.strip() for name in names)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            or any(not trimmed_text(name) for name in names)
         ):
             raise SessionStateError(
                 message="domains must be a nonempty exact domain name or sequence of names.",
@@ -109,8 +114,6 @@ def get_or_create(
     record = None if store is None else store.session_by_name(name)
     if record is None:
         try:
-            from marivo.analysis.materialization.admission import DatasetRuntime
-
             runtime = DatasetRuntime.create(
                 root, name, question=question, timezone=timezone, domains=selected_domains
             )
@@ -122,8 +125,6 @@ def get_or_create(
                 raise
     selected_timezone = timezone
     if timezone is not None:
-        from marivo.analysis.timezone import resolve_timezone
-
         selected_timezone = resolve_timezone(timezone).name
     configuration: tuple[tuple[str, object, object], ...] = (
         ("question", question, record.question),
@@ -171,10 +172,8 @@ def resume(session_id: str) -> Session:
 
 
 def _resume(session_id: str, *, help_target: str) -> Session:
-    from marivo.analysis.materialization.admission import DatasetRuntime
-    from marivo.analysis.session import _lazy_history
 
-    if not isinstance(session_id, str) or not session_id.strip():  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not nonblank_text(session_id):
         raise _invalid("an exact existing Session ID", "empty or invalid identity")
     root = resolve_project_root()
     store = SessionStore.find_existing(root)
@@ -210,8 +209,6 @@ def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
     Example: ``mv.session.recent(limit=5).show()``.
     Constraints: History reads do not create a Store, activate or recover Sessions. Results include only the current generation; older Store paths trigger one warning per observed set per process without opening those databases. An invalid current Store still raises.
     """
-    from marivo.analysis.session import _lazy_history
-    from marivo.analysis.session._lazy_runtime_reads import page_after
 
     after = page_after(limit, cursor)
     root = resolve_project_root()
@@ -235,7 +232,6 @@ def inspect(session_id: str) -> SessionSummary:
     Example: ``mv.session.inspect(session_id).show()``.
     Constraints: Reads no result identities, result rows or current datasource state. An absent current Store or missing ID raises SessionNotFoundError; retained older Stores provide repair guidance without asserting ID ownership.
     """
-    from marivo.analysis.session import _lazy_history
 
     root = resolve_project_root()
     store = SessionStore.find_existing(root)

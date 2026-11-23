@@ -20,6 +20,7 @@ from ibis.backends.duckdb import Backend
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.errors import SessionAlreadyExistsError
 from marivo.analysis.materialization import admission, terminal_publication
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import SessionRecord
@@ -47,6 +48,23 @@ def _evidence(name: str, value: dict[str, object]) -> None:
         (path / (name + ".json")).write_text(
             json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + "\n"
         )
+
+
+def _check_contender_retry(
+    runtime: DatasetRuntime,
+    contender: mv.AnalysisFrame,
+    produced: mv.AnalysisFrame,
+    evidence: dict[str, object],
+) -> None:
+    before_contender = snapshot(runtime)
+    retried_contender = contender.persist()
+    assert retried_contender.artifact_id != produced.artifact_id
+    assert snapshot(runtime)["analysis_action_runs"] == before_contender["analysis_action_runs"] + 1
+    assert retried_contender.to_pandas()["value"].sum() == 4
+    evidence["contender_retry_artifact"] = retried_contender.artifact_id
+    evidence["contender_retry_run"] = retried_contender._local._manifest(
+        retried_contender._require_stored("artifact_id")
+    ).run_id
 
 
 @pytest.mark.release
@@ -179,25 +197,13 @@ def test_busy_contender_preserves_real_producer(
         }
     )
     if key == "different":
-        before_contender = snapshot(runtime)
-        retried_contender = contender.persist()
-        assert retried_contender.artifact_id != produced.artifact_id
-        assert (
-            snapshot(runtime)["analysis_action_runs"]
-            == before_contender["analysis_action_runs"] + 1
-        )
-        assert retried_contender.to_pandas()["value"].sum() == 4
-        evidence["contender_retry_artifact"] = retried_contender.artifact_id
-        evidence["contender_retry_run"] = retried_contender._local._manifest(
-            retried_contender._require_stored("artifact_id")
-        ).run_id
+        _check_contender_retry(runtime, contender, produced, evidence)
     _evidence(f"contention-{key}-{mode}", evidence)
 
 
 def test_competing_creation_releases_each_candidate_guard(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.errors import SessionAlreadyExistsError
 
     SessionStore(tmp_path)
     barrier = threading.Barrier(2)

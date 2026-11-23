@@ -23,6 +23,10 @@ from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacki
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.runtime.adapters import provider_for
 from marivo.datasource.runtime.session_factory import open_source_session
+from tests.datasource.environment import clickhouse_analysis as ch
+from tests.datasource.environment import mysql_analysis as mysql
+from tests.datasource.environment import postgres_analysis as pg
+from tests.datasource.environment import trino_analysis as trino
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
 from tests.shared_fixtures import catalog_get, datasource_arguments_source
 
@@ -87,6 +91,141 @@ def _data(rows: list[dict[str, object]], backend: str) -> SourceData:
     )
 
 
+def _duckdb_cost_tables(
+    profile: str, root: Path, rows: list[dict[str, object]], subjects: list[dict[str, object]]
+) -> Iterator[tuple[Case, str, str]]:
+    backend = "duckdb"
+    if profile not in (
+        "table",
+        "ordinary-table",
+        "view",
+        "main-table",
+        "main-view",
+        "csv",
+        "parquet",
+        "local-json",
+    ) or (backend != "duckdb" and profile in ("csv", "parquet", "local-json")):
+        raise ValueError("Local cost fixture requires a native table or view profile")
+    path = root / ("r96." + backend)
+    admin = ibis.duckdb.connect(path)
+    try:
+        data = _data(rows[:1], backend)
+        admin.raw_sql("CREATE TABLE r96_facts (" + data.columns + ")")
+        admin.raw_sql("CREATE TABLE r96_other (" + data.columns + ")")
+        admin.raw_sql("CREATE TABLE r96_subjects (tenant VARCHAR(10), sid BIGINT)")
+        admin.raw_sql("INSERT INTO r96_subjects VALUES " + _values(subjects, backend))
+        for start in range(0, len(rows), BATCH_ROWS):
+            values = _values(rows[start : start + BATCH_ROWS], backend)
+            admin.raw_sql("INSERT INTO r96_facts VALUES " + values)
+            admin.raw_sql("INSERT INTO r96_other VALUES " + values)
+        admin.raw_sql("CREATE VIEW r96_view AS SELECT * FROM r96_facts")
+
+    finally:
+        admin.disconnect()
+    source = TableSourceIR("r96_view" if "view" in profile else "r96_facts")
+    selected_source: TableSourceIR | CsvSourceIR | ParquetSourceIR | JsonSourceIR
+    if profile == "parquet":
+        file = root / "r96_facts.parquet"
+        pq.write_table(pa.Table.from_pylist(rows), file)
+        selected_source = ParquetSourceIR(str(file))
+    elif profile in ("csv", "local-json"):
+        serialized = [
+            {
+                name: value.strftime("%Y-%m-%d %H:%M:%S.%f")
+                if isinstance(value, datetime)
+                else value
+                for name, value in row.items()
+            }
+            for row in rows
+        ]
+        if profile == "csv":
+            file = root / "r96_facts.csv"
+            with file.open("w", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(serialized)
+            selected_source = CsvSourceIR(str(file))
+        else:
+            file = root / "r96_facts.json"
+            file.write_text(json.dumps(serialized))
+            selected_source = JsonSourceIR(str(file))
+    else:
+        selected_source = source
+    ds = datasource(backend, {"path": str(path), "read_only": True})
+    with open_source_session(provider_for(backend), ds) as session:
+        yield (
+            Case(
+                session,
+                selected_source,
+                {"backend": backend, "profile": profile, "read_only": True},
+            ),
+            "r96_subjects",
+            "r96_other",
+        )
+
+
+def _clickhouse_cost_tables(
+    case: Case,
+    source: TableSourceIR,
+    native_profile: str,
+    rows: list[dict[str, object]],
+    subjects: list[dict[str, object]],
+) -> Iterator[tuple[Case, str, str]]:
+    backend = "clickhouse"
+    subjects_name, other = source.table + "_subjects", source.table + "_other"
+    database = source.database
+    assert isinstance(database, str)
+    prefix = database + "."
+    if native_profile not in ("mergetree", "distributed"):
+        raise ValueError("Unknown ClickHouse cost profile")
+    distributed = native_profile == "distributed"
+    local_facts = source.table.removesuffix("_distributed")
+    local_subjects = subjects_name + "_local" if distributed else subjects_name
+    local_other = other + "_local" if distributed else other
+    with ch.connection(admin=True) as admin:
+        try:
+            admin.command(
+                f"CREATE TABLE {prefix}{local_subjects} (tenant String, sid Int64) ENGINE=MergeTree ORDER BY tuple()"
+            )
+            admin.command(
+                f"CREATE TABLE {prefix}{local_other} ({_data(rows[:1], backend).clickhouse_columns}) ENGINE=MergeTree ORDER BY tuple()"
+            )
+            if distributed:
+                for proxy, local in ((subjects_name, local_subjects), (other, local_other)):
+                    admin.command(
+                        f"CREATE TABLE {prefix}{proxy} AS {prefix}{local} "
+                        f"ENGINE=Distributed({ch.CLUSTER}, {database}, {local}, rand())"
+                    )
+            admin.insert(
+                prefix + local_subjects,
+                [list(row.values()) for row in subjects],
+                column_names=list(subjects[0]),
+            )
+            for start in range(0, len(rows), BATCH_ROWS):
+                batch = rows[start : start + BATCH_ROWS]
+                admin.insert(
+                    prefix + local_other,
+                    [list(row.values()) for row in batch],
+                    column_names=list(rows[0]),
+                )
+                if start == 0:
+                    batch = batch[1:]
+                if batch:
+                    admin.insert(
+                        prefix + local_facts,
+                        [list(row.values()) for row in batch],
+                        column_names=list(rows[0]),
+                    )
+            case.environment["profile"] = native_profile
+            yield case, subjects_name, other
+        finally:
+            if distributed:
+                admin.command(f"DROP TABLE IF EXISTS {prefix}{other}")
+                admin.command(f"DROP TABLE IF EXISTS {prefix}{subjects_name}")
+            admin.command(f"DROP TABLE IF EXISTS {prefix}{local_other}")
+            admin.command(f"DROP TABLE IF EXISTS {prefix}{local_subjects}")
+
+
 @contextmanager
 def _tables(
     backend: str,
@@ -97,73 +236,7 @@ def _tables(
 ) -> Iterator[tuple[Case, str, str]]:
     subjects = [{"tenant": "a", "sid": index} for index in range(GROUPS)]
     if backend == "duckdb":
-        if profile not in (
-            "table",
-            "ordinary-table",
-            "view",
-            "main-table",
-            "main-view",
-            "csv",
-            "parquet",
-            "local-json",
-        ) or (backend != "duckdb" and profile in ("csv", "parquet", "local-json")):
-            raise ValueError("Local cost fixture requires a native table or view profile")
-        path = root / ("r96." + backend)
-        admin = ibis.duckdb.connect(path)
-        try:
-            data = _data(rows[:1], backend)
-            admin.raw_sql("CREATE TABLE r96_facts (" + data.columns + ")")
-            admin.raw_sql("CREATE TABLE r96_other (" + data.columns + ")")
-            admin.raw_sql("CREATE TABLE r96_subjects (tenant VARCHAR(10), sid BIGINT)")
-            admin.raw_sql("INSERT INTO r96_subjects VALUES " + _values(subjects, backend))
-            for start in range(0, len(rows), BATCH_ROWS):
-                values = _values(rows[start : start + BATCH_ROWS], backend)
-                admin.raw_sql("INSERT INTO r96_facts VALUES " + values)
-                admin.raw_sql("INSERT INTO r96_other VALUES " + values)
-            admin.raw_sql("CREATE VIEW r96_view AS SELECT * FROM r96_facts")
-
-        finally:
-            admin.disconnect()
-        source = TableSourceIR("r96_view" if "view" in profile else "r96_facts")
-        selected_source: TableSourceIR | CsvSourceIR | ParquetSourceIR | JsonSourceIR
-        if profile == "parquet":
-            file = root / "r96_facts.parquet"
-            pq.write_table(pa.Table.from_pylist(rows), file)
-            selected_source = ParquetSourceIR(str(file))
-        elif profile in ("csv", "local-json"):
-            serialized = [
-                {
-                    name: value.strftime("%Y-%m-%d %H:%M:%S.%f")
-                    if isinstance(value, datetime)
-                    else value
-                    for name, value in row.items()
-                }
-                for row in rows
-            ]
-            if profile == "csv":
-                file = root / "r96_facts.csv"
-                with file.open("w", newline="") as stream:
-                    writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
-                    writer.writeheader()
-                    writer.writerows(serialized)
-                selected_source = CsvSourceIR(str(file))
-            else:
-                file = root / "r96_facts.json"
-                file.write_text(json.dumps(serialized))
-                selected_source = JsonSourceIR(str(file))
-        else:
-            selected_source = source
-        ds = datasource(backend, {"path": str(path), "read_only": True})
-        with open_source_session(provider_for(backend), ds) as session:
-            yield (
-                Case(
-                    session,
-                    selected_source,
-                    {"backend": backend, "profile": profile, "read_only": True},
-                ),
-                "r96_subjects",
-                "r96_other",
-            )
+        yield from _duckdb_cost_tables(profile, root, rows, subjects)
         return
     native_profile = {"trino": "iceberg", "clickhouse": "mergetree"}.get(backend, "table")
     if profile != "ordinary-table":
@@ -173,8 +246,6 @@ def _tables(
         subjects_name, other = case.source.table + "_subjects", case.source.table + "_other"
         database = case.source.database
         if backend == "postgres":
-            from tests.datasource.environment import postgres_analysis as pg
-
             with pg.connection(admin=True) as admin:
                 prefix = "public."
                 try:
@@ -205,9 +276,7 @@ def _tables(
                     admin.execute(f"DROP TABLE IF EXISTS {prefix}{other}")
                     admin.execute(f"DROP TABLE IF EXISTS {prefix}{subjects_name}")
         elif backend == "mysql":
-            from tests.datasource.environment import mysql_analysis as mysql
-
-            with mysql.connection(admin=True) as admin, admin.cursor() as cursor:
+            with mysql.connection(admin=True) as mysql_admin, mysql_admin.cursor() as cursor:
                 try:
                     cursor.execute(
                         f"CREATE TABLE {subjects_name} (tenant VARCHAR(10), sid BIGINT) ENGINE=InnoDB"
@@ -233,13 +302,11 @@ def _tables(
                     cursor.execute(f"DROP TABLE IF EXISTS {other}")
                     cursor.execute(f"DROP TABLE IF EXISTS {subjects_name}")
         elif backend == "trino":
-            from tests.datasource.environment import trino_analysis as trino
-
             assert isinstance(database, tuple)
             catalog = database[0]
             prefix = ".".join(database) + "."
-            with trino.connection(admin=True, catalog=catalog) as admin:
-                cursor = admin.cursor()
+            with trino.connection(admin=True, catalog=catalog) as trino_admin:
+                cursor = trino_admin.cursor()
                 try:
                     cursor.execute(
                         f"CREATE TABLE {prefix}{subjects_name} (tenant VARCHAR(10), sid BIGINT)"
@@ -269,58 +336,7 @@ def _tables(
                     cursor.execute(f"DROP TABLE IF EXISTS {prefix}{subjects_name}").fetchall()
                     cursor.close()
         else:
-            from tests.datasource.environment import clickhouse_analysis as ch
-
-            assert isinstance(database, str)
-            prefix = database + "."
-            if native_profile not in ("mergetree", "distributed"):
-                raise ValueError("Unknown ClickHouse cost profile")
-            distributed = native_profile == "distributed"
-            local_facts = case.source.table.removesuffix("_distributed")
-            local_subjects = subjects_name + "_local" if distributed else subjects_name
-            local_other = other + "_local" if distributed else other
-            with ch.connection(admin=True) as admin:
-                try:
-                    admin.command(
-                        f"CREATE TABLE {prefix}{local_subjects} (tenant String, sid Int64) ENGINE=MergeTree ORDER BY tuple()"
-                    )
-                    admin.command(
-                        f"CREATE TABLE {prefix}{local_other} ({_data(rows[:1], backend).clickhouse_columns}) ENGINE=MergeTree ORDER BY tuple()"
-                    )
-                    if distributed:
-                        for proxy, local in ((subjects_name, local_subjects), (other, local_other)):
-                            admin.command(
-                                f"CREATE TABLE {prefix}{proxy} AS {prefix}{local} "
-                                f"ENGINE=Distributed({ch.CLUSTER}, {database}, {local}, rand())"
-                            )
-                    admin.insert(
-                        prefix + local_subjects,
-                        [list(row.values()) for row in subjects],
-                        column_names=list(subjects[0]),
-                    )
-                    for start in range(0, len(rows), BATCH_ROWS):
-                        batch = rows[start : start + BATCH_ROWS]
-                        admin.insert(
-                            prefix + local_other,
-                            [list(row.values()) for row in batch],
-                            column_names=list(rows[0]),
-                        )
-                        if start == 0:
-                            batch = batch[1:]
-                        if batch:
-                            admin.insert(
-                                prefix + local_facts,
-                                [list(row.values()) for row in batch],
-                                column_names=list(rows[0]),
-                            )
-                    case.environment["profile"] = native_profile
-                    yield case, subjects_name, other
-                finally:
-                    if distributed:
-                        admin.command(f"DROP TABLE IF EXISTS {prefix}{other}")
-                        admin.command(f"DROP TABLE IF EXISTS {prefix}{subjects_name}")
-                    admin.command(f"DROP TABLE IF EXISTS {prefix}{local_other}")
-                    admin.command(f"DROP TABLE IF EXISTS {prefix}{local_subjects}")
+            yield from _clickhouse_cost_tables(case, case.source, native_profile, rows, subjects)
 
 
 def _author(

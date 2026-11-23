@@ -11,8 +11,10 @@ import pytest
 import marivo.analysis as mv
 from marivo._definition.expressions import SourceAggregate
 from marivo.analysis.compiler.attribute_native_queries import lower_native_coalition
-from marivo.analysis.compiler.graph_plan import PeriodFilter, ReductionRead, read_reduction
-from marivo.analysis.core.frame_method_facts import FrameShapleyMethod, FrameShapleyQuery
+from marivo.analysis.compiler.query_stages import PeriodFilter, ReductionRead, read_reduction
+from marivo.analysis.core.frame_data import MemoryFrameBacking
+from marivo.analysis.core.frame_method_facts import FrameShapleyMethod
+from marivo.analysis.core.frame_shapley_facts import FrameShapleyQuery
 from marivo.analysis.session.core import Session
 from tests.analysis.materialization.test_attribute_frequencies import _stage
 from tests.analysis.materialization.test_frame_attribute_shapley import game_session as game_session
@@ -114,7 +116,6 @@ def test_native_parent_methods_keep_only_their_coalition_receipts(
     assert len(trace.native_sql) == sum(c.source_reads for c in captures.values())
     assert sum(trace.returned_rows) == sum(c.returned_rows for c in captures.values())
     saved = report.persist()
-    from marivo.analysis.core.frame_data import MemoryFrameBacking
 
     assert isinstance(compared._backing, MemoryFrameBacking)
     inherited = {read.read_id for read in compared._backing.metadata.source_reads}

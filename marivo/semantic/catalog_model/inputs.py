@@ -24,6 +24,7 @@ from marivo._kernel.refs import (
 from marivo._kernel.symbolic import (
     native_symbol_ref,
 )
+from marivo._kernel.validation import input_sequence
 from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic.catalog_model.index import _CatalogIndex
 from marivo.semantic.catalog_model.objects import (
@@ -306,7 +307,7 @@ def _freeze_semantic_inputs(
     *,
     operation: str,
 ) -> tuple[_SemanticInput, ...]:
-    if not isinstance(values, Sequence) or isinstance(values, str | bytes) or not values:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not input_sequence(values) or not values:
         _raise(
             ErrorKind.INVALID_REF,
             f"catalog.{operation}(refs) requires a non-empty sequence of named semantic objects.",

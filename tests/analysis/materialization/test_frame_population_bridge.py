@@ -14,9 +14,12 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
-from marivo.analysis.compiler.frame_plan import CompiledFramePlan
-from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import (
+import marivo.analysis.materialization.frame_evaluation as frame_evaluation
+import marivo.analysis.materialization.frame_source_preparation as frame_source_preparation
+import marivo.analysis.materialization.source_reads as executor
+from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
+from marivo.analysis.compiler.lowered_query import LoweredRead
+from marivo.analysis.compiler.query_stages import (
     FrameCompute,
     FrameInput,
     FrameKeysInput,
@@ -34,17 +37,25 @@ from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_population import population_from
 from marivo.analysis.dsl.population import Population, in_population, product
-from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.analysis.materialization.graph_source_execution import run_frame_plan as original
+from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.materialization.query_parameters import prepare_frame_parameters
+from marivo.analysis.materialization.query_preparation import prepare_population
+from marivo.analysis.materialization.source_types import admit_source_type
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_schema import DataAxis, DataSchema
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.session.core import Session
+from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from tests.datasource.source_cases import source_params
+from tests.analysis.materialization.test_population_membership import _session
+from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
+from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.shared_fixtures import catalog_get, catalog_value
+from tests.support.source_trace import capture_source
 
 
 @pytest.fixture
@@ -274,8 +285,6 @@ def test_fixed_top_keeps_old_region_while_expression_top_reselects(session: Sess
 def test_one_final_schedule_resolves_every_compiler_leaf(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis.materialization.frame_evaluation as evaluator
-    from marivo.analysis.materialization.graph_source_execution import run_frame_plan as original
 
     plans: list[CompiledFramePlan[StageOutput]] = []
 
@@ -308,7 +317,7 @@ def test_one_final_schedule_resolves_every_compiler_leaf(
             retain_inputs=retain_inputs,
         )
 
-    monkeypatch.setattr(evaluator, "run_frame_plan", run)
+    monkeypatch.setattr(frame_evaluation, "run_frame_plan", run)
     selected = _memory(session)
     population = _population(session, selected)
     _observe(session, population.union(population)).compute()
@@ -363,7 +372,6 @@ def test_null_field_empty_domain_and_explicit_output_domain_keep_distinct_meanin
 def test_producer_checks_survive_top_zero_before_dependent_source_read(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis.materialization.graph_source_execution as executor
 
     original = executor.read_stage
     calls: list[str] = []
@@ -450,7 +458,6 @@ def test_exact_evaluated_key_audit_is_not_truncated(session: Session) -> None:
 def test_full_fixed_validation_precedes_projection_and_business_read(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis.materialization.graph_source_execution as executor
 
     selected = _memory(session)
     assert isinstance(selected._backing, MemoryFrameBacking)
@@ -472,9 +479,6 @@ def test_full_fixed_validation_precedes_projection_and_business_read(
 def test_bounded_varchar_target_uses_admitted_frame_string_type(
     session: Session, length: int
 ) -> None:
-    from marivo.analysis.materialization.graph_source_execution import admit_source_type
-    from marivo.analysis.materialization.population_preparation import prepare_population
-    from marivo.analysis.materialization.query_parameters import prepare_frame_parameters
 
     selected = _memory(session)
     assert isinstance(selected._schema, DataSchema)
@@ -504,7 +508,6 @@ def test_bounded_varchar_target_uses_admitted_frame_string_type(
 def test_fixed_key_projection_avoids_source_preparation(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis.materialization.frame_source_preparation as evaluator
 
     population = _population(session, _memory(session))
     pending = frame_sources.frame(
@@ -517,7 +520,7 @@ def test_fixed_key_projection_avoids_source_preparation(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("fixed key projection has no business source dependency")
 
-    monkeypatch.setattr(evaluator, "open_query_sources", forbidden)
+    monkeypatch.setattr(frame_source_preparation, "open_query_sources", forbidden)
     result = pending.compute().to_pandas()
     assert list(result.itertuples(index=False, name=None)) == [("east", "A"), ("west", "B")]
 
@@ -600,7 +603,6 @@ def test_source_relationship_preimage_retains_frame_target_keys(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from tests.analysis.materialization.test_population_membership import _session
 
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
     column = DataColumn("key", "tag", ScalarDataType("int64"), False)
@@ -649,10 +651,6 @@ def test_remote_frame_keys_feed_checked_tuple_null_empty_and_zero_axis_routes(
     backend: str,
     profile: str,
 ) -> None:
-    from marivo.datasource.ir import TableSourceIR
-    from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
-    from tests.datasource.source_cases import SourceData, source_case
-    from tests.support.source_trace import capture_source
 
     large = 2**53
     data = SourceData(

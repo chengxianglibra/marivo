@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TypeAlias
 
 from marivo._kernel.errors import invalid
-from marivo._kernel.time_types import Grain
+from marivo._kernel.time_types import Grain, grain_token
 
 
 class _Window:
@@ -25,7 +25,7 @@ class _Window:
         if isinstance(self, Since):
             return f"Since: {self.start.isoformat()}"
         assert isinstance(self, ToDate)
-        return f"ToDate: {self.grain._to_token()}"
+        return f"ToDate: {grain_token(self.grain)}"
 
 
 @dataclass(frozen=True, slots=True, repr=False)

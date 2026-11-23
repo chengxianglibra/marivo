@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
 
-from pydantic_core import core_schema
+from pydantic_core import CoreSchema, core_schema
 
 _GRAIN_UNITS = frozenset({"second", "minute", "hour", "day", "week", "month", "quarter", "year"})
 
@@ -63,8 +62,8 @@ class Grain:
         raise TypeError("Grain values are returned by marivo.analysis.grain(...)")
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _source: Any, _handler: Any) -> Any:
-        def validate(value: Any, info: Any) -> Grain:
+    def __get_pydantic_core_schema__(cls, _source: object, _handler: object) -> CoreSchema:
+        def validate(value: object, info: core_schema.ValidationInfo) -> Grain:
             if isinstance(value, Grain):
                 return value
             if not isinstance(value, Mapping):
@@ -91,10 +90,6 @@ class Grain:
             validate, serialization=core_schema.plain_serializer_function_ser_schema(serialize)
         )
 
-    @property
-    def _is_subday(self) -> bool:
-        return self.unit in {"second", "minute", "hour"}
-
     def _width_seconds(self) -> int:
         widths = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}
         if self.unit not in widths:
@@ -103,11 +98,13 @@ class Grain:
             )
         return self.count * widths[self.unit]
 
-    def _to_token(self) -> str:
-        return self.unit if self.count == 1 else f"{self.count}{self.unit}"
-
     def __repr__(self) -> str:
-        return f"Grain({self._to_token()!r})"
+        return f"Grain({grain_token(self)!r})"
+
+
+def grain_token(grain: Grain) -> str:
+    """Encode a natural Grain in the canonical calendar token."""
+    return grain.unit if grain.count == 1 else f"{grain.count}{grain.unit}"
 
 
 def builtin_grain(unit: str, *, count: int = 1) -> Grain:
@@ -171,4 +168,6 @@ def validate_subday_count(unit: str, count: int) -> int:
 
 def civil_midnight_width_seconds(grain: Grain) -> int | None:
     """Return the validated width for a natural civil subday grain."""
-    return validate_subday_count(grain.unit, grain.count) if grain._is_subday else None
+    if grain.unit in _SUBDAY_UNIT_SECONDS:
+        return validate_subday_count(grain.unit, grain.count)
+    return None

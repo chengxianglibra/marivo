@@ -7,12 +7,16 @@ from pathlib import Path
 import ibis
 import ibis.expr.operations as ops
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import query_parameters
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.read_types import PhysicalRequirement
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.environment import (
@@ -257,7 +261,6 @@ def test_selected_original_rereads_current_postgres_and_myisam_rows(
 def test_selected_bulk_keys_preserve_large_integer_tuple_correlation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, profile: str
 ) -> None:
-    from marivo.datasource.runtime.read_types import PhysicalRequirement
 
     large = 2**53 + 1
     data = SourceData(
@@ -328,8 +331,6 @@ def test_empty_selection_retains_native_parent_sum(
         query = fine.top(0, by=fine["value"])
         trace = capture_source(monkeypatch)
         if backend == "trino":
-            from marivo.analysis.errors import AnalysisError
-
             with pytest.raises(AnalysisError):
                 fine.compute()
             with pytest.raises(AnalysisError):
@@ -387,8 +388,6 @@ def test_parquet_selected_original_rereads_file_without_reselecting_parent(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     mutation: str,
 ) -> None:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
 
     path = tmp_path / "facts.parquet"
     rows = [

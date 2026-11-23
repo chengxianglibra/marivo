@@ -24,6 +24,7 @@ from marivo._help.topics import render_authoring, render_root
 from marivo._kernel.environment import MARIVO_VERSION
 from marivo.introspection.live.attributes import public_attributes, render_attribute
 from marivo.introspection.live.model import HelpSurface
+from marivo.introspection.live.render import bounded_help
 from marivo.introspection.live.targets import canonical_target
 from marivo.telemetry import track_operation
 
@@ -52,7 +53,6 @@ def _topic_text(route: TopicHelpRoute) -> str:
 
 
 def _header(text: str, target: str, kind: str) -> str:
-    from marivo.introspection.live.render import bounded_help
 
     return bounded_help(
         f"Target: {target}\nKind: {kind}\nMarivo: {MARIVO_VERSION}\n\n{text}",

@@ -3,36 +3,28 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
 
 from ibis.common.deferred import Deferred
 
+from marivo._definition.graph import direct_refs
 from marivo._definition.types import (
-    AxisBinding,
-    CalendarCoordinate,
-    IntervalCoordinate,
     Owner,
-    RowAttributeTime,
 )
 from marivo._kernel.grouping import Grouping
 from marivo._kernel.temporal import TimeScope
-from marivo.analysis.binding.calendar_keys import time_key_type
 from marivo.analysis.binding.graph import BoundGraph
-from marivo.analysis.binding.lineage import observation_contexts
-from marivo.analysis.binding.signature import ResultQuantity
 from marivo.analysis.binding.time_guidance import (
     REPORT_CLOCK_GUIDANCE,
     partition_hour_candidates,
     partition_hour_guidance,
 )
-from marivo.analysis.binding.value_time import observation_time_semantics
 from marivo.analysis.core.frame_data import (
     FrameKeyDependency,
     LiteralFrameBinding,
     SourceFrameBinding,
 )
+from marivo.analysis.core.source_frame_schema import pending_schema
 from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import (
@@ -47,19 +39,8 @@ from marivo.analysis.dsl.source_capture import (
     capture_values,
 )
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.methods.carriers.frame_calendar import freeze_interval
-from marivo.analysis.model.calendar_schema import calendar_descriptor
-from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_contracts import merge_frame_key_inputs
-from marivo.analysis.model.frame_structure import (
-    PendingDataAxis,
-    PendingDataColumn,
-    PendingDataSchema,
-    PendingFrameAxis,
-)
-from marivo.analysis.model.lineage import SemanticObjectIdentity
-from marivo.analysis.model.time_facts import FrameRowAttributeTime
 from marivo.analysis.model.value_names import value_name
 from marivo.datasource.spi import DatasourceConnectionConfig
 from marivo.semantic import (
@@ -68,114 +49,19 @@ from marivo.semantic import (
     TimeDimension,
 )
 from marivo.semantic.spi import (
+    CompiledExpressionSidecar,
     CompiledSemanticState,
     DimensionExpression,
     FieldExpression,
     NumericMetric,
+    Registry,
     RowPredicate,
     bind_field_in_state,
     bind_metric_in_state,
     bind_predicate_in_state,
+    build_compiled_state,
     validate_context,
 )
-
-
-def _utc(value: datetime | None) -> datetime | None:
-    return (
-        None
-        if value is None
-        else datetime.fromisoformat(value.astimezone(timezone.utc).isoformat())
-    )
-
-
-def pending_schema(graph: BoundGraph, state: CompiledSemanticState | None) -> PendingDataSchema:
-    """Capture static structure without freezing native result positions."""
-    axes: list[PendingFrameAxis] = []
-    offset = 0
-    role: Literal["field", "identity"]
-    components: tuple[str, ...]
-    for index, axis in enumerate(graph.signature.axes):
-        if isinstance(axis, IntervalCoordinate):
-            name = "interval"
-            interval = freeze_interval(
-                axis,
-                token=f"axis.{index}",
-                name=name,
-                key=DataColumn(f"key.{offset}", name, ScalarDataType("int64"), False),
-            )
-            axes.append(interval.axis)
-            offset += len(interval.axis.columns)
-            continue
-        if isinstance(axis, CalendarCoordinate):
-            name = f"calendar:{axis.grain}"
-            frozen_axis = calendar_descriptor(
-                axis,
-                token=f"axis.{index}",
-                name=name,
-                key=DataColumn(f"key.{offset}", name, time_key_type(axis), False),
-            )
-            axes.append(frozen_axis)
-            offset += len(frozen_axis.columns)
-            continue
-        elif isinstance(axis, AxisBinding):
-            name = axis.field.ref.path if axis.field is not None else axis.entity.ref.path
-            if axis.field is None:
-                if state is None:
-                    reject(
-                        "a captured complete Entity scope",
-                        name,
-                        "Supply the completed semantic scope for identity coordinates.",
-                        "frame.source",
-                    )
-                components = state.registry.entities[axis.entity.ref.path].primary_key
-                role = "identity"
-            else:
-                components = (name,)
-                role = "field"
-            at = (
-                FrameRowAttributeTime(
-                    SemanticObjectIdentity(
-                        "time_dimension", axis.at.field.ref.path, axis.at.field.version
-                    )
-                )
-                if isinstance(axis.at, RowAttributeTime)
-                else _utc(axis.at)
-            )
-        else:
-            reject(
-                "an original field, identity or calendar source axis",
-                type(axis).__name__,
-                "Build source analyses before data-side pairing.",
-                "frame.source",
-            )
-        columns = tuple(
-            PendingDataColumn(
-                f"key.{offset + component}",
-                name,
-                "unresolved",
-                False if role == "identity" else None,
-            )
-            for component, name in enumerate(components)
-        )
-        axes.append(PendingDataAxis(f"axis.{index}", name, role, columns, at=at))
-        offset += len(columns)
-    values = tuple(
-        PendingDataColumn(
-            f"value.{index}",
-            quantity.name,
-            quantity.kind if isinstance(quantity, ResultQuantity) else "unresolved",
-            None,
-            quantity.unit,
-        )
-        for index, quantity in enumerate(graph.signature.quantities)
-    )
-    return PendingDataSchema(
-        tuple(axes),
-        values,
-        tuple(value_name(value.name, location="frame.source") for value in values),
-        value_contexts=observation_contexts(graph, tuple(axes), state),
-        value_time_semantics=observation_time_semantics(graph, state),
-    )
 
 
 def _capture(
@@ -363,7 +249,6 @@ def read(
 
 def population_needs_state(population: Population) -> bool:
     """Resolve a Catalog only when the captured domain consumes definitions."""
-    from marivo._definition.graph import direct_refs
 
     return bool(direct_refs(population._definition))
 
@@ -376,8 +261,6 @@ def frame(
 ) -> AnalysisFrame:
     validate_context(population._context, project_root=connection.project_root, owner=local.owner)
     if state is None:
-        from marivo.semantic.spi import CompiledExpressionSidecar, Registry, build_compiled_state
-
         state = build_compiled_state(
             registry=Registry(),
             sidecar=CompiledExpressionSidecar({}, {}, frozenset()),

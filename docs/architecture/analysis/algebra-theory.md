@@ -166,12 +166,12 @@ $$
 
 | 数学依据 | 当前编译器行为 |
 | --- | --- |
-| L1 固定选择 | 公开 Frame 计划可合并调度顺序上相邻的一对过滤。中间结果须只有一个消费者，并且无需发布、保留为来源输入或采集键检查点。两步的布局、列绑定和最终坐标事实须一致。谓词支持 int64 和 Decimal(38,0) 值列、单分量 int64 坐标及可表示为 int64 的整数字面量之间的比较，允许用 AND、OR 组合。执行器复核实际输入模式，符合条件时仅对第一步保留的行计算第二个谓词，再一次取出完整结果行。模式不符时按原两步执行。内部 ResultProgram 的 L1 仍有独立的资格检查。[Frame 计划](../../../marivo/analysis/compiler/frame_filter_fusion.py) · [谓词资格](../../../marivo/analysis/core/local_laws.py) · [公开执行对照](../../../tests/analysis/materialization/test_query_optimization.py) |
-| L6 摘要分区 | 相邻归约各自完成。归并已经完成的值需要证明中间有效性、数值边界和必要检查均得以保留。[Frame 归约](../../../marivo/analysis/methods/frame_values.py) |
+| L1 固定选择 | 公开 Frame 计划可合并调度顺序上相邻的一对过滤。中间结果须只有一个消费者，并且无需发布、保留为来源输入或采集键检查点。两步的布局、列绑定和最终坐标事实须一致。谓词支持 int64 和 Decimal(38,0) 值列、单分量 int64 坐标及可表示为 int64 的整数字面量之间的比较，允许用 AND、OR 组合。执行器复核实际输入模式，符合条件时仅对第一步保留的行计算第二个谓词，再一次取出完整结果行。模式不符时按原两步执行。内部 ResultProgram 的 L1 仍有独立的资格检查。[Frame 计划](../../../marivo/analysis/compiler/frame_filter_fusion.py) · [谓词资格](../../../marivo/analysis/model/local_laws.py) · [公开执行对照](../../../tests/analysis/materialization/test_query_optimization.py) |
+| L6 摘要分区 | 相邻归约各自完成。归并已经完成的值需要证明中间有效性、数值边界和必要检查均得以保留。[Frame 归约](../../../marivo/analysis/methods/query_values.py) |
 | L4 映射合成、L7 拉回与限制 | 上述等式是带前提的数学关系。当前编译器没有通用的映射复合或来源状态限制改写。[优化器](../../../marivo/analysis/compiler/optimization.py) |
 
 同一次来源观察另可共享合格的聚合输入。资格取决于实际来源与关系路径、版本、贡献时钟、过滤、成员、键和 NULL 政策。每个归约仍独立完成值和检查。内部样本须先完成子指标。多个聚合出现在同一条 SQL 中，物理扫描次数由后端计划决定。[普通来源聚合](populations-and-observation.md#observation-domain-contributions-and-counts) · [内部样本融合](../../../marivo/analysis/materialization/sample_fusion.py)
 
-来源侧下推 Top 仍须完成输入检查。合并失败证据时也须保证诊断给出同一实际行的完整键，后端的排序与字符串 collation 会影响资格。[Top 下推](../../../marivo/analysis/compiler/frame_top.py) · [失败证据的组合](../../../marivo/analysis/materialization/query_key_fusion.py#L1306)
+来源侧下推 Top 仍须完成输入检查。合并失败证据时也须保证诊断给出同一实际行的完整键，后端的排序与字符串 collation 会影响资格。[Top 下推](../../../marivo/analysis/compiler/frame_top.py) · [失败证据的组合](../../../marivo/analysis/materialization/native_query_checks.py)
 
 指标与维度的组合、集合与多重集推导式、聚合摘要的经典分类分别提供了这套模型的相关背景。[Yang 等，*A Grammar of Data Analysis*](https://arxiv.org/abs/2511.02156) · [Fegaras，*An Algebra for Distributed Big Data Analytics*](https://www.cambridge.org/core/journals/journal-of-functional-programming/article/an-algebra-for-distributed-big-data-analytics/580E6A327FD3AC8E4F9B0EA0408B434B) · [Gray 等，*Data Cube*](https://arxiv.org/abs/cs/0701155)

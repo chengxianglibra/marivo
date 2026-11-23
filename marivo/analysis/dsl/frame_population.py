@@ -10,6 +10,7 @@ from marivo._definition.types import AxisBinding, InputContext, field_axis
 from marivo._kernel.refs import SemanticKind
 from marivo.analysis.binding.coordinates import bind_read, native_read
 from marivo.analysis.binding.relationship_binding import RelationshipResolver
+from marivo.analysis.core.frame_data import FrameKeyDependency
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.population import Population, _read
@@ -94,7 +95,7 @@ def population_from(
     selected: set[int] = set()
     targets: list[AxisBinding] = []
     identity_keys: list[tuple[str, tuple[str, ...]]] = []
-    inputs = merge_frame_key_inputs((FrameKeyInput(frame._input_id, frame),), owner=local.owner)
+    inputs: tuple[FrameKeyDependency, ...] = (FrameKeyInput(frame._input_id, frame),)
     for axis, target in on:
         assert state is not None and resolver is not None
         if isinstance(target, EntityObject):

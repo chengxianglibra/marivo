@@ -7,16 +7,20 @@ from typing import TYPE_CHECKING, Literal
 
 from marivo._definition.expressions import SourceAggregate
 from marivo.analysis.binding.programs import FormulaProgram
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.query_stages import (
     AttributeFrequencyRead,
     LocalCompute,
     QueryPlan,
     ReductionRead,
     SourceReadStage,
+    read_members,
     require_reduction,
 )
+from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.model.data_types import DataColumn, DataType
+from marivo.datasource.spi import native_aggregate
+from marivo.semantic.spi import lower_row
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -185,10 +189,6 @@ def frequency_finishers(
     stage: SourceReadStage, fields: Mapping[str, ir.Value]
 ) -> tuple[tuple[str, Literal["rank_bounds", "duckdb_native", "postgres_native"]], ...]:
     """Retain each original reducer's already-qualified numeric finish recipe."""
-    from marivo.analysis.compiler.graph_plan import read_members
-    from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
-    from marivo.datasource.spi import native_aggregate
-    from marivo.semantic.spi import lower_row
 
     result: list[tuple[str, Literal["rank_bounds", "duckdb_native", "postgres_native"]]] = []
     for member in read_members(stage) or (stage,):

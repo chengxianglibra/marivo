@@ -10,13 +10,13 @@ import pandas as pd
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 from marivo._kernel.temporal_grid import TimeShiftAbsent, TimeShiftMatch, builtin_nominal_ordinal
 from marivo.analysis.binding.calendar_keys import time_key_series, time_keys
+from marivo.analysis.core.attachments import OutputAttachment
 from marivo.analysis.core.frozen_calendar import (
     FrozenIntervalBucket,
     FrozenIntervalDirectory,
     interval_directory_rows,
 )
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
-from marivo.analysis.model.calendar_schema import calendar_grain
+from marivo.analysis.model.calendar_schema import calendar_grain, interval_descriptor
 from marivo.analysis.model.coordinate_schema import (
     calendar_directory_schema,
     direct_mapping_schema,
@@ -26,7 +26,6 @@ from marivo.analysis.model.data_schema import (
     CalendarDataAxis,
     FrozenCalendarData,
     FrozenCalendarOrigin,
-    FrozenIntervalData,
     IntervalDataAxis,
 )
 from marivo.analysis.model.data_types import DataColumn
@@ -163,13 +162,7 @@ def freeze_interval(
     coordinate: IntervalCoordinate, *, token: str, name: str, key: DataColumn
 ) -> FrozenSourceInterval:
     """Freeze exact UTC bounds for each inert interval key."""
-    axis = IntervalDataAxis(
-        token,
-        (key,),
-        FrozenIntervalData(f"interval.{token}"),
-        timezone=coordinate.timezone,
-        name=name,
-    )
+    axis = interval_descriptor(coordinate, token=token, name=name, key=key)
     directory = FrozenIntervalDirectory(
         axis,
         tuple(

@@ -6,6 +6,9 @@ import pandas as pd
 import pytest
 
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import terminal_publication
+from marivo.datasource.runtime.adapters import SourceSession
+from tests.analysis.statistics.deviation_oracle import forbidden
 from tests.analysis.statistics.pandas_workflows import (
     ForecastModel,
     assert_clean,
@@ -91,8 +94,6 @@ def test_statistical_failure_is_atomic(
         if actual == point:
             raise RuntimeError("injected terminal publication failure")
 
-    from marivo.analysis.materialization import terminal_publication
-
     monkeypatch.setattr(terminal_publication, "_event", inject)
     with pytest.raises(AnalysisError):
         query.persist()
@@ -103,8 +104,6 @@ def test_statistical_failure_is_atomic(
 def test_pandas_forecast_can_feed_an_explicit_second_model_without_run(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")
     artifact = daily(case).persist()

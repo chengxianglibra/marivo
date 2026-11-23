@@ -1,20 +1,34 @@
 """Independent temporal boundaries, full-window evaluation and terminal reads."""
 
+import json
+import os
+import shutil
+import subprocess
+import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
+import duckdb
+import ibis
+import ibis.expr.types as ir
 import pandas as pd
 import pytest
+import sqlglot
 from pydantic import TypeAdapter
+from sqlglot import expressions as sge
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._help.render import render_help_text
 from marivo._kernel.temporal import bind_grid
 from marivo._kernel.temporal_grid import BoundTimeGrid
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.graph_reading import open_manifest
 from marivo.analysis.model.time_grid import instant
+from marivo.datasource import spi as source_time
+from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.shared_fixtures import (
     DSL_NAMES,
     DslCase,
@@ -23,10 +37,13 @@ from tests.shared_fixtures import (
     analysis_dsl_rows,
     catalog_value,
     frozen_coordinates,
+    run_ids,
     seed_analysis_dsl_database,
     terminal_runs,
 )
+from tests.support.json import checked, encode, read
 from tests.support.paths import PROJECT_ROOT
+from tests.support.source_trace import capture_source
 
 
 def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
@@ -254,10 +271,6 @@ def test_identity_observation_has_no_inferred_relationship(
 @pytest.mark.slow
 @pytest.mark.release
 def test_grid_produce_and_offline_read_are_separate_processes(tmp_path: Path) -> None:
-    import json
-    import os
-    import subprocess
-    import sys
 
     root = tmp_path / "temporal-grid"
     database = _prepare_temporal_grid_project(root)
@@ -313,7 +326,6 @@ def test_grid_saved_data_damage_rejects_complete_reads(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     result = _observation(case, start="2026-08-01", end="2026-10-01", grain="month").persist()
-    from marivo.analysis.materialization.graph_reading import open_manifest
 
     data = open_manifest(result._local.store, result._local.session_ref, result.artifact_id).data
     handles = (data.rows, *(attachment.rows for attachment in data.attachments))
@@ -368,7 +380,6 @@ def test_cumulative_anchors_ignore_display_start(analysis_dsl_case_factory: DslC
 
 
 def _seed_two_sample_amounts(case: DslCase, *, overflow: bool = False) -> None:
-    import duckdb
 
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("DELETE FROM customer WHERE customer_id IN ('C', 'D')")
@@ -477,7 +488,6 @@ def test_source_wall_clock_gap_and_fold_follow_native_interpretation(
     analysis_dsl_case_factory: DslCaseFactory,
     wall: str,
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -531,14 +541,6 @@ def test_raw_instant_membership_keeps_native_projection_without_rule_audit(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import duckdb
-    import ibis
-    import ibis.expr.types as ir
-    import sqlglot
-    from sqlglot import expressions as sge
-
-    from marivo.datasource import spi as source_time
-    from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j1")
     start = datetime(2026, 8, 1, tzinfo=timezone.utc)
@@ -604,7 +606,6 @@ def test_raw_instant_membership_keeps_native_projection_without_rule_audit(
 def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -645,7 +646,6 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
 def test_empty_fold_keeps_typed_terminal_output(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -718,7 +718,6 @@ def test_selected_groups_keep_sample_selection_before_execution(
 def test_observe_help_example_preserves_totals_and_ratio_grain(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo._help.render import render_help_text
 
     case = analysis_dsl_case_factory("j1")
     session = case.session
@@ -755,17 +754,6 @@ def test_observe_help_example_preserves_totals_and_ratio_grain(
 def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import json
-    import os
-    import shutil
-    import subprocess
-    import sys
-
-    import duckdb
-
-    from tests.analysis.materialization.domain_recovery_worker import snapshot
-    from tests.shared_fixtures import run_ids
-    from tests.support.json import checked, encode, read
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -955,15 +943,6 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
     analysis_dsl_case_factory: DslCaseFactory,
     rule_name: Literal["periods", "years"],
 ) -> None:
-    import os
-    import shutil
-    import subprocess
-    import sys
-
-    import duckdb
-
-    from tests.analysis.materialization.domain_recovery_worker import snapshot
-    from tests.support.json import checked, encode
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:

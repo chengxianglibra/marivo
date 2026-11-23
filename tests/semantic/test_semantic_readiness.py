@@ -13,10 +13,14 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._authoring.model import AuthoringRepair
+from marivo._authoring.model import AuthoringCapability, AuthoringRepair
 from marivo._kernel.compat import UTC
 from marivo._kernel.refs import ref as ref_factory
+from marivo.datasource.runtime import connections as datasource_runtime
+from marivo.datasource.store import authoring_store as authoring_store
+from marivo.datasource.store.authoring_store import AuthoringStore
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.semantic._help_specs.manifest import REGISTRY
 from marivo.semantic.errors import StructuredWarning
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import (
@@ -81,8 +85,6 @@ def _ready_project(
 def test_semantic_readiness_help_example_accepts_physical_selection(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from marivo._authoring.model import AuthoringCapability
-    from marivo.semantic._help_specs.manifest import REGISTRY
 
     catalog = ms.SemanticCatalog(_ready_project(semantic_project_factory))
     descriptor = REGISTRY.by_canonical_id("readiness")
@@ -215,7 +217,6 @@ def test_readiness_never_uses_discovery_or_preview_history(
     history.mkdir(parents=True)
 
     baseline = project.readiness(refs=("sales.orders.amount",))
-    from marivo.datasource.store import authoring_store as authoring_store
 
     now = datetime(2026, 8, 21, tzinfo=UTC)
     monkeypatch.setattr(authoring_store, "_utc_now", lambda: now)
@@ -236,8 +237,6 @@ def test_readiness_never_uses_discovery_or_preview_history(
     assert fresh_snapshot.cache_status == "fresh"
     assert stale_snapshot.id == fresh_snapshot.id
     assert stale_snapshot.cache_status == "stale"
-
-    from marivo.datasource.store.authoring_store import AuthoringStore
 
     monkeypatch.setattr(
         AuthoringStore,
@@ -376,7 +375,6 @@ def test_readiness_defers_native_timestamp_kind_and_authority_without_probing(
     monkeypatch: pytest.MonkeyPatch,
     parse: str,
 ) -> None:
-    from marivo.datasource.runtime import connections as datasource_runtime
 
     project = semantic_project_factory(
         {

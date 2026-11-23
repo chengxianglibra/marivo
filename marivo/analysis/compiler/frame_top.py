@@ -10,14 +10,18 @@ import ibis.expr.types as ir
 
 from marivo._definition.query import TopValues, ValueSlot
 from marivo._definition.relations import ReadQuery
-from marivo.analysis.compiler.frame_plan import CompiledFramePlan
-from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import FrameCompute, NativeRead, SourceReadStage
+from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
+from marivo.analysis.compiler.lowered_query import LoweredRead
 from marivo.analysis.compiler.native_query import NativeFrameTopFinish, NativeQueryFinish
-from marivo.analysis.compiler.optimization import RuleDecision
 from marivo.analysis.compiler.query_program import FrameProgram
+from marivo.analysis.compiler.query_stages import (
+    FrameCompute,
+    NativeRead,
+    RuleDecision,
+    SourceReadStage,
+)
 from marivo.analysis.compiler.source_predicates import string_bytes
-from marivo.analysis.core.frame_expression import SourceFrameInput
+from marivo.analysis.core.frame_operations import SourceFrameInput
 from marivo.analysis.model.data_schema import DataAxis, DataSchema
 from marivo.analysis.model.data_types import ScalarDataType
 from marivo.analysis.model.frame_contracts import CheckedStageInputT

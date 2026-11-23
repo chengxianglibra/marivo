@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 
 import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
+from marivo._definition.expressions import EntityCount
+from marivo._definition.observations import ContributionBinding
+from marivo._definition.population_builders import axis_description
 from marivo._definition.relations import (
     PopulationClassify,
     PopulationImage,
@@ -15,15 +19,24 @@ from marivo._definition.relations import (
     PopulationProgram,
     SourceIdentities,
 )
-from marivo._definition.types import AxisBinding, FieldRead, PathParameter
+from marivo._definition.types import (
+    AxisBinding,
+    EntityIdentityRead,
+    FieldRead,
+    PathParameter,
+    coordinate_read_keys,
+)
 from marivo._kernel.temporal import InstantAnchor
 from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.compiler.source_predicates import string_bytes
-from marivo.analysis.materialization.population_preparation import (
+from marivo.analysis.materialization.population_domains import (
+    PrepareDomain,
     PreparedPopulation,
-    prepare_population,
+    _domain_table,
+    _retain_checks,
     scoped_checks,
 )
+from marivo.analysis.materialization.prepared_fields import PrepareFields
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.time_facts import FrameSourceTime
 from marivo.analysis.model.unique_keys import UniqueKeys
@@ -45,25 +58,12 @@ def prepare_member_fields(
     *,
     source_times: list[FrameSourceTime] | None = None,
     consumption_timezone: str = "UTC",
-    prepared: dict[str, PreparedPopulation] | None = None,
+    prepare_domain: PrepareDomain,
+    prepare_fields: PrepareFields,
 ) -> PreparedPopulation:
     """Extend complete input tuples from the selected captured subject keys."""
-    from dataclasses import replace
 
-    from marivo._definition.expressions import EntityCount
-    from marivo._definition.observations import ContributionBinding
-    from marivo._definition.types import EntityIdentityRead, coordinate_read_keys
-    from marivo.analysis.materialization.population_preparation import _domain_table, _retain_checks
-    from marivo.analysis.materialization.query_preparation import prepare_fields
-
-    operand = prepare_population(
-        node.operand,
-        entities,
-        state,
-        source_times=source_times,
-        consumption_timezone=consumption_timezone,
-        prepared=prepared,
-    )
+    operand = prepare_domain(node.operand)
     axis = node.operand.axes[node.subject]
     assert isinstance(axis, AxisBinding)
     entity = axis.entity.ref.path
@@ -164,7 +164,6 @@ def prepare_member_fields(
         if isinstance(read, EntityIdentityRead):
             output_axis = definition.axes[len(operand.key_groups) + index]
             assert isinstance(output_axis, AxisBinding)
-            from marivo._definition.population_builders import axis_description
 
             flag = f"__classify_identity_missing_{index}"
             flags[flag] = ibis.or_(*(attributes[slot].isnull() for slot in slots))
@@ -330,19 +329,11 @@ def prepare_relationship_population(
     *,
     source_times: list[FrameSourceTime] | None = None,
     consumption_timezone: str = "UTC",
-    prepared: dict[str, PreparedPopulation] | None = None,
+    prepare_domain: PrepareDomain,
 ) -> PreparedPopulation:
     """Traverse distinct subject keys and retain complete tuples for a preimage."""
-    from marivo.analysis.materialization.population_preparation import _domain_table, _retain_checks
 
-    operand = prepare_population(
-        node.operand,
-        entities,
-        state,
-        source_times=source_times,
-        consumption_timezone=consumption_timezone,
-        prepared=prepared,
-    )
+    operand = prepare_domain(node.operand)
     source_entity = node.path.source.ref.path
     contract = normalize_target_entity(state.registry, source_entity)
     source = entities[source_entity].view()
@@ -430,14 +421,7 @@ def prepare_relationship_population(
             operand,
         )
 
-    targets = prepare_population(
-        node.targets,
-        entities,
-        state,
-        source_times=source_times,
-        consumption_timezone=consumption_timezone,
-        prepared=prepared,
-    )
+    targets = prepare_domain(node.targets)
     target_rows = _domain_table(targets).view()
     target_matches = [
         same_identity(allocation[left], target_rows[right])

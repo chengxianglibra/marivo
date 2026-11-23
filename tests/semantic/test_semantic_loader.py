@@ -15,17 +15,22 @@ Tests cover:
 from __future__ import annotations
 
 import py_compile
+import tempfile
 import textwrap
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import ibis
 import pytest
 
 from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.errors import ErrorKind
+from marivo.semantic.catalog_discovery import find_project
+from marivo.semantic.errors import ErrorKind, SemanticLoadError
+from marivo.semantic.loader import load_project
 from marivo.semantic.reader import SemanticProject
 
 if TYPE_CHECKING:
@@ -549,8 +554,6 @@ def test_subdirectories_not_scanned(semantic_project_factory: _SemanticProjectFa
 
 
 def test_reader_project_unloaded() -> None:
-    import tempfile
-    from pathlib import Path
 
     with tempfile.TemporaryDirectory() as tmp:
         project = SemanticProject(workspace_dir=Path(tmp))
@@ -559,7 +562,6 @@ def test_reader_project_unloaded() -> None:
 
 
 def test_reader_project_nonexistent_root() -> None:
-    from pathlib import Path
 
     project = SemanticProject(workspace_dir=Path("/nonexistent/path"))
     result = project.load()
@@ -949,9 +951,6 @@ def test_field_ref_resolver_wired_after_load(
 
 def test_field_ref_resolves_after_load(semantic_project_factory: _SemanticProjectFactory) -> None:
     """Ref[dimension] returned by a decorator resolves through the materializer."""
-    from contextlib import contextmanager
-
-    import ibis
 
     con = ibis.duckdb.connect(":memory:")
     con.con.execute("CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT)")
@@ -1012,7 +1011,6 @@ def test_field_ref_resolves_after_load(semantic_project_factory: _SemanticProjec
 
 def test_find_project_in_current_dir(tmp_path: Path) -> None:
     """find_project should find marivo.toml in the start_dir."""
-    from marivo.semantic.catalog_discovery import find_project
 
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     sem_dir = tmp_path / "models" / "semantic"
@@ -1024,7 +1022,6 @@ def test_find_project_in_current_dir(tmp_path: Path) -> None:
 
 def test_find_project_in_parent_dir(tmp_path: Path) -> None:
     """find_project should find marivo.toml in a parent directory."""
-    from marivo.semantic.catalog_discovery import find_project
 
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     sem_dir = tmp_path / "models" / "semantic"
@@ -1038,7 +1035,6 @@ def test_find_project_in_parent_dir(tmp_path: Path) -> None:
 
 def test_find_project_returns_none_when_not_found(tmp_path: Path) -> None:
     """find_project should return None when no marivo.toml exists."""
-    from marivo.semantic.catalog_discovery import find_project
 
     project = find_project(start_dir=tmp_path)
     assert project is None
@@ -1046,7 +1042,6 @@ def test_find_project_returns_none_when_not_found(tmp_path: Path) -> None:
 
 def test_find_project_finds_marivo_toml_without_semantic(tmp_path: Path) -> None:
     """find_project should succeed when marivo.toml exists but models/semantic/ does not."""
-    from marivo.semantic.catalog_discovery import find_project
 
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     project = find_project(start_dir=tmp_path)
@@ -1055,7 +1050,6 @@ def test_find_project_finds_marivo_toml_without_semantic(tmp_path: Path) -> None
 
 
 def test_load_project_rejects_models_root_with_clear_error(tmp_path: Path) -> None:
-    from marivo.semantic.loader import load_project
 
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
@@ -1071,7 +1065,6 @@ def test_load_project_rejects_models_root_with_clear_error(tmp_path: Path) -> No
 
 
 def test_load_project_rejects_workspace_root_with_clear_error(tmp_path: Path) -> None:
-    from marivo.semantic.loader import load_project
 
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
@@ -1090,7 +1083,6 @@ def test_load_project_rejects_workspace_root_with_clear_error(tmp_path: Path) ->
 
 def test_load_raises_when_semantic_is_a_file(tmp_path: Path) -> None:
     """SemanticProject.load() should raise when marivo/semantic is a file."""
-    from marivo.semantic.errors import SemanticLoadError
 
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     marivo_dir = tmp_path / "models"
@@ -1156,9 +1148,6 @@ def test_reader_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path: Pa
 def test_materialize_dataset_passes_short_table_name_through_for_trino(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
-    from contextlib import contextmanager
-
-    import ibis
 
     project = semantic_project_factory(
         {
@@ -1223,9 +1212,6 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
 def test_materialize_dataset_accepts_explicit_database_for_trino(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
-    from contextlib import contextmanager
-
-    import ibis
 
     project = semantic_project_factory(
         {

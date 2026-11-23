@@ -6,11 +6,10 @@ import ast
 import inspect
 import textwrap
 from collections.abc import Callable
-from typing import Any
 
 
 def _return_expr(
-    fn: Callable[..., Any],
+    fn: Callable[..., object],
     function: ast.FunctionDef | None = None,
 ) -> ast.AST | None:
     if function is None:

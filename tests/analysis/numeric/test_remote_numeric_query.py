@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from numbers import Real
 from pathlib import Path
 from typing import Literal
 
+import ibis
 import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
@@ -17,9 +21,14 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.analysis.errors import AnalysisError, AnalysisStageUnavailableError
 from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
+from marivo.datasource.errors import DatasourceSourceCapabilityError
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.datasource.environment import clickhouse_analysis as ch
 from tests.datasource.source_cases import (
     MYSQL_RUNTIME_PROFILES,
@@ -29,6 +38,7 @@ from tests.datasource.source_cases import (
     source_params,
 )
 from tests.shared_fixtures import catalog_value, datasource_arguments_source, time_population
+from tests.support.source_trace import capture_source
 
 
 def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
@@ -250,7 +260,6 @@ def test_clickhouse_dst_fold_uses_native_calendar_and_half_open_boundaries(
     backend: str,
     profile: str,
 ) -> None:
-    import ibis
 
     points = (
         (1, datetime(2026, 11, 1, 5, 0, tzinfo=timezone.utc), 1),
@@ -388,11 +397,6 @@ def test_mysql_family_integer_sum_keeps_bound_transport(
     profile: str,
     sampled: bool,
 ) -> None:
-    from dataclasses import replace
-
-    from marivo.datasource.errors import DatasourceSourceCapabilityError
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     minimum, maximum = -(2**63), 2**63 - 1
     rows = (
@@ -503,8 +507,6 @@ def test_public_native_numeric_methods(
                 "cancelled_weight": amount.weighted_mean(weight=weight - 2),
             }
         )
-        from marivo.datasource.runtime.adapters import SourceSession
-        from marivo.datasource.runtime.read_types import CompiledRead
 
         statements: list[str] = []
         original_execute = SourceSession.execute
@@ -547,10 +549,6 @@ def test_public_native_quantile_algorithms(
     backend: str,
     profile: str,
 ) -> None:
-    from dataclasses import replace
-
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     data = replace(
         DATA,
@@ -642,8 +640,6 @@ def test_public_native_quantile_algorithms(
             }
         )
         if backend not in ("postgres", "mysql"):
-            import ibis
-
             before = len(statements)
             frame = approximate.compute().to_pandas()
             assert 0 <= float(frame["q"].iloc[0]) <= 10
@@ -717,9 +713,6 @@ def test_native_quantile_edge_groups(
         big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
         category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         if backend in ("mysql", "trino"):
-            from marivo.analysis.errors import AnalysisStageUnavailableError
-            from tests.support.source_trace import capture_source
-
             trace = capture_source(monkeypatch)
             with pytest.raises(AnalysisStageUnavailableError):
                 session.observe({"q": amount.quantile(0.95)}, by=(category,)).compute()
@@ -830,7 +823,6 @@ def test_native_time_dependencies_and_drill(
         assert [float(value) for value in cumulative["total"]] == [4.0, 4.0]
         empty = session.observe({"empty": _metric(session.catalog, "metric:sales.empty")}).compute()
         assert empty.to_pandas()["empty"].tolist() == [Decimal("0.00")]
-        from tests.analysis.materialization.publication_fixtures import publication_counts
 
         before = publication_counts(session)
         result = session.observe(
@@ -888,8 +880,6 @@ def test_same_source_read_filter_population_consumer(
     profile: str,
     selection: Literal["string", "null", "nul"],
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     big = 9007199254740993
     columns = (
@@ -1020,8 +1010,6 @@ def test_mysql_source_selection_preserves_fetched_char_and_charset_values(
     backend: str,
     profile: str,
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     data = SourceData(
         DATA.columns.replace(
@@ -1074,9 +1062,6 @@ def test_empty_source_selection_retains_original_identity_check(
     backend: str,
     profile: str,
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     data = SourceData(
         DATA.columns,
@@ -1132,8 +1117,6 @@ def test_remote_saved_values_cold_read_without_sources(
     backend: str,
     profile: str,
 ) -> None:
-    import subprocess
-    import sys
 
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
@@ -1184,8 +1167,6 @@ def test_public_native_distinct_algorithms(
     backend: str,
     profile: str,
 ) -> None:
-    from marivo.analysis.errors import AnalysisStageUnavailableError
-    from tests.support.source_trace import capture_source
 
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:

@@ -182,7 +182,7 @@ class ErrorKind(StrEnum):
     FILTER_VALUE_RUNTIME_INCOMPATIBLE = "filter_value_runtime_incompatible"
 
 
-def _hint_from_catalog(kind: ErrorKind, **_kwargs: Any) -> str:
+def _hint_from_catalog(kind: ErrorKind, **_kwargs: object) -> str:
     hint = default_hint_for_error_kind(kind.value)
     if hint is not None:
         return hint

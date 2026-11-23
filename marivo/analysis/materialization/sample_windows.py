@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime
 
@@ -44,28 +44,29 @@ from marivo._definition.types import (
 from marivo._kernel.temporal import Grain, anchor_from_datetime
 from marivo.analysis.binding.calendar_keys import match_time_keys, time_key_type
 from marivo.analysis.binding.graph import BoundGraph
+from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.binding.windows import bind_windows
 from marivo.analysis.compiler.calendar import bind_calendar
-from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, lower_query
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.graph_lowering import lower_query
+from marivo.analysis.compiler.lowered_query import LoweredQuery
+from marivo.analysis.compiler.observation import reduction_input
+from marivo.analysis.compiler.query_planning import plan_query
+from marivo.analysis.compiler.query_stages import (
     FrameKeysInput,
+    LocalCompute,
     QueryStage,
     SampleWindowRead,
     SourceReadStage,
-    plan_query,
     read_reduction,
 )
-from marivo.analysis.compiler.observation import reduction_input
+from marivo.analysis.core.data_validation import distinct_key_rows
 from marivo.analysis.core.value_types import ibis_type
-from marivo.analysis.materialization.graph_source_execution import (
-    PreparedSources,
-    execute_numeric_query,
-    prepare_query_sources,
-    qualify_query_sources,
-)
+from marivo.analysis.materialization.interval_reports import restrict_plan
 from marivo.analysis.materialization.native_calendar import _actual_positions, _point
+from marivo.analysis.materialization.prepared_sources import PreparedSources, PreparedWindowRead
 from marivo.analysis.materialization.query_parameters import instantiate, parameter_data
-from marivo.analysis.methods.carriers.data_validation import distinct_key_rows
+from marivo.analysis.materialization.query_sources import prepare_query_sources
+from marivo.analysis.materialization.source_reads import qualify_query_sources
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.data_types import DataColumn
@@ -150,8 +151,6 @@ def prepare_sample_window_plan(
     )
     plan = plan_query(candidate, sources.schemas)
     if checked_inputs:
-        from marivo.analysis.materialization.interval_reports import restrict_plan
-
         plan = restrict_plan(plan, checked_inputs, empty=False)
     candidates = tuple(
         next(
@@ -174,8 +173,6 @@ def prepare_sample_window_plan(
     keys = tuple(keys_by_id.values())
     assert plan.original is not None
     endpoint_formula = next(stage for stage in plan.stages if stage.stage_id == plan.publish)
-    from marivo.analysis.binding.programs import FormulaProgram
-    from marivo.analysis.compiler.graph_plan import LocalCompute
 
     assert isinstance(endpoint_formula, LocalCompute) and isinstance(
         endpoint_formula.program, FormulaProgram
@@ -562,23 +559,19 @@ def _required_report_domain(
     )
 
 
-def run_sample_windows(
+SampleRestriction = tuple[ContributionBinding, pd.DataFrame, Mapping[str, DataColumn], int]
+
+
+def _expand_sample_windows(
     prepared: PreparedSources,
-    stage: SourceReadStage,
-    program: SampleWindowRead,
-    inputs: tuple[StageOutput, ...],
-    *,
-    observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None,
-) -> StageOutput:
-    """Evaluate each window at its sample endpoint, then fold the captured domain."""
-    candidates = inputs[: len(program.candidates)]
-    key_end = len(program.candidates) + len(program.key_inputs)
-    domains, columns = _domains(program, candidates, inputs[key_end:])
-    graph = program.graph
+    graph: BoundGraph,
+    domains: Mapping[tuple[int, ...], pd.DataFrame],
+    columns: Mapping[tuple[int, ...], Mapping[str, DataColumn]],
+) -> tuple[BoundGraph, list[SampleRestriction]]:
     observation = graph.signature.observation
     assert observation is not None
     contributions: list[ContributionBinding] = []
-    restrictions: list[tuple[ContributionBinding, pd.DataFrame, Mapping[str, DataColumn], int]] = []
+    restrictions: list[SampleRestriction] = []
     native_bounds: dict[tuple[tuple[int, ...], datetime], tuple[datetime, datetime]] = {}
     for item in observation.contributions:
         context = item.sample_window
@@ -683,12 +676,26 @@ def run_sample_windows(
             restrictions.append((expanded, selected, columns[context.occurrence], width))
         if item.time is None:
             contributions.append(replace(item, sample_window=None))
-    rebound = replace(
+    return replace(
         graph,
         signature=replace(
             graph.signature, observation=replace(observation, contributions=tuple(contributions))
         ),
-    )
+    ), restrictions
+
+
+def prepare_sample_window_read(
+    prepared: PreparedSources,
+    stage: SourceReadStage,
+    program: SampleWindowRead,
+    inputs: tuple[StageOutput, ...],
+) -> StageOutput | PreparedWindowRead:
+    """Evaluate each window at its sample endpoint, then fold the captured domain."""
+    candidates = inputs[: len(program.candidates)]
+    key_end = len(program.candidates) + len(program.key_inputs)
+    domains, columns = _domains(program, candidates, inputs[key_end:])
+    graph = program.graph
+    rebound, restrictions = _expand_sample_windows(prepared, graph, domains, columns)
     sources = prepare_query_sources(
         rebound,
         program.state,
@@ -705,8 +712,6 @@ def run_sample_windows(
     plan = plan_query(rebound, sources.schemas)
     population_outputs = None
     if program.reuse_population_outputs:
-        from marivo.analysis.materialization.interval_reports import restrict_plan
-
         population_outputs = dict(
             zip(
                 (binding.stage_id for binding in program.populations), inputs[key_end:], strict=True
@@ -715,21 +720,14 @@ def run_sample_windows(
         plan = restrict_plan(plan, population_outputs, empty=False)
     lowered = lower_query(plan, sources.relations, sources.population_checks)
     qualify_query_sources(sources, lowered)
-    output = execute_numeric_query(
+    return PreparedWindowRead(
         sources,
         lowered,
-        observe_read=observe_read,
         report_domain=_required_report_domain(stage.keys, candidates),
         sample_domains=domains,
         frame_key_inputs=dict(
             zip(program.key_inputs, inputs[len(program.candidates) : key_end], strict=True)
         ),
         checked_inputs=population_outputs,
-    )
-    return replace(
-        output,
-        receipts=(
-            *tuple(receipt for candidate in candidates for receipt in candidate.receipts),
-            *output.receipts,
-        ),
+        receipts=tuple(receipt for candidate in candidates for receipt in candidate.receipts),
     )

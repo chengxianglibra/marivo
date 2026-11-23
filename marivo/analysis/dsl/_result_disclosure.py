@@ -1,9 +1,8 @@
 """Native finite result operations and axis-free correspondence disclosure."""
 
-from marivo.analysis.dsl.baseline import ComparisonBaseline, baseline
 from marivo.analysis.dsl.column import Column, _Statistic, row_count
 from marivo.analysis.dsl.correspondence import offset
-from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame import AnalysisFrame, ComparisonBaseline, baseline
 from marivo.analysis.model.disclosure import (
     Descriptor,
     DisclosureProvider,
@@ -17,75 +16,263 @@ from marivo.analysis.model.disclosure import (
     ParameterInput as P,
 )
 
+_FRAME_OPERATIONS = (
+    (
+        AnalysisFrame,
+        "__getitem__",
+        (P("name", "Exact existing value name."),),
+        "Column",
+        "Locate a named value on this exact AnalysisFrame input.",
+        "result = frame['value']",
+        ("frame",),
+        "inputs.frame",
+    ),
+    (
+        AnalysisFrame,
+        "coord",
+        (
+            P(
+                "axis",
+                "An exact retained single-component scalar axis; preparation rejects composite coordinate Columns.",
+            ),
+        ),
+        "Column",
+        "Locate an existing scalar coordinate without reading a new attribute; complete composite keys remain coordinates and Population predicates.",
+        "result = frame.coord(axis)",
+        ("frame", "axis"),
+        "inputs.frame",
+    ),
+    (
+        AnalysisFrame,
+        "select",
+        (
+            P(
+                "values",
+                "Named mapping of same-input Columns or immutable non-null literals; {} removes all values.",
+            ),
+        ),
+        "AnalysisFrame",
+        "Project values while preserving rows, order, complete coordinates and presence.",
+        "result = frame.select({'value': frame['value']})",
+        ("frame",),
+        "operators",
+    ),
+    (
+        AnalysisFrame,
+        "where",
+        (
+            P(
+                "predicate",
+                "Same-input boolean Column; only True is selected. Semantic row predicates belong to source consumers.",
+            ),
+        ),
+        "AnalysisFrame",
+        "Filter current coordinates, preserving checks and row order.",
+        "result = frame.where(frame['value'] > 0)",
+        ("frame",),
+        "operators",
+    ),
+    (
+        AnalysisFrame,
+        "top",
+        (
+            P("n", "Nonnegative integer maximum for the whole current input, excluding bool."),
+            P("by", "Same-input score Column; NA sorts last."),
+            P("descending", "Boolean; largest first by default."),
+        ),
+        "AnalysisFrame",
+        "Rank the whole current input, with NA last in either direction and canonical complete-key order for ties.",
+        "result = frame.top(10, by=frame['value'])",
+        ("frame",),
+        "operators",
+    ),
+    (
+        AnalysisFrame,
+        "reduce",
+        (
+            P(
+                "values",
+                "Statistic, nonempty tuple or nonempty named Mapping. Direct single-segment sum/mean use <name>_sum/<name>_mean; row_count uses row_count. Expressions, multi-segment paths and corr/pair_count need Mapping.",
+            ),
+            P("by", "Retained complete axes; () gives one scalar coordinate."),
+        ),
+        "AnalysisFrame",
+        "Reduce current-value rows; keep by axes and drop presence.",
+        "selected = frame.where(frame['value'] > 0)\n"
+        "result = selected.reduce(selected['value'].sum()).compute()",
+        ("frame",),
+        "operators",
+    ),
+    (
+        AnalysisFrame,
+        "over",
+        (
+            P(
+                "statistic",
+                "One same-input sum/mean/corr/pair_count, or reusable unbound row_count request.",
+            ),
+            P(
+                "by",
+                "Tuple of existing complete same-input partition axes; () uses the whole input.",
+            ),
+        ),
+        "Column",
+        "Reduce each current-data partition and broadcast its statistic to the original rows as a same-input Column.",
+        "statistic = frame['value'].sum()\n"
+        "result = frame.over(statistic)\n"
+        "selected = frame.select({'value': frame['value'], 'total': result}).compute()\n"
+        "selected.show()",
+        ("frame",),
+        "operators",
+    ),
+    (
+        AnalysisFrame,
+        "correlate",
+        (
+            P("x", "Numeric Column from this exact Frame/Session input."),
+            P("y", "Numeric Column from the same exact input; units may differ."),
+            P("method", "Required pearson or spearman; no default or inference."),
+            P("by", "Tuple of existing complete same-input axes; () produces one scalar row."),
+        ),
+        "AnalysisFrame",
+        "Correlate one numeric pair on current rows, returning coefficient and n_pairs together from one input evaluation.",
+        "result = frame.correlate(frame['value'], frame['other'], method='pearson').compute()",
+        ("frame",),
+        "operators",
+    ),
+    (
+        AnalysisFrame,
+        "align",
+        (
+            P("other", "Another AnalysisFrame owned by this Session."),
+            P(
+                "on",
+                "Default: unique same-name ordinary axes with equal roles and ordered key names, plus at most one same-kind time axis per side. Otherwise pass complete pairs declaring caller business correspondence, without checking original Entity/Field equality.",
+            ),
+            P(
+                "match",
+                "Explicit supported CalendarCorrespondence or None for frozen coordinate equality; never inferred.",
+            ),
+        ),
+        "AnalysisFrame",
+        "Align complete coordinates, retaining left.<name>/right.<name> values and independent non-nullable presence.",
+        "result = frame.align(other)",
+        ("frame", "other"),
+        "operators",
+    ),
+    (
+        AnalysisFrame,
+        "compare",
+        (
+            P(
+                "baselines",
+                "Same-Session Frame (alias reference), or nonempty ordered alias-to-ComparisonBaseline Mapping via mv.baseline(...). Require equal nonempty value paths/units: numeric or matching-tick Duration. Names certify no Metric identity/business comparability; current is reserved.",
+            ),
+            P(
+                "on",
+                "Bare Frame pairs; named inputs put on in mv.baseline(...). Default: unique same-name ordinary axes with equal roles/ordered key names and at most one same-kind time axis per side. Caller owns business correspondence; Entity/Field identity is not checked. Compare supports at most one time pair.",
+            ),
+            P(
+                "match",
+                "Bare Frame only: CalendarCorrespondence. Named inputs put match in mv.baseline(...). Omission uses compatible frozen direct relations or equality. Do not mix shapes.",
+            ),
+        ),
+        "AnalysisFrame",
+        "Keep current axes/values; add <alias>.baseline.<name>, <alias>.absolute.<name>, <alias>.relative.<name>. Relative = difference / absolute baseline; zero gives NA.",
+        "result = frame.compare(previous)",
+        ("frame", "previous"),
+        "operators",
+    ),
+    (
+        Column,
+        "show",
+        (),
+        "None",
+        "Print captured input, role, name, unit and kind without source access.",
+        "result = column.show()",
+        ("column",),
+        None,
+    ),
+    (
+        Column,
+        "share",
+        (
+            P(
+                "along",
+                "Nonempty tuple of distinct complete axes from this exact input; the remaining axes define partitions.",
+            ),
+        ),
+        "Column",
+        "Normalize current values by their partition sum; return signed ratios with the same rows and input.",
+        "result = frame['value'].share(along=frame.axes)",
+        ("frame",),
+        "operators",
+    ),
+    (
+        Column,
+        "is_null",
+        (),
+        "Column",
+        "Test value NA independently of coordinate presence.",
+        "result = column.is_null()",
+        ("column",),
+        "inputs.frame",
+    ),
+    (
+        Column,
+        "sum",
+        (),
+        "_Statistic",
+        "Request ignore-NA current-row sum: local int64 stays int64 and Decimal uses its native accumulator; source fusion follows the actual backend. Native overflow/nonfinite behavior is retained without prechecks or widening. Count and Duration retain their types. Empty input is zero and nonempty all-NA is NA. Retain the expression's unit without certifying original Metric additivity. Complete with AnalysisFrame.reduce or AnalysisFrame.over.",
+        "result = column.sum()",
+        ("column",),
+        "inputs.frame",
+    ),
+    (
+        Column,
+        "corr",
+        (
+            P("other", "Numeric Column from this exact Frame/Session input; units may differ."),
+            P(
+                "method",
+                "Required pearson or spearman; Spearman uses group-local paired average ranks.",
+            ),
+        ),
+        "_Statistic",
+        "Capture one coefficient statistic; finish with AnalysisFrame.reduce or AnalysisFrame.over. Use AnalysisFrame.correlate for the matching coefficient and pair count.",
+        "result = frame.reduce({'coefficient': frame['value'].corr(frame['other'], method='spearman'), 'n_pairs': frame['value'].pair_count(frame['other'])}).compute()",
+        ("frame",),
+        "inputs.frame",
+    ),
+    (
+        Column,
+        "pair_count",
+        (
+            P(
+                "other",
+                "Numeric Column from this exact Frame/Session input; self-pairing counts non-NA values.",
+            ),
+        ),
+        "_Statistic",
+        "Capture an independent valid-pair count without ranking or computing a coefficient. AnalysisFrame.correlate already includes n_pairs.",
+        "result = frame.reduce({'n_pairs': frame['value'].pair_count(frame['other']), 'n_values': frame['value'].pair_count(frame['value'])}).compute()",
+        ("frame",),
+        "inputs.frame",
+    ),
+    (
+        Column,
+        "mean",
+        (),
+        "_Statistic",
+        "Request ignore-NA current-row mean; empty/all-NA is NA. Retain the expression's unit without certifying an original overall Metric. Complete with AnalysisFrame.reduce or AnalysisFrame.over.",
+        "result = column.mean()",
+        ("column",),
+        "inputs.frame",
+    ),
+)
 
-def provider() -> DisclosureProvider:
-    parameters: tuple[P, ...]
-    requires: tuple[str, ...]
-    group: str | None
-    constraints: tuple[str, ...]
-    descriptors: list[Descriptor] = [
-        operation(
-            "baseline",
-            "mv.baseline",
-            baseline,
-            summary="Capture one named baseline Frame and its correspondence rules.",
-            parameters=(
-                P(
-                    "frame",
-                    "Baseline Frame; compare binds same-Session ownership.",
-                    ("session.observe", "session.persisted_frame"),
-                ),
-                P(
-                    "on",
-                    "Complete (current axis, baseline axis) tuples, or None for inference.",
-                    ("analysis_frame.axis", "analysis_frame.axes"),
-                ),
-                P(
-                    "match",
-                    "Closed calendar rule, or None for frozen direct relation/equality inference.",
-                    ("inputs.comparison",),
-                ),
-            ),
-            output="ComparisonBaseline",
-            constraints=(
-                "Shape validation only. compare binds full axes, units and time compatibility. No alias is stored in the declaration; name it in compare's Mapping.",
-            ),
-            effects="Capture an immutable declaration without data reads or matching.",
-            failures=("AnalysisError: pass a Frame, complete axis pairs and a closed rule.",),
-            example=ExampleInput(
-                "result = mv.baseline(frame)", ("frame",), "result", "ComparisonBaseline"
-            ),
-            discovery_group="inputs.comparison",
-        ),
-        value_type(
-            "comparison_baseline",
-            ComparisonBaseline,
-            summary="Immutable named comparison input with read-only frame, on and match.",
-            acquisition="Use mv.baseline(frame, on=..., match=...). Direct construction and extension are unsupported.",
-            producers=("baseline",),
-            consumers=("analysis_frame.compare",),
-            constraints=(
-                "Pass inside an alias-to-declaration Mapping. Bare declarations are not compare inputs. Metadata access does not read data.",
-            ),
-        ),
-        operation(
-            "comparison_baseline.show",
-            "declaration.show",
-            ComparisonBaseline.show,
-            bindings=(bind(ComparisonBaseline.show, ComparisonBaseline),),
-            summary="Print bounded captured Frame identity, axis pairs and calendar rule.",
-            parameters=(),
-            output="None",
-            constraints=("Does not show Frame rows, execute inputs or bind a current Frame.",),
-            effects="Print captured metadata only.",
-            failures=(),
-            example=ExampleInput("result = declaration.show()", ("declaration",), "result", "None"),
-        ),
-    ]
-    exports: list[ExportInput] = [
-        ExportInput("baseline", baseline, "baseline"),
-        ExportInput("ComparisonBaseline", ComparisonBaseline, "comparison_baseline"),
-    ]
+
+def _statistic_descriptors(descriptors: list[Descriptor], exports: list[ExportInput]) -> None:
     for target, value, parameters, output, summary, code, requires, group in (
         (
             "row_count",
@@ -180,6 +367,9 @@ def provider() -> DisclosureProvider:
         )
     )
     exports.append(ExportInput("Column", Column, "Column"))
+
+
+def _attribute_descriptors(descriptors: list[Descriptor]) -> None:
     descriptors.append(
         operation(
             "analysis_frame.attribute",
@@ -262,6 +452,10 @@ def provider() -> DisclosureProvider:
             related=("analysis_frame.where", "analysis_frame.compare", "analysis_frame.reduce"),
         )
     )
+
+
+def _frame_operator_descriptors(descriptors: list[Descriptor]) -> None:
+    parameters: tuple[P, ...]
     parameter_targets: dict[str, tuple[str, ...]] = {
         "name": ("analysis_frame.output_names",),
         "axis": ("analysis_frame.axis", "analysis_frame.axes"),
@@ -276,260 +470,7 @@ def provider() -> DisclosureProvider:
         "match": ("inputs.comparison",),
         "statistic": ("value_statistic",),
     }
-    for owner, name, parameters, output, summary, code, requires, group in (
-        (
-            AnalysisFrame,
-            "__getitem__",
-            (P("name", "Exact existing value name."),),
-            "Column",
-            "Locate a named value on this exact AnalysisFrame input.",
-            "result = frame['value']",
-            ("frame",),
-            "inputs.frame",
-        ),
-        (
-            AnalysisFrame,
-            "coord",
-            (
-                P(
-                    "axis",
-                    "An exact retained single-component scalar axis; preparation rejects composite coordinate Columns.",
-                ),
-            ),
-            "Column",
-            "Locate an existing scalar coordinate without reading a new attribute; complete composite keys remain coordinates and Population predicates.",
-            "result = frame.coord(axis)",
-            ("frame", "axis"),
-            "inputs.frame",
-        ),
-        (
-            AnalysisFrame,
-            "select",
-            (
-                P(
-                    "values",
-                    "Named mapping of same-input Columns or immutable non-null literals; {} removes all values.",
-                ),
-            ),
-            "AnalysisFrame",
-            "Project values while preserving rows, order, complete coordinates and presence.",
-            "result = frame.select({'value': frame['value']})",
-            ("frame",),
-            "operators",
-        ),
-        (
-            AnalysisFrame,
-            "where",
-            (
-                P(
-                    "predicate",
-                    "Same-input boolean Column; only True is selected. Semantic row predicates belong to source consumers.",
-                ),
-            ),
-            "AnalysisFrame",
-            "Filter current coordinates, preserving checks and row order.",
-            "result = frame.where(frame['value'] > 0)",
-            ("frame",),
-            "operators",
-        ),
-        (
-            AnalysisFrame,
-            "top",
-            (
-                P("n", "Nonnegative integer maximum for the whole current input, excluding bool."),
-                P("by", "Same-input score Column; NA sorts last."),
-                P("descending", "Boolean; largest first by default."),
-            ),
-            "AnalysisFrame",
-            "Rank the whole current input, with NA last in either direction and canonical complete-key order for ties.",
-            "result = frame.top(10, by=frame['value'])",
-            ("frame",),
-            "operators",
-        ),
-        (
-            AnalysisFrame,
-            "reduce",
-            (
-                P(
-                    "values",
-                    "Statistic, nonempty tuple or nonempty named Mapping. Direct single-segment sum/mean use <name>_sum/<name>_mean; row_count uses row_count. Expressions, multi-segment paths and corr/pair_count need Mapping.",
-                ),
-                P("by", "Retained complete axes; () gives one scalar coordinate."),
-            ),
-            "AnalysisFrame",
-            "Reduce current-value rows; keep by axes and drop presence.",
-            "selected = frame.where(frame['value'] > 0)\n"
-            "result = selected.reduce(selected['value'].sum()).compute()",
-            ("frame",),
-            "operators",
-        ),
-        (
-            AnalysisFrame,
-            "over",
-            (
-                P(
-                    "statistic",
-                    "One same-input sum/mean/corr/pair_count, or reusable unbound row_count request.",
-                ),
-                P(
-                    "by",
-                    "Tuple of existing complete same-input partition axes; () uses the whole input.",
-                ),
-            ),
-            "Column",
-            "Reduce each current-data partition and broadcast its statistic to the original rows as a same-input Column.",
-            "statistic = frame['value'].sum()\n"
-            "result = frame.over(statistic)\n"
-            "selected = frame.select({'value': frame['value'], 'total': result}).compute()\n"
-            "selected.show()",
-            ("frame",),
-            "operators",
-        ),
-        (
-            AnalysisFrame,
-            "correlate",
-            (
-                P("x", "Numeric Column from this exact Frame/Session input."),
-                P("y", "Numeric Column from the same exact input; units may differ."),
-                P("method", "Required pearson or spearman; no default or inference."),
-                P("by", "Tuple of existing complete same-input axes; () produces one scalar row."),
-            ),
-            "AnalysisFrame",
-            "Correlate one numeric pair on current rows, returning coefficient and n_pairs together from one input evaluation.",
-            "result = frame.correlate(frame['value'], frame['other'], method='pearson').compute()",
-            ("frame",),
-            "operators",
-        ),
-        (
-            AnalysisFrame,
-            "align",
-            (
-                P("other", "Another AnalysisFrame owned by this Session."),
-                P(
-                    "on",
-                    "Default: unique same-name ordinary axes with equal roles and ordered key names, plus at most one same-kind time axis per side. Otherwise pass complete pairs declaring caller business correspondence, without checking original Entity/Field equality.",
-                ),
-                P(
-                    "match",
-                    "Explicit supported CalendarCorrespondence or None for frozen coordinate equality; never inferred.",
-                ),
-            ),
-            "AnalysisFrame",
-            "Align complete coordinates, retaining left.<name>/right.<name> values and independent non-nullable presence.",
-            "result = frame.align(other)",
-            ("frame", "other"),
-            "operators",
-        ),
-        (
-            AnalysisFrame,
-            "compare",
-            (
-                P(
-                    "baselines",
-                    "Same-Session Frame (alias reference), or nonempty ordered alias-to-ComparisonBaseline Mapping via mv.baseline(...). Require equal nonempty value paths/units: numeric or matching-tick Duration. Names certify no Metric identity/business comparability; current is reserved.",
-                ),
-                P(
-                    "on",
-                    "Bare Frame pairs; named inputs put on in mv.baseline(...). Default: unique same-name ordinary axes with equal roles/ordered key names and at most one same-kind time axis per side. Caller owns business correspondence; Entity/Field identity is not checked. Compare supports at most one time pair.",
-                ),
-                P(
-                    "match",
-                    "Bare Frame only: CalendarCorrespondence. Named inputs put match in mv.baseline(...). Omission uses compatible frozen direct relations or equality. Do not mix shapes.",
-                ),
-            ),
-            "AnalysisFrame",
-            "Keep current axes/values; add <alias>.baseline.<name>, <alias>.absolute.<name>, <alias>.relative.<name>. Relative = difference / absolute baseline; zero gives NA.",
-            "result = frame.compare(previous)",
-            ("frame", "previous"),
-            "operators",
-        ),
-        (
-            Column,
-            "show",
-            (),
-            "None",
-            "Print captured input, role, name, unit and kind without source access.",
-            "result = column.show()",
-            ("column",),
-            None,
-        ),
-        (
-            Column,
-            "share",
-            (
-                P(
-                    "along",
-                    "Nonempty tuple of distinct complete axes from this exact input; the remaining axes define partitions.",
-                ),
-            ),
-            "Column",
-            "Normalize current values by their partition sum; return signed ratios with the same rows and input.",
-            "result = frame['value'].share(along=frame.axes)",
-            ("frame",),
-            "operators",
-        ),
-        (
-            Column,
-            "is_null",
-            (),
-            "Column",
-            "Test value NA independently of coordinate presence.",
-            "result = column.is_null()",
-            ("column",),
-            "inputs.frame",
-        ),
-        (
-            Column,
-            "sum",
-            (),
-            "_Statistic",
-            "Request ignore-NA current-row sum: local int64 stays int64 and Decimal uses its native accumulator; source fusion follows the actual backend. Native overflow/nonfinite behavior is retained without prechecks or widening. Count and Duration retain their types. Empty input is zero and nonempty all-NA is NA. Retain the expression's unit without certifying original Metric additivity. Complete with AnalysisFrame.reduce or AnalysisFrame.over.",
-            "result = column.sum()",
-            ("column",),
-            "inputs.frame",
-        ),
-        (
-            Column,
-            "corr",
-            (
-                P("other", "Numeric Column from this exact Frame/Session input; units may differ."),
-                P(
-                    "method",
-                    "Required pearson or spearman; Spearman uses group-local paired average ranks.",
-                ),
-            ),
-            "_Statistic",
-            "Capture one coefficient statistic; finish with AnalysisFrame.reduce or AnalysisFrame.over. Use AnalysisFrame.correlate for the matching coefficient and pair count.",
-            "result = frame.reduce({'coefficient': frame['value'].corr(frame['other'], method='spearman'), 'n_pairs': frame['value'].pair_count(frame['other'])}).compute()",
-            ("frame",),
-            "inputs.frame",
-        ),
-        (
-            Column,
-            "pair_count",
-            (
-                P(
-                    "other",
-                    "Numeric Column from this exact Frame/Session input; self-pairing counts non-NA values.",
-                ),
-            ),
-            "_Statistic",
-            "Capture an independent valid-pair count without ranking or computing a coefficient. AnalysisFrame.correlate already includes n_pairs.",
-            "result = frame.reduce({'n_pairs': frame['value'].pair_count(frame['other']), 'n_values': frame['value'].pair_count(frame['value'])}).compute()",
-            ("frame",),
-            "inputs.frame",
-        ),
-        (
-            Column,
-            "mean",
-            (),
-            "_Statistic",
-            "Request ignore-NA current-row mean; empty/all-NA is NA. Retain the expression's unit without certifying an original overall Metric. Complete with AnalysisFrame.reduce or AnalysisFrame.over.",
-            "result = column.mean()",
-            ("column",),
-            "inputs.frame",
-        ),
-    ):
+    for owner, name, parameters, output, summary, code, requires, group in _FRAME_OPERATIONS:
         parameters = tuple(
             P(
                 parameter.name,
@@ -599,6 +540,10 @@ def provider() -> DisclosureProvider:
                 telemetry="short" if group == "inputs.frame" else False,
             )
         )
+
+
+def _column_operator_descriptors(descriptors: list[Descriptor]) -> None:
+    constraints: tuple[str, ...]
     for name, code in (
         ("__add__", "column + 1"),
         ("__radd__", "1 + column"),
@@ -678,4 +623,74 @@ def provider() -> DisclosureProvider:
                 telemetry="short",
             )
         )
+
+
+def provider() -> DisclosureProvider:
+    descriptors: list[Descriptor] = [
+        operation(
+            "baseline",
+            "mv.baseline",
+            baseline,
+            summary="Capture one named baseline Frame and its correspondence rules.",
+            parameters=(
+                P(
+                    "frame",
+                    "Baseline Frame; compare binds same-Session ownership.",
+                    ("session.observe", "session.persisted_frame"),
+                ),
+                P(
+                    "on",
+                    "Complete (current axis, baseline axis) tuples, or None for inference.",
+                    ("analysis_frame.axis", "analysis_frame.axes"),
+                ),
+                P(
+                    "match",
+                    "Closed calendar rule, or None for frozen direct relation/equality inference.",
+                    ("inputs.comparison",),
+                ),
+            ),
+            output="ComparisonBaseline",
+            constraints=(
+                "Shape validation only. compare binds full axes, units and time compatibility. No alias is stored in the declaration; name it in compare's Mapping.",
+            ),
+            effects="Capture an immutable declaration without data reads or matching.",
+            failures=("AnalysisError: pass a Frame, complete axis pairs and a closed rule.",),
+            example=ExampleInput(
+                "result = mv.baseline(frame)", ("frame",), "result", "ComparisonBaseline"
+            ),
+            discovery_group="inputs.comparison",
+        ),
+        value_type(
+            "comparison_baseline",
+            ComparisonBaseline,
+            summary="Immutable named comparison input with read-only frame, on and match.",
+            acquisition="Use mv.baseline(frame, on=..., match=...). Direct construction and extension are unsupported.",
+            producers=("baseline",),
+            consumers=("analysis_frame.compare",),
+            constraints=(
+                "Pass inside an alias-to-declaration Mapping. Bare declarations are not compare inputs. Metadata access does not read data.",
+            ),
+        ),
+        operation(
+            "comparison_baseline.show",
+            "declaration.show",
+            ComparisonBaseline.show,
+            bindings=(bind(ComparisonBaseline.show, ComparisonBaseline),),
+            summary="Print bounded captured Frame identity, axis pairs and calendar rule.",
+            parameters=(),
+            output="None",
+            constraints=("Does not show Frame rows, execute inputs or bind a current Frame.",),
+            effects="Print captured metadata only.",
+            failures=(),
+            example=ExampleInput("result = declaration.show()", ("declaration",), "result", "None"),
+        ),
+    ]
+    exports: list[ExportInput] = [
+        ExportInput("baseline", baseline, "baseline"),
+        ExportInput("ComparisonBaseline", ComparisonBaseline, "comparison_baseline"),
+    ]
+    _statistic_descriptors(descriptors, exports)
+    _attribute_descriptors(descriptors)
+    _frame_operator_descriptors(descriptors)
+    _column_operator_descriptors(descriptors)
     return DisclosureProvider("analysis.dsl.results", tuple(descriptors), tuple(exports))

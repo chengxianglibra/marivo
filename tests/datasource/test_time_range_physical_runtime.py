@@ -16,6 +16,10 @@ import marivo.semantic as ms
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.datasource.runtime.read_types import CompiledRead
+from tests.datasource.environment import clickhouse_analysis as clickhouse
+from tests.datasource.environment import mysql_analysis as mysql
+from tests.datasource.environment.clickhouse_analysis import connection as clickhouse_connection
+from tests.datasource.environment.credentials import password
 
 pytestmark = pytest.mark.runtime
 
@@ -24,8 +28,6 @@ pytestmark = pytest.mark.runtime
 def _native_times(backend: str, root: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     table = "time_range_" + uuid4().hex
     if backend == "mysql":
-        from tests.datasource.environment import mysql_analysis as mysql
-
         monkeypatch.setenv("TIME_RANGE_USER", mysql.READER)
         monkeypatch.setenv("TIME_RANGE_PASSWORD", mysql.password())
         md.register(
@@ -55,9 +57,6 @@ def _native_times(backend: str, root: Path, monkeypatch: pytest.MonkeyPatch) -> 
             finally:
                 cursor.execute(f"DROP TABLE IF EXISTS {table}")
     else:
-        from tests.datasource.environment import clickhouse_analysis as clickhouse
-        from tests.datasource.environment.credentials import password
-
         monkeypatch.setenv("TIME_RANGE_USER", "analysis_reader")
         monkeypatch.setenv("TIME_RANGE_PASSWORD", password())
         md.register(
@@ -178,8 +177,6 @@ def test_native_wall_clock_localization_keeps_non_null_gap_fold_values(backend: 
     if os.environ.get(flag) != "1":
         pytest.skip(f"Explicit ready service required: {flag}=1")
     if backend == "mysql":
-        from tests.datasource.environment import mysql_analysis as mysql
-
         with mysql.connection() as connection, connection.cursor() as cursor:
             cursor.execute(
                 "SELECT CONVERT_TZ('2026-03-08 02:30:00', 'America/New_York', '+00:00'), "
@@ -192,10 +189,6 @@ def test_native_wall_clock_localization_keeps_non_null_gap_fold_values(backend: 
                 None,
             )
     else:
-        from tests.datasource.environment.clickhouse_analysis import (
-            connection as clickhouse_connection,
-        )
-
         with clickhouse_connection() as client:
             row = client.query(
                 "SELECT toUnixTimestamp64Micro(toDateTime64('2026-03-08 02:30:00', 6, 'America/New_York')), "

@@ -8,6 +8,7 @@ from typing import TypeAlias
 from marivo._kernel.temporal_grid import instant as _instant
 from marivo._kernel.time_types import InstantAnchor, anchor_from_datetime
 from marivo._kernel.timezones import normalize_timezone
+from marivo._kernel.validation import nonempty_text
 from marivo.analysis.model.errors import DatasetConstructionError, reject
 
 
@@ -36,7 +37,7 @@ def exact_instant(
 ) -> InstantAnchor:
     """Resolve a boundary once, rejecting ambiguous clocks and naive datetimes."""
     original = value
-    if not isinstance(timezone, str) or not timezone:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not nonempty_text(timezone):
         reject(
             "a nonempty timezone name",
             repr(timezone),

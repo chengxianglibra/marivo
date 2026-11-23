@@ -15,6 +15,7 @@ from marivo._definition.deferred import (
     root_declaration,
 )
 from marivo._definition.expressions import MetricExpression, PerReduce, SourceAggregate
+from marivo.semantic._consumption import bind_metric
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
 from marivo.semantic._expression_values import _ExpressionCarrier
 from marivo.semantic.catalog import SemanticCatalog
@@ -222,7 +223,6 @@ def test_catalog_description_owns_definition_facts(
 def test_published_metric_rebinds_in_the_consumers_frozen_scope(
     semantic_project_factory: ProjectFactory, tmp_path: Path
 ) -> None:
-    from marivo.semantic._consumption import bind_metric
 
     original = _catalog(semantic_project_factory)
     revenue = original.get("metric:sales.revenue")

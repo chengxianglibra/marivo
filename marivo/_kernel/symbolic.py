@@ -63,7 +63,9 @@ class DatasourceIdentityHandle:
 
 def datasource_identity(value: object) -> _DatasourceIdentity | None:
     """Read only the controlled loaded-datasource bridge, never arbitrary attributes."""
-    return value._datasource_identity if isinstance(value, DatasourceIdentityHandle) else None
+    if not isinstance(value, DatasourceIdentityHandle):
+        return None
+    return value._datasource_identity  # noqa: SLF001 - Nominal loaded-datasource bridge.
 
 
 if TYPE_CHECKING:

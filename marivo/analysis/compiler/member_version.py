@@ -3,10 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Literal
 
+from marivo._kernel.refs import ref
 from marivo._kernel.timezones import normalize_timezone
+from marivo.analysis.compiler.errors import compilation_error
+from marivo.analysis.compiler.source_time import entity_engine, source_time
+from marivo.datasource import spi
+from marivo.datasource.spi import localize, query_dialect, timestamp
+from marivo.semantic.spi import (
+    HourPrefixParse,
+    effective_source_timezone,
+    evaluate_expression_body,
+    normalize_target_dimension,
+    normalize_target_entity,
+    validate_bound_field,
+)
 
 if TYPE_CHECKING:
     from marivo.semantic.spi import CompiledSemanticState
@@ -54,8 +67,6 @@ class _VersionValue:
             return result
         value = self.value
         if self.authority.kind == "civil_date":
-            from marivo.datasource.spi import localize, timestamp
-
             value = localize(self.authority.timezone, timestamp(value))
         bound = _bound(value, boundary)
         if operator == "<":
@@ -93,15 +104,6 @@ def _version_values(
     source_times: list[FrameSourceTime] | None,
 ) -> tuple[_VersionValue, ...]:
     """Prepare every version consumer with the same physical parser and authority."""
-    from marivo._kernel.refs import ref
-    from marivo.analysis.compiler.source_time import entity_engine, source_time
-    from marivo.semantic.spi import (
-        effective_source_timezone,
-        evaluate_expression_body,
-        normalize_target_dimension,
-        normalize_target_entity,
-        validate_bound_field,
-    )
 
     paths = (
         (version.coordinate_ref.path,)
@@ -113,7 +115,6 @@ def _version_values(
     zone = version.timezone or "UTC"
 
     def prepare(path: str) -> _VersionValue:
-        from marivo.semantic.spi import HourPrefixParse
 
         axis = normalize_target_dimension(state.registry, path, prepared_column=path)
         body = state.sidecar.bodies.get(ref.time_dimension(axis.ref.path))
@@ -219,8 +220,6 @@ def version_predicate(
                 return raw
             return column == ibis.literal(period)
         if column.type().is_timestamp():
-            from datetime import timedelta
-
             zone = normalize_timezone(version.timezone).tz
             snapshot_start = datetime.combine(period, time(), zone)
             snapshot_end = datetime.combine(period + timedelta(days=1), time(), zone)
@@ -310,8 +309,6 @@ def row_version_predicate(
     source_times: list[FrameSourceTime] | None = None,
 ) -> ir.BooleanValue:
     """Match a fact's qualified time in the left join, preserving unmatched facts."""
-    from marivo.analysis.compiler.errors import compilation_error
-    from marivo.datasource.spi import query_dialect, render, timestamp
 
     if not query_dialect(engine).supports_per_row_attribute_time:
         raise compilation_error(
@@ -333,19 +330,17 @@ def row_version_predicate(
             )
     civil = control.type().is_date()
     if civil:
-        from marivo.datasource.spi import localize
-
         assert control_authority.kind == "civil_date"
         control = localize(control_authority.timezone, timestamp(control))
     if isinstance(version, TargetSnapshotVersion):
-        selected = render(version.timezone, timestamp(control)).date()
+        selected = spi.render(version.timezone, timestamp(control)).date()
         coordinate = values[0].value
         if isinstance(coordinate, ir.TimestampValue):
             # Same-fixed-zone preparation already returns a local clock.
             coordinate = (
                 coordinate.date()
                 if coordinate.type().timezone is None
-                else render(version.timezone, coordinate).date()
+                else spi.render(version.timezone, coordinate).date()
             )
         return coordinate == selected
     start, end = values
@@ -358,13 +353,11 @@ def row_version_predicate(
     point = control
     left, right = start.value, end.value
     if left.type().is_date():
-        from marivo.datasource.spi import localize
-
         assert start.authority.kind == "civil_date" and end.authority.kind == "civil_date"
         left = localize(start.authority.timezone, timestamp(left))
         right = localize(end.authority.timezone, timestamp(right))
     else:
-        point = render("UTC", timestamp(control))
+        point = spi.render("UTC", timestamp(control))
         left, right = left.cast("timestamp"), right.cast("timestamp")
     ending = right >= point if version.interval == "closed_closed" else right > point
     for sentinel in version.open_end:

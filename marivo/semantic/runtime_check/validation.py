@@ -13,6 +13,7 @@ from marivo._kernel.refs import (
     SemanticKindTag,
 )
 from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.validation import input_sequence
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 from marivo.semantic.runtime_check.context import (
     ValidationLookup,
@@ -69,7 +70,7 @@ def _normalize_checks(
     selected_entities: frozenset[str],
     catalog: ValidationLookup,
 ) -> tuple[SourceCheck, ...]:
-    if not isinstance(checks, Sequence) or isinstance(checks, str | bytes):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not input_sequence(checks):
         _raise(
             ErrorKind.INVALID_PARAMETER,
             "checks must be a sequence of source checks.",

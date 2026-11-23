@@ -1,88 +1,22 @@
-"""Immutable baseline declarations consumed by named Frame comparisons."""
+"""Validate baseline options and named comparison declarations."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TypeVar
 
 from marivo._definition.correspondence import CalendarCorrespondence
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.model.errors import reject
+from marivo.analysis.model.value_names import validate_paths
 
-if TYPE_CHECKING:
-    from marivo.analysis.dsl.frame import AnalysisFrame
-
-
-@dataclass(frozen=True, slots=True, init=False, repr=False, eq=False)
-class ComparisonBaseline:
-    """One immutable Frame and its requested comparison correspondence.
-
-    Args: No public constructor; use mv.baseline(frame, on=..., match=...).
-    Returns: A declaration with read-only frame, on and match fields.
-    Example: ``current.compare({'prior': mv.baseline(previous)})``.
-    Constraints: Captures inputs without reading data or binding a current Frame.
-    Direct construction and subclass extension are unsupported.
-    """
-
-    frame: AnalysisFrame
-    on: tuple[tuple[FrameAxis, FrameAxis], ...] | None
-    match: CalendarCorrespondence | None
-
-    def __init__(self) -> None:
-        raise TypeError("Use mv.baseline(frame, on=..., match=...).")
-
-    def __repr__(self) -> str:
-        axes = "inferred" if self.on is None else str(len(self.on))
-        rule = "inferred" if self.match is None else self.match.kind
-        return (
-            f"<ComparisonBaseline input={self.frame._input_id[:16]} "
-            f"axes={axes} match={rule}; use .show()>"
-        )
-
-    def show(self) -> None:
-        """Print bounded captured baseline metadata without reading data.
-
-        Args: None.
-        Returns: None; prints the input identity, axis pairs and time rule.
-        Example: ``mv.baseline(previous, match=mv.ordinal()).show()``.
-        Constraints: Does not call Frame.show, evaluate inputs or bind correspondence.
-        """
-        print(repr(self))
-        if self.on is not None:
-            for left, right in self.on[:8]:
-                print(f"on: {left.token[:40]!r} -> {right.token[:40]!r}")
-            if len(self.on) > 8:
-                print(f"on: {len(self.on) - 8} additional pairs omitted")
-        print(f"match: {repr(self.match)[:160]}")
+BaselineT = TypeVar("BaselineT")
 
 
-def baseline(
-    frame: AnalysisFrame,
-    *,
-    on: tuple[tuple[FrameAxis, FrameAxis], ...] | None = None,
-    match: CalendarCorrespondence | None = None,
-) -> ComparisonBaseline:
-    """Capture one named comparison's Frame and optional correspondence rules.
-
-    Args:
-        frame: Baseline Frame; the consuming compare requires the same Session.
-        on: Complete (current axis, baseline axis) pairs, or None for inference.
-        match: Closed calendar rule, or None for direct-relation/equality inference.
-    Returns: An immutable ComparisonBaseline declaration.
-    Example: ``current.compare({'prior': mv.baseline(previous, match=mv.ordinal())})``.
-    Constraints: Checks input shapes only, with no reads. compare binds ownership,
-    complete axes and temporal compatibility against its current Frame.
-    """
-    from marivo.analysis.dsl.frame import AnalysisFrame
-
-    if not isinstance(frame, AnalysisFrame):
-        reject(
-            "an AnalysisFrame baseline",
-            type(frame).__name__,
-            "Pass mv.baseline(frame, on=..., match=...).",
-            "baseline",
-            canonical_id="baseline",
-        )
+def validate_baseline_options(
+    on: tuple[tuple[FrameAxis, FrameAxis], ...] | None,
+    match: CalendarCorrespondence | None,
+) -> None:
     if on is not None and (
         type(on) is not tuple
         or any(
@@ -107,8 +41,65 @@ def baseline(
             "baseline",
             canonical_id="baseline",
         )
-    result = object.__new__(ComparisonBaseline)
-    object.__setattr__(result, "frame", frame)
-    object.__setattr__(result, "on", on)
-    object.__setattr__(result, "match", match)
-    return result
+
+
+def named_baselines(
+    baselines: object, declaration: type[BaselineT], *, on: object, match: object
+) -> tuple[tuple[str, BaselineT], ...]:
+    """Normalize named inputs before binding the current Frame."""
+    if isinstance(baselines, Mapping) and baselines:
+        if on is not None or match is not None:
+            reject(
+                "correspondence rules inside each named baseline declaration",
+                repr((on, match)),
+                'Use compare({"alias": mv.baseline(frame, on=..., match=...)}).',
+                "frame.compare",
+                canonical_id="analysis_frame.compare",
+            )
+        if any(type(value) is not declaration for value in baselines.values()):
+            reject(
+                "a ComparisonBaseline declaration for every named baseline",
+                repr(tuple(type(value).__name__ for value in baselines.values())),
+                'Use compare({"alias": mv.baseline(frame, on=..., match=...)}).',
+                "frame.compare",
+                canonical_id="analysis_frame.compare",
+            )
+        return tuple(baselines.items())
+    else:
+        reject(
+            "one baseline Frame or a nonempty named ComparisonBaseline mapping",
+            type(baselines).__name__,
+            'Use compare(frame), or compare({"alias": mv.baseline(frame)}).',
+            "frame.compare",
+            canonical_id="analysis_frame.compare",
+        )
+
+
+def validate_baseline_aliases(names: tuple[str, ...]) -> None:
+    validate_paths(
+        tuple((name,) for name in names),
+        location="frame.compare.aliases",
+        canonical_id="analysis_frame.compare",
+    )
+    if "current" in names:
+        reject(
+            "baseline aliases other than current",
+            repr(names),
+            "Rename the baseline alias.",
+            "frame.compare",
+            canonical_id="analysis_frame.compare",
+        )
+
+
+def show_baseline(
+    preview: str,
+    on: tuple[tuple[FrameAxis, FrameAxis], ...] | None,
+    match: CalendarCorrespondence | None,
+) -> None:
+    print(preview)
+    if on is not None:
+        for left, right in on[:8]:
+            print(f"on: {left.token[:40]!r} -> {right.token[:40]!r}")
+        if len(on) > 8:
+            print(f"on: {len(on) - 8} additional pairs omitted")
+    print(f"match: {repr(match)[:160]}")

@@ -13,8 +13,11 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._definition.graph import computation_fingerprint, direct_refs
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.graph_reading import FrameReader
 from marivo.analysis.model.lineage import ColumnLineage, SemanticObjectIdentity, union
+from marivo.semantic._deferred_semantics import consume_metric, consume_predicate
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 from tests.support.paths import PROJECT_ROOT
 
@@ -72,8 +75,6 @@ def test_source_columns_context_and_fixed_lifecycle(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("lineage must not consume rows or method files")
 
-    from marivo.analysis.materialization.graph_reading import FrameReader
-
     monkeypatch.setattr(FrameReader, "data", forbidden)
     monkeypatch.setattr(FrameReader, "method_facts", forbidden)
     assert reopened.lineage == saved.lineage
@@ -123,8 +124,6 @@ def named_total():
         "sales.order.nested_amount",
         "sales.order.amount",
     } <= origins
-    from marivo._definition.graph import computation_fingerprint
-    from marivo.semantic._deferred_semantics import consume_metric
 
     direct = catalog_value(catalog, "sales.order.amount", kind="measure")
     derived = catalog_value(catalog, "sales.order.named_amount", kind="measure")
@@ -178,9 +177,6 @@ def positive_count():
     assert replace(session.persisted_frame(saved.artifact_id).lineage, input_id="") == replace(
         common.lineage, input_id=""
     )
-
-    from marivo._definition.graph import computation_fingerprint, direct_refs
-    from marivo.semantic._deferred_semantics import consume_metric, consume_predicate
 
     direct = (amount * 2 + amount).sum()
     named_node = consume_metric(named.sum()).node

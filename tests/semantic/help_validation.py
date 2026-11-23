@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import inspect
 from collections.abc import Callable
-from typing import cast
+from typing import Literal, cast, get_args, get_origin
 
 from marivo._authoring.model import AuthoringCapability
 from marivo._kernel.refs import SemanticKind
@@ -14,6 +14,7 @@ from marivo.introspection.live.reflect import import_registered_callable as impo
 from marivo.introspection.live.targets import canonical_target
 from marivo.semantic._help_specs.manifest import REGISTRY
 from marivo.semantic._help_specs.type_specs import TYPE_CONTRACTS
+from marivo.semantic._metric_expression import MetricExpression, _MetricSamples
 from marivo.semantic.constraints import CONSTRAINTS
 from tests.semantic.help_families import INPUT_FAMILIES, OUTPUT_FAMILIES
 from tests.semantic.help_invariants import validate_registry
@@ -172,6 +173,22 @@ def _validate_parameter_metadata(
             )
 
 
+def _sample_return_family(callable_obj: object, annotation: str) -> str:
+    """Resolve the return variable through the installed sample type's generic base."""
+    name = getattr(callable_obj, "__name__", "")
+    for base in getattr(_MetricSamples, "__orig_bases__", ()):
+        owner = get_origin(base)
+        if owner is None or getattr(owner, name, None) is not callable_obj:
+            continue
+        for parameter, concrete in zip(owner.__parameters__, get_args(base), strict=True):
+            if parameter.__name__ == annotation and (
+                get_origin(concrete) is MetricExpression
+                and get_args(concrete) == (Literal["numeric"],)
+            ):
+                return "NumericMetric"
+    return annotation
+
+
 def _annotation_output_family(
     descriptor: AuthoringCapability,
     callable_obj: object,
@@ -204,6 +221,8 @@ def _annotation_output_family(
         return "RowExpression"
     if text.startswith("MetricExpression["):
         return "MetricExpression"
+    if descriptor.canonical_id.startswith("metric_samples."):
+        return _sample_return_family(callable_obj, text)
     return _RETURN_FAMILY_ALIASES.get(text, text)
 
 

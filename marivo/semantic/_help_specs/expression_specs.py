@@ -15,10 +15,11 @@ from marivo.semantic._help_specs.reduction_specs import _reduction_inputs, _redu
 
 def reducer_specs() -> tuple[AuthoringCapability, ...]:
     rows: list[AuthoringCapability] = []
-    for prefix, family, methods in (
+    for prefix, family, callable_owner, methods in (
         (
             "row",
             "RowExpression",
+            "marivo.semantic._row_reductions._RowReductions",
             (
                 "sum",
                 "mean",
@@ -34,10 +35,16 @@ def reducer_specs() -> tuple[AuthoringCapability, ...]:
                 "approx_quantile",
             ),
         ),
-        ("Metric", "NumericMetric", ("where", "per", "window")),
+        (
+            "Metric",
+            "NumericMetric",
+            "marivo.semantic._metric_expression.MetricExpression",
+            ("where", "per", "window"),
+        ),
         (
             "MetricSamples",
             "MetricSamples",
+            "marivo.semantic._sample_reductions._SampleReductions",
             (
                 "sum",
                 "mean",
@@ -55,7 +62,7 @@ def reducer_specs() -> tuple[AuthoringCapability, ...]:
                 "last",
             ),
         ),
-        ("Entity", "Entity", ("count",)),
+        ("Entity", "Entity", "marivo.semantic.catalog_model.objects.Entity", ("count",)),
     ):
         for method in methods:
             inputs, example = _reduction_inputs(prefix, method, family)
@@ -63,9 +70,7 @@ def reducer_specs() -> tuple[AuthoringCapability, ...]:
             rows.append(
                 _capability(
                     f"{prefix}.{method}",
-                    f"marivo.semantic.catalog_model.objects.Entity.{method}"
-                    if prefix == "Entity"
-                    else f"marivo.semantic._expression_values.{'RowExpression' if prefix == 'row' else 'MetricExpression' if prefix == 'Metric' else '_MetricSamples'}.{method}",
+                    f"{callable_owner}.{method}",
                     summary,
                     kind="method",
                     output="MetricSamples"
@@ -197,7 +202,10 @@ def expression_specs() -> tuple[AuthoringCapability, ...]:
 
 def _scalar_specs() -> tuple[AuthoringCapability, ...]:
     rows: list[AuthoringCapability] = []
-    for stage, owner in (("row", "RowExpression"), ("Metric", "MetricExpression")):
+    for stage, module, owner in (
+        ("row", "_expression_values", "RowExpression"),
+        ("Metric", "_metric_expression", "MetricExpression"),
+    ):
         for method, example in (
             ("abs", "value.abs()"),
             ("sqrt", "value.sqrt()"),
@@ -219,7 +227,7 @@ def _scalar_specs() -> tuple[AuthoringCapability, ...]:
             rows.append(
                 _capability(
                     f"{stage}.{method}",
-                    f"marivo.semantic._expression_values.{owner}.{method}",
+                    f"marivo.semantic.{module}.{owner}.{method}",
                     "Capture a stage-preserving scalar operation over compatible semantic inputs. Methods enforce their declared roles; ifelse requires a boolean receiver. Literals are frozen, and capture does not read sources.",
                     kind="method",
                     output=("RowPredicate" if stage == "row" else "MetricPredicate")

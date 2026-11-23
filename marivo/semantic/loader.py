@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import util as importlib_util
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 from ibis.common.deferred import Deferred
 
@@ -76,6 +76,7 @@ from marivo.semantic.loading_context import (
     _LOADER_CTX,
     LoaderContext,
 )
+from marivo.semantic.loading_diagnostics import domain_duplicate_errors, semantic_duplicate_errors
 from marivo.semantic.static_check.assembly import assembly_validate
 from marivo.semantic.static_check.registry import Registry
 
@@ -553,7 +554,7 @@ def _build_registry(
             ref = pending.ref
             expression_body = pending.expression_body
             catalog_refs.add(ref)
-            if not hasattr(ir, "semantic_id"):
+            if isinstance(ir, DomainIR):
                 if isinstance(ir, DomainIR):
                     registry.domains[ir.name] = ir
                 continue
@@ -621,93 +622,9 @@ def _models_root_from_semantic_root(root: Path) -> ModelsRoot:
     )
 
 
-def _semantic_source_path(ir: Any) -> str:
-    location = getattr(ir, "location", None)
-    file = getattr(location, "file", None)
-    if isinstance(file, str) and file:
-        return file
-    return "<unknown>"
-
-
-def _domain_duplicate_errors(model_dirs: Sequence[Path]) -> list[SemanticLoadError]:
-    errors: list[SemanticLoadError] = []
-    seen: dict[str, Path] = {}
-    for model_dir in model_dirs:
-        existing = seen.get(model_dir.name)
-        if existing is not None:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.DUPLICATE_NAME,
-                    message=(
-                        f"Duplicate domain name: {model_dir.name!r}. "
-                        f"First domain directory: {existing}. "
-                        f"Conflicting domain directory: {model_dir}."
-                    ),
-                    refs=(model_dir.name, str(existing), str(model_dir)),
-                    hint="Rename or remove one domain directory.",
-                )
-            )
-        seen.setdefault(model_dir.name, model_dir)
-    return errors
-
-
-def _semantic_duplicate_errors(contexts: Sequence[LoaderContext]) -> list[SemanticLoadError]:
-    errors: list[SemanticLoadError] = []
-    seen: dict[str, Any] = {}
-    for ctx in contexts:
-        for pending in ctx.pending_definitions:
-            ir = pending.definition
-            if not hasattr(ir, "semantic_id"):
-                continue
-            sid = ir.semantic_id
-            existing = seen.get(sid)
-            if existing is not None:
-                first = _semantic_source_path(existing)
-                second = _semantic_source_path(ir)
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.DUPLICATE_NAME,
-                        message=(
-                            f"Duplicate semantic_id: {sid!r}. "
-                            f"First declaration: {first}. Conflicting declaration: {second}."
-                        ),
-                        refs=(sid, first, second),
-                        hint="Rename or remove one semantic declaration.",
-                    )
-                )
-            seen.setdefault(sid, ir)
-    return errors
-
-
-def load_project(
-    root: Path,
-    *,
-    models: Sequence[str] | None = None,
-    models_roots: Sequence[Path] | None = None,
-    project_root: Path | None = None,
-    allow_partial: bool = False,
-) -> LoadResult:
-    """Load domains from the semantic project root.
-
-    This is the **low-level** two-pass pipeline.  Prefer
-    ``ms.load(workspace_dir=...)``, which returns a ``SemanticCatalog`` and
-    accepts a workspace root.  Use ``load_project`` only when you need the raw
-    ``LoadResult``.
-
-    Two-pass pipeline:
-    1. Discover domain directories and execute their files.
-    2. Build registry, validate, and assemble the loaded objects.
-
-    When *models* is specified, only those domain directories are loaded.
-    Filtered Relationship references may warn; unresolved required Metric
-    dependencies fail loading.
-
-    Note: Each domain directory is expected to contain a ``_domain.py`` file
-    that calls ``ms.domain(name=...)``.
-
-    Returns a LoadResult with status, errors, warnings, registry, and sidecar.
-    """
-    root = Path(root)
+def _load_root_specs(
+    root: Path, models_roots: Sequence[Path] | None
+) -> tuple[ModelsRoot, ...] | LoadResult:
     if models_roots is None:
         if root.name == AUTHORED_DIR and (root / "semantic").is_dir():
             return LoadResult(
@@ -748,6 +665,67 @@ def load_project(
             _models_root_from_path(models_root, is_external=index > 0)
             for index, models_root in enumerate(models_roots)
         )
+    return root_specs
+
+
+def _distinct_source_errors(source_errors: tuple[SemanticError, ...]) -> tuple[SemanticError, ...]:
+    unique_source_errors: list[SemanticError] = []
+    seen_source_errors: set[
+        tuple[
+            SourceLocation, str, str | None, str, str | None, tuple[tuple[str, str, str, int], ...]
+        ]
+    ] = set()
+    for error in source_errors:
+        if error.location is not None:
+            cause = error.__cause__
+            key = (
+                error.location,
+                error.kind,
+                error.exception_type,
+                error.message,
+                error.received,
+                _exception_chain_key(cause.__cause__ if cause else None),
+            )
+            if key in seen_source_errors:
+                continue
+            seen_source_errors.add(key)
+        unique_source_errors.append(error)
+    return tuple(unique_source_errors)
+
+
+def load_project(
+    root: Path,
+    *,
+    models: Sequence[str] | None = None,
+    models_roots: Sequence[Path] | None = None,
+    project_root: Path | None = None,
+    allow_partial: bool = False,
+) -> LoadResult:
+    """Load domains from the semantic project root.
+
+    This is the **low-level** two-pass pipeline.  Prefer
+    ``ms.load(workspace_dir=...)``, which returns a ``SemanticCatalog`` and
+    accepts a workspace root.  Use ``load_project`` only when you need the raw
+    ``LoadResult``.
+
+    Two-pass pipeline:
+    1. Discover domain directories and execute their files.
+    2. Build registry, validate, and assemble the loaded objects.
+
+    When *models* is specified, only those domain directories are loaded.
+    Filtered Relationship references may warn; unresolved required Metric
+    dependencies fail loading.
+
+    Note: Each domain directory is expected to contain a ``_domain.py`` file
+    that calls ``ms.domain(name=...)``.
+
+    Returns a LoadResult with status, errors, warnings, registry, and sidecar.
+    """
+    root = Path(root)
+    resolved_roots = _load_root_specs(root, models_roots)
+    if isinstance(resolved_roots, LoadResult):
+        return resolved_roots
+    root_specs = resolved_roots
 
     errors: list[SemanticError] = []
     warnings: list[StructuredWarning] = []
@@ -773,28 +751,7 @@ def load_project(
     source_errors: tuple[SemanticError, ...] = tuple(
         _wrap_datasource_error(error) for error in datasource_result.errors
     )
-    unique_source_errors: list[SemanticError] = []
-    seen_source_errors: set[
-        tuple[
-            SourceLocation, str, str | None, str, str | None, tuple[tuple[str, str, str, int], ...]
-        ]
-    ] = set()
-    for error in source_errors:
-        if error.location is not None:
-            cause = error.__cause__
-            key = (
-                error.location,
-                error.kind,
-                error.exception_type,
-                error.message,
-                error.received,
-                _exception_chain_key(cause.__cause__ if cause else None),
-            )
-            if key in seen_source_errors:
-                continue
-            seen_source_errors.add(key)
-        unique_source_errors.append(error)
-    source_errors = tuple(unique_source_errors)
+    source_errors = _distinct_source_errors(source_errors)
     partial = (
         allow_partial
         and bool(source_errors)
@@ -811,7 +768,7 @@ def load_project(
 
     model_dirs, filter_warnings = _filter_model_dirs(all_model_dirs, models)
     warnings.extend(filter_warnings)
-    errors.extend(_domain_duplicate_errors(model_dirs))
+    errors.extend(domain_duplicate_errors(model_dirs))
 
     prefix_by_semantic_root = {
         root_spec.semantic_root: module_prefix
@@ -840,7 +797,7 @@ def load_project(
     )
     errors.extend(assembly_errors)
 
-    errors.extend(_semantic_duplicate_errors(all_contexts))
+    errors.extend(semantic_duplicate_errors(all_contexts))
     excluded: set[Ref[SemanticKindTag]] = set()
     original_registry: Registry | None = None
     loaded_models_set = {d.name for d in model_dirs} if models is not None else None

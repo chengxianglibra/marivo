@@ -9,9 +9,10 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.errors import AnalysisError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.numeric.test_remote_numeric_query import _project
+from tests.analysis.numeric.test_remote_numeric_query import DATA, _project
 from tests.datasource.environment import clickhouse_analysis as ch
 from tests.datasource.source_cases import Case, SourceData, source_case
 from tests.shared_fixtures import catalog_value
@@ -138,7 +139,6 @@ def test_clickhouse_attribute_input_carriers(
                     {"n": metric}, where=session.time_scope(start="2026-10-19", end="2026-10-20")
                 ).compute()
                 zero = current.compare({"baseline": mv.baseline(empty)}).compute()
-                from marivo.analysis.errors import AnalysisError
 
                 with pytest.raises(AnalysisError):
                     zero.attribute(by=(tenant,)).compute()
@@ -154,7 +154,6 @@ def test_distributed_attribute_uses_global_joins(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[..., SemanticProject],
 ) -> None:
-    from tests.analysis.numeric.test_remote_numeric_query import DATA
 
     monkeypatch.chdir(tmp_path)
     with source_case("clickhouse", "distributed", tmp_path, monkeypatch, DATA) as case:

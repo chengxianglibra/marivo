@@ -2,38 +2,49 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Literal
 
 import pandas as pd
 
+from marivo._definition.types import IntervalCoordinate
 from marivo.analysis.binding.calendar_keys import time_key_type
+from marivo.analysis.core.attachments import OutputAttachment
 from marivo.analysis.core.attribute import (
     AttributeDomainProgram,
+    AttributeInputError,
     AttributeInputProgram,
     AttributeMatrixSource,
     AttributeProjectProgram,
 )
-from marivo.analysis.core.frame_expression import AttributeProjectValues
+from marivo.analysis.core.frame_operations import AttributeProjectValues
 from marivo.analysis.core.frozen_calendar import (
     FrozenAttachment,
     FrozenCalendarBucket,
     frozen_key_rows,
     frozen_key_table,
     read_calendar_directory,
+    read_interval_directory,
     require_matchable_calendar_directory,
     validate_frozen_coordinates,
 )
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
-from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
+from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar, freeze_interval
 from marivo.analysis.methods.carriers.stage_components import (
     AttributeRootInputs,
     select_attribute_root,
 )
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.methods.frame_comparison import _take
+from marivo.analysis.model.attribute_failures import (
+    AttributeAggregateWitness,
+    AttributeFailureContext,
+    AttributeParentFiber,
+)
 from marivo.analysis.model.data_schema import (
+    CalendarComparisonBinding,
     CalendarDataAxis,
     DataSchema,
+    IntervalComparisonBinding,
     IntervalDataAxis,
     PairedDataAxis,
     require_compatible_calendar_axes,
@@ -68,13 +79,6 @@ def _calendar_keys(
     attachments: tuple[OutputAttachment, ...],
 ) -> dict[FrozenKey, FrozenKey | None]:
     """Project through the complete consumed endpoint correspondence, never rematch."""
-    from marivo._definition.types import IntervalCoordinate
-    from marivo.analysis.core.frozen_calendar import read_interval_directory
-    from marivo.analysis.methods.carriers.frame_calendar import freeze_interval
-    from marivo.analysis.model.data_schema import (
-        CalendarComparisonBinding,
-        IntervalComparisonBinding,
-    )
 
     assert operation.calendar is not None and operation.target_calendar is not None
     axis = schema.axes[operation.calendar]
@@ -538,16 +542,9 @@ def attribute_input_frame_data(
     program: AttributeInputProgram, inputs: tuple[StageOutput, ...]
 ) -> tuple[pd.DataFrame, tuple[OutputAttachment, ...]]:
     """Map checked actual root components to the existing complete child domain."""
-    from dataclasses import replace
 
     parent, left, right, left_projection, right_projection = inputs
     sources = {"left": left, "right": right}
-    from marivo.analysis.core.attribute import AttributeInputError
-    from marivo.analysis.model.attribute_failures import (
-        AttributeAggregateWitness,
-        AttributeFailureContext,
-        AttributeParentFiber,
-    )
 
     selected_columns = tuple(
         column for axis in program.parent_schema.axes for column in axis.columns

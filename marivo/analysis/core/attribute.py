@@ -6,6 +6,8 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, overload
 
+import ibis
+
 from marivo._definition.query import ValueBinary, ValueSlot
 from marivo.analysis.binding.attribute_rules import (
     AdditiveSource,
@@ -24,15 +26,16 @@ from marivo.analysis.binding.attribute_rules import (
     rule_effects,
 )
 from marivo.analysis.binding.attribute_units import ratio_component_units, rule_unit
-from marivo.analysis.core.frame_expression import (
+from marivo.analysis.core.frame_expression import _compare_type
+from marivo.analysis.core.frame_interpretation import decomposition_facts
+from marivo.analysis.core.frame_operations import (
     AttributeContributionValues,
     AttributeFrameValues,
     AttributeInputsValues,
     AttributeProjectValues,
-    _compare_type,
-    _pending_column,
-    expression_type,
 )
+from marivo.analysis.core.frame_value_analysis import expression_type
+from marivo.analysis.core.value_types import data_type
 from marivo.analysis.model.attribute_failures import (
     AttributeFailureContext,
     AttributeUseContext,
@@ -60,6 +63,7 @@ from marivo.analysis.model.frame_structure import (
     PendingFrameAxis,
     axis_role,
     column_kind,
+    pending_column,
 )
 from marivo.analysis.model.frozen_keys import FrozenKey
 from marivo.analysis.model.layout_facts import FrameDecompositionField, FrameDecompositionRole
@@ -377,7 +381,7 @@ def attribute_schema(
                         axis.token,
                         axis.name,
                         "identity" if axis.kind == "member" else "field",
-                        tuple(_pending_column(c) for c in axis.columns),
+                        tuple(pending_column(c) for c in axis.columns),
                         at=axis.at,
                     )
                 )
@@ -388,9 +392,9 @@ def attribute_schema(
                 pending_axes.append(axis)
         return PendingDataSchema(
             tuple(pending_axes),
-            tuple(_pending_column(c) for c in values),
+            tuple(pending_column(c) for c in values),
             tuple(paths),
-            tuple(_pending_column(c) for c in presence),
+            tuple(pending_column(c) for c in presence),
             presence_paths,
         )
     assert all(isinstance(a, DataAxis) for a in axes)
@@ -618,10 +622,6 @@ def _coefficient_column(value: int | float | Decimal) -> DataColumn:
         precision = max(1, max(0, value.adjusted() + 1) + scale)
         dtype: DataType = DecimalDataType(precision, scale)
     else:
-        import ibis
-
-        from marivo.analysis.core.value_types import data_type
-
         dtype = data_type(ibis.literal(value).type())
     return DataColumn("scale", "scale", dtype, False, "1")
 
@@ -776,7 +776,6 @@ def report_schema(
     parent_diagnostics: tuple[tuple[tuple[str, ...], DataColumn], ...] = (),
 ) -> DataSchema | PendingDataSchema:
     """Map one closed target to its report directory without parsing display names."""
-    from marivo.analysis.core.frame_interpretation import decomposition_facts
 
     target = operation.target
     assert target is not None
@@ -855,7 +854,7 @@ def report_schema(
     parent_directory = dict(parent_diagnostics)
     for output_path, column in entries:
         if isinstance(legacy, PendingDataSchema) and isinstance(column, DataColumn):
-            column = _pending_column(column)
+            column = pending_column(column)
         if target.mode == "relative" and output_path[0] in ("contribution", "total", "effect"):
             original = column
             column = replace(column, unit=parent.values[target.observed].unit)
@@ -925,29 +924,4 @@ def report_schema(
         parent,
         target,
         fields,
-    )
-
-
-@overload
-def select_attribute_source_schema(schema: DataSchema, index: int) -> DataSchema: ...
-@overload
-def select_attribute_source_schema(
-    schema: DataSchema | PendingDataSchema, index: int
-) -> DataSchema | PendingDataSchema: ...
-def select_attribute_source_schema(
-    schema: DataSchema | PendingDataSchema, index: int
-) -> DataSchema | PendingDataSchema:
-    """View one selected source output without changing its exact source slot."""
-    if isinstance(schema, PendingDataSchema):
-        return replace(
-            schema,
-            values=(replace(schema.values[index], name="target"),),
-            value_paths=(("target",),),
-            comparisons=(),
-        )
-    return replace(
-        schema,
-        values=(replace(schema.values[index], name="target"),),
-        value_paths=(("target",),),
-        comparisons=(),
     )

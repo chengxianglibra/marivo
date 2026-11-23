@@ -19,9 +19,11 @@ from marivo._definition.relations import (
 )
 from marivo._kernel.refs import SemanticKind
 from marivo.analysis.binding.calendar_keys import time_key_type
-from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
 from marivo.analysis.compiler.query_program import FrameParameter, ResultProgram
-from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.compiler.query_stages import FrameCompute, LocalCompute
+from marivo.analysis.core.attribute import AttributeProjectProgram
+from marivo.analysis.core.frame_operations import AttributeProjectValues
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
 from marivo.analysis.model.data_types import DataColumn
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_structure import axis_role, column_kind
@@ -127,10 +129,6 @@ def plan_frame_keys(
             "frame.population",
         )
     if isinstance(keys, AttributeKeys):
-        from marivo.analysis.core.attribute import AttributeProjectProgram
-        from marivo.analysis.core.frame_expression import AttributeProjectValues
-        from marivo.analysis.model.data_schema import DataAxis
-
         indices = tuple(
             next(i for i, axis in enumerate(schema.axes) if axis.token == binding.token)
             for binding in keys.bindings

@@ -13,17 +13,16 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.core.attribute import AttributeInputError
-from marivo.analysis.core.frame_method_facts import (
-    FrameAdditiveMethod,
+from marivo.analysis.core.data_validation import stage_arrow_type
+from marivo.analysis.core.frame_level_facts import (
     FrameLevelAdditiveMethod,
     FrameLevelLinearMethod,
     FrameLevelLinearTerm,
     FrameLevelRatioMethod,
     FrameLevelSupport,
-    FrameMethodSupport,
 )
-from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
-from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary, _Value
+from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod, FrameMethodSupport
+from marivo.analysis.methods.attribute_numeric import _numeric_binary, _Value
 from marivo.analysis.methods.frame_attribute_report import _closure, _report_value
 from marivo.analysis.model.attribute_failures import AttributeClosureWitness, AttributeParentFiber
 from marivo.analysis.model.data_types import (

@@ -18,7 +18,7 @@ from marivo._kernel.temporal_grid import (
     builtin_nominal_ordinal,
     civil_shift,
 )
-from marivo.analysis.core.frame_interpretation import FrameKeyScalar
+from marivo.analysis.core.arrow_keys import FrameKeyScalar
 from marivo.analysis.model.coordinate_schema import (
     calendar_directory_schema,
     comparison_mapping_schema,

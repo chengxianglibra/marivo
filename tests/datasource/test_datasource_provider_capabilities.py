@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import ibis
 import pytest
+from ibis.backends import BaseBackend
 
-from marivo.datasource.engines import ENGINE_PROFILES
-from marivo.datasource.engines.base import EngineProfile, MetadataInspectRequest
+from marivo._kernel import execution_log as _execution_log
+from marivo.datasource.engines import ENGINE_PROFILES, mysql
+from marivo.datasource.engines.base import (
+    AuthoringCapabilities,
+    EngineMetadataIntrospection,
+    EngineProfile,
+    MetadataInspectRequest,
+    identity_str,
+)
 from marivo.datasource.engines.statements import (
     ProviderStatement,
     execute_provider_statement,
@@ -23,6 +34,7 @@ from marivo.datasource.engines.statements import (
 from marivo.datasource.errors import DatasourceSourceCapabilityError
 from marivo.datasource.metadata_types import TableMetadata
 from marivo.datasource.runtime import adapters as adapters
+from tests.support.execution_logs import execution_records
 
 
 class _RecordingBackend:
@@ -64,7 +76,6 @@ def loaded_providers() -> None:
 
 def test_registered_statements_are_pinned_by_snapshot() -> None:
     """The channel SQL text is frozen; edits must update this snapshot deliberately."""
-    import hashlib
 
     # Load every engine module so each provider's statements are registered.
     assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
@@ -339,12 +350,6 @@ def test_render_quotes_literals_and_identifiers_strictly() -> None:
 
 
 def _probe_profile() -> EngineProfile:
-    from marivo.datasource.engines.base import (
-        AuthoringCapabilities,
-        EngineMetadataIntrospection,
-        EngineProfile,
-        identity_str,
-    )
 
     def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
         raise AssertionError("Probe statements do not inspect table metadata")
@@ -454,11 +459,6 @@ def test_mysql_certification_guard_requires_confirmed_server_limit(
     fault: str,
     server: str,
 ) -> None:
-    from collections.abc import Mapping
-
-    from ibis.backends import BaseBackend
-
-    from marivo.datasource.engines import mysql
 
     backend = _RecordingBackend()
     monkeypatch.setattr(backend, "_marivo_terminal_timeout_seconds", 30, raising=False)
@@ -515,10 +515,6 @@ def test_mysql_certification_guard_requires_confirmed_server_limit(
 def test_parameterized_credential_failure_logs_template_without_bound_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import ibis
-
-    from marivo._kernel import execution_log as _execution_log
-    from tests.support.execution_logs import execution_records
 
     secret = "credential-log-canary"
     backend = ibis.duckdb.connect()

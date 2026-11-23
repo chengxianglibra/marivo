@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import duckdb
 import pandas as pd
 import pytest
 
@@ -12,6 +13,7 @@ import marivo.semantic as ms
 from marivo._kernel.temporal import CalendarAxis
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.graph_reading import read_output
 from marivo.analysis.model.data_schema import (
     CalendarComparisonBinding,
     CalendarDataAxis,
@@ -271,7 +273,6 @@ def test_period_comparison_preserves_independent_spatial_endpoint_oracles(
 def test_period_outer_distinguishes_absent_groups_from_zero_activity(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -311,7 +312,6 @@ def test_period_outer_distinguishes_absent_groups_from_zero_activity(
 def test_period_saved_output_checks_endpoint_projections_and_presence(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis.materialization.terminal_storage import read_output
 
     case = analysis_dsl_case_factory("j2")
     _, current = period(case.session, 8, 3)

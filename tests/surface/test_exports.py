@@ -5,6 +5,7 @@ Any added or removed public symbol must be a deliberate edit here.
 
 from __future__ import annotations
 
+import inspect
 import json
 import subprocess
 import sys
@@ -15,13 +16,11 @@ import pytest
 import marivo.analysis as ma
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.inspection.raw_sql import RawSqlResult
 from tests.surface.exports import ANALYSIS_PUBLIC, DATASOURCE_PUBLIC, SEMANTIC_PUBLIC
 
 
 def test_partition_scope_factory_signature_is_stable() -> None:
-    import inspect
-
-    import marivo.datasource as md
 
     assert tuple(inspect.signature(md.partition).parameters) == (
         "values",
@@ -60,7 +59,6 @@ def test_analysis_all_is_pinned() -> None:
 
 
 def test_attribute_entry_has_one_concrete_typed_signature_and_no_alias() -> None:
-    import inspect
 
     signature = inspect.signature(ma.AnalysisFrame.attribute)
     assert tuple(signature.parameters) == ("self", "by", "permutations", "seed")
@@ -132,7 +130,6 @@ def test_returned_records_do_not_leak_root_constructor_bindings(
 
 
 def test_retired_datasource_conveniences_have_no_public_aliases() -> None:
-    from marivo.datasource.inspection.raw_sql import RawSqlResult
 
     for name in ("list", "describe", "test"):
         assert not hasattr(md, name)

@@ -225,8 +225,6 @@ def test_session_discovery_rejects_invalid_current_store_without_mutation(
         with sqlite3.connect(path) as connection:
             connection.execute("PRAGMA user_version=28")
     else:
-        from marivo.analysis.materialization.store import SessionStore
-
         SessionStore(tmp_path)
         with sqlite3.connect(path) as connection:
             connection.execute("PRAGMA journal_mode=DELETE")

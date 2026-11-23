@@ -7,10 +7,8 @@ import types
 from dataclasses import dataclass
 from importlib import util as importlib_util
 from pathlib import Path
-from typing import cast
 
 from marivo._definition.graph import fingerprint
-from marivo._kernel.refs import Ref, SemanticKindTag
 from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult
 from marivo.ontology._authoring import _CONTEXT, _OntologyAuthoringContext, _repair
 from marivo.ontology.errors import (
@@ -53,7 +51,7 @@ def _validate_edges(
     for edge in edges:
         for role, endpoint in (("source", edge.source), ("target", edge.target)):
             try:
-                require_catalog_ref(semantic, cast("Ref[SemanticKindTag]", endpoint))
+                require_catalog_ref(semantic, endpoint)
             except SemanticError:
                 issues.append(
                     _validation_error(

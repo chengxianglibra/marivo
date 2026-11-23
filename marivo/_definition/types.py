@@ -23,7 +23,7 @@ from marivo._kernel.refs import (
 from marivo._kernel.refs import (
     SemanticKind,
 )
-from marivo._kernel.time_types import Grain, InstantAnchor
+from marivo._kernel.time_types import Grain, InstantAnchor, grain_token
 
 if TYPE_CHECKING:
     from marivo._kernel.temporal_grid import CivilBounds, TimeShiftEntry
@@ -355,7 +355,7 @@ class CalendarCoordinate:
 
     @property
     def grain(self) -> str:
-        return self.grain_spec._to_token()
+        return grain_token(self.grain_spec)
 
 
 @dataclass(frozen=True, slots=True)

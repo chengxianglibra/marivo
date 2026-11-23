@@ -4,6 +4,7 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import Literal
 
+import duckdb
 import pandas as pd
 import pytest
 
@@ -17,6 +18,7 @@ from tests.analysis.statistics.pandas_workflows import (
     plain,
     receipt_paths,
 )
+from tests.analysis.statistics.recovery_worker import subprocess_phases
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, run_ids
 
 
@@ -117,7 +119,6 @@ def test_saved_result_order_and_primary_receipt_are_required_for_preview(
 def test_display_export_recovers_in_fresh_processes(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from tests.analysis.statistics.recovery_worker import subprocess_phases
 
     case = analysis_dsl_case_factory("j2")
     subprocess_phases(case, "display")
@@ -126,7 +127,6 @@ def test_display_export_recovers_in_fresh_processes(
 def test_decimal_grid_tables_retain_current_keys_and_full_fit(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:

@@ -392,6 +392,76 @@ def _refs_with_issue(issues: Iterable[ReadinessIssue]) -> set[str]:
     return {ref for issue in issues for ref in issue.refs}
 
 
+def _load_blocked_report(project: ReadinessProject) -> ReadinessReport:
+    blockers: list[ReadinessIssue] = []
+    for error in project.errors():
+        blockers.append(
+            _issue(
+                "load_error",
+                "blocker",
+                error.semantic_refs,
+                error.message,
+                repair(
+                    kind="reload",
+                    canonical_id="load",
+                    action=error.hint or "Fix semantic load errors and reload the project.",
+                ),
+            )
+        )
+    return ReadinessReport(
+        status="blocked",
+        _analysis_ready_inputs=(),
+        blockers=tuple(blockers),
+        warnings=(),
+        input_summary=ReadinessInputSummary(
+            datasources=(),
+            refs=(),
+            tables=(),
+        ),
+        checked_at=_checked_at(),
+        catalog_definition_fingerprint=None,
+    )
+
+
+def _readiness_warnings(
+    project: ReadinessProject, checked_refs: Iterable[str], *, scoped: bool
+) -> list[ReadinessIssue]:
+    warnings: list[ReadinessIssue] = []
+    checked_paths = {_display_path(ref) for ref in checked_refs}
+    for sw in project.warnings():
+        if scoped and sw.refs and checked_paths.isdisjoint(sw.refs):
+            continue
+        if sw.kind in {"string_ref", "potentially_fragile_reference"}:
+            warnings.append(
+                _issue(
+                    "fragile_string_ref",
+                    "warning",
+                    sw.refs,
+                    sw.message,
+                    repair(
+                        kind="reauthor",
+                        canonical_id="ref",
+                        action="Replace fragile string refs with stable object refs where possible.",
+                    ),
+                )
+            )
+        if sw.kind == "time_dimension_pushdown_advisory":
+            warnings.append(
+                _issue(
+                    "time_dimension_pushdown_advisory",
+                    "warning",
+                    sw.refs,
+                    sw.message,
+                    repair(
+                        kind="reauthor",
+                        canonical_id="time_dimension_column",
+                        action="If the business axis matches a canonically encoded partition field, keep the raw string/integer column and declare parse=ms.strptime(format); keep the expression when business semantics require it.",
+                    ),
+                )
+            )
+    return warnings
+
+
 def build_readiness_report(
     project: ReadinessProject,
     *,
@@ -415,36 +485,9 @@ def build_readiness_report(
         current declaration contract.
     """
     blockers: list[ReadinessIssue] = []
-    warnings: list[ReadinessIssue] = []
 
     if not project.is_ready():
-        for error in project.errors():
-            blockers.append(
-                _issue(
-                    "load_error",
-                    "blocker",
-                    error.semantic_refs,
-                    error.message,
-                    repair(
-                        kind="reload",
-                        canonical_id="load",
-                        action=error.hint or "Fix semantic load errors and reload the project.",
-                    ),
-                )
-            )
-        return ReadinessReport(
-            status="blocked",
-            _analysis_ready_inputs=(),
-            blockers=tuple(blockers),
-            warnings=(),
-            input_summary=ReadinessInputSummary(
-                datasources=(),
-                refs=(),
-                tables=(),
-            ),
-            checked_at=_checked_at(),
-            catalog_definition_fingerprint=None,
-        )
+        return _load_blocked_report(project)
 
     compiled_state = project._compiled_state
     if compiled_state is None:
@@ -536,38 +579,7 @@ def build_readiness_report(
                 )
             )
 
-    checked_paths = {_display_path(ref) for ref in checked_refs}
-    for sw in project.warnings():
-        if scoped_keys is not None and sw.refs and checked_paths.isdisjoint(sw.refs):
-            continue
-        if sw.kind in {"string_ref", "potentially_fragile_reference"}:
-            warnings.append(
-                _issue(
-                    "fragile_string_ref",
-                    "warning",
-                    sw.refs,
-                    sw.message,
-                    repair(
-                        kind="reauthor",
-                        canonical_id="ref",
-                        action="Replace fragile string refs with stable object refs where possible.",
-                    ),
-                )
-            )
-        if sw.kind == "time_dimension_pushdown_advisory":
-            warnings.append(
-                _issue(
-                    "time_dimension_pushdown_advisory",
-                    "warning",
-                    sw.refs,
-                    sw.message,
-                    repair(
-                        kind="reauthor",
-                        canonical_id="time_dimension_column",
-                        action="If the business axis matches a canonically encoded partition field, keep the raw string/integer column and declare parse=ms.strptime(format); keep the expression when business semantics require it.",
-                    ),
-                )
-            )
+    warnings = _readiness_warnings(project, checked_refs, scoped=scoped_keys is not None)
     blocked_refs = _refs_with_issue(blockers)
     analysis_ready_ids = tuple(
         ref

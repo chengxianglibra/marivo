@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import hashlib
 import operator
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import Literal
 
+import ibis
 from ibis.common.deferred import Attr, BinaryOperator, Call, Just, Resolver, Variable
 
 from marivo._definition.correspondence import ComparisonAxis
+from marivo._definition.deferred import canonical_recipe
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
+    MeasureAssertion,
     MetricExpression,
     MetricNode,
     PredicateExpression,
@@ -25,6 +29,8 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.graph import dataclass_identity_name
 from marivo._definition.types import ExactRef
+from marivo.analysis.binding.attribute_rules import _row_allows
+from marivo.analysis.binding.attribute_units import component_unit, row_unit
 from marivo.analysis.model.attribute_game_errors import AttributeGameError
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.spi import NumericValue, lower_metric_formula
@@ -53,7 +59,6 @@ class AttributeGame:
 
 
 def _rows(node: RowNode) -> tuple[RowField, ...]:
-    from marivo._definition.expressions import MeasureAssertion, RowExpression, RowField
 
     if isinstance(node, RowField):
         return (node,)
@@ -108,8 +113,6 @@ def build_game(
             "max",
         ):
             if current.reducer == "sum":
-                from marivo.analysis.binding.attribute_rules import _row_allows
-
                 state_eligible = bool(by) and all(_row_allows(current.operand, axis) for axis in by)
             kind = current.reducer
             if current.reducer == "count":
@@ -150,7 +153,6 @@ def build_game(
             )
         elif isinstance(current, SourceWeightedMean):
             kind = "weighted_mean"
-            from marivo._definition.expressions import MeasureAssertion
 
             inputs: list[RowField | MeasureAssertion] = []
 
@@ -210,7 +212,6 @@ def build_game(
     visit(node, (0,), ())
     # Static operation admission uses the owning numeric lowerer. Physical input
     # types are still qualified by the prepared source plan before any data read.
-    import ibis
 
     static = ibis.table(
         {f"leaf_{index}": "float64" for index in range(len(leaves))}, name="_attribute_static_types"
@@ -244,12 +245,10 @@ def build_game(
 
 def game_signature(game: AttributeGame) -> tuple[object, ...]:
     """Describe the replacement formula without pinning source definition versions."""
-    from marivo._definition.deferred import canonical_recipe
 
     declared = dict(game.declared)
 
     def row_signature(row: RowNode) -> tuple[object, ...]:
-        from marivo._definition.expressions import MeasureAssertion
 
         if isinstance(row, RowField):
             read = row.read
@@ -342,7 +341,6 @@ def game_signature(game: AttributeGame) -> tuple[object, ...]:
         )
         if isinstance(node, EntityCount):
             return ("count", node.entity.ref.key, time_signature)
-        from marivo.analysis.binding.attribute_units import row_unit
 
         units = (
             (row_unit(node.operand),)
@@ -386,7 +384,6 @@ def require_games_match(left: AttributeGame, right: AttributeGame, *, metric: st
 
 
 def formula_id(game: AttributeGame) -> str:
-    import hashlib
 
     return hashlib.sha256(repr(game_signature(game)).encode()).hexdigest()
 
@@ -417,7 +414,6 @@ def combine_games(
 
 
 def state_unit(node: MetricNode) -> str | None:
-    from marivo.analysis.binding.attribute_units import component_unit
 
     while isinstance(node, ContributionFilter):
         node = node.operand

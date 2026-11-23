@@ -6,8 +6,9 @@ import re
 from collections.abc import Collection, Iterator, Mapping
 from contextlib import contextmanager
 from functools import partial
-from typing import Any, Literal
+from typing import Literal
 
+import ibis
 import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 from ibis.backends.sql.datatypes import (
@@ -30,6 +31,7 @@ from marivo.datasource.engines.base import (
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.engines.clickhouse_partitions import clickhouse_partitions
 from marivo.datasource.engines.clickhouse_query import (
     date_literal,
     inline_key_relation,
@@ -61,7 +63,6 @@ from marivo.datasource.ir import DatasourceIR, TableSourceIR
 from marivo.datasource.metadata_types import (
     ColumnMetadata,
     MetadataWarning,
-    PartitionMetadata,
     TableMetadata,
     TablePhysicalProfile,
     _bool_from_nullable,
@@ -77,10 +78,9 @@ from marivo.datasource.metadata_types import (
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
-    import ibis
 
     host = require_field(name, kwargs, "host", help_target="clickhouse")
-    connect_kwargs: dict[str, Any] = dict(kwargs)
+    connect_kwargs: dict[str, object] = dict(kwargs)
     connect_kwargs["host"] = host
     connect_kwargs["database"] = kwargs.get("database", "default")
     connect_kwargs.setdefault("autogenerate_session_id", False)
@@ -115,8 +115,8 @@ _HTTP_STATUS_RE = re.compile(r"HTTP driver received HTTP status (\d{3})")
 
 def transient_failure(error: Exception) -> bool:
     """Classify native failures that resubmitting a read-only statement can clear."""
-    from clickhouse_connect.driver.exceptions import DatabaseError
-    from urllib3.exceptions import ConnectTimeoutError
+    from clickhouse_connect.driver.exceptions import DatabaseError  # noqa: PLC0415  # Optional ClickHouse transport.
+    from urllib3.exceptions import ConnectTimeoutError  # noqa: PLC0415  # Optional ClickHouse transport.
 
     if not isinstance(error, DatabaseError):
         return False
@@ -329,7 +329,7 @@ register_provider_statements(
 
 
 def _clickhouse_rows(
-    backend: Any,
+    backend: BaseBackend,
     statement_id: str,
     *,
     values: Mapping[str, object] = {},
@@ -385,10 +385,6 @@ def table_join_issue(
     return f"{source.table}: engine={engine} does not establish its physical join topology"
 
 
-_CH_PARTITION_FUNC_RE = re.compile(r"^(\w+)\((\w+)\)$")
-_CH_PARTITION_BARE_RE = re.compile(r"^(\w+)$")
-
-
 def _nullable_from_clickhouse(is_nullable_value: object, type_str: str) -> bool | None:
     result = _bool_from_nullable(is_nullable_value)
     if result is not None:
@@ -396,74 +392,8 @@ def _nullable_from_clickhouse(is_nullable_value: object, type_str: str) -> bool 
     return bool(type_str.startswith("Nullable("))
 
 
-def _parse_clickhouse_partition_key(
-    partition_key: str,
-    catalog_columns: Mapping[str, ColumnMetadata],
-) -> tuple[PartitionMetadata, ...]:
-    if not partition_key or partition_key == "tuple()":
-        return ()
-    elements: list[str] = []
-    depth = 0
-    start = 0
-    for i, ch in enumerate(partition_key):
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-        elif ch == "," and depth == 0:
-            elements.append(partition_key[start:i].strip())
-            start = i + 1
-    elements.append(partition_key[start:].strip())
-    parts: list[PartitionMetadata] = []
-    for element in elements:
-        func_match = _CH_PARTITION_FUNC_RE.match(element)
-        if func_match:
-            func_name, col_name = func_match.group(1), func_match.group(2)
-            col = catalog_columns.get(col_name)
-            if col is not None:
-                parts.append(
-                    PartitionMetadata(
-                        name=col_name,
-                        type=col.type,
-                        transform=func_name,
-                        comment=None,
-                    )
-                )
-            continue
-        bare_match = _CH_PARTITION_BARE_RE.match(element)
-        if bare_match:
-            col_name = bare_match.group(1)
-            col = catalog_columns.get(col_name)
-            if col is not None:
-                parts.append(
-                    PartitionMetadata(
-                        name=col_name,
-                        type=col.type,
-                        transform=None,
-                        comment=None,
-                    )
-                )
-            continue
-        # Unparseable expression: store full raw string as transform.
-        # Try to identify a column name from identifier-like tokens,
-        # stripping commas so inner args like "uid," in intDiv(uid, 100) match.
-        for token in element.replace("(", " ").replace(")", " ").replace(",", " ").split():
-            col = catalog_columns.get(token)
-            if col is not None:
-                parts.append(
-                    PartitionMetadata(
-                        name=token,
-                        type=col.type,
-                        transform=element,
-                        comment=None,
-                    )
-                )
-                break
-    return tuple(parts)
-
-
 def _dereference_clickhouse_distributed(
-    backend: Any,
+    backend: BaseBackend,
     engine_full: str,
     ch_database: str,
     warnings: list[MetadataWarning],
@@ -495,7 +425,7 @@ def _dereference_clickhouse_distributed(
 
 def _clickhouse_physical_profile(
     *,
-    backend: Any,
+    backend: BaseBackend,
     database: str,
     table: str,
     engine: str,
@@ -575,7 +505,7 @@ def _clickhouse_physical_profile(
 
 def _clickhouse_projectable_columns(
     *,
-    backend: Any,
+    backend: BaseBackend,
     database: str,
     table: str,
     engine: str,
@@ -678,10 +608,10 @@ def _clickhouse_projectable_columns(
 def _inspect_clickhouse(
     *,
     datasource: str,
-    backend: Any,
+    backend: BaseBackend,
     table: str,
     database: str | tuple[str, ...] | None,
-    table_expr: Any,
+    table_expr: ir.Table,
     include_partitions: bool,
 ) -> TableMetadata:
     schema_columns = _schema_columns(table_expr)
@@ -773,32 +703,19 @@ def _inspect_clickhouse(
                 )
             )
 
-    partitions: tuple[PartitionMetadata, ...] = ()
-    partition_state: Literal["known", "none", "unknown"] = "unknown"
-    if include_partitions:
-        if engine == "Distributed":
-            local_pk = _dereference_clickhouse_distributed(
-                backend,
-                engine_full,
-                ch_database,
-                warnings,
-            )
-            if local_pk:
-                partitions = _parse_clickhouse_partition_key(local_pk, catalog_columns)
-        elif partition_key and partition_key != "tuple()":
-            partitions = _parse_clickhouse_partition_key(partition_key, catalog_columns)
-        if partitions:
-            partition_state = "known"
-        elif (
-            table_metadata_available
-            and engine != "Distributed"
-            and partition_key
-            in {
-                "",
-                "tuple()",
-            }
-        ):
-            partition_state = "none"
+    local_partition_key = (
+        _dereference_clickhouse_distributed(backend, engine_full, ch_database, warnings)
+        if include_partitions and engine == "Distributed"
+        else None
+    )
+    partitions, partition_state = clickhouse_partitions(
+        engine,
+        partition_key,
+        catalog_columns,
+        local_partition_key,
+        table_metadata_available=table_metadata_available,
+        include_partitions=include_partitions,
+    )
 
     columns = _merge_columns(schema_columns, catalog_columns)
     if not any(column.comment for column in columns) and table_comment is None:

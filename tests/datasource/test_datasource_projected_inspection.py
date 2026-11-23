@@ -29,7 +29,7 @@ from marivo.datasource.errors import DatasourceAuthoringError, DatasourceMetadat
 from marivo.datasource.inspection.details import Partitioning
 from marivo.datasource.inspection.inspection import _structured_inspection_warnings
 from marivo.datasource.inspection.partitions import _project_partitioning
-from marivo.datasource.inspection.projection import _project_table_metadata
+from marivo.datasource.inspection.projection import _ibis_table_type, _project_table_metadata
 from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.metadata_types import (
     ColumnMetadata,
@@ -548,6 +548,5 @@ def test_projected_fixed_char_retains_observed_type(engine: str, physical: str) 
         md.table("orders", columns={"value": "value"}),
     )
     assert projected.columns[0].type == physical.lower()
-    from marivo.datasource.inspection.projection import _ibis_table_type
 
     assert _ibis_table_type(projected.columns[0].type, backend_type=engine) == "string"

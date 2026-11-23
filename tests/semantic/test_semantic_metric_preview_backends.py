@@ -8,15 +8,20 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
+from tests.datasource.environment import clickhouse_analysis as ch
+from tests.datasource.environment import trino_analysis as trino
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.shared_fixtures import datasource_arguments_source
 from tests.support.execution_logs import execution_records
@@ -29,10 +34,6 @@ def test_duration_quantile_preview_rejects_before_business_reads(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    from marivo.datasource.runtime.adapters import SourceSession
 
     path = tmp_path / "durations.parquet"
     pq.write_table(
@@ -117,8 +118,6 @@ def _partitioned_source(backend: str, source: TableSourceIR) -> Iterator[TableSo
     """Own one native partitioned table while reusing the ready service fixture."""
     name = source.table + "_partitioned"
     if backend == "clickhouse":
-        from tests.datasource.environment import clickhouse_analysis as ch
-
         identity = f"{source.database}.{name}"
         with ch.connection(admin=True) as admin:
             admin.command(
@@ -130,8 +129,6 @@ def _partitioned_source(backend: str, source: TableSourceIR) -> Iterator[TableSo
             finally:
                 admin.command(f"DROP TABLE IF EXISTS {identity}")
     else:
-        from tests.datasource.environment import trino_analysis as trino
-
         identity = f"iceberg.analysis.{name}"
         with trino.connection(admin=True) as admin:
             cursor = admin.cursor()

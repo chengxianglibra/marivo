@@ -5,11 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any
 
 from marivo._kernel.project import resolve_project_root
-from marivo.semantic.errors import SemanticError
+from marivo.semantic.errors import SemanticError, StructuredWarning
 from marivo.semantic.reader import SemanticProject
+from marivo.semantic.readiness import ReadinessReport
 
 
 def _error_to_dict(error: SemanticError, *, include_traceback: bool = False) -> dict[str, object]:
@@ -35,9 +35,9 @@ def _error_to_dict(error: SemanticError, *, include_traceback: bool = False) -> 
     return payload
 
 
-def _warning_to_dict(warning: Any) -> dict[str, object]:
+def _warning_to_dict(warning: StructuredWarning) -> dict[str, object]:
     location = None
-    if getattr(warning, "location", None) is not None:
+    if warning.location is not None:
         location = {
             "file": warning.location.file,
             "line": warning.location.line,
@@ -55,7 +55,7 @@ def _domain_of_ref(ref: str) -> str:
 
 
 def _partition_readiness_by_domain(
-    report: Any,
+    report: ReadinessReport,
     domain_names: list[str],
 ) -> dict[str, dict[str, object]]:
     result: dict[str, dict[str, object]] = {}

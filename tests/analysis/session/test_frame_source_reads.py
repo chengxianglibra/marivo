@@ -8,11 +8,11 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import SourceReadStage
+from marivo.analysis.compiler.lowered_query import LoweredRead
+from marivo.analysis.compiler.query_stages import SourceReadStage
 from marivo.analysis.core.frame_data import MemoryFrameBacking
-from marivo.analysis.materialization import graph_source_execution
-from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.analysis.materialization import source_reads
+from marivo.analysis.materialization.prepared_sources import PreparedSources
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.frame_source_reads import (
     FrameSourceRead,
@@ -91,7 +91,7 @@ def test_missing_raw_count_does_not_fall_back_to_completed_row_count(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    read_stage = graph_source_execution.read_stage
+    read_stage = source_reads.read_stage
 
     def unknown_count(
         prepared: PreparedSources,
@@ -104,7 +104,7 @@ def test_missing_raw_count_does_not_fall_back_to_completed_row_count(
             read_stage(prepared, stage, lowered, value_keys=value_keys), source_rows=None
         )
 
-    monkeypatch.setattr(graph_source_execution, "read_stage", unknown_count)
+    monkeypatch.setattr(source_reads, "read_stage", unknown_count)
     saved = case.session.observe(
         {"value": catalog_get(case.session.catalog, "metric:sales.revenue", kind="metric")}
     ).persist()

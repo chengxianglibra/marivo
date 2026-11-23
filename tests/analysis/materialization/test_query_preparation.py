@@ -1,38 +1,52 @@
 """R2.4 physical preparation over declared fields, time and versioned paths."""
 
 from collections.abc import Callable
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
+import ibis
+import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
+import sqlglot
+from sqlglot import expressions as sge
 
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._definition.observation_time import ObservationPeriod
+from marivo._definition.types import CalendarCoordinate
 from marivo._kernel.grouping import Grouping
 from marivo._kernel.temporal import TimeScope
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.graph_lowering import lower_query
-from marivo.analysis.compiler.graph_plan import plan_query
+from marivo.analysis.compiler.query_planning import plan_query
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     LiteralFrameBinding,
     SourceFrameBinding,
 )
-from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.graph_source_execution import (
-    execute_numeric_query,
-    open_query_sources,
-)
+from marivo.analysis.errors import AnalysisError, AnalysisStageUnavailableError
+from marivo.analysis.materialization.graph_source_execution import execute_numeric_query
+from marivo.analysis.materialization.query_preparation import prepare_fields
+from marivo.analysis.materialization.query_sources import open_query_sources
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
+from marivo.datasource.engines.calendar_relations import CalendarData, memory_calendar
+from marivo.datasource.runtime import backends as backends
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic._expression_values import DimensionExpression, NumericMetric, RowPredicate
+from marivo.semantic.catalog_model.objects import Entity
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
+from tests.datasource.aggregate_fixtures import compiler_backend
 from tests.shared_fixtures import catalog_value
+from tests.support.source_trace import capture_source
 
 MODEL = """import marivo.analysis as mv
 import marivo.datasource as md
@@ -119,9 +133,6 @@ def prepared_session(
             'ms.snapshot(partition_field=ms.ref.time_dimension("sales.customers.since"), timezone="UTC")',
         )
     if getattr(request, "param", None) == "precision":
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-
         versions = tmp_path / "versions.parquet"
         pq.write_table(
             pa.table(
@@ -230,7 +241,6 @@ def test_parsed_and_civil_time_periods(prepared_session: Session, field: str) ->
 def test_preview_rejects_anchor_before_opening(
     prepared_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*args: object, **kwargs: object) -> None:
         pytest.fail("unqualified preview opened a datasource")
@@ -250,7 +260,6 @@ def test_preview_rejects_anchor_before_opening(
 
 
 def test_native_and_anchored_occurrences_are_distinct(prepared_session: Session) -> None:
-    from marivo.semantic.catalog_model.objects import Entity
 
     session = prepared_session
     region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
@@ -294,8 +303,6 @@ def test_duration_reducers_keep_exact_ticks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
 
     big = 9007199254740993
     path = tmp_path / "durations.parquet"
@@ -336,8 +343,6 @@ elapsed=ms.measure_column(name="elapsed",entity=facts,column="elapsed",additivit
         column = result.table[f"value.{index}"]
         assert str(column.dtype) == "duration[ns][pyarrow]"
         assert pa.array(column).cast(pa.int64()).to_pylist() == [ticks]
-    from marivo.analysis.errors import AnalysisStageUnavailableError
-    from marivo.datasource.runtime.adapters import SourceSession
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Unsupported source Duration quantile read business data")
@@ -368,12 +373,6 @@ def test_local_duration_sample_mean_uses_observed_samples_without_required_perio
     bounded: bool,
     shape: str,
 ) -> None:
-    from datetime import datetime, timezone
-
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    from tests.support.source_trace import capture_source
 
     path = tmp_path / "duration_samples.parquet"
     pq.write_table(
@@ -503,7 +502,6 @@ def test_parsed_version_boundaries(prepared_session: Session) -> None:
 def test_version_axis_precision_is_checked_before_read(
     prepared_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     def forbidden(*args: object, **kwargs: object) -> None:
         pytest.fail("lossy version selection submitted a business read")
@@ -519,16 +517,6 @@ def test_version_axis_precision_is_checked_before_read(
 def test_calendar_bucket_keeps_nullable_timestamp_and_unmatched_rows(
     prepared_session: Session, bucket_count: int
 ) -> None:
-    from dataclasses import replace
-    from datetime import date, timedelta, timezone
-
-    import ibis
-    import ibis.expr.datatypes as dt
-    import sqlglot
-    from sqlglot import expressions as sge
-
-    from marivo._definition.types import CalendarCoordinate
-    from marivo.analysis.materialization.query_preparation import prepare_fields
 
     session = prepared_session
     start = date(2026, 1, 1)
@@ -606,7 +594,6 @@ def test_calendar_bucket_keeps_nullable_timestamp_and_unmatched_rows(
 
 
 def _memory_calendars(expression: ir.Table) -> ir.Table:
-    from marivo.datasource.engines.calendar_relations import CalendarData, memory_calendar
 
     return (
         expression.op()
@@ -616,7 +603,6 @@ def _memory_calendars(expression: ir.Table) -> ir.Table:
 
 
 def _calendar_sql(expression: ir.Table, dialect: str) -> str:
-    from tests.datasource.aggregate_fixtures import compiler_backend
 
     backend = compiler_backend(dialect)
     sql = backend.compiler.to_sqlglot(expression.unbind()).sql(dialect=dialect)
@@ -625,8 +611,6 @@ def _calendar_sql(expression: ir.Table, dialect: str) -> str:
 
 
 def _assert_no_boolean_identity_operands(sql: str, dialect: str) -> None:
-    import sqlglot
-    from sqlglot import expressions as sge
 
     ast = sqlglot.parse_one(sql, read=dialect)
     for operation in ast.find_all(sge.And, sge.Or):
@@ -655,13 +639,6 @@ def test_calendar_selection_preserves_membership_without_boolean_seeds(
     selections: tuple[tuple[int, ...], ...],
     expected_ids: tuple[int, ...],
 ) -> None:
-    from dataclasses import replace
-    from datetime import date, timedelta
-
-    import ibis
-
-    from marivo._definition.types import CalendarCoordinate
-    from marivo.analysis.materialization.query_preparation import prepare_fields
 
     session = prepared_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
@@ -734,13 +711,6 @@ def test_calendar_selection_preserves_membership_without_boolean_seeds(
 
 
 def test_open_start_native_period_keeps_only_upper_bound(prepared_session: Session) -> None:
-    from dataclasses import replace
-    from datetime import date, timedelta
-
-    import ibis
-
-    from marivo._definition.observation_time import ObservationPeriod
-    from marivo.analysis.materialization.query_preparation import prepare_fields
 
     session = prepared_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")

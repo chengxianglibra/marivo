@@ -1,9 +1,15 @@
 """Independent reference kernels and Frame exports for explicit pandas recipes."""
 
+import os
+import subprocess
+import sys
 from decimal import Decimal
 from fractions import Fraction
 
+import duckdb
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
@@ -19,6 +25,7 @@ from tests.shared_fixtures import (
     export_dsl_parquet_models,
 )
 from tests.support.paths import PROJECT_ROOT
+from tests.support.source_trace import capture_source
 
 
 def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
@@ -85,9 +92,6 @@ def _grouped(case: DslCase, metric: str) -> mv.AnalysisFrame:
 
 
 def _cold(case: DslCase, results: tuple[mv.AnalysisFrame, ...], assertions: str) -> None:
-    import os
-    import subprocess
-    import sys
 
     source = case.root / "source_files"
     if not source.exists():
@@ -195,9 +199,6 @@ def test_public_references_source_and_fixed(
 def test_public_share_numeric_matrix(
     analysis_dsl_case_factory: DslCaseFactory, physical: str
 ) -> None:
-    import duckdb
-    import pyarrow as pa
-    import pyarrow.parquet as pq
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
@@ -253,9 +254,6 @@ def test_public_share_numeric_matrix(
 def test_original_metric_standardization_matrix(
     analysis_dsl_case_factory: DslCaseFactory, physical: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import duckdb
-
-    from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
@@ -326,8 +324,6 @@ assert float(sum(Fraction(v) * Fraction(w) for v, w in zip(groups.loc[positive, 
 
 
 def test_public_exact_integer_reference_weights(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    import duckdb
-    import pyarrow as pa
 
     case = analysis_dsl_case_factory("j2")
     kept = next(row for row in analysis_dsl_rows("j2").orders if str(row[4]).startswith("2026-08"))
@@ -396,7 +392,6 @@ assert sum(Fraction(value) * Fraction(weight) for value, weight in zip(selected.
 
 
 def test_composite_penetration_overlap_and_empty(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
@@ -432,7 +427,6 @@ def test_composite_penetration_overlap_and_empty(analysis_dsl_case_factory: DslC
 
 
 def test_zero_and_signed_share_support(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
@@ -455,9 +449,6 @@ def test_zero_and_signed_share_support(analysis_dsl_case_factory: DslCaseFactory
 def test_shared_reference_source_reexecution_and_fixed_inputs(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import duckdb
-
-    from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j2")
     values = _monthly(case, "order_count")
@@ -490,7 +481,6 @@ def test_shared_reference_source_reexecution_and_fixed_inputs(
 def test_invalid_public_standardization_rejects_without_normalization(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j2")
     for missing in (True, False):
@@ -536,7 +526,6 @@ def test_fixed_selected_original_can_use_retained_full_reference(
 def test_reference_preparation_captures_independent_source_origins(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j3")
     session = case.session

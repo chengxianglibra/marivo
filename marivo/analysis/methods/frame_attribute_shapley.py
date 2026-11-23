@@ -2,21 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
 import math
-import random
 import sys
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from decimal import Decimal, localcontext
 from fractions import Fraction
-from typing import Literal, NoReturn, TypeAlias
+from typing import Literal, TypeAlias
 
 import ibis
 import ibis.expr.datatypes as dt
 import pandas as pd
-import pyarrow as pa
 
 from marivo._definition.expressions import ContributionFilter, EntityCount, SourceAggregate
 from marivo.analysis.binding.attribute_game import AttributeGame, GameLeaf, formula_id, state_unit
@@ -29,130 +24,45 @@ from marivo.analysis.core.attribute_game import (
     GameSample,
 )
 from marivo.analysis.core.frame_method_facts import (
-    FrameAttributeMetric,
-    FrameMethodCoordinate,
-    FrameMethodParent,
+    FrameShapleyMethod,
+)
+from marivo.analysis.core.frame_shapley_facts import (
     FrameShapleyCapture,
     FrameShapleyGame,
     FrameShapleyLeaf,
-    FrameShapleyMethod,
     FrameShapleyQuantile,
     FrameShapleyReduction,
-    _key_order,
     state_metric_approximation,
 )
-from marivo.analysis.core.frozen_calendar import frozen_key_rows, frozen_key_table
 from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.analysis.methods._ibis_numeric import evaluate_numeric
+from marivo.analysis.methods.attribute_game_diagnostics import attribute_numeric_context
 from marivo.analysis.methods.attribute_game_domain import Domain, DomainProofError, prove_domain
-from marivo.analysis.methods.attribute_quantiles import FrequencyGame
-from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
-from marivo.analysis.methods.carriers.stages import StageOutput
-from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary, _Value
-from marivo.analysis.methods.frame_attribute_report import _report_value
-from marivo.analysis.model.attribute_failures import (
-    AttributeFailureContext,
-    AttributeNumericWitness,
-    AttributeParentFiber,
+from marivo.analysis.methods.attribute_game_sampling import (
+    _fail,
+    _input_number,
+    _null,
+    _number,
+    _series,
+    game_contexts,
+    sample_game,
 )
-from marivo.analysis.model.attribute_game_errors import AttributeGameError
+from marivo.analysis.methods.attribute_numeric import _numeric_binary, _Value
+from marivo.analysis.methods.attribute_quantiles import FrequencyGame
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.methods.frame_game_report import assemble_game_report
 from marivo.analysis.model.data_types import DataColumn, DataType, DecimalDataType, ScalarDataType
 from marivo.analysis.model.frozen_keys import FrozenKey
 from marivo.analysis.model.kernels import FrequencyState
-from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
 from marivo.analysis.model.method_values import FrameMethodValue
-from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.spi import (
     NumericCheck,
     NumericValue,
     lower_metric_formula,
     numeric_binary,
-    numeric_failure,
 )
 
 _Number: TypeAlias = int | float | Decimal
-
-
-def _fail(
-    message: str,
-    *,
-    metric: str = "replacement Metric",
-    parent: FrozenKey | None = None,
-    occurrence: tuple[int, ...] = (),
-    reason: Literal["incomplete_domain", "invalid_value"] = "incomplete_domain",
-) -> NoReturn:
-    raise AttributeGameError(
-        reason=reason,
-        metric=metric,
-        received=message,
-        parent=parent,
-        occurrence=occurrence,
-    )
-
-
-@contextmanager
-def _attribute_numeric_context(
-    inputs: tuple[StageOutput, ...],
-    metric: str,
-    parent: FrozenKey,
-    columns: tuple[DataColumn, ...],
-) -> Iterator[None]:
-    """Keep the numeric owner's failure attached to its actual attribute parent."""
-    try:
-        yield
-    except SemanticExpressionError as error:
-        error.details["attribute_context"] = AttributeFailureContext(
-            tuple(
-                leaf.use
-                for source in inputs
-                for root in source.attribute_inputs
-                for leaf in root.layout.leaves
-                if leaf.use.metric == metric
-            ),
-            AttributeParentFiber(parent, columns),
-            AttributeNumericWitness((), "contribution", ()),
-        )
-        error.received = f"metric={metric}; parent={parent!r}; {error.received}"
-        raise
-
-
-def _series(value: _Number | None, column: DataColumn) -> _Value:
-    try:
-        return _Value(
-            pd.Series(
-                pd.arrays.ArrowExtensionArray(
-                    pa.array([value], type=stage_arrow_type(column.dtype))
-                )
-            ),
-            column,
-        )
-    except (pa.ArrowException, ArithmeticError, TypeError, ValueError) as error:
-        numeric_failure(
-            "a scalar representable in the owning coalition carrier", f"{column.dtype!r}: {error}"
-        )
-
-
-def _null(value: object) -> bool:
-    return value is None or value is pd.NA or value is pd.NaT
-
-
-def _input_number(value: object) -> _Number:
-    if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
-        return value
-    _fail(f"a captured numeric state has an invalid physical scalar: {value!r}")
-
-
-def _number(
-    value: object, *, reason: Literal["incomplete_domain", "invalid_value"] = "incomplete_domain"
-) -> _Number:
-    if type(value) not in (int, float, Decimal):
-        _fail(f"a required coalition scalar is undefined: {value!r}", reason=reason)
-    assert isinstance(value, (int, float, Decimal))
-    if (isinstance(value, float) and not math.isfinite(value)) or (
-        isinstance(value, Decimal) and not value.is_finite()
-    ):
-        numeric_failure("finite demanded original Metric values", repr(value))
-    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -450,73 +360,6 @@ class _QuantileState:
         return Domain(low, high, valid == 0)
 
 
-def _scaled_mean(values: list[float]) -> tuple[float, float]:
-    """Return a finite mean and its Float64 normalization/summation roundoff bound."""
-    scale = max((abs(value) for value in values), default=0.0)
-    if not math.isfinite(scale):
-        numeric_failure("finite Float64 sampled statistics", repr(values))
-    if scale == 0:
-        return 0.0, 0.0
-    exponent = math.frexp(scale)[1]
-    normalized = [math.ldexp(value, -exponent) for value in values]
-    summed = math.fsum(normalized)
-    average = summed / len(values)
-    mean = math.ldexp(average, exponent)
-    # Normalization uses a power of two; only subnormal loss can round it.
-    budget = math.ldexp(
-        math.fsum(math.ulp(value) for value in normalized) / len(values)
-        + math.ulp(summed) / len(values)
-        + math.ulp(average),
-        exponent,
-    ) + math.ulp(mean)
-    if not math.isfinite(mean) or not math.isfinite(budget):
-        numeric_failure("finite Float64 sampled mean and roundoff", f"mean={mean}; bound={budget}")
-    return mean, budget
-
-
-def _sample_moments(values: list[float]) -> tuple[float, float, float]:
-    """Compute the sample mean and standard error without unscaled squares or sums."""
-    mean, budget = _scaled_mean(values)
-    scale = max((abs(value) for value in values), default=0.0)
-    if scale == 0:
-        return mean, 0.0, budget
-    exponent = math.frexp(scale)[1]
-    normalized = [math.ldexp(value, -exponent) for value in values]
-    # Shift before centering so adjacent large floats retain their difference,
-    # even when their midpoint has no Float64 representation.
-    shifts = [value - normalized[0] for value in normalized]
-    center = math.fsum(shifts) / len(values)
-    squared = math.fsum((value - center) ** 2 for value in shifts)
-    error = math.ldexp(math.sqrt(squared / (len(values) * (len(values) - 1))), exponent)
-    if not math.isfinite(error):
-        numeric_failure("finite Float64 permutation standard errors", repr(error))
-    return mean, error, budget
-
-
-def _scaled_sum(values: tuple[float, ...] | list[float]) -> tuple[float, float]:
-    """Sum finite values while permitting cancellation before rescaling."""
-    scale = max((abs(value) for value in values), default=0.0)
-    if not math.isfinite(scale):
-        numeric_failure("finite Float64 sampled sums", repr(values))
-    if scale == 0:
-        return 0.0, 0.0
-    exponent = math.frexp(scale)[1]
-    normalized = [math.ldexp(value, -exponent) for value in values]
-    normalized_sum = math.fsum(normalized)
-    try:
-        summed = math.ldexp(normalized_sum, exponent)
-        budget = math.ldexp(
-            math.fsum(math.ulp(value) for value in normalized) + math.ulp(normalized_sum), exponent
-        ) + math.ulp(summed)
-    except OverflowError as error:
-        numeric_failure("a finite Float64 sampled sum and roundoff", str(error))
-    if not math.isfinite(summed) or not math.isfinite(budget):
-        numeric_failure(
-            "a finite Float64 sampled sum and roundoff", f"sum={summed}; bound={budget}"
-        )
-    return summed, budget
-
-
 def _sample(
     game: AttributeGame,
     states: tuple[_LeafState | _QuantileState, ...],
@@ -600,155 +443,14 @@ def _sample(
     return sample_game(parent, players, permutations, seed, evaluate), proof
 
 
-def sample_game(
-    parent: FrozenKey,
-    players: tuple[FrozenKey, ...],
-    permutations: int,
-    seed: int,
-    evaluate: Callable[[int], CoalitionValue],
-) -> GameSample:
-    """Sample complete paths over cached typed values supplied by the execution owner."""
-    cache: dict[int, _Value] = {}
-
-    def value(mask: int) -> _Value:
-        if mask not in cache:
-            actual = evaluate(mask)
-            cache[mask] = _series(_number(actual.value, reason="invalid_value"), actual.column)
-        return cache[mask]
-
-    n = len(players)
-    baseline, current = value(0), value((1 << n) - 1)
-    stream = hashlib.sha256(repr(("permutation/v1", seed, parent, players)).encode()).digest()
-    rng = random.Random(int.from_bytes(stream, "big"))
-    marginals: list[list[float]] = [[] for _ in players]
-    roundoff: list[list[float]] = [[] for _ in players]
-    edge_values: dict[tuple[int, int], tuple[float, float]] = {}
-    for _ in range(permutations):
-        order = list(range(n))
-        rng.shuffle(order)
-        mask = 0
-        previous = baseline
-        for player in order:
-            before = mask
-            mask |= 1 << player
-            following = value(mask)
-            edge = (before, mask)
-            if edge not in edge_values:
-                delta = _numeric_binary("sub", following, previous)
-                typed = _number(delta.values.iloc[0])
-                try:
-                    converted = float(typed)
-                except (OverflowError, ValueError) as conversion_error:
-                    numeric_failure("finite Float64 sampled marginals", str(conversion_error))
-                if not math.isfinite(converted):
-                    numeric_failure("finite Float64 sampled marginals", repr(typed))
-                rounding = math.ulp(converted)
-                if isinstance(typed, float):
-                    rounding = math.fsum(
-                        (
-                            rounding,
-                            math.ulp(float(_number(following.values.iloc[0]))),
-                            math.ulp(float(_number(previous.values.iloc[0]))),
-                        )
-                    )
-                elif isinstance(delta.column.dtype, DecimalDataType):
-                    rounding += float(Decimal(1).scaleb(-delta.column.dtype.scale)) / 2
-                edge_values[edge] = (converted, rounding)
-            converted, rounding = edge_values[edge]
-            marginals[player].append(converted)
-            roundoff[player].append(rounding)
-            previous = following
-    moments = tuple(_sample_moments(values) for values in marginals)
-    means = tuple(item[0] for item in moments)
-    errors = tuple(item[1] for item in moments)
-    bounds = []
-    for values, moment in zip(roundoff, moments, strict=True):
-        bound, normalization = _scaled_mean(values)
-        bounds.append(bound + normalization + moment[2])
-    budget, budget_roundoff = _scaled_sum(bounds)
-    budget += budget_roundoff
-    if not math.isfinite(budget):
-        numeric_failure("a finite Float64 sampling roundoff budget", repr(budget))
-    return GameSample(
-        means,
-        errors,
-        CoalitionValue(current.column, _number(current.values.iloc[0])),
-        CoalitionValue(baseline.column, _number(baseline.values.iloc[0])),
-        len(cache),
-        budget,
-    )
+_FixedStateRoute: TypeAlias = Literal[
+    "typed_sufficient_state/v1", "typed_value_frequency/v1", "typed_sufficient_frequency/v1"
+]
 
 
-def game_contexts(
-    program: AttributeGameProgram, inputs: tuple[StageOutput, ...]
-) -> tuple[GameContext, ...]:
-    """Freeze parent correspondence and the joint typed player directory."""
-    parent, left, right, left_projection, right_projection = inputs
-    operation = program.operation
-    parent_columns = tuple(c for axis in program.parent_schema.axes for c in axis.columns)
-    parent_keys = frozen_key_rows(parent.table, parent_columns)
-    endpoint_maps: list[dict[FrozenKey, dict[FrozenKey, int]]] = []
-    for schema, source, projection, positions in (
-        (program.left_schema, left, left_projection, operation.mapping.left_parents),
-        (program.right_schema, right, right_projection, operation.mapping.right_parents),
-    ):
-        original_parent_columns = tuple(c for i in positions for c in schema.axes[i].columns)
-        original_fine_columns = tuple(
-            c for i, axis in enumerate(schema.axes) if i not in positions for c in axis.columns
-        )
-        projected = (
-            frozen_key_rows(
-                projection.table,
-                tuple(c for axis in projection.frame_schema.axes for c in axis.columns),
-            )
-            if projection.frame_schema is not None
-            else ()
-        )
-        restored = frozen_key_rows(
-            projection.table, projection.columns[len(original_parent_columns) :]
-        )
-        correspondence = dict(zip(projected, restored, strict=True))
-        groups: dict[FrozenKey, dict[FrozenKey, int]] = {}
-        for index, (key, player) in enumerate(
-            zip(
-                frozen_key_rows(source.table, original_parent_columns),
-                frozen_key_rows(source.table, original_fine_columns),
-                strict=True,
-            )
-        ):
-            if key in correspondence:
-                groups.setdefault(correspondence[key], {})[player] = index
-        endpoint_maps.append(groups)
-    contexts = []
-    for parent_index, key in enumerate(parent_keys):
-        current_rows, baseline_rows = endpoint_maps[0].get(key, {}), endpoint_maps[1].get(key, {})
-        players = tuple(
-            sorted(
-                set(current_rows) | set(baseline_rows),
-                key=lambda item: tuple((value is not None, value) for _, value in item),
-            )
-        )
-        contexts.append(
-            GameContext(
-                key,
-                players,
-                tuple(current_rows.items()),
-                tuple(baseline_rows.items()),
-                parent_index,
-            )
-        )
-    return tuple(contexts)
-
-
-def attribute_game_data(
-    program: AttributeGameProgram, inputs: tuple[StageOutput, ...]
-) -> tuple[pd.DataFrame, AttributeMethodPayload]:
-    _, left, right, _, _ = inputs
-    operation, target = program.operation, program.operation.target
-    parent_columns = tuple(c for axis in program.parent_schema.axes for c in axis.columns)
-    output_columns = dict(
-        zip(program.output_schema.value_paths, program.output_schema.values, strict=True)
-    )
+def _capture_facts(
+    left: StageOutput, right: StageOutput
+) -> tuple[tuple[FrameShapleyCapture, ...], _FixedStateRoute]:
     capture_directory = {
         capture.stage_id: capture
         for source in (left, right)
@@ -792,10 +494,235 @@ def attribute_game_data(
     if not captured_facts:
         _fail("no actual fixed-state capture receipts")
     routes = {capture.state_route for capture in captured_facts}
-    combined_route: Literal[
-        "typed_sufficient_state/v1", "typed_value_frequency/v1", "typed_sufficient_frequency/v1"
-    ] = next(iter(routes)) if len(routes) == 1 else "typed_sufficient_frequency/v1"
-    input_type_maps = tuple(
+    combined_route: _FixedStateRoute = (
+        next(iter(routes)) if len(routes) == 1 else "typed_sufficient_frequency/v1"
+    )
+    return tuple(captured_facts), combined_route
+
+
+def _frequency_state(
+    program: AttributeGameProgram,
+    context: GameContext,
+    left: StageOutput,
+    right: StageOutput,
+    leaf: GameLeaf,
+    columns: tuple[DataColumn, ...],
+    input_types: tuple[DataType, ...],
+) -> _QuantileState:
+    current_rows, baseline_rows = dict(context.current_rows), dict(context.baseline_rows)
+    players = context.players
+    paired_frequency = []
+    paired_finishers = []
+    for source, rows in ((left, current_rows), (right, baseline_rows)):
+        frequency_capture = next(
+            item
+            for item in source.attribute_frequencies
+            if item.value_slot
+            == dict(program.state_value_slots[0 if source is left else 1])[leaf.slots[0]]
+        )
+        paired_finishers.append(frequency_capture.finisher)
+        directory = dict(frequency_capture.groups)
+        exemplar = next(iter(directory.values()), None)
+        if exemplar is None:
+            other_source = right if source is left else left
+            other_capture = next(
+                item
+                for item in other_source.attribute_frequencies
+                if item.value_slot
+                == dict(program.state_value_slots[0 if source is left else 1])[leaf.slots[0]]
+            )
+            exemplar = next((state for _, state in other_capture.groups), None)
+        empty = FrequencyState(
+            exemplar.dtype if exemplar is not None else input_types[0], (), (), 0, 0
+        )
+        captured_states = []
+        for player in players:
+            if player not in rows:
+                captured_states.append(empty)
+            else:
+                row_key = tuple(
+                    None
+                    if _null(source.table[slot].iloc[rows[player]])
+                    else source.table[slot].iloc[rows[player]]
+                    for slot in frequency_capture.keys
+                )
+                captured_states.append(directory.get(row_key, empty))
+        paired_frequency.append(tuple(captured_states))
+    if paired_finishers[0] != paired_finishers[1]:
+        _fail(f"occurrence={leaf.occurrence}: native endpoint quantile finishing policies differ")
+    return _QuantileState(
+        leaf,
+        columns,
+        FrequencyGame(
+            paired_frequency[1],
+            paired_frequency[0],
+            input_type=input_types[0],
+            finisher=paired_finishers[0],
+        ),
+        input_types,
+    )
+
+
+def _state_cells(
+    source: StageOutput,
+    rows: dict[FrozenKey, int],
+    player: FrozenKey,
+    columns: tuple[DataColumn, ...],
+) -> tuple[_Number | None, ...]:
+    if player not in rows:
+        return tuple(0 for _ in columns)
+    return tuple(
+        None
+        if _null(source.table[column.slot_id].iloc[rows[player]])
+        else _input_number(source.table[column.slot_id].iloc[rows[player]])
+        for column in columns
+    )
+
+
+def _fixed_game_states(
+    program: AttributeGameProgram,
+    context: GameContext,
+    left: StageOutput,
+    right: StageOutput,
+    input_type_maps: tuple[dict[str, tuple[DataType, ...]], ...],
+    output_type_maps: tuple[dict[str, DataType], ...],
+) -> tuple[_LeafState | _QuantileState, ...]:
+    operation = program.operation
+    players = context.players
+    current_rows, baseline_rows = dict(context.current_rows), dict(context.baseline_rows)
+    states: list[_LeafState | _QuantileState] = []
+    for leaf in operation.games[0].leaves:
+        columns = tuple(program.left_schema.values[slot] for slot in leaf.slots)
+        original_slot = dict(program.original_value_slots[0])[leaf.occurrence]
+        input_types = input_type_maps[0].get(original_slot)
+        if input_types is None:
+            _fail(
+                f"occurrence={leaf.occurrence}: captured original physical input types are missing"
+            )
+        baseline_leaf = next(
+            item for item in operation.games[1].leaves if item.occurrence == leaf.occurrence
+        )
+        baseline_original_slot = dict(program.original_value_slots[1])[baseline_leaf.occurrence]
+        if input_type_maps[1].get(baseline_original_slot) != input_types:
+            _fail(f"occurrence={leaf.occurrence}: endpoint physical reducer input types differ")
+        baseline_columns = tuple(program.right_schema.values[slot] for slot in baseline_leaf.slots)
+        original_output_type = output_type_maps[0].get(original_slot)
+        if (
+            original_output_type is None
+            or output_type_maps[1].get(baseline_original_slot) != original_output_type
+        ):
+            _fail(
+                f"occurrence={leaf.occurrence}: original native reducer output carriers are missing or differ"
+            )
+        original_output = replace(
+            columns[0], dtype=original_output_type, unit=state_unit(leaf.source)
+        )
+        if tuple(column.dtype for column in baseline_columns) != tuple(
+            column.dtype for column in columns
+        ):
+            _fail(f"occurrence={leaf.occurrence}: endpoint sufficient-state physical types differ")
+        if leaf.kind in ("quantile", "distinct"):
+            states.append(
+                _frequency_state(program, context, left, right, leaf, columns, input_types)
+            )
+            continue
+
+        states.append(
+            _LeafState(
+                leaf,
+                columns,
+                tuple(_state_cells(left, current_rows, p, columns) for p in players),
+                tuple(_state_cells(right, baseline_rows, p, baseline_columns) for p in players),
+                input_types,
+                original_output,
+            )
+        )
+    return tuple(states)
+
+
+def _fixed_leaf_facts(
+    program: AttributeGameProgram,
+    left: StageOutput,
+    right: StageOutput,
+    states: tuple[_LeafState | _QuantileState, ...],
+) -> tuple[FrameShapleyLeaf, ...]:
+    operation = program.operation
+    leaf_facts = []
+    for state in states:
+        leaf = state.leaf
+        original_node = leaf.source
+        while isinstance(original_node, ContributionFilter):
+            original_node = original_node.operand
+        entity = isinstance(original_node, EntityCount)
+        if leaf.kind == "quantile":
+            assert leaf.q is not None
+            reduction: FrameShapleyQuantile | FrameShapleyReduction = FrameShapleyQuantile(
+                "quantile",
+                "median"
+                if isinstance(original_node, SourceAggregate) and original_node.reducer == "median"
+                else "quantile",
+                float(leaf.q),
+                state.game.finisher if isinstance(state, _QuantileState) else "rank_bounds",
+            )
+        else:
+            reduction = FrameShapleyReduction(
+                "aggregate",
+                "entity_count"
+                if entity
+                else "count_distinct"
+                if leaf.kind == "distinct"
+                else leaf.kind,
+            )
+        policy: Literal["error", "skip"] = "error" if leaf.nulls == "error" else "skip"
+        dependency_ids = []
+        for side, (source, game) in enumerate(zip((left, right), operation.games, strict=True)):
+            original = dict(program.original_value_slots[side])[leaf.occurrence]
+            endpoint_leaf = next(item for item in game.leaves if item.occurrence == leaf.occurrence)
+            state_slots = dict(program.state_value_slots[side])
+            relevant = {original, *(state_slots[slot] for slot in endpoint_leaf.slots)}
+            dependencies = tuple(
+                sorted(
+                    capture.stage_id
+                    for capture in source.attribute_state_captures
+                    if relevant.intersection(capture.value_slots)
+                )
+            )
+            if not dependencies:
+                _fail(
+                    f"occurrence={leaf.occurrence}; endpoint={side}: no actual state component capture dependencies"
+                )
+            dependency_ids.append(dependencies)
+        leaf_facts.append(
+            FrameShapleyLeaf(
+                leaf.occurrence,
+                dependency_ids[0],
+                dependency_ids[1],
+                reduction,
+                state.input_types,
+                state.column,
+                "rows"
+                if entity
+                else "co_valid_value_weight"
+                if leaf.kind == "weighted_mean"
+                else "non_null_value",
+                "not_applicable" if entity else policy,
+                policy if leaf.kind == "weighted_mean" else "not_applicable",
+            )
+        )
+    return tuple(leaf_facts)
+
+
+def attribute_game_data(
+    program: AttributeGameProgram, inputs: tuple[StageOutput, ...]
+) -> tuple[pd.DataFrame, AttributeMethodPayload]:
+    _, left, right, _, _ = inputs
+    operation, target = program.operation, program.operation.target
+    parent_columns = tuple(c for axis in program.parent_schema.axes for c in axis.columns)
+    output_columns = dict(
+        zip(program.output_schema.value_paths, program.output_schema.values, strict=True)
+    )
+    captured_facts, combined_route = _capture_facts(left, right)
+    input_type_maps: tuple[dict[str, tuple[DataType, ...]], ...] = tuple(
         {
             slot: types
             for capture in source.attribute_state_captures
@@ -803,7 +730,7 @@ def attribute_game_data(
         }
         for source in (left, right)
     )
-    output_type_maps = tuple(
+    output_type_maps: tuple[dict[str, DataType], ...] = tuple(
         {
             slot: dtype
             for capture in source.attribute_state_captures
@@ -814,138 +741,15 @@ def attribute_game_data(
     completed_games = []
     for context in game_contexts(program, inputs):
         key, players = context.parent, context.players
-        current_rows, baseline_rows = dict(context.current_rows), dict(context.baseline_rows)
-        states: list[_LeafState | _QuantileState] = []
-        for leaf in operation.games[0].leaves:
-            columns = tuple(program.left_schema.values[slot] for slot in leaf.slots)
-            original_slot = dict(program.original_value_slots[0])[leaf.occurrence]
-            input_types = input_type_maps[0].get(original_slot)
-            if input_types is None:
-                _fail(
-                    f"occurrence={leaf.occurrence}: captured original physical input types are missing"
-                )
-            baseline_leaf = next(
-                item for item in operation.games[1].leaves if item.occurrence == leaf.occurrence
-            )
-            baseline_original_slot = dict(program.original_value_slots[1])[baseline_leaf.occurrence]
-            if input_type_maps[1].get(baseline_original_slot) != input_types:
-                _fail(f"occurrence={leaf.occurrence}: endpoint physical reducer input types differ")
-            baseline_columns = tuple(
-                program.right_schema.values[slot] for slot in baseline_leaf.slots
-            )
-            original_output_type = output_type_maps[0].get(original_slot)
-            if (
-                original_output_type is None
-                or output_type_maps[1].get(baseline_original_slot) != original_output_type
-            ):
-                _fail(
-                    f"occurrence={leaf.occurrence}: original native reducer output carriers are missing or differ"
-                )
-            original_output = replace(
-                columns[0], dtype=original_output_type, unit=state_unit(leaf.source)
-            )
-            if tuple(column.dtype for column in baseline_columns) != tuple(
-                column.dtype for column in columns
-            ):
-                _fail(
-                    f"occurrence={leaf.occurrence}: endpoint sufficient-state physical types differ"
-                )
-            if leaf.kind in ("quantile", "distinct"):
-                paired_frequency = []
-                paired_finishers = []
-                for source, rows in ((left, current_rows), (right, baseline_rows)):
-                    frequency_capture = next(
-                        item
-                        for item in source.attribute_frequencies
-                        if item.value_slot
-                        == dict(program.state_value_slots[0 if source is left else 1])[
-                            leaf.slots[0]
-                        ]
-                    )
-                    paired_finishers.append(frequency_capture.finisher)
-                    directory = dict(frequency_capture.groups)
-                    exemplar = next(iter(directory.values()), None)
-                    if exemplar is None:
-                        other_source = right if source is left else left
-                        other_capture = next(
-                            item
-                            for item in other_source.attribute_frequencies
-                            if item.value_slot
-                            == dict(program.state_value_slots[0 if source is left else 1])[
-                                leaf.slots[0]
-                            ]
-                        )
-                        exemplar = next((state for _, state in other_capture.groups), None)
-                    empty = FrequencyState(
-                        exemplar.dtype if exemplar is not None else input_types[0], (), (), 0, 0
-                    )
-                    captured_states = []
-                    for player in players:
-                        if player not in rows:
-                            captured_states.append(empty)
-                        else:
-                            row_key = tuple(
-                                None
-                                if _null(source.table[slot].iloc[rows[player]])
-                                else source.table[slot].iloc[rows[player]]
-                                for slot in frequency_capture.keys
-                            )
-                            captured_states.append(directory.get(row_key, empty))
-                    paired_frequency.append(tuple(captured_states))
-                if paired_finishers[0] != paired_finishers[1]:
-                    _fail(
-                        f"occurrence={leaf.occurrence}: native endpoint quantile finishing policies differ"
-                    )
-                states.append(
-                    _QuantileState(
-                        leaf,
-                        columns,
-                        FrequencyGame(
-                            paired_frequency[1],
-                            paired_frequency[0],
-                            input_type=input_types[0],
-                            finisher=paired_finishers[0],
-                        ),
-                        input_types,
-                    )
-                )
-                continue
-
-            def cells(
-                source: StageOutput,
-                schema: object,
-                rows: dict[FrozenKey, int],
-                player: FrozenKey,
-                columns: tuple[DataColumn, ...] = columns,
-            ) -> tuple[_Number | None, ...]:
-                if player not in rows:
-                    return tuple(0 for _ in columns)
-                return tuple(
-                    None
-                    if _null(source.table[column.slot_id].iloc[rows[player]])
-                    else _input_number(source.table[column.slot_id].iloc[rows[player]])
-                    for column in columns
-                )
-
-            states.append(
-                _LeafState(
-                    leaf,
-                    columns,
-                    tuple(cells(left, program.left_schema, current_rows, p) for p in players),
-                    tuple(
-                        cells(right, program.right_schema, baseline_rows, p, baseline_columns)
-                        for p in players
-                    ),
-                    input_types,
-                    original_output,
-                )
-            )
-        with _attribute_numeric_context(
+        states = _fixed_game_states(
+            program, context, left, right, input_type_maps, output_type_maps
+        )
+        with attribute_numeric_context(
             (left, right), operation.games[0].metric, key, parent_columns
         ):
             sampled, proof = _sample(
                 operation.games[0],
-                tuple(states),
+                states,
                 key,
                 players,
                 operation.permutations,
@@ -956,73 +760,7 @@ def attribute_game_data(
             baseline = _series(sampled.baseline.value, sampled.baseline.column)
             change = _numeric_binary("sub", current, baseline)
             coalitions = sampled.unique_coalitions
-            leaf_facts = []
-            for state in states:
-                leaf = state.leaf
-                original_node = leaf.source
-                while isinstance(original_node, ContributionFilter):
-                    original_node = original_node.operand
-                entity = isinstance(original_node, EntityCount)
-                if leaf.kind == "quantile":
-                    assert leaf.q is not None
-                    reduction: FrameShapleyQuantile | FrameShapleyReduction = FrameShapleyQuantile(
-                        "quantile",
-                        "median"
-                        if isinstance(original_node, SourceAggregate)
-                        and original_node.reducer == "median"
-                        else "quantile",
-                        float(leaf.q),
-                        state.game.finisher if isinstance(state, _QuantileState) else "rank_bounds",
-                    )
-                else:
-                    reduction = FrameShapleyReduction(
-                        "aggregate",
-                        "entity_count"
-                        if entity
-                        else "count_distinct"
-                        if leaf.kind == "distinct"
-                        else leaf.kind,
-                    )
-                policy: Literal["error", "skip"] = "error" if leaf.nulls == "error" else "skip"
-                dependency_ids = []
-                for side, (source, game) in enumerate(
-                    zip((left, right), operation.games, strict=True)
-                ):
-                    original = dict(program.original_value_slots[side])[leaf.occurrence]
-                    endpoint_leaf = next(
-                        item for item in game.leaves if item.occurrence == leaf.occurrence
-                    )
-                    state_slots = dict(program.state_value_slots[side])
-                    relevant = {original, *(state_slots[slot] for slot in endpoint_leaf.slots)}
-                    dependencies = tuple(
-                        sorted(
-                            capture.stage_id
-                            for capture in source.attribute_state_captures
-                            if relevant.intersection(capture.value_slots)
-                        )
-                    )
-                    if not dependencies:
-                        _fail(
-                            f"occurrence={leaf.occurrence}; endpoint={side}: no actual state component capture dependencies"
-                        )
-                    dependency_ids.append(dependencies)
-                leaf_facts.append(
-                    FrameShapleyLeaf(
-                        leaf.occurrence,
-                        dependency_ids[0],
-                        dependency_ids[1],
-                        reduction,
-                        state.input_types,
-                        state.column,
-                        "rows"
-                        if entity
-                        else "co_valid_value_weight"
-                        if leaf.kind == "weighted_mean"
-                        else "non_null_value",
-                        "not_applicable" if entity else policy,
-                        policy if leaf.kind == "weighted_mean" else "not_applicable",
-                    )
-                )
+            leaf_facts = _fixed_leaf_facts(program, left, right, states)
             current_path = ("detail", "current", *target.path)
             baseline_path = ("detail", "baseline", *target.path)
             absolute_path = ("detail", "absolute", *target.path)
@@ -1058,222 +796,12 @@ def attribute_game_data(
                     "joint_key_union/v1",
                     "finite_interval_demand/v1",
                     proof,
-                    state_metric_approximation(tuple(leaf_facts)),
+                    state_metric_approximation(leaf_facts),
                     "permutation_mean/v1",
                     "typed_marginal_float64_sum/v1",
                 ),
-                tuple(leaf_facts),
-                tuple(captured_facts),
+                leaf_facts,
+                captured_facts,
             )
             completed_games.append(CompletedGame(context, sampled, method))
     return assemble_game_report(program, inputs, tuple(completed_games))
-
-
-def assemble_game_report(
-    program: AttributeGameProgram,
-    inputs: tuple[StageOutput, ...],
-    completed_games: tuple[CompletedGame, ...],
-) -> tuple[pd.DataFrame, AttributeMethodPayload]:
-    parent, left, right, _, _ = inputs
-    operation, target = program.operation, program.operation.target
-    parent_columns = tuple(c for axis in program.parent_schema.axes for c in axis.columns)
-    fine_columns = tuple(
-        c
-        for axis in program.output_schema.axes[len(program.parent_schema.axes) :]
-        for c in axis.columns
-    )
-    output_columns = dict(
-        zip(program.output_schema.value_paths, program.output_schema.values, strict=True)
-    )
-    result_keys: list[FrozenKey] = []
-    records: list[dict[str, object]] = []
-    parents = []
-    mappings = (
-        FrameMethodOutput("contribution", ("contribution", *target.path)),
-        FrameMethodOutput("total", ("total", *target.path)),
-        FrameMethodOutput("observed_total", ("observed_total", *target.path)),
-        FrameMethodOutput("share", ("contribution_share", *target.path)),
-        FrameMethodOutput("contribution_std_error", ("contribution_std_error", *target.path)),
-        FrameMethodOutput("current", ("detail", "current", *target.path)),
-        FrameMethodOutput("baseline", ("detail", "baseline", *target.path)),
-        FrameMethodOutput("absolute", ("detail", "absolute", *target.path)),
-        FrameMethodOutput("current_present", ("detail", "current", "present", *target.path)),
-        FrameMethodOutput("baseline_present", ("detail", "baseline", "present", *target.path)),
-    )
-    if tuple(item.context for item in completed_games) != game_contexts(program, inputs):
-        _fail("completed samples must retain the exact frozen parent/player directory")
-    for completed in completed_games:
-        context, sampled = completed.context, completed.sample
-        key, players, parent_index = context.parent, context.players, context.parent_index
-        current_rows, baseline_rows = dict(context.current_rows), dict(context.baseline_rows)
-        with _attribute_numeric_context(
-            (left, right), operation.games[0].metric, key, parent_columns
-        ):
-            means, errors = sampled.means, sampled.errors
-            current = _series(sampled.current.value, sampled.current.column)
-            baseline = _series(sampled.baseline.value, sampled.baseline.column)
-            closure_budget = sampled.closure_budget
-            change = _numeric_binary("sub", current, baseline)
-            total = change
-            if target.mode == "relative":
-                denominator = _number(abs(_number(baseline.values.iloc[0])))
-                if denominator == 0:
-                    _fail(
-                        f"{'.'.join(target.path)}: baseline=0; relative attribution requires nonzero baseline; check the baseline window and source retention/filter conditions or select absolute change",
-                        metric=operation.games[0].metric,
-                        parent=key,
-                    )
-                total = _numeric_binary("div", change, _series(denominator, baseline.column))
-                relative_roundoff = tuple(
-                    math.ulp(v / float(denominator))
-                    + abs(v / float(denominator))
-                    * (math.ulp(float(denominator)) / float(denominator))
-                    for v in means
-                )
-                closure_budget = (
-                    closure_budget / float(denominator) + _scaled_sum(relative_roundoff)[0]
-                )
-                means, errors = (
-                    tuple(v / float(denominator) for v in means),
-                    tuple(v / float(denominator) for v in errors),
-                )
-                if not all(math.isfinite(v) for v in (*means, *errors, closure_budget)):
-                    numeric_failure(
-                        "finite Float64 relative contributions, standard errors and roundoff",
-                        f"baseline magnitude={denominator!r}",
-                    )
-            total_path = ("total", *target.path)
-            observed_path = ("observed_total", *target.path)
-            total_column = output_columns[total_path]
-            observed_column = output_columns[observed_path]
-            observed = _number(
-                parent.table[program.parent_schema.values[target.observed].slot_id].iloc[
-                    parent_index
-                ]
-            )
-            total = _report_value(total, total_column)
-            total_value = _number(total.values.iloc[0])
-            original_observed = program.parent_schema.values[target.observed]
-            observed = _number(
-                _report_value(_series(observed, original_observed), observed_column).values.iloc[0]
-            )
-            typed_total = FrameMethodValue(total_column, total_value)
-            metric = FrameAttributeMetric(
-                target.path,
-                target.mode,
-                completed.method,
-                FrameMethodValue(observed_column, observed),
-                typed_total,
-                mappings,
-                "zero_total" if total_value == 0 else "defined",
-            )
-            parents.append(
-                FrameMethodParent(
-                    tuple(
-                        FrameMethodValue(column, value)
-                        for column, (_, value) in zip(parent_columns, key, strict=True)
-                    ),
-                    (metric,),
-                )
-            )
-            contribution_sum, sum_roundoff = _scaled_sum(means)
-            closure_budget, budget_roundoff = _scaled_sum(
-                (closure_budget, math.ulp(float(total_value)), sum_roundoff)
-            )
-            closure_budget += budget_roundoff
-            if isinstance(total.column.dtype, DecimalDataType):
-                closure_budget += float(Decimal(1).scaleb(-total.column.dtype.scale)) / 2
-            if not math.isfinite(closure_budget):
-                numeric_failure("a finite Float64 closure roundoff budget", repr(closure_budget))
-            if abs(contribution_sum - float(total_value)) > closure_budget:
-                _fail(
-                    f"parent={key!r}: sampled contributions do not close to the cached endpoint change"
-                )
-            for index, player in enumerate(players):
-                result_keys.append((*key, *player))
-                record: dict[str, object] = {}
-                for prefix, value in (
-                    (("contribution",), means[index]),
-                    (("total",), total_value),
-                    (("observed_total",), observed),
-                    (
-                        ("contribution_share",),
-                        None if total_value == 0 else means[index] / float(total_value),
-                    ),
-                    (("contribution_std_error",), errors[index]),
-                ):
-                    record[output_columns[prefix + target.path].slot_id] = value
-                values = []
-                for source, schema, rows in (
-                    (left, program.left_schema, current_rows),
-                    (right, program.right_schema, baseline_rows),
-                ):
-                    values.append(
-                        None
-                        if player not in rows
-                        else source.table[
-                            schema.values[
-                                operation.games[0 if source is left else 1].target_slot
-                            ].slot_id
-                        ].iloc[rows[player]]
-                    )
-                for detail_prefix, value in zip(
-                    (("detail", "current"), ("detail", "baseline"), ("detail", "absolute")),
-                    (
-                        *values,
-                        None
-                        if any(_null(v) for v in values)
-                        else _number(
-                            _numeric_binary(
-                                "sub",
-                                _series(
-                                    _number(values[0]),
-                                    program.left_schema.values[operation.games[0].target_slot],
-                                ),
-                                _series(
-                                    _number(values[1]),
-                                    program.right_schema.values[operation.games[1].target_slot],
-                                ),
-                            ).values.iloc[0]
-                        ),
-                    ),
-                    strict=True,
-                ):
-                    record[output_columns[detail_prefix + target.path].slot_id] = value
-                for column, present in zip(
-                    program.output_schema.presence,
-                    (player in current_rows, player in baseline_rows),
-                    strict=True,
-                ):
-                    record[column.slot_id] = present
-                records.append(record)
-    result = frozen_key_table((*parent_columns, *fine_columns), tuple(result_keys))
-    for column in (*program.output_schema.values, *program.output_schema.presence):
-        result[column.slot_id] = pd.Series(
-            pd.arrays.ArrowExtensionArray(
-                pa.array(
-                    [
-                        None if _null(record[column.slot_id]) else record[column.slot_id]
-                        for record in records
-                    ],
-                    type=stage_arrow_type(column.dtype),
-                )
-            )
-        )
-    coordinates = tuple(
-        FrameMethodCoordinate(
-            a.name,
-            a.schema,
-            tuple(tuple(v for _, v in key) for key in frozen_key_rows(a.rows, a.schema.columns)),
-        )
-        for a in sorted(parent.frame_attachments, key=lambda a: a.name)
-    )
-    payload = AttributeMethodPayload(
-        program.output_schema,
-        len(program.parent_schema.axes),
-        tuple(sorted(parents, key=_key_order)),
-        coordinates,
-        (FrameMethodTarget(target.path, target.mode, mappings),),
-        parent_schema=program.parent_schema,
-    )
-    return result, payload

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from marivo._help.model import GLOBAL_HELP_RENDER_BUDGETS, GlobalHelpRenderClass
-from marivo.introspection.live.render import enforce_budget
+from marivo.introspection.live.model import EnvironmentFingerprint
+from marivo.introspection.live.render import enforce_budget, render_fingerprint
 
 
 def _bounded(
@@ -64,8 +65,6 @@ def render_root() -> str:
 
 
 def render_authoring() -> str:
-    from marivo.introspection.live.model import EnvironmentFingerprint
-    from marivo.introspection.live.render import render_fingerprint
 
     routes = (
         ("Start or load this project", "semantic.load"),

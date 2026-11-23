@@ -8,7 +8,10 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
+from marivo.analysis.errors import AnalysisError
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._expression_values import MetricExpression
 from marivo.semantic.catalog import SemanticCatalog
@@ -25,9 +28,6 @@ def test_session_exposes_catalog_property(tmp_path: Path, monkeypatch: pytest.Mo
 def test_session_catalog_loads_external_semantic_layer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import textwrap
-
-    import marivo.analysis as mv
 
     project_root = tmp_path / "project"
     external_models = tmp_path / "external" / "models"
@@ -94,7 +94,6 @@ def test_session_catalog_loads_external_semantic_layer(
 def test_session_observe_uses_external_layer_datasource(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis as mv
 
     project_root = tmp_path / "project"
     external_models = tmp_path / "external" / "models"
@@ -206,7 +205,6 @@ def _write_object_model(
 def test_named_objects_and_observe_containers_capture_independent_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.semantic as ms
 
     _write_object_model(tmp_path)
     monkeypatch.chdir(tmp_path)
@@ -232,7 +230,6 @@ def test_named_objects_and_observe_containers_capture_independent_results(
     formulas["average"] = revenue * 0
     assert average.compute().to_pandas()["average"].tolist() == [15]
     assert session.observe(revenue).compute().to_pandas()["revenue"].tolist() == [30]
-    from marivo.analysis.errors import AnalysisError
 
     invalid: object
     for invalid in ([], (), {}, [revenue / orders], (revenue * 1,)):
@@ -244,7 +241,6 @@ def test_named_objects_and_observe_containers_capture_independent_results(
 def test_receiving_session_rebinds_named_leaves_but_keeps_captured_frames(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.semantic as ms
 
     _write_object_model(tmp_path)
     monkeypatch.chdir(tmp_path)
@@ -264,7 +260,6 @@ def test_receiving_session_rebinds_named_leaves_but_keeps_captured_frames(
 def test_loaded_wrappers_keep_project_and_axes_do_not_gain_selection_owner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.semantic as ms
 
     project_a, project_b = tmp_path / "a", tmp_path / "b"
     _write_object_model(project_a)
@@ -294,7 +289,6 @@ def test_loaded_wrappers_keep_project_and_axes_do_not_gain_selection_owner(
 def test_attribute_resolves_each_endpoint_classification_without_rebinding_metrics(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.semantic as ms
 
     _write_object_model(tmp_path)
     with duckdb.connect(str(tmp_path / "objects.duckdb")) as connection:
@@ -325,9 +319,6 @@ def test_attribute_resolves_each_endpoint_classification_without_rebinding_metri
 def test_attribute_missing_classification_reports_the_retained_endpoint_before_reads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.semantic as ms
-    from marivo.analysis.errors import AnalysisError
-    from marivo.datasource.runtime.adapters import SourceSession
 
     _write_object_model(tmp_path)
     model = tmp_path / "models/semantic/sales/model.py"

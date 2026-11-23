@@ -6,12 +6,15 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo._definition.relations import PopulationProgram, SourceIdentities
 from marivo.analysis.errors import SessionStateError
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.terminal_store import admit
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.model.execution_errors import SessionBusyError
+from marivo.semantic.definition_resolution import _Resolver
 from tests.shared_fixtures import DslCaseFactory, terminal_run, terminal_runs
 
 
@@ -205,9 +208,6 @@ def test_literal_frame_and_empty_bridge_do_not_load_catalog(
 def test_members_consumes_resolved_entity_without_original_version_gate(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import marivo.semantic as ms
-    from marivo._definition.relations import PopulationProgram, SourceIdentities
-    from marivo.semantic.definition_resolution import _Resolver
 
     case = analysis_dsl_case_factory("j1")
     original = case.session.catalog

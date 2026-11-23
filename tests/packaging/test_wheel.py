@@ -12,9 +12,8 @@ from zipfile import ZipFile
 import pytest
 from packaging.requirements import Requirement
 
-from tests.packaging.boundary_probe import public_snapshot
-from tests.packaging.wheel_probe import surface_snapshot
 from tests.packaging.wheel_support import InstalledWheel
+from tests.packaging.wheel_surface import public_snapshot, surface_snapshot
 from tests.support.json import checked, obj, read
 from tests.support.paths import PROJECT_ROOT
 

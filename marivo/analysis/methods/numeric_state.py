@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import operator
 from collections.abc import Sequence
 from decimal import (
     ROUND_HALF_EVEN,
@@ -22,6 +23,7 @@ import pyarrow.compute as pc
 
 from marivo.analysis.methods.physical import DecimalType, DurationType, ValueType
 from marivo.analysis.model.data_types import DataType, DurationDataType, ScalarDataType
+from marivo.semantic.spi import numeric_failure
 
 Number: TypeAlias = int | float | Decimal
 
@@ -68,7 +70,6 @@ def finish_decimal(values: pd.Series, precision: int, scale: int) -> pd.Series:
 
     Decimal quantize avoids Arrow's input-precision carry limit, including p=38.
     """
-    from marivo.semantic.spi import numeric_failure
 
     missing = typed_null_mask(values)
     try:
@@ -112,9 +113,6 @@ def nullable_arithmetic(
     exact_duration: bool = False,
 ) -> pd.Series:
     """Delegate arithmetic to the actual carrier, retaining NULL and zero division."""
-    import operator
-
-    from marivo.semantic.spi import numeric_failure
 
     left_missing, right_missing = typed_null_mask(left), typed_null_mask(right)
     a, b = left, right
@@ -187,7 +185,6 @@ def duration_arithmetic(
     output: DurationDataType | ScalarDataType,
 ) -> pd.Series:
     """Execute already typed Duration arithmetic in its exact original ticks."""
-    from marivo.semantic.spi import numeric_failure
 
     def operand(series: pd.Series, dtype: DataType) -> pd.Series:
         if not isinstance(dtype, DurationDataType):

@@ -10,21 +10,30 @@ from typing import TYPE_CHECKING, NoReturn
 import ibis
 import ibis.expr.types as ir
 
-from marivo.analysis.compiler.graph_plan import (
+from marivo._definition.expressions import RowField
+from marivo._definition.graph import DefinitionNode, children
+from marivo._definition.types import field_read_key
+from marivo.analysis.compiler.lowered_query import LoweredRead
+from marivo.analysis.compiler.observation import (
+    _reduction_axes,
+    bind_reduction_calendars,
+    lower_observation,
+)
+from marivo.analysis.compiler.predicate import lower_condition
+from marivo.analysis.compiler.query_stages import (
     AttributeCoalitionRead,
     NativeEndpoint,
     ReductionRead,
     SourceReadStage,
     read_reduction,
 )
-from marivo.analysis.compiler.observation import _reduction_axes, lower_observation, temporal_bound
+from marivo.analysis.compiler.source_time import temporal_bound
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.model.frame_contracts import CheckedStageInput
 from marivo.semantic.spi import NumericCheck
 
 if TYPE_CHECKING:
-    from marivo.analysis.compiler.frame_plan import CompiledSourceFrame
-    from marivo.analysis.compiler.graph_lowering import LoweredRead
+    from marivo.analysis.compiler.compiled_frame import CompiledSourceFrame
     from marivo.analysis.core.attribute_game import AttributeGameProgram
 
 
@@ -86,11 +95,9 @@ def native_game_stage(
 def _selected_rows(
     stage: SourceReadStage, table: ir.Table, keys: tuple[tuple[object, ...], ...], prefix: str
 ) -> tuple[ir.Table, ir.Table | None, tuple[tuple[str, NumericCheck], ...]]:
-    from marivo.analysis.compiler.predicate import lower_condition
 
     reduction = read_reduction(stage)
     assert reduction is not None
-    from marivo.analysis.compiler.observation import bind_reduction_calendars
 
     table, field_columns = bind_reduction_calendars(reduction, table, dict(stage.field_columns))
     original = table
@@ -176,13 +183,9 @@ def lower_native_coalition(
     stage_id: str,
 ) -> tuple[SourceReadStage, LoweredRead]:
     """Reduce the native UNION ALL with the original typed reducer and checks."""
-    from marivo.analysis.compiler.graph_lowering import LoweredRead
 
     a, ac, ach = _selected_rows(current, current_table, current_keys, "current")
     b, bc, bch = _selected_rows(baseline, baseline_table, baseline_keys, "baseline")
-    from marivo._definition.expressions import RowField
-    from marivo._definition.graph import DefinitionNode, children
-    from marivo._definition.types import field_read_key
 
     def paths(node: DefinitionNode) -> tuple[str, ...]:
         if isinstance(node, RowField):

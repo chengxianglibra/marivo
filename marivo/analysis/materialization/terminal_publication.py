@@ -7,22 +7,25 @@ from collections.abc import Callable
 from dataclasses import replace
 from hashlib import sha256
 from json import dumps
+from pathlib import Path
 from uuid import uuid4
 
+from marivo.analysis.core.attachments import OutputAttachment
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     StoredFrameBacking,
 )
+from marivo.analysis.core.frame_method_facts import FrameMethodFacts
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.contracts import RunFailure, RunFailurePhase
 from marivo.analysis.materialization.frame_method_facts import method_payload, saved_method_facts
-from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.resources import discharge_resources, reserve_output
+from marivo.analysis.materialization.run_records import load_run
+from marivo.analysis.materialization.sqlite_values import _one, _rows, _text
 from marivo.analysis.materialization.storage import _fsync_directory
-from marivo.analysis.materialization.store import SessionStore, _new_run_ref, _one, _rows, _text
-from marivo.analysis.materialization.terminal_protocol import invalid
+from marivo.analysis.materialization.store import SessionStore, _new_run_ref
 from marivo.analysis.materialization.terminal_storage import write_output
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.methods.frame_method_facts import validate_method_facts
@@ -34,6 +37,7 @@ from marivo.analysis.model.artifact_data import (
 )
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.execution_errors import MaterializationError, RecoveryPendingError
+from marivo.analysis.model.execution_errors import terminal_output_integrity_error as invalid
 from marivo.introspection.live.model import LiveHelpTarget
 
 
@@ -68,7 +72,7 @@ def reconcile(store: SessionStore, session: str, event: Callable[[str], None]) -
             "SELECT a.run_ref FROM analysis_action_runs a LEFT JOIN analysis_action_run_terminals t USING(run_ref) WHERE a.session_ref=? AND (t.run_ref IS NULL OR EXISTS (SELECT 1 FROM action_resource_journal j WHERE j.run_ref=a.run_ref)) ORDER BY a.admitted_at,a.run_ref",
             (session,),
         )
-        runs = tuple(terminal_store.run(store, conn, _text(row, "run_ref")) for row in refs)
+        runs = tuple(load_run(conn, _text(row, "run_ref")) for row in refs)
         if (
             any(run is None for run in runs)
             or sum(run is not None and run.lifecycle == "incomplete" for run in runs) > 1
@@ -109,11 +113,51 @@ def reconcile(store: SessionStore, session: str, event: Callable[[str], None]) -
                 store.discharge(resource)
 
 
+def _write_supplemental_outputs(
+    root: Path,
+    staging: Path,
+    final: Path,
+    data: CompletedFrameData,
+    method_facts: tuple[FrameMethodFacts, ...],
+    method_tables: tuple[OutputAttachment, ...],
+) -> tuple[tuple[SavedAttachment, ...], tuple[SavedFrameMethodFacts, ...]]:
+    attachments: list[SavedAttachment] = []
+    for index, attachment in enumerate(data.copy_attachments()):
+        locator = f"attachment-{index}"
+        handle = write_output(
+            root,
+            staging / locator,
+            final / locator,
+            attachment.schema,
+            attachment.rows,
+        )
+        attachments.append(SavedAttachment(attachment.name, attachment.schema, handle))
+        _event("terminal_attachment_written")
+    saved_methods: list[SavedFrameMethodFacts] = []
+    for index, (facts, attachment) in enumerate(zip(method_facts, method_tables, strict=True)):
+        locator = f"method-{index}"
+        handle = write_output(
+            root,
+            staging / locator,
+            final / locator,
+            attachment.schema,
+            attachment.rows,
+        )
+        method_attachment = SavedAttachment(attachment.name, attachment.schema, handle)
+        saved_methods.append(saved_method_facts(facts, method_attachment))
+        _event("terminal_method_written")
+    return tuple(attachments), tuple(saved_methods)
+
+
 def publish_completed(
-    local: LocalFrameServices, result: CompletedFrameResult, *, description: str | None = None
+    store: SessionStore,
+    session: str,
+    result: CompletedFrameResult,
+    *,
+    description: str | None = None,
 ) -> StoredFrameBacking:
     """Publish independent checked output; no evaluation or source access is possible."""
-    if type(local) is not LocalFrameServices or type(result) is not CompletedFrameResult:
+    if type(result) is not CompletedFrameResult:
         reject(
             "local Frame services and one completed result",
             type(result).__name__,
@@ -129,13 +173,13 @@ def publish_completed(
     for facts in result.method_facts:
         validate_method_facts(facts)
     method_tables = tuple(method_payload(facts) for facts in result.method_facts)
-    store, session = local.store, local.session_ref
     run_ref: str | None = None
     value: ArtifactManifest | None = None
     committing = False
     phase: RunFailurePhase = "storage_staging"
     with session_writer_guard(store.layout.lock_path(session), session_ref=session):
-        local.record()
+        if store.session(session) is None:
+            raise invalid("Session is absent from its owning Store")
         reconcile(store, session, _event)
         try:
             run_ref = _new_run_ref()
@@ -154,33 +198,9 @@ def publish_completed(
                 data.copy_rows(),
             )
             _event("terminal_primary_written")
-            attachments: list[SavedAttachment] = []
-            for index, attachment in enumerate(data.copy_attachments()):
-                locator = f"attachment-{index}"
-                handle = write_output(
-                    store.project_root,
-                    staging / locator,
-                    final / locator,
-                    attachment.schema,
-                    attachment.rows,
-                )
-                attachments.append(SavedAttachment(attachment.name, attachment.schema, handle))
-                _event("terminal_attachment_written")
-            saved_methods: list[SavedFrameMethodFacts] = []
-            for index, (facts, attachment) in enumerate(
-                zip(result.method_facts, method_tables, strict=True)
-            ):
-                locator = f"method-{index}"
-                handle = write_output(
-                    store.project_root,
-                    staging / locator,
-                    final / locator,
-                    attachment.schema,
-                    attachment.rows,
-                )
-                method_attachment = SavedAttachment(attachment.name, attachment.schema, handle)
-                saved_methods.append(saved_method_facts(facts, method_attachment))
-                _event("terminal_method_written")
+            attachments, saved_methods = _write_supplemental_outputs(
+                store.project_root, staging, final, data, result.method_facts, method_tables
+            )
             assert result.metadata.lineage is not None
             identity = dumps((store.store_id, session, artifact), separators=(",", ":"))
             stored_lineage = replace(
@@ -192,9 +212,9 @@ def publish_completed(
                 artifact,
                 session,
                 run_ref,
-                ArtifactData(data.schema, primary, tuple(attachments)),
+                ArtifactData(data.schema, primary, attachments),
                 terminal_store.describe(metadata),
-                tuple(saved_methods),
+                saved_methods,
                 description=description,
             )
             _fsync_directory(staging)
@@ -214,7 +234,7 @@ def publish_completed(
             if committing:
                 try:
                     with store._read() as conn:
-                        original = terminal_store.run(store, conn, run_ref or "")
+                        original = load_run(conn, run_ref or "")
                         if original is None:
                             raise invalid("original publication Run is unavailable")
                         if original.lifecycle == "succeeded":
@@ -251,7 +271,7 @@ def publish_completed(
             if run_ref is not None:
                 try:
                     with store._read() as conn:
-                        original = terminal_store.run(store, conn, run_ref)
+                        original = load_run(conn, run_ref)
                     if original is not None and original.lifecycle == "incomplete":
                         owned = tuple(
                             resource

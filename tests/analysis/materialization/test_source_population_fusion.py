@@ -3,20 +3,43 @@
 import json
 import os
 from collections.abc import Callable
+from contextlib import ExitStack
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
 import duckdb
+import ibis
+import ibis.expr.operations as ops
 import pandas as pd
 import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
+from marivo.analysis.compiler.lowered_query import LoweredRead
+from marivo.analysis.compiler.query_stages import (
+    NativeRead,
+    ProjectionRead,
+    QueryPlan,
+    SourceReadStage,
+)
+from marivo.analysis.materialization.native_query_checks import (
+    NativeQueryRelation,
+    _attach_relation_checks,
+    _check_summary,
+)
+from marivo.analysis.materialization.query_preparation import prepare_population
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
+from marivo.datasource.ir import TableSourceIR
+from marivo.semantic.numeric_operations import NumericCheck
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.test_population_membership import _session
-from tests.datasource.source_cases import source_params
+from tests.analysis.materialization.test_population_membership import _MODEL, _session
+from tests.analysis.numeric.test_remote_numeric_query import DATA, _datasource_model, _project
+from tests.datasource.environment import clickhouse_analysis, trino_analysis
+from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import SourceTrace, capture_source
 
@@ -94,10 +117,6 @@ def test_population_product_only_deduplicates_when_projection_drops_an_axis(
     monkeypatch: pytest.MonkeyPatch,
     drop_axis: bool,
 ) -> None:
-    import ibis
-    import ibis.expr.operations as ops
-
-    from marivo.analysis.materialization.population_preparation import prepare_population
 
     session = _case(semantic_project_factory, tmp_path, monkeypatch, size=4)
     orders = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
@@ -383,17 +402,6 @@ def test_member_read_preserves_missing_requested_identity_as_null(
 
 @pytest.mark.parametrize("dialect", ("duckdb", "postgres", "mysql", "trino", "clickhouse"))
 def test_source_check_batches_compile_as_one_summary_per_scope(dialect: str) -> None:
-    import ibis
-    import ibis.expr.operations as ops
-
-    from marivo.analysis.compiler.graph_lowering import LoweredRead
-    from marivo.analysis.compiler.graph_plan import ProjectionRead, QueryPlan, SourceReadStage
-    from marivo.analysis.materialization.query_key_fusion import (
-        NativeQueryRelation,
-        _attach_relation_checks,
-    )
-    from marivo.analysis.model.data_types import DataColumn, ScalarDataType
-    from marivo.semantic.numeric_operations import NumericCheck
 
     table = ibis.table(
         {"key.0": "int64", "a": "float64", "b": "float64", "bad_a": "boolean", "bad_b": "boolean"},
@@ -463,11 +471,6 @@ def test_native_member_count_preserves_exact_string_groups_and_distinct_tuples(
     backend: str,
     profile: str,
 ) -> None:
-    from datetime import date
-    from decimal import Decimal
-
-    from tests.analysis.numeric.test_remote_numeric_query import DATA, _project
-    from tests.datasource.source_cases import SourceData, source_case
 
     labels = ("A", "a", "Á", "A ", "a ", "", None, "A")
     rows: list[dict[str, object]] = [
@@ -529,12 +532,6 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
     backend: str,
     profile: str,
 ) -> None:
-    from contextlib import ExitStack
-
-    from marivo.datasource.ir import TableSourceIR
-    from tests.analysis.materialization.test_population_membership import _MODEL
-    from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
-    from tests.datasource.source_cases import SourceData, source_case
 
     orders: list[dict[str, object]] = [
         {"id": i, "customer": i % 10, "amount": 1} for i in range(1000)
@@ -796,9 +793,6 @@ def test_native_sample_retains_nested_population_identity_checks(
 
 @pytest.mark.parametrize("dialect", ("duckdb", "trino", "clickhouse"))
 def test_tuple_check_summary_candidate_compiles(dialect: str) -> None:
-    import ibis
-
-    from marivo.analysis.materialization.query_key_fusion import _check_summary
 
     table = ibis.table({"key.0": "int64", "key.1": "string", "bad": "boolean"}, name="facts")
     summary = _check_summary(
@@ -811,16 +805,6 @@ def test_tuple_check_summary_candidate_compiles(dialect: str) -> None:
 
 @pytest.mark.parametrize("collation_scope", ("column", "connection"))
 def test_check_witness_preserves_duckdb_collation_with_empty_output(collation_scope: str) -> None:
-    import ibis
-
-    from marivo.analysis.compiler.graph_lowering import LoweredRead
-    from marivo.analysis.compiler.graph_plan import NativeRead, QueryPlan, SourceReadStage
-    from marivo.analysis.materialization.query_key_fusion import (
-        NativeQueryRelation,
-        _attach_relation_checks,
-    )
-    from marivo.analysis.model.data_types import DataColumn, ScalarDataType
-    from marivo.semantic.numeric_operations import NumericCheck
 
     connection = ibis.duckdb.connect(threads=1)
     try:
@@ -869,9 +853,6 @@ def test_check_witness_preserves_duckdb_collation_with_empty_output(collation_sc
 def test_combined_check_summary_preserves_real_null_safe_failure_tuple(
     selection: str, key_type: str
 ) -> None:
-    import ibis
-
-    from marivo.analysis.materialization.query_key_fusion import _check_summary
 
     connection = ibis.duckdb.connect(threads=1)
     try:
@@ -930,12 +911,6 @@ def test_remote_tuple_check_summary_preserves_nulls_and_real_rows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import ibis
-
-    from marivo.analysis.materialization.query_key_fusion import _check_summary
-    from marivo.datasource.ir import TableSourceIR
-    from tests.datasource.environment import clickhouse_analysis, trino_analysis
-    from tests.datasource.source_cases import SourceData, source_case
 
     data = SourceData(
         "k0 BIGINT, k1 VARCHAR, a BOOLEAN, b BOOLEAN",

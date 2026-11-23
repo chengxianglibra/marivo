@@ -9,7 +9,9 @@ import pandas as pd
 import pytest
 
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import terminal_publication
 from marivo.analysis.model.receipts import canonical_json
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.analysis.statistics.pandas_workflows import (
     assert_clean,
     daily,
@@ -147,7 +149,6 @@ def test_resources_atomic_publication_and_native_failure(
     monkeypatch: pytest.MonkeyPatch,
     fault: str,
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
     query = orders(case)
@@ -165,8 +166,6 @@ def test_resources_atomic_publication_and_native_failure(
         if fault == "native_failure":
             raise TimeoutError("injected source failure")
         return pd.DataFrame({"unexpected": [1]})
-
-    from marivo.analysis.materialization import terminal_publication
 
     monkeypatch.setattr(terminal_publication, "_event", inject)
     with monkeypatch.context() as scoped:

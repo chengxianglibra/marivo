@@ -1,6 +1,7 @@
 """Independent regressions for numerical boundaries."""
 
 from decimal import Decimal
+from fractions import Fraction
 from typing import Literal
 
 import duckdb
@@ -205,7 +206,6 @@ def test_numeric_raw_order_and_exchange_batches(
     monkeypatch: pytest.MonkeyPatch,
     reverse: bool,
 ) -> None:
-    from fractions import Fraction
 
     case = analysis_dsl_case_factory("j1")
     facts = [("A", 1e16), ("A", 1.0), ("A", -1e16), ("B", 0.25), ("C", 3.0)]

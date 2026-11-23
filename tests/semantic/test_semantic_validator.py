@@ -24,8 +24,14 @@ from collections.abc import Callable
 import pytest
 
 import marivo.semantic as ms
+from marivo.datasource.ir import AiContextIR
 from marivo.semantic.errors import ErrorKind, SemanticLoadError
-from marivo.semantic.static_check.ast_rules import validate_metric_body_ast
+from marivo.semantic.ir import DateParse, DimensionIR, DimensionKind, SourceLocation, TimestampParse
+from marivo.semantic.static_check.ast_rules import (
+    _BaseMetricASTValidator,
+    _time_dimension_dtype_advisory,
+    validate_metric_body_ast,
+)
 
 
 def test_base_field_ref_bind() -> None:
@@ -154,8 +160,6 @@ def test_base_import_error() -> None:
     tree = ast.parse(code)
     func_node = tree.body[0]
 
-    from marivo.semantic.static_check.ast_rules import _BaseMetricASTValidator
-
     validator = _BaseMetricASTValidator("bad_metric")
     validator.visit(func_node)
     assert len(validator.errors) > 0
@@ -184,8 +188,6 @@ def test_base_for_loop_error() -> None:
     tree = ast.parse(code)
     func_node = tree.body[0]
 
-    from marivo.semantic.static_check.ast_rules import _BaseMetricASTValidator
-
     validator = _BaseMetricASTValidator("bad_metric")
     validator.visit(func_node)
     assert len(validator.errors) > 0
@@ -203,8 +205,6 @@ def test_base_while_loop_error() -> None:
     tree = ast.parse(code)
     func_node = tree.body[0]
 
-    from marivo.semantic.static_check.ast_rules import _BaseMetricASTValidator
-
     validator = _BaseMetricASTValidator("bad_metric")
     validator.visit(func_node)
     assert len(validator.errors) > 0
@@ -220,8 +220,6 @@ def test_base_with_statement_error() -> None:
     """)
     tree = ast.parse(code)
     func_node = tree.body[0]
-
-    from marivo.semantic.static_check.ast_rules import _BaseMetricASTValidator
 
     validator = _BaseMetricASTValidator("bad_metric")
     validator.visit(func_node)
@@ -241,8 +239,6 @@ def test_base_try_statement_error() -> None:
     tree = ast.parse(code)
     func_node = tree.body[0]
 
-    from marivo.semantic.static_check.ast_rules import _BaseMetricASTValidator
-
     validator = _BaseMetricASTValidator("bad_metric")
     validator.visit(func_node)
     assert len(validator.errors) > 0
@@ -258,8 +254,6 @@ def test_base_conditional_statement_error() -> None:
     """)
     tree = ast.parse(code)
     func_node = tree.body[0]
-
-    from marivo.semantic.static_check.ast_rules import _BaseMetricASTValidator
 
     validator = _BaseMetricASTValidator("bad_metric")
     validator.visit(func_node)
@@ -317,8 +311,6 @@ def test_base_lambda_error() -> None:
     tree = ast.parse(code)
     func_node = tree.body[0]
 
-    from marivo.semantic.static_check.ast_rules import _BaseMetricASTValidator
-
     validator = _BaseMetricASTValidator("bad_metric")
     validator.visit(func_node)
     assert len(validator.errors) > 0
@@ -346,8 +338,6 @@ def test_base_multiple_returns_error() -> None:
     """)
     tree = ast.parse(code)
     func_node = tree.body[0]
-
-    from marivo.semantic.static_check.ast_rules import _BaseMetricASTValidator
 
     validator = _BaseMetricASTValidator("bad_metric")
     validator.visit(func_node)
@@ -408,10 +398,6 @@ def test_time_dimension_dtype_advisory_cast_date_declared_datetime() -> None:
     def order_date(table):  # type: ignore[no-untyped-def]
         return table.dt.cast("timestamp").cast("date")
 
-    from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.ir import DimensionIR, DimensionKind, SourceLocation, TimestampParse
-    from marivo.semantic.static_check.ast_rules import _time_dimension_dtype_advisory
-
     field_ir = DimensionIR(
         semantic_id="model.order_date",
         domain="model",
@@ -432,10 +418,6 @@ def test_time_dimension_dtype_advisory_cast_timestamp_declared_datetime_ok() -> 
 
     def created_at(table):  # type: ignore[no-untyped-def]
         return table.ts.cast("timestamp")
-
-    from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.ir import DimensionIR, DimensionKind, SourceLocation, TimestampParse
-    from marivo.semantic.static_check.ast_rules import _time_dimension_dtype_advisory
 
     field_ir = DimensionIR(
         semantic_id="model.created_at",
@@ -458,10 +440,6 @@ def test_time_dimension_dtype_advisory_cast_date_declared_date_ok() -> None:
     def order_date(table):  # type: ignore[no-untyped-def]
         return table.dt.cast("date")
 
-    from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.ir import DateParse, DimensionIR, DimensionKind, SourceLocation
-    from marivo.semantic.static_check.ast_rules import _time_dimension_dtype_advisory
-
     field_ir = DimensionIR(
         semantic_id="model.order_date",
         domain="model",
@@ -482,10 +460,6 @@ def test_time_dimension_dtype_advisory_no_cast_no_advisory() -> None:
 
     def order_date(table):  # type: ignore[no-untyped-def]
         return table.dt
-
-    from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.ir import DimensionIR, DimensionKind, SourceLocation, TimestampParse
-    from marivo.semantic.static_check.ast_rules import _time_dimension_dtype_advisory
 
     field_ir = DimensionIR(
         semantic_id="model.order_date",

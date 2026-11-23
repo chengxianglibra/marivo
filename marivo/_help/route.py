@@ -28,25 +28,25 @@ _GLOBAL_TOPICS = ("root", "authoring")
 
 
 def _load_datasource() -> SurfaceProvider:
-    from marivo.datasource.help_spi import PROVIDER
+    from marivo.datasource.help_spi import PROVIDER  # noqa: PLC0415  # Load only the Help surface selected by the caller.
 
     return PROVIDER
 
 
 def _load_semantic() -> SurfaceProvider:
-    from marivo.semantic.help_spi import PROVIDER
+    from marivo.semantic.help_spi import PROVIDER  # noqa: PLC0415  # Load only the Help surface selected by the caller.
 
     return PROVIDER
 
 
 def _load_analysis() -> SurfaceProvider:
-    from marivo.analysis.help_spi import PROVIDER
+    from marivo.analysis.help_spi import PROVIDER  # noqa: PLC0415  # Load only the Help surface selected by the caller.
 
     return PROVIDER
 
 
 def _load_ontology() -> SurfaceProvider:
-    from marivo.ontology.help_spi import PROVIDER
+    from marivo.ontology.help_spi import PROVIDER  # noqa: PLC0415  # Load only the Help surface selected by the caller.
 
     return PROVIDER
 

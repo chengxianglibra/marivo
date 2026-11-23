@@ -8,6 +8,7 @@ from typing import Literal
 import pytest
 from ibis.common.deferred import BinaryOperator, Just, Resolver, UnaryOperator, Variable
 
+from marivo._definition.deferred import RescaleResolver
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
@@ -188,7 +189,6 @@ def test_fixed_zero_divisor_is_rejected_without_a_source_read() -> None:
 
 
 def test_rescale_keeps_declared_unit_and_rule_identity() -> None:
-    from marivo._definition.deferred import RescaleResolver
 
     def rescaled(unit: str) -> AttributeRule:
         return build(formula(RescaleResolver(Variable("slot_0"), 3, unit), total()))

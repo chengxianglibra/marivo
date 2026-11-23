@@ -10,6 +10,7 @@ from typing import ClassVar, Literal
 from urllib.parse import urlsplit
 
 from marivo._kernel.render import Card, RenderableResult
+from marivo._kernel.validation import input_sequence, nonblank_text
 from marivo.datasource.errors import DatasourceFieldInvalidError, repair
 from marivo.telemetry import traced
 
@@ -31,7 +32,7 @@ class EnvRef(RenderableResult):
     name: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.name, str) or not self.name.strip():  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not nonblank_text(self.name):
             raise invalid("name", "a non-empty credential name", self.name, 'Use md.env("NAME").')
 
     def _repr_identity(self) -> str:
@@ -295,7 +296,7 @@ def secret_metadata(secret: DuckDBSecret) -> dict[str, object]:
 
 
 def normalize_secrets(value: Sequence[DuckDBSecret]) -> tuple[DuckDBSecret, ...]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not input_sequence(value):
         raise invalid(
             "secrets",
             "a sequence of secret variants",

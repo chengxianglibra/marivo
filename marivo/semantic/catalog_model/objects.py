@@ -14,7 +14,6 @@ from typing import (
     Protocol,
     TypeAlias,
     TypeVar,
-    cast,
     final,
 )
 
@@ -55,14 +54,12 @@ from marivo._kernel.symbolic import (
     LookupSymbol,
     _DatasourceIdentity,
 )
+from marivo.semantic._expression_carrier import _merge, _parameter, _source_arguments
 from marivo.semantic._expression_values import (
     MetricExpression,
     NumericMetric,
     RowExpression,
     TimeExpression,
-    _merge,
-    _parameter,
-    _source_arguments,
 )
 from marivo.semantic._metric_time_disclosure import add_metric_time
 from marivo.semantic.catalog_entries import (
@@ -115,6 +112,9 @@ if TYPE_CHECKING:
 CatalogEntryKindT = TypeVar("CatalogEntryKindT", bound=SemanticKindTag, covariant=True)
 
 
+_DefinitionT = TypeVar("_DefinitionT", bound=EntryDefinition)
+
+
 @dataclass(frozen=True, repr=False, eq=False)
 class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]):
     """One immutable browsable object in one compiled semantic catalog."""
@@ -165,6 +165,12 @@ class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]
     def definition(self) -> EntryDefinition:
         """Complete kind-specific captured definition; no source data is read."""
         return self._catalog._definition(self._ref)
+
+    def _definition_as(self, expected: type[_DefinitionT]) -> _DefinitionT:
+        definition = self._catalog._definition(self._ref)
+        if not isinstance(definition, expected):
+            raise TypeError(f"{self._ref.key} must have a {expected.__name__} definition")
+        return definition
 
     @property
     def provenance(self) -> EntryProvenance:
@@ -375,7 +381,7 @@ class Domain(_SemanticObject[DomainKind]):
 
     @property
     def definition(self) -> DomainDefinition:
-        return cast("DomainDefinition", super().definition)
+        return self._definition_as(DomainDefinition)
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -392,7 +398,7 @@ class Datasource(_SemanticObject[DatasourceKind], DatasourceIdentityHandle):
 
     @property
     def definition(self) -> DatasourceDefinition:
-        return cast("DatasourceDefinition", super().definition)
+        return self._definition_as(DatasourceDefinition)
 
 
 RelatedRelation: TypeAlias = Literal[
@@ -410,7 +416,7 @@ class Entity(_SemanticObject[EntityKind]):
 
     @property
     def definition(self) -> EntityDefinition:
-        return cast("EntityDefinition", super().definition)
+        return self._definition_as(EntityDefinition)
 
     @property
     def primary_key(self) -> tuple[str, ...]:
@@ -473,7 +479,7 @@ class Dimension(_SemanticObject[DimensionKind], RowExpression[Literal["dimension
 
     @property
     def definition(self) -> FieldDefinition:
-        return cast("FieldDefinition", super().definition)
+        return self._definition_as(FieldDefinition)
 
     @property
     def _role(self) -> Literal["dimension"]:
@@ -495,7 +501,7 @@ class TimeDimension(_SemanticObject[TimeDimensionKind], RowExpression[Literal["t
 
     @property
     def definition(self) -> FieldDefinition:
-        return cast("FieldDefinition", super().definition)
+        return self._definition_as(FieldDefinition)
 
     @property
     def _role(self) -> Literal["time"]:
@@ -517,7 +523,7 @@ class Measure(_SemanticObject[MeasureKind], RowExpression[Literal["numeric"]]):
 
     @property
     def definition(self) -> FieldDefinition:
-        return cast("FieldDefinition", super().definition)
+        return self._definition_as(FieldDefinition)
 
     @property
     def _role(self) -> Literal["numeric"]:
@@ -539,7 +545,7 @@ class Metric(_SemanticObject[MetricKind], MetricExpression[Literal["numeric"]]):
 
     @property
     def definition(self) -> MetricDefinition:
-        return cast("MetricDefinition", super().definition)
+        return self._definition_as(MetricDefinition)
 
     @property
     def _role(self) -> Literal["numeric"]:
@@ -561,7 +567,7 @@ class Relationship(_SemanticObject[RelationshipKind], CatalogRelationshipInput):
 
     @property
     def definition(self) -> RelationshipDefinition:
-        return cast("RelationshipDefinition", super().definition)
+        return self._definition_as(RelationshipDefinition)
 
     @property
     def _parameter(self) -> RelationshipParameter:

@@ -13,15 +13,21 @@ import ibis
 import ibis.expr.types as ir
 import pytest
 from ibis.backends import BaseBackend
+from trino.exceptions import TrinoQueryError
 
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.engines import duckdb as duckdb_engine
-from marivo.datasource.errors import DatasourceRawSqlError
+from marivo.datasource.engines.mysql import verify_source_timezone
+from marivo.datasource.errors import DatasourceConnectionError, DatasourceRawSqlError
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.runtime import adapters as adapters
 from marivo.datasource.runtime.backends import build_backend
 from marivo.datasource.runtime.session_factory import probe_backend
+from tests.datasource.environment import clickhouse_analysis as ch
+from tests.datasource.environment import mysql_analysis as mysql
+from tests.datasource.environment import postgres_analysis as pg
+from tests.datasource.environment.credentials import password
 
 
 def test_duckdb_connection_settings_are_effective() -> None:
@@ -89,7 +95,6 @@ def test_governed_probe_submits_exact_ibis_compilation(
 def test_postgres_terminal_control_uses_server_timeout_and_autocommit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from tests.datasource.environment import postgres_analysis as pg
 
     monkeypatch.setenv("MARIVO_SOURCE_CONTROL_POSTGRES_PASSWORD", pg.password())
     datasource = DatasourceIR(
@@ -134,7 +139,6 @@ def test_postgres_terminal_control_uses_server_timeout_and_autocommit(
     os.environ.get("MARIVO_TRINO_ANALYSIS_TEST") != "1", reason="opt-in Trino service"
 )
 def test_trino_terminal_session_timeout_and_timezone_are_effective() -> None:
-    from trino.exceptions import TrinoQueryError
 
     datasource = DatasourceIR(
         semantic_id="source_control",
@@ -235,7 +239,6 @@ def test_trino_raw_sql_repairs_guide_qualified_column_discovery(
 def test_mysql_raw_sql_classifies_native_timeout_preflight_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tests.datasource.environment import mysql_analysis as mysql
 
     monkeypatch.setenv("MARIVO_RAW_SQL_TEST_USER", mysql.READER)
     monkeypatch.setenv("MARIVO_RAW_SQL_TEST_PASSWORD", mysql.password())
@@ -272,8 +275,6 @@ def test_mysql_raw_sql_classifies_native_timeout_preflight_failure(
 def test_clickhouse_unsettable_timeout_blocks_before_user_sql(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tests.datasource.environment import clickhouse_analysis as ch
-    from tests.datasource.environment.credentials import password
 
     ch.setup()
     user = "timeout_locked_" + uuid4().hex
@@ -323,9 +324,6 @@ def test_clickhouse_unsettable_timeout_blocks_before_user_sql(
 def test_mysql_unavailable_named_zone_blocks_time_sensitive_conversion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.engines.mysql import verify_source_timezone
-    from marivo.datasource.errors import DatasourceConnectionError
-    from tests.datasource.environment import mysql_analysis as mysql
 
     monkeypatch.setenv("MARIVO_SOURCE_CONTROL_MYSQL_PASSWORD", mysql.password())
     datasource = DatasourceIR(

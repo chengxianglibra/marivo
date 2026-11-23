@@ -1,13 +1,18 @@
 """Public frequency games freeze source transport before local permutations."""
 
+import json
+import os
 from collections.abc import Callable
+from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 
 import duckdb
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.frame_method_facts import FrameShapleyCapture, FrameShapleyMethod
+from marivo.analysis.core.frame_method_facts import FrameShapleyMethod
+from marivo.analysis.core.frame_shapley_facts import FrameShapleyCapture
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
@@ -123,8 +128,6 @@ def test_public_frequency_game_keeps_source_capture_fixed_as_permutations_grow(
         sql = "\n".join(trace.native_sql[start:]).lower()
         assert "__attribute_frequency_value" in sql
     assert costs[0] == costs[1]
-    import json
-    import os
 
     destination = os.environ.get("MARIVO_SHAPLEY_STATE_EVIDENCE_DIR")
     if destination:
@@ -195,8 +198,6 @@ def test_native_duckdb_interpolation_uses_original_queries_and_observe_still_wor
 def test_native_decimal_quantiles_preserve_each_finisher_and_query_receipts(
     frequency_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from decimal import Decimal
-    from fractions import Fraction
 
     session = frequency_session
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")

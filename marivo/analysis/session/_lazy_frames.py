@@ -7,7 +7,7 @@ from marivo.analysis.errors import AnalysisError, AnalysisRepair, SessionStateEr
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.contracts import parse_timestamp
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.materialization.store import _rows, _text
+from marivo.analysis.materialization.sqlite_values import _rows, _text
 from marivo.analysis.model.pages import decode_keyset_cursor, encode_keyset_cursor
 from marivo.analysis.model.receipts import digest, invalid
 from marivo.analysis.session._lazy_read_model import (

@@ -27,7 +27,7 @@
 ### 类型注解
 - 所有公共函数必须包含类型注解
 - 使用 `from __future__ import annotations` 启用延迟注解
-- 使用 `TYPE_CHECKING` 处理循环导入
+- 用 `TYPE_CHECKING` 标记仅供类型检查的依赖。导入契约也检查这些依赖。
 - 使用 `| None` 而不是 `Optional[]`（Python 3.10+语法）
 
 ## 项目结构
@@ -48,9 +48,7 @@ scripts/         # 开发与检查脚本
 
 ## 架构约束
 
-- `datasource` 不得依赖 `semantic` 或 `analysis`；`semantic` 不得依赖 `analysis`。
-- `introspection.live`、`_authoring` 和 `_definition` 保持底层依赖边界；完整约束由 `.importlinter` 在 CI 中强制执行。
-- 模块职责与数据流参见 `docs/architecture/semantic/overview.md` 和 `docs/architecture/analysis/README.md`。
+模块职责、SPI、导入门禁和棘轮维护见[架构边界与静态检查](docs/architecture/architecture-boundaries.md)。
 
 ## 开发工具
 

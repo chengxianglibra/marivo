@@ -3,27 +3,56 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from typing import TYPE_CHECKING, TypeAlias
 
 import pandas as pd
 
 from marivo.analysis.binding.programs import FormulaProgram
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.query_program import (
+    FrameCombineProgram,
+    FrameCompareProgram,
+    ResultProgram,
+)
+from marivo.analysis.compiler.query_stages import (
     FrameCompute,
     LocalCompute,
     local_steps,
     read_reduction,
     require_reduction,
 )
-from marivo.analysis.compiler.query_program import (
-    FrameCombineProgram,
-    FrameCompareProgram,
-    ResultProgram,
+from marivo.analysis.core.attachments import OutputAttachment
+from marivo.analysis.core.attribute import (
+    AttributeContributionProgram,
+    AttributeFormulaContext,
+    AttributeInputProgram,
+    AttributeMethodPayload,
+    AttributeProjectProgram,
 )
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.core.attribute_game import AttributeGameProgram
+from marivo.analysis.core.frame_data import required_attachments
+from marivo.analysis.core.frozen_calendar import FrozenAttachment, validate_frozen_coordinates
+from marivo.analysis.materialization.query_components import complete_attribute_parent_domain
+from marivo.analysis.materialization.query_runtime_types import effective_frame, effective_local
+from marivo.analysis.methods import (
+    frame_attribute_contribution,
+    query_values,
+)
 from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.methods.frame_attribute import (
+    attribute_input_frame_data,
+    attribute_parent_mapping,
+    project_attribute_parents,
+)
+from marivo.analysis.methods.frame_attribute_merge import merge_attribute_data
+from marivo.analysis.methods.frame_attribute_shapley import attribute_game_data
+from marivo.analysis.methods.frame_comparison import combine_frame_data, compare_frame_data
+from marivo.analysis.methods.local import query_combine
+from marivo.analysis.methods.query_values import evaluate_result
 from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_attribute_merge import AttributeMergeProgram
 from marivo.analysis.model.frame_contracts import CheckReceipt
+from marivo.analysis.model.unique_keys import UniqueKeys
 
 if TYPE_CHECKING:
     from marivo.analysis.methods.carriers.stage_components import AttributeRootInputs
@@ -40,196 +69,10 @@ def run_local(
     sample_domains: Mapping[tuple[int, ...], pd.DataFrame] | None = None,
 ) -> StageOutput:
     """Run one checked Query kernel without mutating its shared inputs."""
-    attribute_inputs: tuple[AttributeRootInputs, ...] = ()
     if isinstance(stage, FrameCompute):
-        from marivo.analysis.core.frame_data import required_attachments
-        from marivo.analysis.core.frozen_calendar import (
-            FrozenAttachment,
-            validate_frozen_coordinates,
-        )
-        from marivo.analysis.materialization.query_runtime_types import effective_frame
-        from marivo.analysis.methods.frame_comparison import combine_frame_data, compare_frame_data
-        from marivo.analysis.methods.frame_values import evaluate_frame
-
-        if stage.filter_fusion is None:
-            stage = effective_frame(stage, inputs)
-        # The schedule admits a fused program only on its exact compiled input schema.
-        resolved_schema = stage.program.output_schema
-        required = required_attachments(resolved_schema)
-
-        def retained_input_attachments() -> tuple[OutputAttachment, ...]:
-            retained: dict[str, OutputAttachment] = {}
-            for source in inputs:
-                for attachment in source.frame_attachments:
-                    if attachment.name not in required:
-                        continue
-                    previous = retained.get(attachment.name)
-                    if previous is None:
-                        retained[attachment.name] = attachment
-            if set(retained) != set(required):
-                raise MaterializationError(
-                    expected="all required frozen coordinate attachments",
-                    received=repr(tuple(retained)),
-                    repair="Retain required complete coordinate data.",
-                    stage="frame_compute",
-                )
-            return tuple(retained[name] for name in required)
-
-        from marivo.analysis.core.attribute import (
-            AttributeContributionProgram,
-            AttributeInputProgram,
-            AttributeMethodPayload,
-            AttributeProjectProgram,
-        )
-        from marivo.analysis.methods.frame_attribute import (
-            attribute_input_frame_data,
-            project_attribute_parents,
-        )
-
-        attribute_methods: tuple[AttributeMethodPayload, ...] = ()
-        attachments: tuple[OutputAttachment, ...]
-        from marivo.analysis.core.attribute_game import AttributeGameProgram
-        from marivo.analysis.model.frame_attribute_merge import AttributeMergeProgram
-
-        if isinstance(stage.program, AttributeGameProgram):
-            from marivo.analysis.methods.frame_attribute_shapley import attribute_game_data
-
-            frame, payload = attribute_game_data(stage.program, inputs)
-            attachments = retained_input_attachments()
-            attribute_methods = (payload,)
-        elif isinstance(stage.program, AttributeMergeProgram):
-            from marivo.analysis.methods.frame_attribute_merge import merge_attribute_data
-
-            frame, attachments = merge_attribute_data(stage.program, inputs)
-        elif isinstance(stage.program, AttributeContributionProgram):
-            from marivo.analysis.methods.frame_attribute_contribution import (
-                attribute_contribution_data,
-            )
-
-            frame, payload = attribute_contribution_data(stage.program, inputs)
-            attachments = retained_input_attachments()
-            attribute_methods = (payload,)
-        elif isinstance(stage.program, AttributeProjectProgram):
-            frame = project_attribute_parents(
-                stage.program,
-                inputs[0].table,
-                inputs[0].frame_attachments,
-                unique_keys=inputs[0].unique_keys,
-            )
-            attachments = ()
-        elif isinstance(stage.program, AttributeInputProgram):
-            from dataclasses import replace
-
-            from marivo.analysis.materialization.query_components import (
-                complete_attribute_parent_domain,
-            )
-
-            parent, left, right, left_projection, right_projection = inputs[:5]
-            roles: dict[str, list[AttributeRootInputs]] = {"left": [], "right": []}
-            for read_binding in stage.program.reads:
-                actual = inputs[read_binding.input_index].attribute_inputs
-                for root in actual:
-                    if (
-                        root.layout.scope != read_binding.scope
-                        or tuple(leaf.use for leaf in root.layout.leaves) != read_binding.uses
-                    ):
-                        raise MaterializationError(
-                            expected="the exact typed Attribute role dependency",
-                            received=root.stage_id,
-                            repair="Retain each planned role and complete source use until input assembly.",
-                            stage="attribute_inputs",
-                            help_target="analysis_frame.compute",
-                        )
-                    projection = (
-                        left_projection if read_binding.side == "left" else right_projection
-                    )
-                    roles[read_binding.side].append(
-                        complete_attribute_parent_domain(root, projection)
-                    )
-            left = replace(left, attribute_inputs=tuple(roles["left"]))
-            right = replace(right, attribute_inputs=tuple(roles["right"]))
-            inputs = (parent, left, right, left_projection, right_projection)
-            frame, attachments = attribute_input_frame_data(stage.program, inputs)
-            attribute_inputs = tuple(
-                {
-                    root.stage_id: root
-                    for root in (*left.attribute_inputs, *right.attribute_inputs)
-                }.values()
-            )
-        elif isinstance(stage.program, FrameCompareProgram):
-            frame, attachments, resolved_schema = compare_frame_data(
-                stage.program,
-                tuple(item.table for item in inputs),
-                tuple(item.frame_attachments for item in inputs),
-                unique_keys=tuple(item.unique_keys for item in inputs),
-            )
-        elif isinstance(stage.program, FrameCombineProgram):
-            frame, attachments, resolved_schema = combine_frame_data(
-                stage.program,
-                tuple(item.table for item in inputs),
-                tuple(item.frame_attachments for item in inputs),
-                unique_keys=tuple(item.unique_keys for item in inputs),
-            )
-        else:
-            validate_frozen_coordinates(
-                stage.program.input_schema,
-                inputs[0].table,
-                tuple(
-                    FrozenAttachment(a.name, a.schema, a.rows) for a in inputs[0].frame_attachments
-                ),
-                unique_keys=inputs[0].unique_keys,
-            )
-            tables = tuple(item.table for item in inputs)
-            fusion = stage.filter_fusion
-            if fusion is None:
-                frame = evaluate_frame(stage.program, tables)
-            else:
-                frame = evaluate_frame(
-                    stage.program, tables, second_filter_columns=fusion.second_columns
-                )
-            attachments = tuple(a for a in inputs[0].frame_attachments if a.name in required)
-        if isinstance(stage.program, (FrameCompareProgram, FrameCombineProgram)):
-            from dataclasses import replace
-
-            stage = replace(stage, program=replace(stage.program, output_schema=resolved_schema))
-            required = required_attachments(resolved_schema)
-        if {a.name for a in attachments} != set(required):
-            raise MaterializationError(
-                expected="all required frozen coordinate attachments",
-                received=repr(tuple(a.name for a in attachments)),
-                repair="Retain required complete coordinate data.",
-                stage="frame_compute",
-            )
-        output = StageOutput.from_frame(
-            frame,
-            stage.columns,
-            stage.keys,
-            key_groups=tuple(
-                tuple(c.slot_id for c in a.columns) for a in stage.program.output_schema.axes
-            ),
-            frame_attachments=attachments,
-            attribute_methods=attribute_methods,
-            attribute_inputs=attribute_inputs,
-            frame_schema=stage.program.output_schema,
-            unique_keys=stage.unique_keys,
-        )
-        validate_frozen_coordinates(
-            stage.program.output_schema,
-            output.table,
-            tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in attachments),
-            unique_keys=output.unique_keys,
-        )
-        if isinstance(stage.program, AttributeInputProgram):
-            from dataclasses import replace
-
-            return replace(
-                output,
-                receipts=(CheckReceipt("attribute.complete_key_mapping", stage.stage_id),),
-            )
-        return output
+        return _run_frame(stage, inputs)
+    attribute_inputs: tuple[AttributeRootInputs, ...] = ()
     if local_steps(stage):
-        from marivo.analysis.materialization.query_runtime_types import effective_local
-
         output = inputs[0]
         for member in local_steps(stage):
             output = run_local(effective_local(member, (output,)), (output,))
@@ -248,80 +91,12 @@ def run_local(
         if isinstance(stage.program, FormulaProgram)
         else ()
     )
-    from marivo.analysis.methods.local import query_combine
 
     if kernel is None:
-        if isinstance(stage.program, ResultProgram):
-            from marivo.analysis.methods.query_values import evaluate_result
-
-            kernel = evaluate_result
-        else:
-            from marivo.analysis.methods.local import query_combine
-
-            kernel = query_combine
+        kernel = evaluate_result if isinstance(stage.program, ResultProgram) else query_combine
     with pd.option_context("mode.copy_on_write", True):
-        views = tuple(item.table.copy(deep=False) for item in inputs)
-        view_keys = [item.unique_keys for item in inputs]
-        if isinstance(stage.program, FormulaProgram) and stage.attribute is not None:
-            selected_views = list(views)
-            for index, binding in enumerate(stage.program.values):
-                native = next(
-                    (
-                        native
-                        for root in inputs[index].attribute_inputs
-                        for native in root.layout.native_formulas
-                        if native.column.slot_id == binding.column.slot_id
-                    ),
-                    None,
-                )
-                leaf = next(
-                    leaf
-                    for root in inputs[index].attribute_inputs
-                    for leaf in root.layout.leaves
-                    if (native is not None and leaf.use == native.use)
-                    or (
-                        read_reduction(leaf.read) is not None
-                        and require_reduction(leaf.read).value_slot == binding.column.slot_id
-                    )
-                )
-                reduction = read_reduction(leaf.read)
-                assert reduction is not None
-                view = views[index]
-                fixed_slots: tuple[str, ...] = ()
-                if reduction.window_key is not None:
-                    slot = next(
-                        slot
-                        for slot, calendar in reduction.calendars
-                        if calendar == reduction.calendar
-                    )
-                    view = view.loc[view[slot] == reduction.window_key]
-                    fixed_slots = (slot,)
-                names = tuple(
-                    dict.fromkeys(
-                        (
-                            *binding.keys,
-                            binding.column.slot_id,
-                            *(name for name, _, _ in binding.checks),
-                            *(
-                                name
-                                for name in ("__numeric_present", "__sample_present")
-                                if name in view.columns
-                            ),
-                        )
-                    )
-                )
-                selected_views[index] = view.loc[:, list(names)].copy(deep=False)
-                view_keys[index] = (
-                    view_keys[index]
-                    .project(tuple(str(c) for c in views[index].columns))
-                    .fixed(names, fixed_slots)
-                )
-            views = tuple(selected_views)
+        views, view_keys = _kernel_input_views(stage, inputs)
         if stage.attribute is not None:
-            from marivo.analysis.core.attribute import AttributeFormulaContext
-            from marivo.analysis.methods.frame_attribute import attribute_parent_mapping
-            from marivo.analysis.methods.local import query_combine
-
             formula_binding = stage.attribute
             context = AttributeFormulaContext(
                 formula_binding.uses,
@@ -356,18 +131,7 @@ def run_local(
             )
         else:
             frame = kernel(stage, views)
-    if not isinstance(frame, pd.DataFrame) or any(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        frame is item.table or frame is view for item, view in zip(inputs, views, strict=True)
-    ):
-        raise MaterializationError(
-            expected=f"{stage.kernel}: a new pandas DataFrame",
-            received=type(frame).__name__
-            if not isinstance(frame, pd.DataFrame)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            else "an input table",
-            repair="Return a new frame from the registered kernel; inputs are shared stage data.",
-            stage="local_compute",
-            help_target="analysis_frame.compute",
-        )
+    _validate_kernel_output(frame, stage, inputs, views)
     if isinstance(stage.program, FormulaProgram):
         # Formula values occupy the ordered input prefix, including repeated
         # aliases of one bundled root. Domain/projection dependencies own no mass.
@@ -402,3 +166,237 @@ def run_local(
             }.values()
         ),
     )
+
+
+def _run_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
+    attribute_inputs: tuple[AttributeRootInputs, ...] = ()
+    if stage.filter_fusion is None:
+        stage = effective_frame(stage, inputs)
+    # The schedule admits a fused program only on its exact compiled input schema.
+    resolved_schema = stage.program.output_schema
+    required = required_attachments(resolved_schema)
+
+    attribute_methods: tuple[AttributeMethodPayload, ...] = ()
+    attachments: tuple[OutputAttachment, ...]
+
+    if isinstance(stage.program, AttributeGameProgram):
+        frame, payload = attribute_game_data(stage.program, inputs)
+        attachments = _retained_input_attachments(inputs, required)
+        attribute_methods = (payload,)
+    elif isinstance(stage.program, AttributeMergeProgram):
+        frame, attachments = merge_attribute_data(stage.program, inputs)
+    elif isinstance(stage.program, AttributeContributionProgram):
+        frame, payload = frame_attribute_contribution.attribute_contribution_data(
+            stage.program, inputs
+        )
+        attachments = _retained_input_attachments(inputs, required)
+        attribute_methods = (payload,)
+    elif isinstance(stage.program, AttributeProjectProgram):
+        frame = project_attribute_parents(
+            stage.program,
+            inputs[0].table,
+            inputs[0].frame_attachments,
+            unique_keys=inputs[0].unique_keys,
+        )
+        attachments = ()
+    elif isinstance(stage.program, AttributeInputProgram):
+        frame, attachments, attribute_inputs = _prepare_attribute_input_frame(stage.program, inputs)
+    elif isinstance(stage.program, FrameCompareProgram):
+        frame, attachments, resolved_schema = compare_frame_data(
+            stage.program,
+            tuple(item.table for item in inputs),
+            tuple(item.frame_attachments for item in inputs),
+            unique_keys=tuple(item.unique_keys for item in inputs),
+        )
+    elif isinstance(stage.program, FrameCombineProgram):
+        frame, attachments, resolved_schema = combine_frame_data(
+            stage.program,
+            tuple(item.table for item in inputs),
+            tuple(item.frame_attachments for item in inputs),
+            unique_keys=tuple(item.unique_keys for item in inputs),
+        )
+    else:
+        validate_frozen_coordinates(
+            stage.program.input_schema,
+            inputs[0].table,
+            tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in inputs[0].frame_attachments),
+            unique_keys=inputs[0].unique_keys,
+        )
+        tables = tuple(item.table for item in inputs)
+        fusion = stage.filter_fusion
+        if fusion is None:
+            frame = query_values.evaluate_frame(stage.program, tables)
+        else:
+            frame = query_values.evaluate_frame(
+                stage.program, tables, second_filter_columns=fusion.second_columns
+            )
+        attachments = tuple(a for a in inputs[0].frame_attachments if a.name in required)
+    if isinstance(stage.program, (FrameCompareProgram, FrameCombineProgram)):
+        stage = replace(stage, program=replace(stage.program, output_schema=resolved_schema))
+        required = required_attachments(resolved_schema)
+    if {a.name for a in attachments} != set(required):
+        raise MaterializationError(
+            expected="all required frozen coordinate attachments",
+            received=repr(tuple(a.name for a in attachments)),
+            repair="Retain required complete coordinate data.",
+            stage="frame_compute",
+        )
+    output = StageOutput.from_frame(
+        frame,
+        stage.columns,
+        stage.keys,
+        key_groups=tuple(
+            tuple(c.slot_id for c in a.columns) for a in stage.program.output_schema.axes
+        ),
+        frame_attachments=attachments,
+        attribute_methods=attribute_methods,
+        attribute_inputs=attribute_inputs,
+        frame_schema=stage.program.output_schema,
+        unique_keys=stage.unique_keys,
+    )
+    validate_frozen_coordinates(
+        stage.program.output_schema,
+        output.table,
+        tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in attachments),
+        unique_keys=output.unique_keys,
+    )
+    if isinstance(stage.program, AttributeInputProgram):
+        return replace(
+            output,
+            receipts=(CheckReceipt("attribute.complete_key_mapping", stage.stage_id),),
+        )
+    return output
+
+
+def _retained_input_attachments(
+    inputs: tuple[StageOutput, ...], required: tuple[str, ...]
+) -> tuple[OutputAttachment, ...]:
+    retained: dict[str, OutputAttachment] = {}
+    for source in inputs:
+        for attachment in source.frame_attachments:
+            if attachment.name not in required:
+                continue
+            previous = retained.get(attachment.name)
+            if previous is None:
+                retained[attachment.name] = attachment
+    if set(retained) != set(required):
+        raise MaterializationError(
+            expected="all required frozen coordinate attachments",
+            received=repr(tuple(retained)),
+            repair="Retain required complete coordinate data.",
+            stage="frame_compute",
+        )
+    return tuple(retained[name] for name in required)
+
+
+def _prepare_attribute_input_frame(
+    program: AttributeInputProgram, inputs: tuple[StageOutput, ...]
+) -> tuple[pd.DataFrame, tuple[OutputAttachment, ...], tuple[AttributeRootInputs, ...]]:
+    parent, left, right, left_projection, right_projection = inputs[:5]
+    roles: dict[str, list[AttributeRootInputs]] = {"left": [], "right": []}
+    for read_binding in program.reads:
+        actual = inputs[read_binding.input_index].attribute_inputs
+        for root in actual:
+            if (
+                root.layout.scope != read_binding.scope
+                or tuple(leaf.use for leaf in root.layout.leaves) != read_binding.uses
+            ):
+                raise MaterializationError(
+                    expected="the exact typed Attribute role dependency",
+                    received=root.stage_id,
+                    repair="Retain each planned role and complete source use until input assembly.",
+                    stage="attribute_inputs",
+                    help_target="analysis_frame.compute",
+                )
+            projection = left_projection if read_binding.side == "left" else right_projection
+            roles[read_binding.side].append(complete_attribute_parent_domain(root, projection))
+    left = replace(left, attribute_inputs=tuple(roles["left"]))
+    right = replace(right, attribute_inputs=tuple(roles["right"]))
+    inputs = (parent, left, right, left_projection, right_projection)
+    frame, attachments = attribute_input_frame_data(program, inputs)
+    attribute_inputs = tuple(
+        {root.stage_id: root for root in (*left.attribute_inputs, *right.attribute_inputs)}.values()
+    )
+    return frame, attachments, attribute_inputs
+
+
+def _kernel_input_views(
+    stage: LocalCompute, inputs: tuple[StageOutput, ...]
+) -> tuple[tuple[pd.DataFrame, ...], list[UniqueKeys]]:
+    views = tuple(item.table.copy(deep=False) for item in inputs)
+    view_keys = [item.unique_keys for item in inputs]
+    if isinstance(stage.program, FormulaProgram) and stage.attribute is not None:
+        selected_views = list(views)
+        for index, binding in enumerate(stage.program.values):
+            native = next(
+                (
+                    native
+                    for root in inputs[index].attribute_inputs
+                    for native in root.layout.native_formulas
+                    if native.column.slot_id == binding.column.slot_id
+                ),
+                None,
+            )
+            leaf = next(
+                leaf
+                for root in inputs[index].attribute_inputs
+                for leaf in root.layout.leaves
+                if (native is not None and leaf.use == native.use)
+                or (
+                    read_reduction(leaf.read) is not None
+                    and require_reduction(leaf.read).value_slot == binding.column.slot_id
+                )
+            )
+            reduction = read_reduction(leaf.read)
+            assert reduction is not None
+            view = views[index]
+            fixed_slots: tuple[str, ...] = ()
+            if reduction.window_key is not None:
+                slot = next(
+                    slot for slot, calendar in reduction.calendars if calendar == reduction.calendar
+                )
+                view = view.loc[view[slot] == reduction.window_key]
+                fixed_slots = (slot,)
+            names = tuple(
+                dict.fromkeys(
+                    (
+                        *binding.keys,
+                        binding.column.slot_id,
+                        *(name for name, _, _ in binding.checks),
+                        *(
+                            name
+                            for name in ("__numeric_present", "__sample_present")
+                            if name in view.columns
+                        ),
+                    )
+                )
+            )
+            selected_views[index] = view.loc[:, list(names)].copy(deep=False)
+            view_keys[index] = (
+                view_keys[index]
+                .project(tuple(str(c) for c in views[index].columns))
+                .fixed(names, fixed_slots)
+            )
+        views = tuple(selected_views)
+
+    return views, view_keys
+
+
+def _validate_kernel_output(
+    frame: object,
+    stage: LocalCompute,
+    inputs: tuple[StageOutput, ...],
+    views: tuple[pd.DataFrame, ...],
+) -> None:
+    if not isinstance(frame, pd.DataFrame) or any(
+        frame is item.table or frame is view for item, view in zip(inputs, views, strict=True)
+    ):
+        raise MaterializationError(
+            expected=f"{stage.kernel}: a new pandas DataFrame",
+            received=type(frame).__name__
+            if not isinstance(frame, pd.DataFrame)
+            else "an input table",
+            repair="Return a new frame from the registered kernel; inputs are shared stage data.",
+            stage="local_compute",
+            help_target="analysis_frame.compute",
+        )

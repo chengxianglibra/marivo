@@ -10,8 +10,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
-from marivo.analysis.methods.carriers.data_validation import (
+from marivo.analysis.core.attachments import OutputAttachment
+from marivo.analysis.core.data_validation import (
     _stage_error,
     normalize_stage_frame,
 )

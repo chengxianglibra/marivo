@@ -7,6 +7,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.methods.numeric_state import nullable_arithmetic
+from marivo.semantic.errors import SemanticExpressionError
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 
 
@@ -15,8 +16,6 @@ def test_mixed_numeric_nullable_arithmetic_preserves_object_masks(decimal: bool)
     left = pd.Series([Decimal("10.0") if decimal else 10.0, 0.0, pd.NA], dtype=object)
     right = pd.Series([2.0, 0.0, 1.0], dtype=object)
     if decimal:
-        from marivo.semantic.errors import SemanticExpressionError
-
         # Native Python object arithmetic rejects Decimal/float mixing.
         with pytest.raises(SemanticExpressionError):
             nullable_arithmetic("divide", left, right)

@@ -1,7 +1,9 @@
 """Ordinary Frame correspondence uses complete keys and independent manual oracles."""
 
+import subprocess
+import sys
 from collections.abc import Callable, Mapping
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -12,10 +14,14 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
+import marivo.analysis.materialization.frame_evaluation as frame_evaluation
+import marivo.analysis.materialization.frame_source_preparation as frame_source_preparation
 from marivo._definition.grouping import grouping_binding
-from marivo.analysis.compiler.frame_plan import CompiledFramePlan
-from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import (
+from marivo._definition.types import IntervalCoordinate
+from marivo._kernel.temporal import anchor_from_datetime, builtin_grain
+from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
+from marivo.analysis.compiler.lowered_query import LoweredRead
+from marivo.analysis.compiler.query_stages import (
     FrameCompute,
     FrameInput,
     LocalCompute,
@@ -28,15 +34,19 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.column import row_count
+from marivo.analysis.dsl.correspondence import ordinal
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.frame_sources import values as frame_values
+from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.materialization.graph_source_execution import PreparedSources, run_frame_plan
+from marivo.analysis.materialization.graph_source_execution import run_frame_plan
+from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar, freeze_interval
 from marivo.analysis.methods.carriers.stages import StageOutput
-from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_schema import DataAxis, DataSchema, IntervalComparisonBinding
 from marivo.analysis.model.data_types import (
     DataColumn,
     DataType,
@@ -48,6 +58,7 @@ from marivo.analysis.model.data_types import (
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.model.frame_structure import PendingDataSchema
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 
 
@@ -221,8 +232,6 @@ def test_composite_identity_and_field_domains_are_full_tuples(local: LocalFrameS
 def test_infers_reordered_composite_axes_for_align_and_each_named_baseline(
     local: LocalFrameServices,
 ) -> None:
-    import subprocess
-    import sys
 
     account = DataAxis(
         "account",
@@ -340,9 +349,6 @@ def test_automatic_axis_mapping_requires_unique_complete_metadata(
 
 
 def test_multiple_time_axes_do_not_infer_correspondence(local: LocalFrameServices) -> None:
-    from marivo._kernel.temporal import builtin_grain
-    from marivo.analysis.dsl.temporal import exact_scope
-    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 
     period = exact_scope("2026-08-01", "2026-08-03", "UTC").by(builtin_grain("day"))
     first, second = (
@@ -621,15 +627,14 @@ def test_pending_and_mixed_inference_completes_identical_directories(
 def test_fixed_combine_never_prepares_sources_or_catalog(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis.materialization.frame_source_preparation as evaluator
 
     left, right = _memory(local, ["A"], [8]), _memory(local, ["A"], [2])
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("fixed data cannot prepare sources")
 
-    monkeypatch.setattr(evaluator, "open_query_sources", forbidden)
-    monkeypatch.setattr(evaluator, "prepare_source_free_populations", forbidden)
+    monkeypatch.setattr(frame_source_preparation, "open_query_sources", forbidden)
+    monkeypatch.setattr(frame_source_preparation, "prepare_source_free_populations", forbidden)
     monkeypatch.setattr("marivo.analysis.session.core.Session.catalog", property(forbidden))
     output = left.compare(
         {"reference": mv.baseline(right, on=((left.axes[0], right.axes[0]),))}
@@ -640,7 +645,6 @@ def test_fixed_combine_never_prepares_sources_or_catalog(
 def test_actual_source_plus_fixed_uses_one_binary_plan(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis.materialization.frame_evaluation as evaluator
 
     case = analysis_dsl_case_factory("j1")
     session = case.session
@@ -679,7 +683,7 @@ def test_actual_source_plus_fixed_uses_one_binary_plan(
             retain_inputs=retain_inputs,
         )
 
-    monkeypatch.setattr(evaluator, "run_frame_plan", run)
+    monkeypatch.setattr(frame_evaluation, "run_frame_plan", run)
     result = source.compare({"reference": mv.baseline(fixed)}).compute()
     assert len(schedules) == 1 and FrameInput in schedules[0] and FrameCompute in schedules[0]
     assert _values(result, "amount") == [1176]
@@ -750,8 +754,6 @@ def test_empty_values_do_not_qualify_for_compare(local: LocalFrameServices) -> N
 def test_source_binary_failure_still_closes_and_publishes_nothing(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.model.execution_errors import MaterializationError
-    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j1")
     session = case.session
@@ -878,9 +880,6 @@ def _interval(
     zone: str = "UTC",
     amount: int | None = 5,
 ) -> AnalysisFrame:
-    from marivo._definition.types import IntervalCoordinate
-    from marivo._kernel.temporal import anchor_from_datetime
-    from marivo.analysis.methods.carriers.frame_calendar import freeze_interval
 
     frozen = freeze_interval(
         IntervalCoordinate(
@@ -916,7 +915,6 @@ def _interval(
 
 
 def test_interval_exact_identity_outer_and_ordinal(local: LocalFrameServices) -> None:
-    from marivo.analysis.dsl.correspondence import ordinal
 
     left, equal, other = (
         _interval(local, 1, 4),
@@ -943,7 +941,6 @@ def test_interval_exact_identity_outer_and_ordinal(local: LocalFrameServices) ->
 def test_interval_declared_directory_survives_filter_reduce_and_matching(
     local: LocalFrameServices,
 ) -> None:
-    from marivo.analysis.dsl.correspondence import ordinal
 
     left, right = _interval(local, 1, 4, amount=2), _interval(local, 2, 5, amount=3)
     merged = left.align(right).compute()
@@ -1071,8 +1068,6 @@ def test_comparison_select_retains_only_direct_bindings_and_exact_presence(
 
 
 def test_interval_comparison_alignment_transports_explicit_maps(local: LocalFrameServices) -> None:
-    from marivo.analysis.dsl.correspondence import ordinal
-    from marivo.analysis.model.data_schema import IntervalComparisonBinding
 
     current, baseline = _interval(local, 1, 4), _interval(local, 2, 5)
     first = current.compare({"reference": mv.baseline(baseline, match=ordinal())})
@@ -1147,7 +1142,6 @@ def test_bare_compare_preserves_outer_values_presence_and_reference_order(
 
 
 def test_bare_compare_scalar_and_explicit_time_matching(local: LocalFrameServices) -> None:
-    from marivo.analysis.dsl.correspondence import ordinal
 
     current = frame_sources.values(local, columns={"amount": "USD"}, rows=(((), {"amount": 12}),))
     baseline = frame_sources.values(local, columns={"amount": "USD"}, rows=(((), {"amount": -4}),))
@@ -1171,7 +1165,6 @@ def test_bare_compare_scalar_and_explicit_time_matching(local: LocalFrameService
 def test_compare_rejects_mixed_parameter_shapes_and_unnamed_multiple_inputs(
     local: LocalFrameServices,
 ) -> None:
-    from marivo.analysis.dsl.correspondence import ordinal
 
     current, baseline = _memory(local, ["A"], [4]), _memory(local, ["A"], [2])
     on = ((current.axes[0], baseline.axes[0]),)
@@ -1225,7 +1218,6 @@ def test_baseline_declaration_is_read_only_and_captures_without_reads(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from dataclasses import FrozenInstanceError
 
     current = _memory(local, ["A"], [12])
     prior = _memory(local, ["A"], [3])

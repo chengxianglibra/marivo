@@ -7,7 +7,9 @@ from fractions import Fraction
 
 import pytest
 
-from marivo.analysis.methods.frame_attribute_shapley import _sample_moments, _scaled_sum
+from marivo.analysis.methods.attribute_game_diagnostics import attribute_numeric_context
+from marivo.analysis.methods.attribute_game_sampling import _sample_moments, _scaled_sum
+from marivo.analysis.model.attribute_failures import AttributeFailureContext, AttributeParentFiber
 from marivo.analysis.model.data_types import ScalarDataType
 from marivo.semantic.errors import SemanticExpressionError
 
@@ -56,16 +58,11 @@ def test_scaled_closure_sum_cancels_before_overflow_and_retains_subnormal() -> N
 
 
 def test_unrepresentable_statistic_retains_metric_and_parent_context() -> None:
-    from marivo.analysis.methods.frame_attribute_shapley import _attribute_numeric_context
-    from marivo.analysis.model.attribute_failures import (
-        AttributeFailureContext,
-        AttributeParentFiber,
-    )
 
     parent = ((ScalarDataType("string"), "West"),)
     with (
         pytest.raises(SemanticExpressionError) as caught,
-        _attribute_numeric_context((), "revenue_growth", parent, ()),
+        attribute_numeric_context((), "revenue_growth", parent, ()),
     ):
         _scaled_sum((sys.float_info.max, sys.float_info.max))
     context = caught.value.details["attribute_context"]

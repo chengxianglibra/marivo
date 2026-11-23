@@ -5,28 +5,54 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from marivo._definition.query import (
     CoordinateSlot,
     PairStatistic,
+    SelectValues,
     Statistic,
     ValueBinary,
     ValueExpression,
     ValueLiteral,
+    ValueShare,
     ValueUnary,
 )
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
+from marivo.analysis.core.frame_data import FrameNode
+from marivo.analysis.core.frame_value_analysis import expression_type, infer_frame_schema
 from marivo.analysis.core.value_types import literal_kind
+from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_structure import ValueKind as ValueKind
+from marivo.analysis.model.frame_structure import column_kind
 from marivo.telemetry import traced
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.dsl.frame_axis import FrameAxis
+    from marivo.analysis.model.frame_schema import FrameSchema
+
+
+class _ColumnFrame(FrameNode, Protocol):
+    """The Frame-owned binding operations required by Columns."""
+
+    @property
+    def _project_root(self) -> Path: ...
+    @property
+    def session_id(self) -> str: ...
+    @property
+    def schema(self) -> FrameSchema: ...
+    @property
+    def axes(self) -> tuple[FrameAxis, ...]: ...
+    def _axis_index(
+        self, axis: FrameAxis, *, location: str, canonical_id: str | None = None
+    ) -> int: ...
+    def _require_column(
+        self, column: Column, *, location: str, canonical_id: str | None = None
+    ) -> None: ...
+    def over(self, statistic: _Statistic, *, by: tuple[FrameAxis, ...] = ()) -> Column: ...
 
 
 @dataclass(frozen=True, slots=True, repr=False, eq=False)
@@ -42,7 +68,7 @@ class Column:
     _expression: ValueExpression
     _unit: str | None
     _kind: ValueKind
-    _frame: AnalysisFrame | None = None
+    _frame: _ColumnFrame | None = None
     _name: str | None = None
 
     @property
@@ -500,12 +526,7 @@ class Column:
         partitions = tuple(axis for index, axis in enumerate(frame.axes) if index not in positions)
         denominator = frame.over(self._statistic("sum", canonical_id="column.share"), by=partitions)
         self / denominator
-        from marivo._definition.query import SelectValues, ValueShare
-
         expression = ValueShare(self._expression, tuple(sorted(positions)))
-        from marivo.analysis.core.frame_expression import infer_frame_schema
-        from marivo.analysis.model.frame_structure import column_kind
-
         schema = infer_frame_schema(frame._schema, SelectValues((("share", expression),)))
         column = schema.values[0]
         return Column(self._input_id, expression, column.unit, column_kind(column), frame)
@@ -620,9 +641,6 @@ class Column:
             )
         for side, column in (("left", self), ("right", other)):
             if column._kind not in ("numeric", "unresolved"):
-                from marivo.analysis.core.frame_expression import expression_type
-                from marivo.analysis.model.data_schema import DataSchema
-
                 assert column._frame is not None
                 received = (
                     repr(expression_type(column._frame._schema, column._expression))
@@ -671,7 +689,7 @@ class _Statistic:
     _input_id: str | None
     _definition: Statistic | PairStatistic
     unit: str | None
-    _frame: AnalysisFrame | None = None
+    _frame: _ColumnFrame | None = None
 
     def __repr__(self) -> str:
         unit = repr(self.unit)

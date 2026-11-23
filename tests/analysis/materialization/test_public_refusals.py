@@ -11,6 +11,7 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.session.core import Session
+from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
@@ -21,6 +22,7 @@ from tests.datasource.source_cases import source_case
 from tests.shared_fixtures import catalog_value, run_ids
 from tests.support.json import Json, encode
 from tests.support.refs import as_ref
+from tests.support.source_trace import capture_source
 
 
 def test_public_composition_refuses_before_source_or_run(
@@ -190,7 +192,6 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from tests.support.source_trace import capture_source
 
     profile = "table"
     monkeypatch.chdir(tmp_path)
@@ -203,8 +204,6 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
         source_case("duckdb", profile, roots[0], monkeypatch, reference_data("duckdb")) as left,
         source_case("duckdb", profile, roots[1], monkeypatch, reference_data("duckdb")) as right,
     ):
-        from marivo.datasource.ir import TableSourceIR
-
         assert isinstance(left.source, TableSourceIR) and isinstance(right.source, TableSourceIR)
         models = "import marivo.semantic as ms\nimport marivo.datasource as md\n"
         for name, case in (("subjects", left), ("events", right)):

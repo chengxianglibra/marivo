@@ -18,10 +18,10 @@ import pytest
 
 import marivo.datasource as md
 from marivo.datasource.store.authoring import DuckDBSpec
+from marivo.semantic.catalog import SemanticCatalog
 from tests.support.paths import PROJECT_ROOT
 
 if TYPE_CHECKING:
-    from marivo.semantic.catalog import SemanticCatalog
     from marivo.semantic.reader import SemanticProject
     from tests.conftest import _SemanticProjectFactory
     from tests.shared_fixtures import DslCaseFactory
@@ -77,7 +77,6 @@ def _make_project(semantic_project_factory: _SemanticProjectFactory) -> Semantic
 
 def _make_catalog(semantic_project_factory: _SemanticProjectFactory) -> SemanticCatalog:
     """Create a minimal loaded catalog for drift tests."""
-    from marivo.semantic.catalog import SemanticCatalog
 
     return SemanticCatalog(_make_project(semantic_project_factory))
 

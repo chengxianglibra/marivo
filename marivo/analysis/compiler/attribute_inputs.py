@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import operator
-from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Literal, NoReturn
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Literal
 
 import ibis
-import ibis.expr.types as ir
 from ibis.common.deferred import Attr, BinaryOperator, Call, Just, Resolver, UnaryOperator, Variable
 
+from marivo._definition.deferred import RescaleResolver
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
@@ -18,78 +18,62 @@ from marivo._definition.expressions import (
     MetricNode,
     MetricWindow,
     SourceAggregate,
-    SourceWeightedMean,
 )
-from marivo.analysis.binding.attribute_rules import AttributeComponentRole, AttributeSourceRequest
+from marivo._definition.types import CalendarCoordinate
+from marivo.analysis.binding.attribute_rules import (
+    AdditiveSource,
+    AttributeSourceRequest,
+    RuleAdd,
+    RuleNegate,
+    RuleScale,
+    RuleSubtract,
+    component_requests,
+)
 from marivo.analysis.binding.attribute_units import component_unit
 from marivo.analysis.binding.programs import FormulaProgram
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.attribute_input_lowering import input_failure as input_failure
+from marivo.analysis.compiler.attribute_input_lowering import (
+    original_input_slot as original_input_slot,
+)
+from marivo.analysis.compiler.original import AggregatePayload
+from marivo.analysis.compiler.query_program import SourceParameter
+from marivo.analysis.compiler.query_stages import (
+    AttributeLeafInput,
+    AttributeNativeFormula,
     AttributeRead,
+    AttributeRootLayout,
+    LocalCompute,
+    SourceReadStage,
     read_components,
     read_members,
     read_reduction,
     require_components,
     require_reduction,
 )
-from marivo.analysis.core.attribute import AttributeInputError, AttributeInputReason
+from marivo.analysis.core.attribute import (
+    AttributeInputProgram,
+    AttributeMatrixColumn,
+    AttributeMatrixSource,
+    attribute_schema,
+)
 from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.analysis.model.attribute_failures import AttributeUseContext, AttributeWindowInput
+from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.data_types import DataColumn, DurationDataType, ScalarDataType
+from marivo.analysis.model.programs import FormulaInput
 from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.semantic.spi import (
-    NumericCheck,
     NumericValue,
     lower_metric_formula,
-    lower_row,
-    lower_source_reduction,
-    numeric_binary,
 )
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.attribute_rules import AttributeRule
-    from marivo.analysis.compiler.graph_plan import QueryPlan, QueryStage, SourceReadStage
-    from marivo.analysis.compiler.query_program import SourceParameter
-    from marivo.analysis.core.attribute import AttributeInputProgram, AttributeParentContext
-    from marivo.analysis.core.frame_expression import (
+    from marivo.analysis.compiler.query_stages import QueryPlan, QueryStage
+    from marivo.analysis.core.frame_operations import (
         AttributeContributionValues,
         AttributeInputsValues,
     )
-    from marivo.analysis.model.attribute_failures import AttributeFailureContext
-    from marivo.analysis.model.data_schema import DataSchema
-
-
-@dataclass(frozen=True, slots=True)
-class AttributeLeafInput:
-    request: AttributeSourceRequest
-    read: SourceReadStage
-    roles: tuple[tuple[AttributeComponentRole, DataColumn], ...]
-    support: DataColumn
-    effective: DataColumn
-    use: AttributeUseContext
-    distinct: DataColumn | None = None
-    fiber: int = 0
-    exact_integer: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class AttributeCheckLayout:
-    name: str
-    scope: Literal["parent", "fine", "preparation"]
-    leaves: tuple[AttributeLeafInput, ...]
-    columns: tuple[DataColumn, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class AttributeNativeFormula:
-    """One original recipe subtree over this root's completed reductions."""
-
-    path: tuple[int, ...]
-    occurrence: tuple[int, ...]
-    node: MetricNode
-    program: FormulaProgram
-    column: DataColumn
-    use: AttributeUseContext
-    fiber: int
 
 
 def _native_nodes(
@@ -113,7 +97,6 @@ def _native_nodes(
                     visit(node.operands[index], (*occurrence, index), child_path)
                     return
                 result.setdefault(child_path, (occurrence, MetricExpression(value, node.operands)))
-                from marivo._definition.deferred import RescaleResolver
 
                 if isinstance(value, RescaleResolver):
                     recipe(value.recipe, (*child_path, 0))
@@ -141,125 +124,28 @@ def _native_nodes(
     return tuple((path, occurrence, node) for path, (occurrence, node) in result.items())
 
 
-@dataclass(frozen=True, slots=True)
-class AttributeRootLayout:
-    """One independent endpoint/root role's original values and components."""
-
-    leaves: tuple[AttributeLeafInput, ...]
-    columns: tuple[DataColumn, ...]
+@dataclass(slots=True)
+class _AttributeBundler:
+    requests: dict[tuple[int, ...], AttributeSourceRequest]
+    metrics: tuple[str, ...]
     parent_keys: tuple[str, ...]
-    identity: tuple[tuple[DataColumn, str], ...]
-    scoped_columns: tuple[tuple[str, str], ...]
-    parent_parameter: SourceParameter
+    scoped_columns: dict[str, tuple[tuple[str, str], ...]]
+    parent_projection: str
     side: Literal["left", "right"]
-    scope: Literal["parent", "fine"] = "fine"
-    assigned: str = "__attribute_assigned"
-    partition: bool = False
-    population: SourceParameter | None = None
-    kind: str = "__attribute_kind"
-    fiber: str = "__attribute_fiber"
-    checks: tuple[AttributeCheckLayout, ...] = ()
-    parent_context: AttributeParentContext | None = None
-    native_formulas: tuple[AttributeNativeFormula, ...] = ()
-    parent_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
-    fine_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+    parent_checks: dict[str, tuple[tuple[str, str, str], ...]]
+    formula: FormulaProgram | None
+    population: SourceParameter | None
+    native_bindings: dict[int, tuple[str, DataColumn]]
+    aliases: dict[str, str]
+    bundles: dict[str, SourceReadStage]
 
-    @property
-    def keys(self) -> tuple[str, ...]:
-        return self.parent_keys if self.scope == "parent" else self.leaves[0].read.keys
-
-
-def input_failure(
-    reason: AttributeInputReason, received: str, *, context: AttributeFailureContext | None = None
-) -> NoReturn:
-    raise AttributeInputError(reason=reason, received=received, context=context)
-
-
-def bundle_attribute_plan(
-    plan: QueryPlan,
-    rules: tuple[tuple[str, AttributeRule], ...],
-    parent_positions: tuple[int, ...],
-    scoped_columns: dict[str, tuple[tuple[str, str], ...]],
-    parent_projection: str,
-    side: Literal["left", "right"],
-    parent_checks: dict[str, tuple[tuple[str, str, str], ...]],
-) -> QueryPlan:
-    """Replace each root's ordered occurrences by one governed physical read."""
-    from marivo.analysis.binding.attribute_rules import component_requests
-    from marivo.analysis.compiler.graph_plan import LocalCompute, SourceReadStage
-
-    parent_keys = tuple(
-        key for position in parent_positions for key in plan.output_groups[position]
-    )
-    requests = tuple(item for _, rule in rules for item in component_requests(rule))
-    metrics = tuple(name for name, _ in rules)
-    by_occurrence = {request.binding.occurrence: request for request in requests}
-    roots: dict[str, list[SourceReadStage]] = {}
-    for stage in plan.stages:
-        if isinstance(stage, SourceReadStage) and stage.occurrence in by_occurrence:
-            roots.setdefault(stage.source_id, []).append(stage)
-    for request in requests:
-        if request.binding.window_key is not None:
-            proof = request.window
-            if proof is None:
-                input_failure(
-                    "missing_component_proof",
-                    "a window source lacks its captured finite binding proof",
-                )
-            actual = tuple(
-                item.binding
-                for item in requests
-                if (item.binding.logical_occurrence or item.binding.occurrence)
-                == (request.binding.logical_occurrence or request.binding.occurrence)
-            )
-            if actual != proof.bindings:
-                input_failure(
-                    "missing_component_proof",
-                    "expanded source uses differ from the captured finite window proof",
-                )
-    formula = next(
-        (
-            stage.program
-            for stage in reversed(plan.stages)
-            if isinstance(stage, LocalCompute) and isinstance(stage.program, FormulaProgram)
-        ),
-        None,
-    )
-    population_parameter = None
-    if formula is not None and formula.output_population is not None:
-        from marivo.analysis.compiler.query_program import SourceParameter
-
-        population_input = next(
-            item for item in formula.populations if item.definition == formula.output_population
-        )
-        population_stage = next(
-            stage for stage in plan.stages if stage.stage_id == population_input.stage_id
-        )
-        population_parameter = SourceParameter(
-            population_stage.stage_id,
-            "__attribute_output_population_" + population_stage.stage_id.replace(":", "_"),
-            population_stage.columns,
-        )
-    native_bindings: dict[int, tuple[str, DataColumn]] = {}
-    native_keys: tuple[str, ...] = ()
-    aliases: dict[str, str] = {}
-    bundles: dict[str, SourceReadStage] = {}
-    for root, members in roots.items():
+    def leaves(
+        self, root: str, members: list[SourceReadStage], columns: dict[str, DataColumn]
+    ) -> tuple[AttributeLeafInput, ...]:
         first = members[0]
-        native_keys = first.keys
         leaves: list[AttributeLeafInput] = []
-        columns = {
-            column.slot_id: column
-            for member in members
-            for column in member.columns
-            if column.slot_id
-            in (
-                *member.keys,
-                require_reduction(member).value_slot if read_reduction(member) is not None else "",
-            )
-        }
         for member in members:
-            request = by_occurrence[member.occurrence]
+            request = self.requests[member.occurrence]
             if read_components(member) is None or read_reduction(member) is None:
                 input_failure("missing_component_proof", f"{root}: no original input layout")
             if member.keys != first.keys:
@@ -296,8 +182,6 @@ def bundle_attribute_plan(
                 isinstance(reduction.node, SourceAggregate)
                 and reduction.node.reducer == "count_distinct"
             ):
-                from marivo.analysis.compiler.original import AggregatePayload
-
                 assert isinstance(component.payload, AggregatePayload)
                 distinct = replace(component.payload.value, slot_id=f"attribute.distinct.{token}")
             effective = replace(
@@ -306,8 +190,9 @@ def bundle_attribute_plan(
                 name="effective count",
             )
             logical = request.binding.logical_occurrence or member.occurrence
-            use = AttributeUseContext(side, metrics[logical[0]], member.occurrence, logical, root)
-            from marivo.analysis.compiler.original import AggregatePayload
+            use = AttributeUseContext(
+                self.side, self.metrics[logical[0]], member.occurrence, logical, root
+            )
 
             exact_integer = isinstance(reduction.node, EntityCount) or (
                 isinstance(reduction.node, SourceAggregate)
@@ -349,9 +234,18 @@ def bundle_attribute_plan(
             columns[effective.slot_id] = replace(effective, unit="1")
             columns[support.slot_id] = replace(support, unit="1")
             columns.update((column.slot_id, column) for _, column in roles)
-            aliases[member.stage_id] = first.stage_id
+            self.aliases[member.stage_id] = first.stage_id
+        return tuple(leaves)
+
+    def native_formulas(
+        self,
+        members: list[SourceReadStage],
+        leaves: tuple[AttributeLeafInput, ...],
+        columns: dict[str, DataColumn],
+    ) -> tuple[AttributeNativeFormula, ...]:
+        first = members[0]
         native_formulas: list[AttributeNativeFormula] = []
-        if formula is not None:
+        if (formula := self.formula) is not None:
             member_ids = {member.stage_id for member in members}
             for path, occurrence, node in _native_nodes(formula):
                 bindings = tuple(
@@ -397,22 +291,38 @@ def bundle_attribute_plan(
                 )
                 columns[column.slot_id] = column
                 if len(path) == 1:
-                    native_bindings[path[0]] = (first.stage_id, column)
+                    self.native_bindings[path[0]] = (first.stage_id, column)
+        return tuple(native_formulas)
+
+    def bundle(self, root: str, members: list[SourceReadStage]) -> None:
+        first = members[0]
+        columns = {
+            column.slot_id: column
+            for member in members
+            for column in member.columns
+            if column.slot_id
+            in (
+                *member.keys,
+                require_reduction(member).value_slot if read_reduction(member) is not None else "",
+            )
+        }
+        leaves = self.leaves(root, members, columns)
+        native_formulas = self.native_formulas(members, leaves, columns)
         assert read_components(first) is not None
         layout = AttributeRootLayout(
-            tuple(leaves),
+            leaves,
             tuple(columns.values()),
-            parent_keys,
+            self.parent_keys,
             require_components(first).identity,
-            scoped_columns[root],
+            self.scoped_columns[root],
             next(
                 parameter
                 for parameter in first.parameters
-                if parameter.placeholder == "__marivo_population_" + parent_projection
+                if parameter.placeholder == "__marivo_population_" + self.parent_projection
             ),
-            side,
-            native_formulas=tuple(native_formulas),
-            population=population_parameter,
+            self.side,
+            native_formulas=native_formulas,
+            population=self.population,
         )
         # Every fiber groups independently. A later UNION ALL cannot inherit
         # per-fiber uniqueness without a separate disjointness proof.
@@ -423,7 +333,7 @@ def bundle_attribute_plan(
                 parent_unique_keys=UniqueKeys(slots, (layout.parent_keys,)),
                 fine_unique_keys=UniqueKeys(slots, (layout.keys,)),
             )
-        bundles[first.stage_id] = replace(
+        self.bundles[first.stage_id] = replace(
             first,
             columns=layout.columns,
             field_columns=tuple(
@@ -433,11 +343,11 @@ def bundle_attribute_plan(
             unique_keys=UniqueKeys(),
             inputs=(
                 *first.inputs,
-                *((population_parameter.stage_id,) if population_parameter is not None else ()),
+                *((self.population.stage_id,) if self.population is not None else ()),
             ),
             parameters=(
                 *first.parameters,
-                *((population_parameter,) if population_parameter is not None else ()),
+                *((self.population,) if self.population is not None else ()),
             ),
         )
         parent_layout = replace(
@@ -445,19 +355,105 @@ def bundle_attribute_plan(
             scope="parent",
             population=None,
             columns=tuple(
-                c for c in layout.columns if c.slot_id not in first.keys or c.slot_id in parent_keys
+                c
+                for c in layout.columns
+                if c.slot_id not in first.keys or c.slot_id in self.parent_keys
             ),
         )
-        bundles[attribute_parent_key(first.stage_id)] = replace(
-            bundles[first.stage_id],
+        self.bundles[attribute_parent_key(first.stage_id)] = replace(
+            self.bundles[first.stage_id],
             stage_id=attribute_parent_key(first.stage_id),
-            keys=parent_keys,
+            keys=self.parent_keys,
             columns=parent_layout.columns,
-            preparation_checks=parent_checks[root],
+            preparation_checks=self.parent_checks[root],
             inputs=first.inputs,
             parameters=first.parameters,
             program=AttributeRead(parent_layout, require_reduction(first), read_members(first)),
         )
+
+
+def bundle_attribute_plan(
+    plan: QueryPlan,
+    rules: tuple[tuple[str, AttributeRule], ...],
+    parent_positions: tuple[int, ...],
+    scoped_columns: dict[str, tuple[tuple[str, str], ...]],
+    parent_projection: str,
+    side: Literal["left", "right"],
+    parent_checks: dict[str, tuple[tuple[str, str, str], ...]],
+) -> QueryPlan:
+    """Replace each root's ordered occurrences by one governed physical read."""
+
+    parent_keys = tuple(
+        key for position in parent_positions for key in plan.output_groups[position]
+    )
+    requests = tuple(item for _, rule in rules for item in component_requests(rule))
+    metrics = tuple(name for name, _ in rules)
+    by_occurrence = {request.binding.occurrence: request for request in requests}
+    roots: dict[str, list[SourceReadStage]] = {}
+    for stage in plan.stages:
+        if isinstance(stage, SourceReadStage) and stage.occurrence in by_occurrence:
+            roots.setdefault(stage.source_id, []).append(stage)
+    for request in requests:
+        if request.binding.window_key is not None:
+            proof = request.window
+            if proof is None:
+                input_failure(
+                    "missing_component_proof",
+                    "a window source lacks its captured finite binding proof",
+                )
+            actual = tuple(
+                item.binding
+                for item in requests
+                if (item.binding.logical_occurrence or item.binding.occurrence)
+                == (request.binding.logical_occurrence or request.binding.occurrence)
+            )
+            if actual != proof.bindings:
+                input_failure(
+                    "missing_component_proof",
+                    "expanded source uses differ from the captured finite window proof",
+                )
+    formula = next(
+        (
+            stage.program
+            for stage in reversed(plan.stages)
+            if isinstance(stage, LocalCompute) and isinstance(stage.program, FormulaProgram)
+        ),
+        None,
+    )
+    population_parameter = None
+    if formula is not None and formula.output_population is not None:
+        population_input = next(
+            item for item in formula.populations if item.definition == formula.output_population
+        )
+        population_stage = next(
+            stage for stage in plan.stages if stage.stage_id == population_input.stage_id
+        )
+        population_parameter = SourceParameter(
+            population_stage.stage_id,
+            "__attribute_output_population_" + population_stage.stage_id.replace(":", "_"),
+            population_stage.columns,
+        )
+    native_bindings: dict[int, tuple[str, DataColumn]] = {}
+    native_keys: tuple[str, ...] = ()
+    aliases: dict[str, str] = {}
+    bundles: dict[str, SourceReadStage] = {}
+    bundler = _AttributeBundler(
+        by_occurrence,
+        metrics,
+        parent_keys,
+        scoped_columns,
+        parent_projection,
+        side,
+        parent_checks,
+        formula,
+        population_parameter,
+        native_bindings,
+        aliases,
+        bundles,
+    )
+    for root, members in roots.items():
+        native_keys = members[0].keys
+        bundler.bundle(root, members)
     stages: list[QueryStage] = []
     for stage in plan.stages:
         if isinstance(stage, SourceReadStage) and stage.stage_id in aliases:
@@ -466,8 +462,6 @@ def bundle_attribute_plan(
                 stages.append(bundles[stage.stage_id])
             continue
         if isinstance(stage, LocalCompute) and isinstance(stage.program, FormulaProgram):
-            from marivo.analysis.model.programs import FormulaInput
-
             original_values = stage.program.values
             selected_native = native_bindings if stage.program is formula else {}
             values = [
@@ -529,10 +523,6 @@ def bundle_attribute_plan(
     )
 
 
-def original_input_slot(kind: int, occurrence: tuple[int, ...], name: str) -> str:
-    return f"attribute.original.{kind}.{'.'.join(map(str, occurrence))}.{name}"
-
-
 def attribute_parent_key(stage_id: str) -> str:
     return "attribute-parent:" + stage_id
 
@@ -540,373 +530,6 @@ def attribute_parent_key(stage_id: str) -> str:
 def attribute_preparation_key(stage_id: str) -> str:
     """Name the exact prepared check relation paired with one Attribute read."""
     return "attribute-preparation:" + stage_id
-
-
-def lower_attribute_inputs(
-    layout: AttributeRootLayout,
-    table: ir.Table,
-    field_columns: dict[str, str],
-    preparation: ir.Table,
-    preparation_checks: tuple[tuple[str, str, str], ...],
-) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...], tuple[AttributeCheckLayout, ...]]:
-    """Lower every captured fiber into one actual root statement."""
-    groups: dict[int, list[AttributeLeafInput]] = {}
-    for leaf in layout.leaves:
-        groups.setdefault(leaf.fiber, []).append(leaf)
-    relations: list[ir.Table] = []
-    checks: list[tuple[str, NumericCheck]] = []
-    scopes: list[AttributeCheckLayout] = []
-    for fiber, leaves in groups.items():
-        local = replace(layout, leaves=tuple(leaves))
-        source = table.filter(table[layout.fiber] == fiber)
-        relation, local_checks, local_scopes = _lower_attribute_fiber(local, source, field_columns)
-        scopes.extend(local_scopes)
-        relations.append(relation.mutate(**{layout.fiber: ibis.literal(fiber)}))
-        checks.extend(local_checks)
-        if preparation_checks:
-            prepared = preparation.filter(preparation[layout.fiber] == fiber)
-            assert read_reduction(leaves[0].read) is not None
-            axes = {slot: prepared[name] for slot, name in layout.scoped_columns}
-            axes.update(
-                (slot, prepared[field_columns[path]])
-                for slot, path in require_reduction(leaves[0].read).axes
-                if field_columns[path] in prepared.columns
-            )
-            actual_columns = tuple(column for column in layout.columns if column.slot_id in axes)
-            for name, expected, received in preparation_checks:
-                failed = prepared.select(**axes, **{name: prepared[name]})
-                failed = failed.filter(failed[name])
-                relations.append(
-                    _first_failure(failed, tuple(axes)).mutate(
-                        **{layout.kind: ibis.literal(4), layout.fiber: ibis.literal(fiber)}
-                    )
-                )
-                checks.append((name, NumericCheck(prepared[name], expected, received)))
-                scopes.append(
-                    AttributeCheckLayout(name, "preparation", tuple(leaves), actual_columns)
-                )
-    return _union_attribute_relations(tuple(relations)), tuple(checks), tuple(scopes)
-
-
-def _union_attribute_relations(relations: tuple[ir.Table, ...]) -> ir.Table:
-    names = tuple(dict.fromkeys(name for relation in relations for name in relation.columns))
-    dtypes = {
-        name: next(relation[name].type() for relation in relations if name in relation.columns)
-        for name in names
-    }
-    aligned = tuple(
-        relation.select(
-            **{
-                name: relation[name].cast(dtypes[name].copy(nullable=True))
-                if name in relation.columns
-                else (
-                    ibis.literal(0).cast(dtypes[name].copy(nullable=True))
-                    if name.startswith("__original_id.")
-                    else ibis.null().cast(dtypes[name].copy(nullable=True))
-                )
-                for name in names
-            }
-        )
-        for relation in relations
-    )
-    return aligned[0].union(*aligned[1:], distinct=False) if len(aligned) > 1 else aligned[0]
-
-
-def _lower_attribute_fiber(
-    layout: AttributeRootLayout, table: ir.Table, field_columns: dict[str, str]
-) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...], tuple[AttributeCheckLayout, ...]]:
-    """Return aggregates and bounded witnesses for operation-specific constraints."""
-    fields = {path: table[column] for path, column in field_columns.items()}
-    representative = layout.leaves[0].read
-    assert read_reduction(representative) is not None
-    axes = {
-        slot: fields[path]
-        for slot, path in require_reduction(representative).axes
-        if layout.scope == "fine" or slot in layout.parent_keys
-    }
-    axes.update(
-        (slot, table[column])
-        for slot, column in layout.scoped_columns
-        if slot in {slot for slot, _ in require_reduction(representative).calendars}
-    )
-    parent_axes = {slot: table[column] for slot, column in layout.scoped_columns}
-    parent_active: ir.BooleanValue = ibis.literal(True)
-    if not layout.parent_keys:
-        import ibis.expr.operations as ops
-
-        selected_parent = next(
-            (
-                leaf
-                for leaf in table.op().find(ops.UnboundTable)
-                if leaf.name == layout.parent_parameter.placeholder
-            ),
-            None,
-        )
-        if selected_parent is None:
-            input_failure(
-                "missing_component_proof", "the captured complete parent parameter is missing"
-            )
-        parent_active = selected_parent.to_expr().count() > 0
-    checks: list[tuple[str, NumericCheck]] = []
-    check_scopes: list[AttributeCheckLayout] = []
-
-    def aggregate(source: ir.Table, keys: dict[str, ir.Value], kind: int) -> ir.Table:
-        local_fields = {path: source[column] for path, column in field_columns.items()}
-        values: dict[str, ir.Value] = {}
-        originals: list[ir.Table] = []
-        for leaf in layout.leaves:
-            reduction = read_reduction(leaf.read)
-            assert reduction is not None
-            node = reduction.node
-            from marivo.analysis.compiler.observation import lower_observation
-
-            original_reduction = replace(
-                reduction,
-                axes=tuple((slot, path) for slot, path in reduction.axes if slot in keys),
-                calendars=tuple(
-                    (slot, calendar) for slot, calendar in reduction.calendars if slot in keys
-                ),
-            )
-            original_table, original_checks = lower_observation(
-                original_reduction, source, field_columns, ()
-            )
-            aliases = {
-                name: name
-                if name in keys or name == reduction.value_slot
-                else original_input_slot(kind, leaf.read.occurrence, name)
-                for name in original_table.columns
-            }
-            originals.append(
-                original_table.rename(
-                    **{target: name for name, target in aliases.items() if name != target}
-                )
-            )
-            checks.extend((aliases[name], check) for name, check in original_checks)
-            check_scopes.extend(
-                AttributeCheckLayout(
-                    aliases[name],
-                    "parent" if kind else "fine",
-                    (leaf,),
-                    tuple(column for column in layout.columns if column.slot_id in keys),
-                )
-                for name, _ in original_checks
-            )
-            original = lower_source_reduction(node, source, local_fields)
-            values[leaf.support.slot_id] = source.count()
-            if isinstance(node, EntityCount):
-                effective = source.count()
-            elif isinstance(node, SourceAggregate):
-                item = lower_row(node.operand, local_fields).value
-                effective = item.nunique() if node.reducer == "count_distinct" else item.count()
-            else:
-                value_item = lower_row(node.value, local_fields).value
-                weight_item = lower_row(node.weight, local_fields).value
-                effective = (
-                    (value_item.notnull() & weight_item.notnull()).ifelse(1, ibis.null()).count()
-                )
-            values[leaf.effective.slot_id] = effective
-            for index, check in enumerate(original.checks):
-                name = f"attribute.check.{kind}.{'.'.join(map(str, leaf.read.occurrence))}.{index}"
-                values[name] = check.violation
-                checks.append((name, check))
-                check_scopes.append(
-                    AttributeCheckLayout(
-                        name,
-                        "parent" if kind else "fine",
-                        (leaf,),
-                        tuple(column for column in layout.columns if column.slot_id in keys),
-                    )
-                )
-            for role, column in leaf.roles:
-                if role == "additive_value":
-                    value = original.value
-                elif isinstance(node, SourceAggregate):
-                    component = replace(
-                        node,
-                        reducer="count" if role == "valid_value_count" else "sum",
-                    )
-                    reduced = lower_source_reduction(component, source, local_fields)
-                    value = reduced.value.fill_null(0)
-                    component_checks: tuple[NumericCheck, ...]
-                    if node.reducer == "mean" and role == "valid_value_sum":
-                        item = lower_row(node.operand, local_fields).value
-                        value = (
-                            (item.cast("decimal(38,0)") if item.type().is_integer() else item)
-                            .sum()
-                            .fill_null(0)
-                        )
-                        component_checks = ()
-                    else:
-                        component_checks = reduced.checks
-                    for index, check in enumerate(component_checks):
-                        name = f"attribute.componentcheck.{kind}.{'.'.join(map(str, leaf.read.occurrence))}.{role}.{index}"
-                        values[name] = check.violation
-                        checks.append((name, check))
-                        check_scopes.append(
-                            AttributeCheckLayout(
-                                name,
-                                "parent" if kind else "fine",
-                                (leaf,),
-                                tuple(
-                                    column for column in layout.columns if column.slot_id in keys
-                                ),
-                            )
-                        )
-                elif isinstance(node, SourceWeightedMean):
-                    value_item = lower_row(node.value, local_fields).value
-                    weight = lower_row(node.weight, local_fields).value
-                    pair = value_item.notnull() & weight.notnull()
-                    if role == "pair_count":
-                        value = pair.ifelse(1, ibis.null()).count()
-                    elif role == "pair_negative_count":
-                        value = (pair & (weight < 0)).ifelse(1, ibis.null()).count()
-                    else:
-                        item = (
-                            numeric_binary(
-                                "multiply",
-                                lower_row(node.value, local_fields),
-                                lower_row(node.weight, local_fields),
-                            ).value
-                            if role == "pair_product_sum"
-                            else weight
-                        )
-                        if item.type().is_integer():
-                            item = item.cast("decimal(38,0)")
-                        value = pair.ifelse(item, ibis.null().cast(item.type())).sum().fill_null(0)
-                else:
-                    assert isinstance(node, EntityCount)
-                    value = source.count()
-                values[column.slot_id] = value
-        result = source.group_by(**keys).aggregate(**values) if keys else source.aggregate(**values)
-        for original_table in originals:
-            joined = result.inner_join(
-                original_table,
-                [result[key].identical_to(original_table[key]) for key in keys]
-                if keys
-                else ibis.literal(True),
-            )
-            result = joined.select(
-                result,
-                *(original_table[name] for name in original_table.columns if name not in keys),
-            )
-        for native in layout.native_formulas:
-            if native.fiber != layout.leaves[0].fiber:
-                continue
-            bindings = {
-                value.occurrence: NumericValue(result[value.column.slot_id])
-                for value in native.program.values
-                if value.column.slot_id in result.columns
-            }
-            original = lower_metric_formula(
-                native.node, native.occurrence, bindings, dict(native.program.declared)
-            )
-            result = result.mutate(**{native.column.slot_id: original.value})
-            for check_index, check in enumerate(original.checks):
-                name = original_input_slot(kind, native.path, f"native_check.{check_index}")
-                result = result.mutate(**{name: check.violation})
-                checks.append((name, check))
-                check_scopes.append(
-                    AttributeCheckLayout(
-                        name,
-                        "parent" if kind else "fine",
-                        tuple(
-                            leaf
-                            for leaf in layout.leaves
-                            if leaf.use.metric == native.use.metric
-                            and leaf.use.occurrence[: len(native.occurrence)] == native.occurrence
-                        ),
-                        tuple(column for column in layout.columns if column.slot_id in keys),
-                    )
-                )
-        if kind == 1 and not layout.parent_keys:
-            result = result.filter(parent_active)
-        return result.mutate(**{layout.kind: ibis.literal(kind)})
-
-    if layout.scope == "parent":
-        relations: tuple[ir.Table, ...] = (aggregate(table, parent_axes, 1),)
-    else:
-        fine_source = table.filter(table[layout.assigned]) if layout.partition else table
-        fine = aggregate(
-            fine_source,
-            {slot: fine_source[value.get_name()] for slot, value in axes.items()},
-            0,
-        )
-        diagnostics: list[ir.Table] = []
-        if layout.population is not None:
-            domain = ibis.table(
-                {column.slot_id: ibis_type(column.dtype) for column in layout.population.columns},
-                name=layout.population.placeholder,
-            )
-            missing = fine.anti_join(
-                domain,
-                [
-                    fine[key].identical_to(domain[column.slot_id])
-                    for key, column in zip(layout.keys, layout.population.columns, strict=True)
-                ],
-            )
-            diagnostics.append(
-                _first_failure(missing.select(*layout.keys), layout.keys).mutate(
-                    **{layout.kind: ibis.literal(6)}
-                )
-            )
-        identities = {column.slot_id: table[name] for column, name in layout.identity}
-        if layout.partition:
-            roots = table.select(**parent_axes, **identities).distinct()
-            assigned = fine_source.select(
-                **{slot: fine_source[value.get_name()] for slot, value in axes.items()},
-                **{column.slot_id: fine_source[name] for column, name in layout.identity},
-            ).distinct()
-            root_keys = (*layout.parent_keys, *identities)
-            missing = roots.anti_join(
-                assigned,
-                [roots[key].identical_to(assigned[key]) for key in root_keys],
-            )
-            diagnostics.append(
-                _first_failure(missing, root_keys).mutate(**{layout.kind: ibis.literal(2)})
-            )
-            diagnostics.append(
-                _partition_failure(assigned, root_keys, tuple(axes)).mutate(
-                    **{layout.kind: ibis.literal(3)}
-                )
-            )
-        for index, leaf in enumerate(layout.leaves):
-            if leaf.distinct is None:
-                continue
-            node = require_reduction(leaf.read).node
-            assert isinstance(node, SourceAggregate)
-            value = lower_row(
-                node.operand, {path: fine_source[column] for path, column in field_columns.items()}
-            ).value
-            assigned = fine_source.select(
-                **{slot: fine_source[item.get_name()] for slot, item in axes.items()},
-                **{leaf.distinct.slot_id: value},
-            ).distinct()
-            assigned = assigned.filter(assigned[leaf.distinct.slot_id].notnull())
-            diagnostics.append(
-                _partition_failure(
-                    assigned, (*layout.parent_keys, leaf.distinct.slot_id), tuple(axes)
-                ).mutate(**{layout.kind: ibis.literal(5), "__attribute_leaf": ibis.literal(index)})
-            )
-        relations = (fine, *diagnostics)
-    return _union_attribute_relations(relations), tuple(checks), tuple(check_scopes)
-
-
-def _first_failure(table: ir.Table, keys: tuple[str, ...]) -> ir.Table:
-    """Sort failed candidates only, selecting one exact native key."""
-    return (
-        table.order_by(*(table[key].asc(nulls_first=True) for key in keys)).limit(1)
-        if keys
-        else table.limit(1)
-    )
-
-
-def _partition_failure(
-    assigned: ir.Table, keys: tuple[str, ...], groups: tuple[str, ...]
-) -> ir.Table:
-    counts = assigned.group_by(*keys).aggregate(__attribute_groups=assigned.count())
-    failed = _first_failure(counts.filter(counts.__attribute_groups > 1), keys)
-    samples = assigned.semi_join(failed, [assigned[key].identical_to(failed[key]) for key in keys])
-    return samples.order_by(*(samples[key].asc(nulls_first=True) for key in groups)).limit(6)
 
 
 def attribute_input_program(
@@ -918,15 +541,8 @@ def attribute_input_program(
     right_layouts: tuple[AttributeRootLayout, ...],
 ) -> AttributeInputProgram:
     """Fix the actual sufficient component matrix, without contribution arithmetic."""
-    from marivo.analysis.core.attribute import (
-        AttributeInputProgram,
-        AttributeMatrixColumn,
-        attribute_schema,
-    )
-    from marivo.analysis.model.data_schema import DataSchema
 
     base = attribute_schema(left, right, parent, operation.mapping)
-    from marivo.analysis.core.attribute import AttributeMatrixSource
 
     matrix: list[AttributeMatrixColumn] = []
     paths: list[tuple[str, ...]] = []
@@ -951,7 +567,6 @@ def attribute_input_program(
                         for slot, calendar in reduction.calendars
                         if calendar == reduction.calendar
                     )
-                    from marivo._definition.types import CalendarCoordinate
 
                     assert isinstance(calendar, CalendarCoordinate)
                     window = AttributeWindowInput(
@@ -983,7 +598,6 @@ def attribute_input_program(
                         and read_reduction(leaf.read) is not None
                     )
                     slot, window_calendar = next(iter(require_reduction(leaf.read).calendars))
-                    from marivo._definition.types import CalendarCoordinate
 
                     assert isinstance(window_calendar, CalendarCoordinate)
                     window = AttributeWindowInput(
@@ -1038,13 +652,6 @@ def exact_integer_closure(
     layouts: tuple[AttributeRootLayout, ...],
 ) -> bool:
     """Prove the complete requested target uses only lossless integer rules."""
-    from marivo.analysis.binding.attribute_rules import (
-        AdditiveSource,
-        RuleAdd,
-        RuleNegate,
-        RuleScale,
-        RuleSubtract,
-    )
 
     if operation.target is None or operation.target.mode == "relative":
         return False

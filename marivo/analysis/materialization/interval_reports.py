@@ -6,16 +6,23 @@ from dataclasses import replace
 
 import pandas as pd
 
-from marivo._definition.graph import computation_fingerprint
+from marivo._definition.expressions import PerReduce, PerWeightedMean
+from marivo._definition.graph import computation_fingerprint, walk
 from marivo._definition.observation_time import ObservationPeriod
 from marivo._definition.observations import CoordinateBinding, ObservationBinding
-from marivo._definition.relations import ObserveQuery, PopulationDependency
+from marivo._definition.relations import (
+    LiteralPopulation,
+    ObserveQuery,
+    PopulationDependency,
+    PopulationProgram,
+    sample_population,
+)
 from marivo._definition.types import IntervalCoordinate
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.binding.signature import BoundSignature
 from marivo.analysis.binding.windows import bind_windows
-from marivo.analysis.compiler.graph_plan import QueryPlan, checked_output
+from marivo.analysis.compiler.query_stages import LocalCompute, QueryPlan, checked_output
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.errors import reject
 
@@ -124,15 +131,6 @@ def restrict_plan(plan: QueryPlan, available: dict[str, StageOutput], *, empty: 
     if empty:
         retained = {endpoint.stage_id: retained[endpoint.stage_id]}
     elif plan.original is not None and plan.original.output_population is not None:
-        from marivo._definition.expressions import PerReduce, PerWeightedMean
-        from marivo._definition.graph import walk
-        from marivo._definition.relations import (
-            LiteralPopulation,
-            PopulationProgram,
-            sample_population,
-        )
-        from marivo.analysis.compiler.graph_plan import LocalCompute
-
         domain = plan.original.output_population
         descendants = {
             node
@@ -219,7 +217,6 @@ def retain_domain(
 
 def prune_domain_plan(plan: QueryPlan, population: PopulationDependency) -> QueryPlan:
     """Skip contained stages already checked inside the complete domain's SQL."""
-    from marivo.analysis.compiler.graph_plan import LocalCompute
 
     by_id = {stage.stage_id: stage for stage in plan.stages}
     replacements = {}

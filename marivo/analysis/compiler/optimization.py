@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, TypeAlias
 
 import ibis
 import ibis.expr.types as ir
@@ -37,17 +37,23 @@ from marivo._kernel.refs import SemanticKind
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.binding.signature import ResultQuantity
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.observation import common_slot
+from marivo.analysis.compiler.original import component_layout
+from marivo.analysis.compiler.query_program import ResultProgram
+from marivo.analysis.compiler.query_stages import (
     AttributeRead,
     ComponentRead,
     FrameCompute,
     FrameInput,
     FrameKeysInput,
+    FusionGroup,
     LocalCompute,
     ProjectionRead,
     QueryPlan,
     QueryStage,
     ReductionRead,
+    RequiredSlots,
+    RuleDecision,
     SourceReadStage,
     SourceSchema,
     common_program,
@@ -60,41 +66,13 @@ from marivo.analysis.compiler.graph_plan import (
     require_reduction,
     require_result,
 )
-from marivo.analysis.compiler.observation import common_slot
-from marivo.analysis.compiler.original import component_layout
-from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.core.value_types import ibis_type
 from marivo.analysis.model.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.model.kernels import QUERY_COMBINE_KERNEL
 from marivo.analysis.model.local_laws import query_selection_fusion_issue
 
 if TYPE_CHECKING:
-    from marivo.analysis.compiler.graph_lowering import LoweredQuery
-
-
-@dataclass(frozen=True, slots=True)
-class RequiredSlots:
-    """Transport needed after this stage has completed all its owning checks."""
-
-    stage_id: str
-    columns: tuple[str, ...]
-    components: tuple[str, ...] = ()
-    retain_populations: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class FusionGroup:
-    law: Literal["L1", "source_block"]
-    members: tuple[str, ...]
-    output: str
-
-
-@dataclass(frozen=True, slots=True)
-class RuleDecision:
-    rule: str
-    status: Literal["adopted", "refused"]
-    members: tuple[str, ...]
-    reason: str
+    from marivo.analysis.compiler.lowered_query import LoweredQuery
 
 
 def required_for(plan: QueryPlan, stage_id: str) -> RequiredSlots:

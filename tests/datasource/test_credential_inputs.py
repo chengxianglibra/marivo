@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping, Sequence
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
+import ibis
 import pytest
 from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 from marivo.cli.doctor.datasources import _static_datasources_from_file
 from marivo.datasource.credentials import secrets as secrets
-from marivo.datasource.engines import ENGINE_PROFILES
+from marivo.datasource.engines import ENGINE_PROFILES, duckdb
 from marivo.datasource.engines.base import EngineProfile
 from marivo.datasource.engines.statements import (
     ProviderStatement,
@@ -26,6 +28,7 @@ from marivo.datasource.runtime import backends as backends
 from marivo.datasource.runtime.connections import load_datasource, open_backend
 from marivo.datasource.store import declarations as store
 from marivo.datasource.store.authoring import _ir_from_spec
+from tests.shared_fixtures import datasource_arguments_source
 
 
 def s3(**changes: object) -> md.S3Secret:
@@ -180,7 +183,6 @@ def test_env_credentials_cache_after_probe_and_reopen(
 def test_secret_install_failure_disconnects_and_sanitizes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import ibis
 
     backend = ibis.duckdb.connect()
     disconnected = False
@@ -286,7 +288,6 @@ def test_file_secrets_exclude_other_managed_connections_and_are_removed_on_close
 def test_partial_install_cleans_up_a_shared_native_instance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.engines import duckdb
 
     path = tmp_path / "partial.duckdb"
     observer = duckdb.connect("observer", {"path": str(path)})
@@ -336,7 +337,6 @@ def test_partial_install_cleans_up_a_shared_native_instance(
 def test_persistent_secret_with_longer_scope_remains_native(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import ibis
 
     directory = tmp_path / "native-secrets"
     initial = ibis.duckdb.connect(secret_directory=str(directory))
@@ -365,7 +365,6 @@ def test_persistent_secret_with_longer_scope_remains_native(
 
 
 def test_constructor_signatures_remove_old_keywords() -> None:
-    import inspect
 
     assert tuple(inspect.signature(md.duckdb).parameters) == (
         "name",
@@ -382,7 +381,6 @@ def test_constructor_signatures_remove_old_keywords() -> None:
 def test_relational_ir_and_generated_fixture_declarations_preserve_identity(
     backend: str, tmp_path: Path
 ) -> None:
-    from tests.shared_fixtures import datasource_arguments_source
 
     arguments: dict[str, object] = {
         "name": "warehouse",

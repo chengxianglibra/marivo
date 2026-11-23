@@ -18,6 +18,7 @@ from marivo.semantic.catalog_entries import EntryDefinition
 from marivo.semantic.errors import ErrorKind, SemanticLoadFailed
 from marivo.semantic.ir import SourceLocation
 from marivo.semantic.loader import LoadResult, load_project
+from marivo.semantic.reader import SemanticProject
 
 
 def _write_minimal_project(tmp_path: Path) -> None:
@@ -201,7 +202,6 @@ def test_load_project_rejects_workspace_root_with_ms_load_hint(tmp_path: Path) -
 
 def test_project_catalog_returns_semantic_catalog(tmp_path: Path) -> None:
     _write_minimal_project(tmp_path)
-    from marivo.semantic.reader import SemanticProject
 
     project = SemanticProject(workspace_dir=tmp_path)
     result = project.load()
@@ -213,7 +213,6 @@ def test_project_catalog_returns_semantic_catalog(tmp_path: Path) -> None:
 def test_ms_load_and_project_catalog_agree(tmp_path: Path) -> None:
     """Both the public entry and the reader bridge yield the same catalog."""
     _write_minimal_project(tmp_path)
-    from marivo.semantic.reader import SemanticProject
 
     via_public = ms.load(workspace_dir=tmp_path)
     project = SemanticProject(workspace_dir=tmp_path)

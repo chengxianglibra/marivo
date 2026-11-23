@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import replace
 
 import ibis
@@ -15,28 +15,22 @@ from marivo._definition.types import CalendarCoordinate
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.signature import BoundQuantity
 from marivo.analysis.binding.windows import actual_window_axis, bind_windows
-from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, lower_query
-from marivo.analysis.compiler.graph_plan import (
-    ActualWindowRead,
-    FrameKeysInput,
-    SourceReadStage,
-    plan_query,
-)
+from marivo.analysis.compiler.graph_lowering import lower_query
+from marivo.analysis.compiler.lowered_query import LoweredQuery
 from marivo.analysis.compiler.observation import calendar_field, reduction_input
 from marivo.analysis.compiler.optimization import optimize_query
+from marivo.analysis.compiler.query_planning import plan_query
+from marivo.analysis.compiler.query_stages import ActualWindowRead, FrameKeysInput, SourceReadStage
 from marivo.analysis.core.value_types import ibis_type
-from marivo.analysis.materialization.graph_source_execution import (
-    PreparedSources,
-    execute_numeric_query,
-    prepare_query_sources,
-    qualify_query_sources,
-)
 from marivo.analysis.materialization.native_calendar import (
     _actual_positions,
     _point,
     _replace_calendar,
 )
+from marivo.analysis.materialization.prepared_sources import PreparedSources, PreparedWindowRead
 from marivo.analysis.materialization.query_parameters import instantiate, parameter_data
+from marivo.analysis.materialization.query_sources import prepare_query_sources
+from marivo.analysis.materialization.source_reads import qualify_query_sources
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.semantic.spi import CompiledSemanticState
@@ -246,14 +240,12 @@ def _restrict_window_reads(
     return replace(prepared, relations=relations)
 
 
-def run_actual_windows(
+def prepare_actual_window_read(
     prepared: PreparedSources,
     stage: SourceReadStage,
     program: ActualWindowRead,
     inputs: tuple[StageOutput, ...],
-    *,
-    observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None,
-) -> StageOutput:
+) -> StageOutput | PreparedWindowRead:
     """Expand W from captured O without replaying Frame keys or widening O."""
     candidates, *key_outputs = inputs
     if candidates.table.empty:
@@ -280,11 +272,10 @@ def run_actual_windows(
     plan = optimize_query(plan_query(graph, selected.schemas))
     lowered = lower_query(plan, selected.relations, selected.population_checks)
     qualify_query_sources(selected, lowered)
-    output = execute_numeric_query(
+    return PreparedWindowRead(
         selected,
         lowered,
-        observe_read=observe_read,
         frame_key_inputs=dict(zip(program.key_inputs, key_outputs, strict=True)),
         report_domain=candidates.table,
+        receipts=candidates.receipts,
     )
-    return replace(output, receipts=(*candidates.receipts, *output.receipts))

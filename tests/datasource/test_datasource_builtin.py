@@ -18,6 +18,7 @@ from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceMissingError,
 )
+from marivo.datasource.runtime.connections import DatasourceConnectionService
 from marivo.datasource.source import TableSource
 from marivo.datasource.store import declarations as store
 from marivo.datasource.store.loader import load_datasources
@@ -97,7 +98,6 @@ def test_builtin_cannot_be_removed(project_root: Path) -> None:
 
 def test_managed_connections_have_independent_memory(project_root: Path) -> None:
     assert md.load().test(ms.ref.datasource("default")).ok
-    from marivo.datasource.runtime.connections import DatasourceConnectionService
 
     service = DatasourceConnectionService(project_root)
     with service.use_backend("default") as first:
@@ -203,8 +203,6 @@ def test_authored_default_rejected_by_both_loaders(project_root: Path, external:
 def test_unknown_source_does_not_fall_back(project_root: Path) -> None:
     with pytest.raises(DatasourceMissingError):
         md.load().describe("missing")
-
-    from marivo.datasource.runtime.connections import DatasourceConnectionService
 
     with (
         pytest.raises(DatasourceMissingError),

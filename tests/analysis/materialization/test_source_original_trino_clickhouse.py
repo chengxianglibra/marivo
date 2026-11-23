@@ -15,11 +15,14 @@ import pytest
 from trino.exceptions import TrinoUserError
 
 import marivo.analysis as mv
+from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.analysis.materialization.test_source_original_postgres import _native_scalar
 from tests.analysis.numeric.test_remote_numeric_query import _project
+from tests.datasource.environment.clickhouse_analysis import connection
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
 from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.source_trace import capture_source
@@ -90,8 +93,6 @@ def test_remote_original_recompute_uses_qualified_integer_results(
         )
         query = session.observe({"value": metric})
         if backend == "trino" and method in ("median", "quantile"):
-            from marivo.analysis.errors import AnalysisStageUnavailableError
-
             trace = capture_source(monkeypatch)
             with pytest.raises(AnalysisStageUnavailableError):
                 query.compute()
@@ -404,8 +405,6 @@ def _native_clickhouse_weighted_scalar(case: Case) -> float:
     table = table.filter(table.amount.notnull() & table.weight.notnull())
     expression = (table.amount * table.weight).sum() / table.weight.sum()
     native = float(case.session._backend.execute(expression))
-    from marivo.datasource.ir import TableSourceIR
-    from tests.datasource.environment.clickhouse_analysis import connection
 
     assert isinstance(case.source, TableSourceIR)
     # Independent native SQL uses the same uncast arithmetic on the source rows.

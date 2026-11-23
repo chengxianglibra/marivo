@@ -12,13 +12,11 @@ import pytest
 from ibis.backends.clickhouse import Backend as ClickHouseBackend
 from ibis.backends.duckdb import Backend as DuckDBBackend
 
-from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import ProjectionRead, SourceReadStage
+from marivo.analysis.compiler.lowered_query import LoweredRead
+from marivo.analysis.compiler.query_stages import ProjectionRead, SourceReadStage
 from marivo.analysis.materialization import temporal_sql
-from marivo.analysis.materialization.graph_source_execution import (
-    PreparedSources,
-    _native_query_expression,
-)
+from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.materialization.source_reads import _native_query_expression
 from marivo.datasource.runtime.adapters import SourceSession, provider_for
 from marivo.datasource.temporal_primitives import localize
 from tests.datasource.source_cases import datasource

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import math
+from collections.abc import Callable, Mapping
 from math import isfinite
 from typing import TYPE_CHECKING
 
@@ -18,21 +19,32 @@ from marivo._definition.graph import computation_fingerprint
 from marivo._definition.relations import AttributeKeys, FrameKeys
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.parameters import parameter_domains
+from marivo.analysis.compiler.populations import frame_key_columns
 from marivo.analysis.compiler.query_program import (
     FrameParameter,
     PopulationParameterPlan,
+    SourceParameter,
 )
+from marivo.analysis.compiler.source_predicates import (
+    distinct_returned_keys,
+    source_parameter_comparisons,
+)
+from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.value_types import ibis_type
-from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_schema import DataSchema
-from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DecimalDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
 from marivo.analysis.model.errors import reject
 from marivo.datasource.spi import KeyRows, calendar_data, query_policy
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo
-    from marivo.analysis.materialization.graph_source_execution import PreparedSources
+    from marivo.analysis.materialization.prepared_sources import PreparedSources
     from marivo.datasource.spi import SourceSession
     from marivo.semantic.spi import CompiledSemanticState
 
@@ -43,7 +55,6 @@ def prepare_frame_parameters(
     entities: dict[str, ir.Table],
 ) -> tuple[FrameParameter, ...]:
     """Declare complete Frame-key relations using prepared input schemas only."""
-    from marivo.analysis.compiler.populations import frame_key_columns
 
     result = []
     for domain in parameter_domains(graph):
@@ -124,13 +135,11 @@ def instantiate(
         return _replace_parameter(
             expression, name, unit if len(output.table) else unit.filter(ibis.literal(False))
         )
-    from marivo.analysis.compiler.source_predicates import source_parameter_comparisons
 
     if provider is not None:
         expression = source_parameter_comparisons(expression, name, provider)
     policy = query_policy(provider)
     records = tuple(output.table.loc[:, list(output.keys)].itertuples(index=False, name=None))
-    from marivo.analysis.model.data_types import DecimalDataType, TimestampDataType
 
     if (
         any(isinstance(column.dtype, TimestampDataType) for column in columns)
@@ -210,8 +219,6 @@ def _replace_parameter(expression: ir.Table, name: str, table: ir.Table) -> ir.T
     }
     value: object = expression.op().replace(replacements)
     if not isinstance(value, ops.Relation):
-        from marivo.analysis.model.errors import reject
-
         reject(
             "a typed source relation after parameter substitution",
             type(value).__name__,
@@ -231,17 +238,6 @@ def _tuple_predicates(
     source: SourceSession | None = None,
 ) -> ir.Table:
     """Instantiate qualified right-side key lookups as null-safe AND/OR predicates."""
-    import math
-
-    import pandas as pd
-
-    def missing(value: object) -> bool:
-        return (
-            value is None
-            or value is pd.NA
-            or value is pd.NaT
-            or (isinstance(value, float) and math.isnan(value))
-        )
 
     def origin(value: ops.Value) -> ops.Value:
         if isinstance(value, ops.Field):
@@ -270,90 +266,142 @@ def _tuple_predicates(
                 node.name == name for node in link.table.find(ops.UnboundTable)
             ):
                 continue
-            pairs: list[tuple[ops.Value, str]] = []
-            for condition in link.predicates:
-                if not isinstance(condition, ops.IdenticalTo):
-                    break
-                right = parameter_field(condition.right)
-                left = parameter_field(condition.left)
-                if right is not None and left is None:
-                    pairs.append((condition.left, right))
-                elif left is not None and right is None:
-                    pairs.append((condition.right, left))
-                else:
-                    break
-            else:
-                if {key for _, key in pairs} != set(schema.names):
-                    continue
-                predicate = None
-                bind = query_policy(provider).bind_key_membership
-                if bind is not None and len(pairs) == len(schema):
-                    values_by_key = {key: value.to_expr() for value, key in pairs}
-                    if source is not None:
-                        predicate = source.complete_key_membership(schema, records, values_by_key)
-                    elif all(not value.type().is_string() for value in values_by_key.values()):
-                        predicate = bind(schema, records, values_by_key, None)
-                rows = []
-                for record in records if predicate is None else ():
-                    values = dict(zip(schema.names, record, strict=True))
-                    rows.append(
-                        ibis.and_(
-                            *(
-                                left.to_expr().identical_to(
-                                    ibis.literal(
-                                        None if missing(values[key]) else values[key],
-                                        type=schema[key],
-                                    )
-                                )
-                                for left, key in pairs
-                            )
-                        )
-                    )
-                # Keep the OR tree shallow for complete domains with many tuples.
-                while len(rows) > 1:
-                    rows = [
-                        rows[index] | rows[index + 1] if index + 1 < len(rows) else rows[index]
-                        for index in range(0, len(rows), 2)
-                    ]
-                if predicate is None:
-                    predicate = rows[0] if rows else ibis.literal(False)
-                substitutions: dict[ops.Node, ops.Node] = {}
-                left_by_key = {key: value for value, key in pairs}
-                for field in chain.find(ops.Field):
-                    if field.rel != link.table:
-                        continue
-                    key = parameter_field(field)
-                    leaf = origin(field)
-                    value = (
-                        left_by_key[key].to_expr()
-                        if key is not None
-                        else leaf.to_expr()
-                        if isinstance(leaf, ops.Literal)
-                        else None
-                    )
-                    if value is None:
-                        break
-                    substitutions[field] = ibis.ifelse(
-                        predicate, value, ibis.null().cast(field.dtype)
-                    ).op()
-                else:
-                    values = {
-                        key: value.replace(substitutions) for key, value in chain.values.items()
-                    }
-                    remaining = ops.JoinChain(
-                        chain.first, tuple(item for item in chain.rest if item is not link), values
-                    )
-                    result: ops.Relation = remaining
-                    if link.how == "semi":
-                        projected = {
-                            value: ops.Field(remaining, key)
-                            for key, value in remaining.values.items()
-                        }
-                        result = (
-                            remaining.to_expr()
-                            .filter(predicate.op().replace(projected).to_expr())
-                            .op()
-                        )
-                    current = current.replace({chain: result})
-                    break
+            pairs = _key_join_pairs(link, parameter_field)
+            if pairs is None or {key for _, key in pairs} != set(schema.names):
+                continue
+            predicate = _key_membership_predicate(schema, records, pairs, provider, source)
+            result = _remove_key_join(chain, link, pairs, predicate, parameter_field, origin)
+            if result is not None:
+                current = current.replace({chain: result})
+                break
     return current.to_expr()
+
+
+def _key_join_pairs(
+    link: ops.JoinLink, parameter_field: Callable[[ops.Value], str | None]
+) -> list[tuple[ops.Value, str]] | None:
+    pairs: list[tuple[ops.Value, str]] = []
+    for condition in link.predicates:
+        if not isinstance(condition, ops.IdenticalTo):
+            return None
+        right = parameter_field(condition.right)
+        left = parameter_field(condition.left)
+        if right is not None and left is None:
+            pairs.append((condition.left, right))
+        elif left is not None and right is None:
+            pairs.append((condition.right, left))
+        else:
+            return None
+    return pairs
+
+
+def _key_membership_predicate(
+    schema: sch.Schema,
+    records: KeyRows,
+    pairs: list[tuple[ops.Value, str]],
+    provider: str | None,
+    source: SourceSession | None,
+) -> ir.BooleanValue:
+    def missing(value: object) -> bool:
+        return (
+            value is None
+            or value is pd.NA
+            or value is pd.NaT
+            or (isinstance(value, float) and math.isnan(value))
+        )
+
+    predicate = None
+    bind = query_policy(provider).bind_key_membership
+    if bind is not None and len(pairs) == len(schema):
+        values_by_key = {key: value.to_expr() for value, key in pairs}
+        if source is not None:
+            predicate = source.complete_key_membership(schema, records, values_by_key)
+        elif all(not value.type().is_string() for value in values_by_key.values()):
+            predicate = bind(schema, records, values_by_key, None)
+    rows = []
+    for record in records if predicate is None else ():
+        values = dict(zip(schema.names, record, strict=True))
+        rows.append(
+            ibis.and_(
+                *(
+                    left.to_expr().identical_to(
+                        ibis.literal(
+                            None if missing(values[key]) else values[key],
+                            type=schema[key],
+                        )
+                    )
+                    for left, key in pairs
+                )
+            )
+        )
+    # Keep the OR tree shallow for complete domains with many tuples.
+    while len(rows) > 1:
+        rows = [
+            rows[index] | rows[index + 1] if index + 1 < len(rows) else rows[index]
+            for index in range(0, len(rows), 2)
+        ]
+    if predicate is None:
+        predicate = rows[0] if rows else ibis.literal(False)
+    return predicate
+
+
+def _remove_key_join(
+    chain: ops.JoinChain,
+    link: ops.JoinLink,
+    pairs: list[tuple[ops.Value, str]],
+    predicate: ir.BooleanValue,
+    parameter_field: Callable[[ops.Value], str | None],
+    origin: Callable[[ops.Value], ops.Value],
+) -> ops.Relation | None:
+    substitutions: dict[ops.Node, ops.Node] = {}
+    left_by_key = {key: value for value, key in pairs}
+    for field in chain.find(ops.Field):
+        if field.rel != link.table:
+            continue
+        key = parameter_field(field)
+        leaf = origin(field)
+        value = (
+            left_by_key[key].to_expr()
+            if key is not None
+            else leaf.to_expr()
+            if isinstance(leaf, ops.Literal)
+            else None
+        )
+        if value is None:
+            return None
+        substitutions[field] = ibis.ifelse(predicate, value, ibis.null().cast(field.dtype)).op()
+    values = {key: value.replace(substitutions) for key, value in chain.values.items()}
+    remaining = ops.JoinChain(
+        chain.first, tuple(item for item in chain.rest if item is not link), values
+    )
+    result: ops.Relation = remaining
+    if link.how == "semi":
+        projected = {value: ops.Field(remaining, key) for key, value in remaining.values.items()}
+        result = remaining.to_expr().filter(predicate.op().replace(projected).to_expr()).op()
+    return result
+
+
+def inline_key_relation(
+    consumer: ir.Table,
+    parameter: SourceParameter,
+    producer: ir.Table,
+    producer_keys: tuple[str, ...],
+    provider: str,
+) -> ir.Table:
+    keys = distinct_returned_keys(
+        producer.select(
+            **dict(
+                zip(
+                    (column.slot_id for column in parameter.columns),
+                    (producer[key] for key in producer_keys),
+                    strict=True,
+                )
+            )
+        ),
+        provider,
+    )
+    return _replace_parameter(
+        source_parameter_comparisons(consumer, parameter.placeholder, provider),
+        parameter.placeholder,
+        keys,
+    )

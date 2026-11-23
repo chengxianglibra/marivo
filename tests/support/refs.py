@@ -8,6 +8,7 @@ from typing import cast
 from marivo._kernel.refs import Ref, SemanticKind, SemanticKindTag
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.symbolic import native_symbol_ref
+from marivo.semantic.catalog_model.objects import _SemanticObject
 
 _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
     SemanticKind.DOMAIN: cast("Callable[[str], Ref[SemanticKindTag]]", ref_factory.domain),
@@ -32,7 +33,6 @@ def make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
 def as_ref(value: object) -> Ref[SemanticKindTag] | None:
     if type(value) is Ref:
         return value
-    from marivo.semantic.catalog_model.objects import _SemanticObject
 
     if isinstance(value, _SemanticObject):
         return value._ref

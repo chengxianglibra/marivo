@@ -14,6 +14,7 @@ Inspect the installed environment with:
 Then use ``marivo.help(...)`` for all focused help.
 """
 
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 from marivo._kernel.environment import MARIVO_VERSION
@@ -30,8 +31,6 @@ __all__ = ["__version__", "help"]
 def __getattr__(name: str) -> object:
     """Load the cross-surface help coordinator only when it is requested."""
     if name == "help":
-        from importlib import import_module
-
         return import_module("marivo._help").help
     raise AttributeError(name)
 

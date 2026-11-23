@@ -3,11 +3,11 @@
 import hashlib
 from pathlib import Path
 
+from tests.support.paths import PROJECT_ROOT
 from tests.support.typing import check
 
 
 def test_semantic_object_positive_and_rejected_roles(tmp_path: Path) -> None:
-    from tests.support.paths import PROJECT_ROOT
 
     probe_id = hashlib.sha256(str(tmp_path).encode()).hexdigest()[:12]
     source = tmp_path / f"semantic_object_rejections_{probe_id}.py"

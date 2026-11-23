@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
+from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.semantic.ir import source_from_dict
 
 
@@ -43,7 +43,6 @@ def test_typed_source_builders_have_no_options_bag() -> None:
 
 
 def test_json_source_ir_has_minimal_json_shape() -> None:
-    from marivo.datasource.ir import JsonSourceIR
 
     source = JsonSourceIR(
         path="data/events/*.json",
@@ -91,7 +90,6 @@ def test_source_from_dict_reads_projected_file_variants() -> None:
 
 
 def test_source_from_dict_reads_json_variant() -> None:
-    from marivo.datasource.ir import JsonSourceIR
 
     restored = source_from_dict(
         {
@@ -123,7 +121,6 @@ def test_source_from_dict_reads_json_variant() -> None:
 
 
 def test_json_source_ir_rejects_empty_path_bad_format_and_bad_kind() -> None:
-    from marivo.datasource.ir import JsonSourceIR
 
     with pytest.raises(ValueError):
         JsonSourceIR(path="", columns=(("event_id", "event_id"),))

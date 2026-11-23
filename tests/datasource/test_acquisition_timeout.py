@@ -22,6 +22,9 @@ from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.datasource.store.authoring_store import AuthoringStore
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
+from tests.datasource.environment import clickhouse_analysis as ch
+from tests.datasource.environment import postgres_analysis as pg
+from tests.datasource.environment import trino_analysis as trino
 from tests.datasource.source_cases import Case, source_case, source_params
 from tests.support.source_trace import SourceTrace
 
@@ -58,8 +61,6 @@ def _blocking_view(case: Case, backend: str, statement: str) -> Iterator[TableSo
             finally:
                 admin.disconnect()
     elif backend == "postgres":
-        from tests.datasource.environment import postgres_analysis as pg
-
         with pg.connection(admin=True) as admin:
             admin.execute(create)
             try:
@@ -68,8 +69,6 @@ def _blocking_view(case: Case, backend: str, statement: str) -> Iterator[TableSo
             finally:
                 admin.execute(drop)
     elif backend == "trino":
-        from tests.datasource.environment import trino_analysis as trino
-
         with trino.connection(admin=True, catalog="iceberg") as admin:
             cursor = admin.cursor()
             try:
@@ -81,8 +80,6 @@ def _blocking_view(case: Case, backend: str, statement: str) -> Iterator[TableSo
             finally:
                 cursor.close()
     else:
-        from tests.datasource.environment import clickhouse_analysis as ch
-
         with ch.connection(admin=True) as admin:
             admin.command(create)
             try:

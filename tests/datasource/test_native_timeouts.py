@@ -309,7 +309,6 @@ def test_unscoped_connection_preserves_declared_native_transport_settings(
 def test_probe_timeout_requires_native_evidence_and_retains_backend_diagnostics(
     native: bool, tmp_path: Path
 ) -> None:
-    from marivo.datasource.inspection import manage as manage
 
     def fail(_state: manage._ProbeState) -> manage.DatasourceTestResult:
         if native:
@@ -329,7 +328,6 @@ def test_probe_timeout_requires_native_evidence_and_retains_backend_diagnostics(
 def test_connection_service_closes_other_owners_after_source_cleanup_failure(
     tmp_path: Path,
 ) -> None:
-    from marivo.datasource._lifetime import BackendLease
 
     service = runtime.DatasourceConnectionService(tmp_path)
     owners = [Mock(spec=SourceSession), Mock(spec=SourceSession)]

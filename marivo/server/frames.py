@@ -12,6 +12,7 @@ from marivo.analysis.session.read_spi import (
     DataType,
     FrameAxisSchema,
     FrameComparison,
+    FrameSnapshot,
     IntervalComparisonBinding,
     IntervalDataAxis,
     PairedDataAxis,
@@ -159,23 +160,7 @@ class FrameReads:
         budget.used -= 1
         budget.append(prefix, b',"data":{"layout":')
 
-        taken = set(public.values) | set(public.presence)
-        aliases = []
-        for axis in schema.axes:
-            base = axis.name.rsplit(".", 1)[-1]
-            name = base
-            suffix = 1
-            while True:
-                names = {
-                    column.name for column in axis_export_layout(axis, name, time_details=True)
-                }
-                if names.isdisjoint(taken):
-                    break
-                suffix += 1
-                name = f"{base}__{suffix}"
-            taken.update(names)
-            aliases.append(name)
-        axis_names = tuple(aliases)
+        axis_names = _exported_axis_names(snapshot)
         layout = export_layout(schema, axis_names, time_details=True)
         budget.write(prefix, fact(layout, "data.layout"))
         budget.append(prefix, b',"rows":')
@@ -216,39 +201,7 @@ class FrameReads:
         budget.append(tail, b'},"periods":[')
         parts.append(tail)
 
-        axes = {axis.token: axis for axis in schema.axes}
-        targets: list[_PeriodTarget] = []
-        for public_axis in public.axes:
-            saved = axes[public_axis.token]
-            if isinstance(saved, (CalendarDataAxis, IntervalDataAxis, PairedDataAxis)):
-                targets.append(
-                    _PeriodTarget(
-                        public_axis,
-                        {"kind": "axis", "axis_token": public_axis.token},
-                        tuple(column.dtype for column in saved.columns),
-                        tuple(column.dtype for column in saved.left.columns)
-                        if isinstance(saved, PairedDataAxis)
-                        else (),
-                        tuple(column.dtype for column in saved.right.columns)
-                        if isinstance(saved, PairedDataAxis)
-                        else (),
-                    )
-                )
-        comparisons = {comparison_id(item): item for item in schema.comparisons}
-        for comparison in public.comparisons:
-            binding = comparisons[comparison.comparison_id].binding
-            if isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
-                current = tuple(column.dtype for column in axes[binding.current_axis_token].columns)
-                targets.append(
-                    _PeriodTarget(
-                        comparison,
-                        {"kind": "comparison", "comparison_id": comparison.comparison_id},
-                        current,
-                        current,
-                        tuple(column.dtype for column in binding.baseline.columns),
-                    )
-                )
-        for index, target in enumerate(targets):
+        for index, target in enumerate(_period_targets(snapshot)):
             header = bytearray()
             budget.append(header, b',{"target":' if index else b'{"target":')
             budget.write(header, target.identity)
@@ -291,6 +244,62 @@ class _PeriodTarget:
     dtypes: tuple[DataType, ...]
     left: tuple[DataType, ...]
     right: tuple[DataType, ...]
+
+
+def _exported_axis_names(snapshot: FrameSnapshot) -> tuple[str, ...]:
+    public, schema = snapshot.schema, snapshot.data_schema
+    taken = set(public.values) | set(public.presence)
+    aliases = []
+    for axis in schema.axes:
+        base = axis.name.rsplit(".", 1)[-1]
+        name = base
+        suffix = 1
+        while True:
+            names = {column.name for column in axis_export_layout(axis, name, time_details=True)}
+            if names.isdisjoint(taken):
+                break
+            suffix += 1
+            name = f"{base}__{suffix}"
+        taken.update(names)
+        aliases.append(name)
+    return tuple(aliases)
+
+
+def _period_targets(snapshot: FrameSnapshot) -> tuple[_PeriodTarget, ...]:
+    public, schema = snapshot.schema, snapshot.data_schema
+    axes = {axis.token: axis for axis in schema.axes}
+    targets: list[_PeriodTarget] = []
+    for public_axis in public.axes:
+        saved = axes[public_axis.token]
+        if isinstance(saved, (CalendarDataAxis, IntervalDataAxis, PairedDataAxis)):
+            targets.append(
+                _PeriodTarget(
+                    public_axis,
+                    {"kind": "axis", "axis_token": public_axis.token},
+                    tuple(column.dtype for column in saved.columns),
+                    tuple(column.dtype for column in saved.left.columns)
+                    if isinstance(saved, PairedDataAxis)
+                    else (),
+                    tuple(column.dtype for column in saved.right.columns)
+                    if isinstance(saved, PairedDataAxis)
+                    else (),
+                )
+            )
+    comparisons = {comparison_id(item): item for item in schema.comparisons}
+    for comparison in public.comparisons:
+        binding = comparisons[comparison.comparison_id].binding
+        if isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
+            current = tuple(column.dtype for column in axes[binding.current_axis_token].columns)
+            targets.append(
+                _PeriodTarget(
+                    comparison,
+                    {"kind": "comparison", "comparison_id": comparison.comparison_id},
+                    current,
+                    current,
+                    tuple(column.dtype for column in binding.baseline.columns),
+                )
+            )
+    return tuple(targets)
 
 
 class _Array:

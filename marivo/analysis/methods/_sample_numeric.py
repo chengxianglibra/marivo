@@ -11,7 +11,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo._definition.expressions import PerReduce, PerWeightedMean
-from marivo.analysis.methods.numeric_state import typed_null_mask
+from marivo.analysis.methods.numeric_state import finish_decimal, typed_null_mask
 from marivo.analysis.model.data_types import DataType, DecimalDataType
 from marivo.analysis.model.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 from marivo.semantic.spi import numeric_failure
@@ -179,8 +179,6 @@ def reduce_samples(
             and isinstance(node, PerReduce)
             and node.reducer in ("median", "quantile")
         ):
-            from marivo.analysis.methods.numeric_state import finish_decimal
-
             result = finish_decimal(
                 pd.Series([result]), output_type.precision, output_type.scale
             ).iloc[0]

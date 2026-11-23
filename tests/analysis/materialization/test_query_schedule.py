@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from decimal import Decimal
 from pathlib import Path
 
 import duckdb
@@ -13,41 +14,41 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._kernel.grouping import Grouping
 from marivo._kernel.temporal import TimeScope
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.graph_lowering import lower_query
-from marivo.analysis.compiler.graph_plan import (
-    LocalCompute,
-    SourceReadStage,
-    plan_query,
-)
+from marivo.analysis.compiler.query_planning import plan_query
+from marivo.analysis.compiler.query_stages import LocalCompute, SourceReadStage
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     LiteralFrameBinding,
     SourceFrameBinding,
 )
 from marivo.analysis.dsl.temporal import CalendarAxis
+from marivo.analysis.materialization import source_completion as execution
 from marivo.analysis.materialization.graph_execution import run_query_plan
 from marivo.analysis.materialization.graph_local_execution import run_local
-from marivo.analysis.materialization.graph_source_execution import (
-    PreparedSources,
-    execute_numeric_query,
-    open_query_sources,
-    read_stage,
-)
+from marivo.analysis.materialization.graph_source_execution import execute_numeric_query
+from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.materialization.query_sources import open_query_sources
+from marivo.analysis.materialization.source_reads import read_stage
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.model.errors import CoreRuleError
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.kernels import QUERY_COMBINE_KERNEL
 from marivo.analysis.session.core import Session
+from marivo.datasource.runtime import backends as backends
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._expression_values import DimensionExpression, NumericMetric, RowPredicate
+from marivo.semantic.catalog_model.objects import Entity
 from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
+from marivo.semantic.numeric_operations import NumericCheck
 from tests.shared_fixtures import (
     catalog_value,
     numeric_literal_node,
@@ -345,8 +346,6 @@ def test_real_source_checks_and_strict_formula_keep_occurrence_order(
     fail_check: bool,
     same_root: bool,
 ) -> None:
-    from marivo.analysis.materialization import graph_source_execution as execution
-    from marivo.semantic.numeric_operations import NumericCheck
 
     session = warehouse_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
@@ -701,7 +700,6 @@ def test_multiple_roots_reduce_before_combining(warehouse_session: Session) -> N
 
 
 def test_semantic_preview_reuses_numeric_kernel(warehouse_session: Session) -> None:
-    import marivo.datasource as md
 
     session = warehouse_session
     _numeric_inputs(session)
@@ -758,7 +756,6 @@ def test_native_infinity_and_widened_integer_results_do_not_publish_a_run(
 
 
 def test_decimal_source_and_mixed_local_arithmetic(warehouse_session: Session) -> None:
-    from decimal import Decimal
 
     session = warehouse_session
     amount, _ = _numeric_inputs(session)
@@ -781,8 +778,6 @@ def test_decimal_source_and_mixed_local_arithmetic(warehouse_session: Session) -
 def test_preview_rejects_sample_preparation_before_opening_source(
     warehouse_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.datasource as md
-    from marivo.datasource.runtime import backends as backends
 
     session = warehouse_session
     metric = catalog_value(session.catalog, "sales.sampled", kind="metric")
@@ -818,7 +813,6 @@ def test_source_free_numeric_plan_never_reads(warehouse_session: Session) -> Non
 
 
 def test_entity_count_and_distinct_classification(warehouse_session: Session) -> None:
-    from marivo.semantic.catalog_model.objects import Entity
 
     session = warehouse_session
     entity = catalog_value(session.catalog, "sales.orders", kind="entity")
@@ -853,7 +847,6 @@ def test_local_combination_uses_every_coordinate(warehouse_session: Session) -> 
 
 
 def test_metric_preview_batch_reuses_scoped_reductions(warehouse_session: Session) -> None:
-    import marivo.datasource as md
 
     session = warehouse_session
     _numeric_inputs(session)
@@ -885,7 +878,6 @@ def test_weighted_mean_uses_native_overflowing_denominator(warehouse_session: Se
     assert _compute(session, {"tiny": (weight * 0 + 1e-308).weighted_mean(weight=weight)}).table[
         "value.0"
     ].tolist() == [0.0]
-    import marivo.datasource as md
 
     tiny = catalog_value(session.catalog, "sales.tiny_mean", kind="metric")
     assert isinstance(tiny, (ms.RowExpression, ms.MetricExpression))
@@ -938,7 +930,6 @@ def test_scalar_relationship_preparation(warehouse_session: Session, invalid: st
 
 
 def test_native_zero_product_can_elide_integer_overflow(warehouse_session: Session) -> None:
-    import marivo.datasource as md
 
     session = warehouse_session
     amount, _ = _numeric_inputs(session)

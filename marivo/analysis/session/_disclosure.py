@@ -5,6 +5,7 @@ from __future__ import annotations
 from inspect import signature
 
 from marivo.analysis import session as session_namespace
+from marivo.analysis.dsl._disclosure import provider as terminal_provider
 from marivo.analysis.materialization.carriers.frame_page import (
     FrameCalendarPeriod,
     FrameComparisonPeriod,
@@ -19,6 +20,7 @@ from marivo.analysis.model.disclosure import (
     DisclosureProvider,
     ExampleInput,
     ExportInput,
+    NavigationInput,
     bind,
     operation,
     value_type,
@@ -35,187 +37,245 @@ from marivo.analysis.session import _lazy_read_model as r
 from marivo.analysis.session._method_disclosure import section as _doc_section
 from marivo.analysis.session.core import Session
 
+_SESSION_OPERATIONS: tuple[tuple[object, str, str, str, str], ...] = (
+    (
+        session_namespace,
+        "get_or_create",
+        "Session",
+        "import marivo.analysis as mv\nresult = mv.session.get_or_create('help-repeatable', timezone='UTC')",
+        "Create or recover an exact Session name; retain saved metadata, reject explicit configuration conflicts and never set a current Session. Older Stores coexist unchanged; discovered older paths warn once per set per process.",
+    ),
+    (
+        session_namespace,
+        "resume",
+        "Session",
+        "import marivo.analysis as mv\nresult = mv.session.resume(saved_session_id)",
+        "Recover an existing exact Session ID; no creation or activation. Missing current Store or ID raises SessionNotFoundError; older paths provide guidance without verifying ID ownership.",
+    ),
+    (
+        session_namespace,
+        "recent",
+        "SessionSummaryPage",
+        "import marivo.analysis as mv\nresult = mv.session.recent(limit=5)",
+        "Read current-generation Session history; return an empty page when its Store is absent. No creation or activation. Older paths warn once per set per process without opening older Stores.",
+    ),
+    (
+        session_namespace,
+        "inspect",
+        "SessionSummary",
+        "import marivo.analysis as mv\nresult = mv.session.inspect(saved_session_id)",
+        "Read one existing Session snapshot; no recovery or activation. Missing current Store or ID raises SessionNotFoundError; older paths provide guidance without verifying ID ownership.",
+    ),
+    (
+        Session,
+        "members",
+        "Population",
+        "result = session.members(entity)",
+        "Capture source Entity identities with their own exact anchor and condition; no schema or business rows. Use session.frame(population) for complete keys.",
+    ),
+    (
+        Session,
+        "frame",
+        "AnalysisFrame",
+        "result = session.frame(population)",
+        "Capture a general complete Population key domain, including multiple axes and zero-axis empty/singleton domains; named values may be empty.",
+    ),
+    (
+        Session,
+        "observe",
+        "AnalysisFrame",
+        "period = session.time_scope(start='2026-08-01', end='2026-09-01')\n"
+        "result = session.observe(revenue, where=period).compute()\n"
+        "result.show()",
+        "Observe named Metrics overall, by time/classification, or both.",
+    ),
+    (
+        Session,
+        "read",
+        "AnalysisFrame",
+        "population = session.members(customer, where=region == 'east')\n"
+        "result = session.read(population, {'region': region}).compute()\n"
+        "result.show()",
+        "Read named scalar values from one eligible identity role while preserving all Population keys. Existing coordinates can supply captured values. Missing matches yield NULL.",
+    ),
+    (
+        Session,
+        "values",
+        "AnalysisFrame",
+        "result = session.values(by=(), columns={'budget': 'CNY'}, rows=(((), {'budget': 100}),))",
+        "Capture finite literal value input with one unit declaration per named column; no DataFrame import or source read.",
+    ),
+    (
+        Session,
+        "persisted_frames",
+        "PersistedFrameSummaryPage",
+        "result = session.persisted_frames(limit=5)\nresult.show()",
+        "Discover committed Frames by caller description and captured schema, without result files, Catalog or source reads. Select an exact artifact_id; inspect ambiguous candidates.",
+    ),
+    (
+        Session,
+        "persisted_frame",
+        "AnalysisFrame",
+        "session = mv.session.resume(session_id)\nresult = session.persisted_frame(artifact_id)",
+        "Open one exact committed Frame ID in this Session using metadata only, without result rows, model, Catalog, schema or source access; the Frame exposes captured source-read metadata directly.",
+    ),
+    (
+        Session,
+        "population_from",
+        "Population",
+        "result = session.population_from(frame, on=((frame.axes[0], target),))",
+        "Bind complete ordinary Frame keys to explicit semantic targets for a new source question.",
+    ),
+    (
+        Session,
+        "show",
+        "None",
+        "result = session.show()",
+        "Print a bounded retained Session recap.",
+    ),
+)
+_SESSION_OPERATIONS = (
+    *_SESSION_OPERATIONS,
+    (
+        Session,
+        "instant",
+        "InstantAnchor",
+        "result = session.instant('2026-01-01')",
+        "Freeze one exact instant without source reads.",
+    ),
+    (
+        Session,
+        "time_scope",
+        "TimeScope",
+        "result = session.time_scope(start='2026-01-01', end='2026-02-01')",
+        "Freeze [start,end) in Session timezone; aware boundaries keep their instants.",
+    ),
+    (
+        Session,
+        "render",
+        "str",
+        "result = session.render()",
+        "Render the bounded retained Session recap.",
+    ),
+)
 
-def provider() -> DisclosureProvider:
-    descriptors: list[Descriptor] = []
-    exports: list[ExportInput] = []
-    descriptors.append(
-        value_type(
-            "Session",
-            Session,
-            summary="One Session binds logical construction and committed Runtime reads.",
-            acquisition="Create or recover a name through mv.session.get_or_create, or recover an exact ID through mv.session.resume. Direct construction and extension are unsupported.",
-            producers=("session.get_or_create", "session.resume"),
-            constraints=(
-                "Source construction loads authored semantics on demand; retained reads do not require current sources.",
-                "session.timezone is the normalized saved report timezone; session.timezone_origin is explicit or system. System resolution occurs only at creation. Invalid or ambiguous host signals require an explicit timezone.",
-                "session.domains is the persisted tuple[str, ...] or None. None selects all authoring domain directories. Explicit names select only those directories, without dependency expansion; include every required domain before creation. Scope is frozen; create a new Session with domains=None or the complete required sequence to widen it.",
-            ),
+
+_ACQUISITION = {
+    "frame": "Same-Session AnalysisFrame; IDs, refs and raw tables reject.",
+    "on": "Pass (FrameAxis, closed Field or Entity) pairs as a tuple; () selects zero axes. Use field.at(session.instant(...)) for a new versioned field binding.",
+    "value": "Pass an ISO string, date, aware datetime or existing InstantAnchor.",
+    "timezone": "None uses the frozen Session timezone unless explicitly overridden.",
+    "start": "Choose the inclusive exact boundary.",
+    "end": "Choose the exclusive exact boundary, strictly after start.",
+    "where": "Pass a row predicate combining field and Population membership conditions. Source receivers can read fields required by the predicate.",
+    "at": "Pass an exact InstantAnchor from session.instant(...) for versioned identity selection.",
+    "population": "Pass a complete Population with no owner or the same Session owner.",
+    "fields": "Map output names to resolved scalar fields. Use single-valued Paths and explicit anchors for required version reads.",
+    "columns": "Map each literal value name to its one declared unit, or None.",
+    "rows": "Pass finite complete key tuples paired with every declared literal value name.",
+    "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
+    "limit": "Choose a page size within the owning read's bounded interval.",
+    "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
+    "session_id": "Use the exact existing Session id.",
+    "artifact_id": "Use the exact saved Frame's artifact_id string from this Session; objects and Refs are not IDs.",
+    "metrics": "Root Metric or nonempty list/tuple: local names in order. Expressions and counts need a nonempty Mapping {'total': expr}. Names: distinct, nonempty, not business identity; no dots, backslashes, controls or left_present/right_present.",
+    "entity": "Pass a resolved governed Entity, not a Ref or path.",
+}
+_PARAMETER_TARGETS: dict[str, tuple[str, ...]] = {
+    "metrics": ("inputs.catalog", "semantic.expressions"),
+    "entity": ("inputs.catalog",),
+    "fields": ("inputs.catalog", "semantic.field", "path.define"),
+    "population": ("inputs.population",),
+    "frame": ("AnalysisFrame",),
+    "where": ("semantic.predicate",),
+    "at": ("session.instant",),
+    "on": ("FrameAxis", "inputs.catalog", "session.instant"),
+    "session_id": ("session.recent",),
+    "artifact_id": ("analysis_frame.artifact_id", "session.persisted_frames"),
+}
+
+
+_NESTED_READS = (
+    (
+        r.PersistedFrameSummaryPage,
+        "Call session.persisted_frames(); select a candidate from items using its description and schema.",
+        ("session.persisted_frames",),
+        ("runtime.PersistedFrameSummary", "session.persisted_frame"),
+    ),
+    (
+        r.PersistedFrameSummary,
+        "Read session.persisted_frames().items; inspect description and schema, then select an exact artifact_id.",
+        ("runtime.persisted_frame_summary_page.items",),
+        ("frame_schema", "session.persisted_frame"),
+    ),
+    (
+        r.SessionSummaryPage,
+        "Call mv.session.recent(); select an exact item from items.",
+        ("session.recent",),
+        ("runtime.SessionSummary", "session.resume", "session.inspect"),
+    ),
+    (
+        r.SessionSummary,
+        "Read a selected recent().items entry or inspect(identity); retain its id/name.",
+        ("runtime.session_summary_page.items", "session.inspect"),
+        ("session.resume", "session.persisted_frames"),
+    ),
+)
+
+
+def _session_parameters(
+    name: str,
+    parameter_names: tuple[str, ...],
+    acquisition: dict[str, str],
+    parameter_targets: dict[str, tuple[str, ...]],
+) -> tuple[P, ...]:
+    return tuple(
+        P(
+            n,
+            "Use an exact project-local name. To recover an existing Session, pass only name: mv.session.get_or_create(name). Omit question, timezone and domains to retain the saved context."
+            if name == "get_or_create" and n == "name"
+            else "None stores no description on creation and retains the saved description on recovery. Non-None values must match the saved question."
+            if name == "get_or_create" and n == "question"
+            else "IANA name or explicit UTC offset. None strictly resolves the system IANA zone once on creation; unresolved TZ/localtime requires an explicit value. Recovery retains the saved timezone and origin without host resolution; non-None values must have the same normalized identity."
+            if name == "get_or_create" and n == "timezone"
+            else "None selects all authoring domain directories on creation and retains the saved scope on recovery. An exact name or nonempty sequence selects only those directories, without dependency expansion. Non-None values must match the saved sorted, deduplicated scope; use a new name to widen it."
+            if name == "get_or_create" and n == "domains"
+            else "Choose an integer from 1 through 100, excluding bool; default 20. Keep the same limit when continuing a cursor."
+            if name == "persisted_frames" and n == "limit"
+            else "Dimensions/Groupings tuple with at most one CalendarAxis: actual complete keys, no missing-bucket rows; () gives one cell. by=P retains complete keys without filtering facts; cover required keys before sampling. Time in by excludes TimeScope in where."
+            if name == "observe" and n == "by"
+            else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
+            if name == "values" and n == "by"
+            else "None, RowPredicate, TimeScope or AND tuple: where=(scope, predicate); at most one TimeScope. TimeScope cannot use & or |. mv.in_population(P) filters facts. Field comparisons stay fixed through windows and supply no endpoint. Population.count domains stay fixed."
+            if name == "observe" and n == "where"
+            else "Pass a complete Population, either unowned or from this Session. Reading preserves all input axes."
+            if name == "read" and n == "population"
+            else "Choose one existing complete identity Grouping when several roles can supply new values. None selects the unique eligible role; captured fields can be reused directly."
+            if name == "read" and n == "on"
+            else acquisition[n],
+            (
+                "inputs.catalog",
+                "inputs.population",
+                "time_scope.by",
+            )
+            if name == "observe" and n == "by"
+            else ("semantic.predicate", "session.time_scope")
+            if name == "observe" and n == "where"
+            else ("inputs.catalog", "identity")
+            if name == "values" and n == "by"
+            else ("session.members", "inputs.population")
+            if name == "read" and n == "population"
+            else ("population.axes",)
+            if name == "read" and n == "on"
+            else parameter_targets.get(n, ()),
         )
-    )
-    exports.extend(
-        (
-            ExportInput("Session", Session, "Session"),
-            ExportInput("session", session_namespace, "sessions"),
-        )
+        for n in parameter_names
+        if n != "self"
     )
 
-    operations: tuple[tuple[object, str, str, str, str], ...] = (
-        (
-            session_namespace,
-            "get_or_create",
-            "Session",
-            "import marivo.analysis as mv\nresult = mv.session.get_or_create('help-repeatable', timezone='UTC')",
-            "Create or recover an exact Session name; retain saved metadata, reject explicit configuration conflicts and never set a current Session. Older Stores coexist unchanged; discovered older paths warn once per set per process.",
-        ),
-        (
-            session_namespace,
-            "resume",
-            "Session",
-            "import marivo.analysis as mv\nresult = mv.session.resume(saved_session_id)",
-            "Recover an existing exact Session ID; no creation or activation. Missing current Store or ID raises SessionNotFoundError; older paths provide guidance without verifying ID ownership.",
-        ),
-        (
-            session_namespace,
-            "recent",
-            "SessionSummaryPage",
-            "import marivo.analysis as mv\nresult = mv.session.recent(limit=5)",
-            "Read current-generation Session history; return an empty page when its Store is absent. No creation or activation. Older paths warn once per set per process without opening older Stores.",
-        ),
-        (
-            session_namespace,
-            "inspect",
-            "SessionSummary",
-            "import marivo.analysis as mv\nresult = mv.session.inspect(saved_session_id)",
-            "Read one existing Session snapshot; no recovery or activation. Missing current Store or ID raises SessionNotFoundError; older paths provide guidance without verifying ID ownership.",
-        ),
-        (
-            Session,
-            "members",
-            "Population",
-            "result = session.members(entity)",
-            "Capture source Entity identities with their own exact anchor and condition; no schema or business rows. Use session.frame(population) for complete keys.",
-        ),
-        (
-            Session,
-            "frame",
-            "AnalysisFrame",
-            "result = session.frame(population)",
-            "Capture a general complete Population key domain, including multiple axes and zero-axis empty/singleton domains; named values may be empty.",
-        ),
-        (
-            Session,
-            "observe",
-            "AnalysisFrame",
-            "period = session.time_scope(start='2026-08-01', end='2026-09-01')\n"
-            "result = session.observe(revenue, where=period).compute()\n"
-            "result.show()",
-            "Observe named Metrics overall, by time/classification, or both.",
-        ),
-        (
-            Session,
-            "read",
-            "AnalysisFrame",
-            "population = session.members(customer, where=region == 'east')\n"
-            "result = session.read(population, {'region': region}).compute()\n"
-            "result.show()",
-            "Read named scalar values from one eligible identity role while preserving all Population keys. Existing coordinates can supply captured values. Missing matches yield NULL.",
-        ),
-        (
-            Session,
-            "values",
-            "AnalysisFrame",
-            "result = session.values(by=(), columns={'budget': 'CNY'}, rows=(((), {'budget': 100}),))",
-            "Capture finite literal value input with one unit declaration per named column; no DataFrame import or source read.",
-        ),
-        (
-            Session,
-            "persisted_frames",
-            "PersistedFrameSummaryPage",
-            "result = session.persisted_frames(limit=5)\nresult.show()",
-            "Discover committed Frames by caller description and captured schema, without result files, Catalog or source reads. Select an exact artifact_id; inspect ambiguous candidates.",
-        ),
-        (
-            Session,
-            "persisted_frame",
-            "AnalysisFrame",
-            "session = mv.session.resume(session_id)\n"
-            "result = session.persisted_frame(artifact_id)",
-            "Open one exact committed Frame ID in this Session using metadata only, without result rows, model, Catalog, schema or source access; the Frame exposes captured source-read metadata directly.",
-        ),
-        (
-            Session,
-            "population_from",
-            "Population",
-            "result = session.population_from(frame, on=((frame.axes[0], target),))",
-            "Bind complete ordinary Frame keys to explicit semantic targets for a new source question.",
-        ),
-        (
-            Session,
-            "show",
-            "None",
-            "result = session.show()",
-            "Print a bounded retained Session recap.",
-        ),
-    )
-    operations = (
-        *operations,
-        (
-            Session,
-            "instant",
-            "InstantAnchor",
-            "result = session.instant('2026-01-01')",
-            "Freeze one exact instant without source reads.",
-        ),
-        (
-            Session,
-            "time_scope",
-            "TimeScope",
-            "result = session.time_scope(start='2026-01-01', end='2026-02-01')",
-            "Freeze [start,end) in Session timezone; aware boundaries keep their instants.",
-        ),
-        (
-            Session,
-            "render",
-            "str",
-            "result = session.render()",
-            "Render the bounded retained Session recap.",
-        ),
-    )
-    acquisition = {
-        "frame": "Same-Session AnalysisFrame; IDs, refs and raw tables reject.",
-        "on": "Pass (FrameAxis, closed Field or Entity) pairs as a tuple; () selects zero axes. Use field.at(session.instant(...)) for a new versioned field binding.",
-        "value": "Pass an ISO string, date, aware datetime or existing InstantAnchor.",
-        "timezone": "None uses the frozen Session timezone unless explicitly overridden.",
-        "start": "Choose the inclusive exact boundary.",
-        "end": "Choose the exclusive exact boundary, strictly after start.",
-        "where": "Pass a row predicate combining field and Population membership conditions. Source receivers can read fields required by the predicate.",
-        "at": "Pass an exact InstantAnchor from session.instant(...) for versioned identity selection.",
-        "population": "Pass a complete Population with no owner or the same Session owner.",
-        "fields": "Map output names to resolved scalar fields. Use single-valued Paths and explicit anchors for required version reads.",
-        "columns": "Map each literal value name to its one declared unit, or None.",
-        "rows": "Pass finite complete key tuples paired with every declared literal value name.",
-        "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
-        "limit": "Choose a page size within the owning read's bounded interval.",
-        "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
-        "session_id": "Use the exact existing Session id.",
-        "artifact_id": "Use the exact saved Frame's artifact_id string from this Session; objects and Refs are not IDs.",
-        "metrics": "Root Metric or nonempty list/tuple: local names in order. Expressions and counts need a nonempty Mapping {'total': expr}. Names: distinct, nonempty, not business identity; no dots, backslashes, controls or left_present/right_present.",
-        "entity": "Pass a resolved governed Entity, not a Ref or path.",
-    }
-    parameter_targets: dict[str, tuple[str, ...]] = {
-        "metrics": ("inputs.catalog", "semantic.expressions"),
-        "entity": ("inputs.catalog",),
-        "fields": ("inputs.catalog", "semantic.field", "path.define"),
-        "population": ("inputs.population",),
-        "frame": ("AnalysisFrame",),
-        "where": ("semantic.predicate",),
-        "at": ("session.instant",),
-        "on": ("FrameAxis", "inputs.catalog", "session.instant"),
-        "session_id": ("session.recent",),
-        "artifact_id": ("analysis_frame.artifact_id", "session.persisted_frames"),
-    }
-    for receiver, name, output, code, effect in operations:
+
+def _session_operation_descriptors(descriptors: list[Descriptor]) -> None:
+    for receiver, name, output, code, effect in _SESSION_OPERATIONS:
         value = getattr(receiver, name)
         descriptors.append(
             operation(
@@ -248,48 +308,8 @@ def provider() -> DisclosureProvider:
                 else ("session.observe", "TimeScope.by")
                 if name == "time_scope"
                 else (),
-                parameters=tuple(
-                    P(
-                        n,
-                        "Use an exact project-local name. To recover an existing Session, pass only name: mv.session.get_or_create(name). Omit question, timezone and domains to retain the saved context."
-                        if name == "get_or_create" and n == "name"
-                        else "None stores no description on creation and retains the saved description on recovery. Non-None values must match the saved question."
-                        if name == "get_or_create" and n == "question"
-                        else "IANA name or explicit UTC offset. None strictly resolves the system IANA zone once on creation; unresolved TZ/localtime requires an explicit value. Recovery retains the saved timezone and origin without host resolution; non-None values must have the same normalized identity."
-                        if name == "get_or_create" and n == "timezone"
-                        else "None selects all authoring domain directories on creation and retains the saved scope on recovery. An exact name or nonempty sequence selects only those directories, without dependency expansion. Non-None values must match the saved sorted, deduplicated scope; use a new name to widen it."
-                        if name == "get_or_create" and n == "domains"
-                        else "Choose an integer from 1 through 100, excluding bool; default 20. Keep the same limit when continuing a cursor."
-                        if name == "persisted_frames" and n == "limit"
-                        else "Dimensions/Groupings tuple with at most one CalendarAxis: actual complete keys, no missing-bucket rows; () gives one cell. by=P retains complete keys without filtering facts; cover required keys before sampling. Time in by excludes TimeScope in where."
-                        if name == "observe" and n == "by"
-                        else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
-                        if name == "values" and n == "by"
-                        else "None, RowPredicate, TimeScope or AND tuple: where=(scope, predicate); at most one TimeScope. TimeScope cannot use & or |. mv.in_population(P) filters facts. Field comparisons stay fixed through windows and supply no endpoint. Population.count domains stay fixed."
-                        if name == "observe" and n == "where"
-                        else "Pass a complete Population, either unowned or from this Session. Reading preserves all input axes."
-                        if name == "read" and n == "population"
-                        else "Choose one existing complete identity Grouping when several roles can supply new values. None selects the unique eligible role; captured fields can be reused directly."
-                        if name == "read" and n == "on"
-                        else acquisition[n],
-                        (
-                            "inputs.catalog",
-                            "inputs.population",
-                            "time_scope.by",
-                        )
-                        if name == "observe" and n == "by"
-                        else ("semantic.predicate", "session.time_scope")
-                        if name == "observe" and n == "where"
-                        else ("inputs.catalog", "identity")
-                        if name == "values" and n == "by"
-                        else ("session.members", "inputs.population")
-                        if name == "read" and n == "population"
-                        else ("population.axes",)
-                        if name == "read" and n == "on"
-                        else parameter_targets.get(n, ()),
-                    )
-                    for n in signature(value).parameters
-                    if n != "self"
+                parameters=_session_parameters(
+                    name, tuple(signature(value).parameters), _ACQUISITION, _PARAMETER_TARGETS
                 ),
                 output=output,
                 constraints=(_doc_section(value, "Constraints"),)
@@ -348,34 +368,10 @@ def provider() -> DisclosureProvider:
                 ),
             )
         )
-    # These are retained nested return values, not additional public exports.
-    nested_reads = (
-        (
-            r.PersistedFrameSummaryPage,
-            "Call session.persisted_frames(); select a candidate from items using its description and schema.",
-            ("session.persisted_frames",),
-            ("runtime.PersistedFrameSummary", "session.persisted_frame"),
-        ),
-        (
-            r.PersistedFrameSummary,
-            "Read session.persisted_frames().items; inspect description and schema, then select an exact artifact_id.",
-            ("runtime.persisted_frame_summary_page.items",),
-            ("frame_schema", "session.persisted_frame"),
-        ),
-        (
-            r.SessionSummaryPage,
-            "Call mv.session.recent(); select an exact item from items.",
-            ("session.recent",),
-            ("runtime.SessionSummary", "session.resume", "session.inspect"),
-        ),
-        (
-            r.SessionSummary,
-            "Read a selected recent().items entry or inspect(identity); retain its id/name.",
-            ("runtime.session_summary_page.items", "session.inspect"),
-            ("session.resume", "session.persisted_frames"),
-        ),
-    )
-    for value, acquisition_text, producers, consumers in nested_reads:
+
+
+def _session_read_descriptors(descriptors: list[Descriptor], exports: list[ExportInput]) -> None:
+    for value, acquisition_text, producers, consumers in _NESTED_READS:
         descriptors.append(
             value_type(
                 "runtime." + value.__name__,
@@ -436,8 +432,6 @@ def provider() -> DisclosureProvider:
                 ),
             )
         )
-    from marivo.analysis.model.disclosure import NavigationInput
-
     descriptors.append(
         NavigationInput(
             "inputs.catalog",
@@ -474,8 +468,32 @@ def provider() -> DisclosureProvider:
         )
     )
 
-    from marivo.analysis.dsl._disclosure import provider as terminal_provider
 
+def provider() -> DisclosureProvider:
+    descriptors: list[Descriptor] = []
+    exports: list[ExportInput] = []
+    descriptors.append(
+        value_type(
+            "Session",
+            Session,
+            summary="One Session binds logical construction and committed Runtime reads.",
+            acquisition="Create or recover a name through mv.session.get_or_create, or recover an exact ID through mv.session.resume. Direct construction and extension are unsupported.",
+            producers=("session.get_or_create", "session.resume"),
+            constraints=(
+                "Source construction loads authored semantics on demand; retained reads do not require current sources.",
+                "session.timezone is the normalized saved report timezone; session.timezone_origin is explicit or system. System resolution occurs only at creation. Invalid or ambiguous host signals require an explicit timezone.",
+                "session.domains is the persisted tuple[str, ...] or None. None selects all authoring domain directories. Explicit names select only those directories, without dependency expansion; include every required domain before creation. Scope is frozen; create a new Session with domains=None or the complete required sequence to widen it.",
+            ),
+        )
+    )
+    exports.extend(
+        (
+            ExportInput("Session", Session, "Session"),
+            ExportInput("session", session_namespace, "sessions"),
+        )
+    )
+    _session_operation_descriptors(descriptors)
+    _session_read_descriptors(descriptors, exports)
     terminal = terminal_provider()
     descriptors.extend(terminal.descriptors)
     exports.extend(terminal.exports)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -144,7 +143,7 @@ def _inspect_table_from_ir(
             )
     datasource = datasource_ir.name
     profile = require_profile_for_backend_type(datasource_ir.backend_type)
-    backend: Any = None
+    backend: BaseBackend | None = None
     session: SourceSession | None = None
     try:
         try:

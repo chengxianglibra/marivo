@@ -413,7 +413,6 @@ def test_calendar_sample_formula_discloses_public_builtin_grain(
 def test_window_calendar_order_preserves_sparse_samples(
     calendar_session: Session, tmp_path: Path
 ) -> None:
-    import duckdb
 
     with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
         connection.execute("DELETE FROM facts")
@@ -577,7 +576,6 @@ def test_calendar_window_documentation_examples(calendar_session: Session, editi
 def test_calendar_window_dst_distinguishes_elapsed_and_civil_days(
     calendar_session: Session, tmp_path: Path
 ) -> None:
-    import duckdb
 
     with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
         connection.execute("DELETE FROM facts")
@@ -663,7 +661,6 @@ def test_sample_windows_keep_other_outputs_fixed_frame_parameters(
 def test_window_samples_retain_all_null_and_zero_days(
     calendar_session: Session, tmp_path: Path
 ) -> None:
-    import duckdb
 
     with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
         connection.execute("DELETE FROM facts")

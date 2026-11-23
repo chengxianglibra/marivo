@@ -28,6 +28,7 @@ modules are `datasource` (`md`), `semantic` (`ms`), `analysis` (`mv`) and
 | Ontology declarations and lookup | `marivo.help("ontology")`, [exports](marivo/ontology/__init__.py) |
 | Analysis and time | [Analysis](docs/architecture/analysis/README.md), [temporal semantics](docs/architecture/temporal-semantics.md) |
 | Help, result display and errors | [Agent-facing public surface](docs/architecture/agent-friendly-public-surface.md) |
+| Dependencies, engine boundaries and static gates | [Architecture boundaries](docs/architecture/architecture-boundaries.md) |
 | Tests and fixtures | [Test fixture skill](.agents/skills/marivo-test-fixtures/SKILL.md) |
 | Agent workflow and boundaries | [Semantic skill](marivo/skills/marivo-semantic/SKILL.md), [analysis skill](marivo/skills/marivo-analysis/SKILL.md) |
 
@@ -61,6 +62,11 @@ paths. See [development setup](README.md#development) and install the
 - Modified Python modules must pass typing. Public parameters and returns require
   concrete types, not `Any`; implicit `Any`, broad casts and type ignores require
   strict local justification. Test current contracts, not retired compatibility shapes.
+- Keep runtime and type-only dependencies acyclic. Resolve cycles at the owning
+  boundary. Function-local imports must never hide a cycle.
+- Use public interfaces or the declared SPI across domains. Keep engine-specific
+  decisions in Datasource. Never add Import Linter exemptions or raise the
+  architecture ratchet.
 - Use `make check-fast` as the default local CI check during day-to-day development.
   Start with focused checks and run `make test` for shared behavior changes. Run
   explicit tests for subprocess, SQL or data changes. For docs-only edits, validate

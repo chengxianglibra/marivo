@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from marivo._kernel.config import PACKAGED_SKILLS
 from tests.support.paths import PROJECT_ROOT
 
 REPO_ROOT = PROJECT_ROOT
@@ -15,7 +16,6 @@ SEMANTIC_SKILL_DIR = REPO_ROOT / "marivo" / "skills" / "marivo-semantic"
 
 
 def test_packaged_workflows_have_only_semantic_and_analysis() -> None:
-    from marivo._kernel.config import PACKAGED_SKILLS
 
     expected = {"marivo-semantic", "marivo-analysis"}
     assert set(PACKAGED_SKILLS) == expected

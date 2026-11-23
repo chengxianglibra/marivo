@@ -32,6 +32,14 @@ from tests.shared_fixtures import (
 from tests.support.source_trace import capture_source
 
 
+def _assert_long_route(logical: mv.AnalysisFrame, depth: int) -> None:
+    binding = source_graph(logical).signature.observation
+    assert binding is not None and len(binding.contributions) == 1
+    assert {
+        tuple(step.ref.path for step in read.path) for read in binding.contributions[0].coordinates
+    } == {tuple(f"sales.hop{index}" for index in range(depth))}
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "depth,key_type",
@@ -192,12 +200,7 @@ def test_long_path_sum_and_count(
                 {"value": expression},
                 by=mv.product(session.time_scope(start="2026-08-01", end="2026-08-02"), population),
             )
-            binding = source_graph(logical).signature.observation
-            assert binding is not None and len(binding.contributions) == 1
-            assert {
-                tuple(step.ref.path for step in read.path)
-                for read in binding.contributions[0].coordinates
-            } == {tuple(f"sales.hop{index}" for index in range(depth))}
+            _assert_long_route(logical, depth)
             result = logical.persist()
             frame = result.to_pandas()
             coordinate = ordinary_columns(result)[0]

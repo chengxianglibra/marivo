@@ -1,21 +1,25 @@
 """Native Query numeric selections preserve missing values, keys and checks."""
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import duckdb
 import ibis
 import pandas as pd
 import pyarrow as pa
 import pytest
+from clickhouse_connect.driver.exceptions import ClickHouseError
 from trino.exceptions import TrinoUserError
 
 import marivo.analysis as mv
 from marivo.analysis.compiler.graph_lowering import lower_query
-from marivo.analysis.compiler.graph_plan import ProjectionRead, QueryPlan, SourceReadStage
+from marivo.analysis.compiler.query_stages import ProjectionRead, QueryPlan, SourceReadStage
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.datasource.errors import DatasourceError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
@@ -248,7 +252,6 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
     backend: str,
     profile: str,
 ) -> None:
-    from decimal import Decimal
 
     data = _data("nan")
     data = SourceData(
@@ -420,12 +423,6 @@ def test_decimal_overflow_matches_native_result_or_failure(
     profile: str,
     operation: str,
 ) -> None:
-    from dataclasses import replace
-
-    import duckdb
-    import pyarrow as pa
-
-    from marivo.datasource.errors import DatasourceError
 
     maximum = Decimal("9" * 38)
     original = _data()
@@ -456,8 +453,6 @@ def test_decimal_overflow_matches_native_result_or_failure(
         sql = f"SELECT CAST(SUM({operand}) AS DECIMAL(38,0)) FROM ({ibis.to_sql(native, dialect=backend)}) AS input_rows"
         native_error: type[Exception] = duckdb.Error
         if backend == "clickhouse":
-            from clickhouse_connect.driver.exceptions import ClickHouseError
-
             native_error = ClickHouseError
         expected: Decimal | None = None
         failed = False

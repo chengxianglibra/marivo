@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from ibis.backends.clickhouse import Backend
 
 from marivo.datasource.engines.clickhouse import validate_query_size
 from marivo.datasource.errors import DatasourceSourceCapabilityError
@@ -12,7 +13,6 @@ from tests.datasource.source_cases import source_case, source_params
 
 
 def test_clickhouse_capacity_counts_utf8_format_and_client_override() -> None:
-    from ibis.backends.clickhouse import Backend
 
     backend = Backend()
     sql = "SELECT '雪😀'"

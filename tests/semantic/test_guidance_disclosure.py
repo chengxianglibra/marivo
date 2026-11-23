@@ -18,6 +18,7 @@ from marivo._help.render import help as show_help
 from marivo._help.render import render_help_text
 from marivo._kernel.refs import ref as ref_factory
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.targets import semantic_target
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_row
 from marivo.semantic._help_specs.manifest import REGISTRY
 from marivo.semantic.errors import (
@@ -183,7 +184,6 @@ def test_decorator_help_example_loads_the_declared_object(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.introspection.live.targets import semantic_target
 
     descriptor = REGISTRY.by_canonical_id(semantic_target(target))
     assert isinstance(descriptor, AuthoringCapability)

@@ -13,9 +13,12 @@ import ibis
 import pytest
 
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.runtime.adapters import SourceSession, provider_for
 from marivo.datasource.runtime.json_source import json_source_url, read_json_source
+from marivo.semantic.reader import SemanticProject
+from marivo.semantic.runtime_check.materializer import Materializer
 
 _EVENT_SCHEMA = {"event_id": "int64", "amount": "int64", "status": "string"}
 _EVENT_COLUMNS = {name: name for name in _EVENT_SCHEMA}
@@ -379,9 +382,6 @@ def test_load_and_require_json_entity(tmp_path: Path) -> None:
     source_path = _write_ndjson_files(tmp_path)
     _write_project_with_json_entity(tmp_path, source_path)
 
-    import marivo.semantic as ms
-    from marivo.semantic.reader import SemanticProject
-
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
 
@@ -396,9 +396,6 @@ def test_load_and_require_json_entity_with_auto_format(tmp_path: Path) -> None:
     source_path = _write_ndjson_files(tmp_path)
     _write_project_with_json_entity(tmp_path, source_path, format=None)
 
-    import marivo.semantic as ms
-    from marivo.semantic.reader import SemanticProject
-
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
 
@@ -412,9 +409,6 @@ def test_load_and_require_json_entity_with_auto_format(tmp_path: Path) -> None:
 def test_loaded_json_project_materializes_entity(tmp_path: Path) -> None:
     source_path = _write_ndjson_files(tmp_path)
     _write_project_with_json_entity(tmp_path, source_path)
-
-    from marivo.semantic.reader import SemanticProject
-    from marivo.semantic.runtime_check.materializer import Materializer
 
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
@@ -443,9 +437,6 @@ def test_loaded_wrapped_json_project_materializes_records(tmp_path: Path) -> Non
         format=None,
         records_path="$.result.items",
     )
-
-    from marivo.semantic.reader import SemanticProject
-    from marivo.semantic.runtime_check.materializer import Materializer
 
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()

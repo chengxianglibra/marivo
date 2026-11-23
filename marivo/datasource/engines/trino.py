@@ -8,8 +8,9 @@ from contextlib import closing, contextmanager
 from dataclasses import replace
 from functools import partial
 from operator import itemgetter
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
+import ibis
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
 from ibis.backends import BaseBackend
@@ -80,20 +81,19 @@ from marivo.datasource.metadata_types import (
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
-    import ibis
 
     host = require_field(name, kwargs, "host", help_target="trino")
     catalog = require_field(name, kwargs, "catalog", help_target="trino")
     user = require_field(name, kwargs, "user", help_target="trino")
-    connect_kwargs: dict[str, Any] = dict(kwargs)
+    connect_kwargs: dict[str, object] = dict(kwargs)
     connect_kwargs.pop("catalog", None)
-    connect_kwargs["host"] = host
-    connect_kwargs["database"] = catalog
-    connect_kwargs["user"] = user
+    connect_kwargs.update(host=host, database=catalog, user=user)
     if "client_tags" in kwargs:
-        tags: Any = kwargs["client_tags"]
+        tags = kwargs["client_tags"]
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(",") if t.strip()]
+        if not isinstance(tags, Iterable):
+            raise TypeError(f"'{type(tags).__name__}' object is not iterable")
         connect_kwargs["client_tags"] = list(tags)
     if "session_properties" in kwargs and isinstance(kwargs["session_properties"], dict):
         connect_kwargs["session_properties"] = dict(kwargs["session_properties"])
@@ -345,7 +345,7 @@ register_provider_statements(
 
 
 def _trino_rows(
-    backend: Any,
+    backend: BaseBackend,
     statement_id: str,
     *,
     values: Mapping[str, object] = {},
@@ -468,7 +468,7 @@ def _trino_partitions_from_show_create(
 
 def _trino_show_create_table(
     *,
-    backend: Any,
+    backend: BaseBackend,
     table: str,
     catalog: str,
     schema_name: str,
@@ -509,7 +509,7 @@ def _trino_table_comment_from_show_create(create_sql: str) -> str | None:
 
 def _trino_physical_profile(
     *,
-    backend: Any,
+    backend: BaseBackend,
     table: str,
     catalog: str,
     schema_name: str,
@@ -561,10 +561,10 @@ def _trino_physical_profile(
 def _inspect_trino(
     *,
     datasource: str,
-    backend: Any,
+    backend: BaseBackend,
     table: str,
     database: str | tuple[str, ...] | None,
-    table_expr: Any,
+    table_expr: ir.Table,
     include_partitions: bool,
     catalog: str,
     default_schema: str | None,

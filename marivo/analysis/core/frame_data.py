@@ -10,15 +10,15 @@ import pandas as pd
 from marivo._definition.types import LiteralValue
 from marivo._kernel.input_context import Owner
 from marivo.analysis.binding.graph import BoundGraph
-from marivo.analysis.core.frame_expression import (
+from marivo.analysis.core import data_validation
+from marivo.analysis.core.attachments import OutputAttachment
+from marivo.analysis.core.frame_method_facts import FrameMethodFacts
+from marivo.analysis.core.frame_operations import (
     AlignFrameValues,
     FrameOperationKind,
     NamedFrameComparison,
 )
-from marivo.analysis.core.frame_method_facts import FrameMethodFacts
 from marivo.analysis.core.frozen_calendar import FrozenAttachment, validate_frozen_coordinates
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
-from marivo.analysis.methods.carriers.data_validation import normalize_complete_frame
 from marivo.analysis.model.artifact_data import ArtifactData, SavedFrameMethodFacts
 from marivo.analysis.model.data_schema import (
     CalendarComparisonBinding,
@@ -61,7 +61,7 @@ def _table(
         {column.slot_id: rows[column.slot_id].array.copy() for column in schema.columns},
         index=pd.RangeIndex(len(rows)),
     )
-    result = normalize_complete_frame(
+    result = data_validation.normalize_complete_frame(
         independent, schema.columns, schema.key_fields, unique_keys=unique_keys
     )
     if not schema.axes and not unique_keys.proves(()) and len(result) > 1:

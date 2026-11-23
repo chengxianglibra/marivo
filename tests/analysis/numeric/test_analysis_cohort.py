@@ -1,10 +1,16 @@
 """Full opportunity cohort decisions with independent counts."""
 
+import os
+import subprocess
+import sys
+
+import duckdb
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.dsl.column import row_count
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, catalog_value, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
@@ -25,7 +31,6 @@ def test_full_entity_time_cohort(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
     session = case.session
@@ -62,7 +67,6 @@ def test_full_entity_time_cohort(
 def test_previous_week_mean_selects_users_for_current_week_spending(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as database:
@@ -133,9 +137,6 @@ def spending_amount():
 @pytest.mark.release
 @pytest.mark.slow
 def test_cold_full_opportunity_exports(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    import os
-    import subprocess
-    import sys
 
     case = analysis_dsl_case_factory("j2")
     session = case.session

@@ -12,16 +12,18 @@ from typing import Literal, TypeVar, Union, get_args, get_origin, get_type_hints
 
 import pyarrow as pa
 
-from marivo.analysis.core.frame_method_facts import (
-    FrameAdditiveMethod,
-    FrameAttributeMetric,
-    FrameDivisionMethod,
+from marivo.analysis.core.frame_level_facts import (
     FrameLevelAdditiveMethod,
     FrameLevelDivisionMethod,
     FrameLevelLinearMethod,
     FrameLevelLinearTerm,
     FrameLevelRatioMethod,
     FrameLevelSupport,
+)
+from marivo.analysis.core.frame_method_facts import (
+    FrameAdditiveMethod,
+    FrameAttributeMetric,
+    FrameDivisionMethod,
     FrameLinearMethod,
     FrameLinearTerm,
     FrameMethodCoordinate,
@@ -29,10 +31,12 @@ from marivo.analysis.core.frame_method_facts import (
     FrameMethodParent,
     FrameMethodSupport,
     FrameRatioMethod,
+    FrameShapleyMethod,
+)
+from marivo.analysis.core.frame_shapley_facts import (
     FrameShapleyCapture,
     FrameShapleyGame,
     FrameShapleyLeaf,
-    FrameShapleyMethod,
     FrameShapleyNativeQuantile,
     FrameShapleyQuantile,
     FrameShapleyQuery,
@@ -74,6 +78,7 @@ from marivo.analysis.model.data_types import (
     TimestampDataType,
 )
 from marivo.analysis.model.execution_errors import IntegrityError
+from marivo.analysis.model.execution_errors import terminal_output_integrity_error as invalid
 from marivo.analysis.model.frame_facts import FrameField, UnresolvedDataType
 from marivo.analysis.model.frame_metadata import (
     LiteralInput,
@@ -138,16 +143,6 @@ from marivo.analysis.model.time_facts import (
     FrameTrailingPeriodsWindow,
     FrameWallClockSourceTime,
 )
-
-
-def invalid(received: str) -> IntegrityError:
-    return IntegrityError(
-        expected="a complete Store 28 Frame output v17 value",
-        received=received,
-        repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
-        stage="terminal_output",
-        help_target="analysis_frame",
-    )
 
 
 @dataclass(frozen=True, slots=True)

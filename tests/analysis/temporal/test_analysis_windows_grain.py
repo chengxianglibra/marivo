@@ -2,15 +2,16 @@ from typing import Literal
 
 import pytest
 
+from marivo._kernel.time_types import civil_midnight_width_seconds, grain_token
 from marivo.analysis import grain
 
 
 def test_keyword_construction_and_token() -> None:
     g = grain("minute", count=5)
-    assert g._is_subday is True
+    assert civil_midnight_width_seconds(g) == 300
     assert g._width_seconds() == 300
-    assert g._to_token() == "5minute"
-    assert grain("day", count=1)._to_token() == "day"
+    assert grain_token(g) == "5minute"
+    assert grain_token(grain("day", count=1)) == "day"
 
 
 @pytest.mark.parametrize(

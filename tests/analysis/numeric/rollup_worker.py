@@ -10,6 +10,8 @@ from numbers import Integral
 from pathlib import Path
 from unittest.mock import patch
 
+import duckdb
+
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.runtime.adapters import SourceSession
@@ -90,7 +92,6 @@ def _author(project: Path, *, mean_measure: str = "quantity") -> None:
 
 def author_decimal_mean_project(project: Path) -> Path:
     """Create the native Decimal mean model and an empty typed source table."""
-    import duckdb
 
     _author(project, mean_measure="amount")
     with duckdb.connect(str(project / "warehouse.duckdb")) as connection:
@@ -115,7 +116,6 @@ def _dtypes(result: mv.AnalysisFrame) -> dict[str, Json]:
 
 
 def run(mode: str, project: Path) -> dict[str, Json]:
-    import duckdb
 
     os.chdir(project)
     os.environ["MARIVO_PROJECT_ROOT"] = str(project)

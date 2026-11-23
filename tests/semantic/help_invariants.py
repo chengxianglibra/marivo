@@ -1,7 +1,7 @@
 """Independent validation of the semantic Help graph and evidence routes."""
 
 from collections import deque
-from typing import get_args
+from typing import Protocol, get_args
 
 from marivo._authoring.model import AuthoringCapability
 from marivo._kernel.refs import SemanticKind
@@ -58,40 +58,13 @@ def _discovery_members(descriptor: SemanticHelpDescriptor) -> tuple[LiveHelpTarg
     return ()
 
 
-def validate_registry(registry: SemanticManifest) -> None:
-    """Reject invalid closed registry state before the live surface is built."""
+class _TargetValidator(Protocol):
+    def __call__(self, target: LiveHelpTarget, *, owner: str) -> None: ...
 
-    help_descriptors = registry.help_descriptors
-    canonical_ids = tuple(descriptor.canonical_id for descriptor in help_descriptors)
-    if any(not canonical_id.strip() for canonical_id in canonical_ids):
-        raise ValueError("semantic help canonical ids must not be empty")
-    if any(not descriptor.summary.strip() for descriptor in help_descriptors):
-        raise ValueError("semantic help descriptor summaries must not be empty")
 
-    exact_descriptors = tuple(
-        descriptor for descriptor in help_descriptors if isinstance(descriptor, AuthoringCapability)
-    )
-    if exact_descriptors != registry.descriptors:
-        raise ValueError("semantic exact descriptor projection is inconsistent")
-    if tuple(registry._by_id) != canonical_ids:
-        raise ValueError("semantic help id index is inconsistent")
-    for descriptor in help_descriptors:
-        if registry._by_id.get(descriptor.canonical_id) is not descriptor:
-            raise ValueError("semantic help id index does not preserve descriptor identity")
-
-    callable_descriptors = tuple(
-        descriptor for descriptor in exact_descriptors if descriptor.callable_path is not None
-    )
-    callable_paths = tuple(descriptor.callable_path for descriptor in callable_descriptors)
-    if len(callable_paths) != len(set(callable_paths)):
-        raise ValueError("duplicate semantic callable path")
-    if set(registry._by_callable_path) != set(callable_paths):
-        raise ValueError("semantic callable index is inconsistent")
-    for descriptor in callable_descriptors:
-        callable_path = descriptor.callable_path
-        if callable_path is None or registry._by_callable_path.get(callable_path) is not descriptor:
-            raise ValueError("semantic callable index does not preserve descriptor identity")
-
+def _validate_render_budgets(
+    registry: SemanticManifest, help_descriptors: tuple[SemanticHelpDescriptor, ...]
+) -> None:
     expected_render_classes = set(get_args(SemanticHelpRenderClass))
     if set(registry.render_budgets) != expected_render_classes:
         raise ValueError("semantic Help budgets must cover every render class")
@@ -124,66 +97,14 @@ def validate_registry(registry: SemanticManifest) -> None:
                         f"semantic navigation member is incomplete: {descriptor.canonical_id}"
                     )
 
-    exact_ids = {descriptor.canonical_id for descriptor in exact_descriptors}
-    expected_root_sections: tuple[SemanticRootGroup, ...] = ("tasks",)
-    if tuple(section.section_id for section in registry.root_sections) != expected_root_sections:
-        raise ValueError("semantic root sections must use the reviewed compact topology")
-    root_routes = tuple(target for section in registry.root_sections for target in section.members)
-    if len(root_routes) != len(set(root_routes)):
-        raise ValueError("duplicate semantic root route")
-    if len(root_routes) > registry.render_budget("root").max_outgoing_routes:
-        raise ValueError("semantic root exceeds its route budget")
 
-    known_semantic_type_targets = {
-        "semantic_catalog",
-        "semantic_object",
-    }
-
-    def validate_target(target: LiveHelpTarget, *, owner: str) -> None:
-        target_id = target.canonical_id
-        if target_id is None:
-            raise ValueError(f"semantic Help route lacks a canonical id: {owner}")
-        if target.surface == "semantic":
-            if target_id not in set(canonical_ids) | known_semantic_type_targets:
-                raise ValueError(f"unknown semantic Help route: {owner} -> {target_id}")
-            return
-        try:
-            if target.surface == "datasource":
-                DATASOURCE_REGISTRY.by_canonical_id(target_id)
-            elif target.surface in {"analysis", "ontology"}:
-                # Unified route tests validate cross-surface existence. Importing the
-                # analysis or ontology registry here would create a cycle during
-                # an analysis-first or ontology-first cold start.
-                return
-            else:
-                raise ValueError(f"unsupported semantic Help route surface: {target.surface}")
-        except KeyError as exc:
-            raise ValueError(f"unknown external semantic Help route: {owner}") from exc
-
-    for section in registry.root_sections:
-        if not section.label.strip() or not section.members:
-            raise ValueError(f"semantic root section is incomplete: {section.section_id}")
-        for target in section.members:
-            validate_target(target, owner=f"root.{section.section_id}")
-        if len(section.route_summaries) != len(section.members) or any(
-            not summary.strip() for summary in section.route_summaries
-        ):
-            raise ValueError(f"semantic root decisions are incomplete: {section.section_id}")
-
-    for error_kind, repair_contract in registry._repair_contracts.items():
-        if error_kind != repair_contract.error_kind or not error_kind.strip():
-            raise ValueError("semantic repair contract key drift")
-        target = repair_contract.help_target
-        target_id = target.canonical_id
-        if target_id is None:
-            raise ValueError(f"semantic repair target lacks a canonical id: {error_kind}")
-        if target.surface != "semantic":
-            continue
-        validate_target(target, owner=f"repair.{error_kind}")
-        descriptor = registry.by_canonical_id(target_id)
-        if not isinstance(descriptor, (AuthoringCapability, SemanticObjectContract)):
-            raise ValueError(f"semantic repair target is over-broad: {error_kind}")
-
+def _validate_object_contracts(
+    registry: SemanticManifest,
+    help_descriptors: tuple[SemanticHelpDescriptor, ...],
+    validate_target: _TargetValidator,
+    exact_ids: set[str],
+    canonical_ids: tuple[str, ...],
+) -> None:
     object_contracts = registry.object_contracts
     object_index_entries = tuple(
         member
@@ -284,53 +205,15 @@ def validate_registry(registry: SemanticManifest) -> None:
             else:
                 raise ValueError(f"unsupported object relationship surface: {kind.value}")
 
-    ref_method_ids = tuple(f"ref.{kind.value}" for kind in SemanticKind)
-    ref_parent = registry.by_canonical_id("ref")
-    if not isinstance(ref_parent, AuthoringCapability):
-        raise ValueError("semantic ref factory contract must be exact")
-    if tuple(target.canonical_id for target in ref_parent.see_also) != ref_method_ids or any(
-        target.surface != "semantic" for target in ref_parent.see_also
-    ):
-        raise ValueError("semantic ref factory membership drift")
-    for target_id in ref_method_ids:
-        try:
-            descriptor = registry.by_canonical_id(target_id)
-        except KeyError as exc:
-            raise ValueError("semantic ref factory target is not exact") from exc
-        if (
-            not isinstance(descriptor, AuthoringCapability)
-            or descriptor.kind != "method"
-            or descriptor.callable_path is None
-        ):
-            raise ValueError("semantic ref factory target is not exact")
 
-    source_check_method_ids = (
-        "source_check.not_null",
-        "source_check.allowed_values",
-        "source_check.unique",
-        "source_check.freshness",
-        "source_check.relationship_matches",
-        "source_check.relationship_cardinality",
-    )
-    source_check_parent = registry.by_canonical_id("source_check")
-    if not isinstance(source_check_parent, AuthoringCapability):
-        raise ValueError("semantic source-check factory contract must be exact")
-    if tuple(target.canonical_id for target in source_check_parent.see_also) != (
-        source_check_method_ids
-    ) or any(target.surface != "semantic" for target in source_check_parent.see_also):
-        raise ValueError("semantic source-check factory membership drift")
-    for target_id in source_check_method_ids:
-        try:
-            descriptor = registry.by_canonical_id(target_id)
-        except KeyError as exc:
-            raise ValueError("semantic source-check factory target is not exact") from exc
-        if (
-            not isinstance(descriptor, AuthoringCapability)
-            or descriptor.kind != "method"
-            or descriptor.callable_path is None
-        ):
-            raise ValueError("semantic source-check factory target is not exact")
-
+def _validate_discovery(
+    registry: SemanticManifest,
+    help_descriptors: tuple[SemanticHelpDescriptor, ...],
+    exact_descriptors: tuple[AuthoringCapability, ...],
+    ref_method_ids: tuple[str, ...],
+    source_check_method_ids: tuple[str, ...],
+    validate_target: _TargetValidator,
+) -> None:
     discovery_owners: dict[tuple[str, str | None], str] = {}
     for descriptor in help_descriptors:
         routes = registry.routes(descriptor.canonical_id)
@@ -399,3 +282,166 @@ def validate_registry(registry: SemanticManifest) -> None:
     )
     if too_deep:
         raise ValueError("semantic Help graph exceeds four surface reads: " + ", ".join(too_deep))
+
+
+def _validate_factory_methods(
+    registry: SemanticManifest, validate_target: _TargetValidator
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    ref_method_ids = tuple(f"ref.{kind.value}" for kind in SemanticKind)
+    ref_parent = registry.by_canonical_id("ref")
+    if not isinstance(ref_parent, AuthoringCapability):
+        raise ValueError("semantic ref factory contract must be exact")
+    if tuple(target.canonical_id for target in ref_parent.see_also) != ref_method_ids or any(
+        target.surface != "semantic" for target in ref_parent.see_also
+    ):
+        raise ValueError("semantic ref factory membership drift")
+    for target_id in ref_method_ids:
+        try:
+            descriptor = registry.by_canonical_id(target_id)
+        except KeyError as exc:
+            raise ValueError("semantic ref factory target is not exact") from exc
+        if (
+            not isinstance(descriptor, AuthoringCapability)
+            or descriptor.kind != "method"
+            or descriptor.callable_path is None
+        ):
+            raise ValueError("semantic ref factory target is not exact")
+
+    source_check_method_ids = (
+        "source_check.not_null",
+        "source_check.allowed_values",
+        "source_check.unique",
+        "source_check.freshness",
+        "source_check.relationship_matches",
+        "source_check.relationship_cardinality",
+    )
+    source_check_parent = registry.by_canonical_id("source_check")
+    if not isinstance(source_check_parent, AuthoringCapability):
+        raise ValueError("semantic source-check factory contract must be exact")
+    if tuple(target.canonical_id for target in source_check_parent.see_also) != (
+        source_check_method_ids
+    ) or any(target.surface != "semantic" for target in source_check_parent.see_also):
+        raise ValueError("semantic source-check factory membership drift")
+    for target_id in source_check_method_ids:
+        try:
+            descriptor = registry.by_canonical_id(target_id)
+        except KeyError as exc:
+            raise ValueError("semantic source-check factory target is not exact") from exc
+        if (
+            not isinstance(descriptor, AuthoringCapability)
+            or descriptor.kind != "method"
+            or descriptor.callable_path is None
+        ):
+            raise ValueError("semantic source-check factory target is not exact")
+    return ref_method_ids, source_check_method_ids
+
+
+def validate_registry(registry: SemanticManifest) -> None:
+    """Reject invalid closed registry state before the live surface is built."""
+
+    help_descriptors = registry.help_descriptors
+    canonical_ids = tuple(descriptor.canonical_id for descriptor in help_descriptors)
+    if any(not canonical_id.strip() for canonical_id in canonical_ids):
+        raise ValueError("semantic help canonical ids must not be empty")
+    if any(not descriptor.summary.strip() for descriptor in help_descriptors):
+        raise ValueError("semantic help descriptor summaries must not be empty")
+
+    exact_descriptors = tuple(
+        descriptor for descriptor in help_descriptors if isinstance(descriptor, AuthoringCapability)
+    )
+    if exact_descriptors != registry.descriptors:
+        raise ValueError("semantic exact descriptor projection is inconsistent")
+    if tuple(registry._by_id) != canonical_ids:
+        raise ValueError("semantic help id index is inconsistent")
+    for descriptor in help_descriptors:
+        if registry._by_id.get(descriptor.canonical_id) is not descriptor:
+            raise ValueError("semantic help id index does not preserve descriptor identity")
+
+    callable_descriptors = tuple(
+        descriptor for descriptor in exact_descriptors if descriptor.callable_path is not None
+    )
+    callable_paths = tuple(descriptor.callable_path for descriptor in callable_descriptors)
+    if len(callable_paths) != len(set(callable_paths)):
+        raise ValueError("duplicate semantic callable path")
+    if set(registry._by_callable_path) != set(callable_paths):
+        raise ValueError("semantic callable index is inconsistent")
+    for descriptor in callable_descriptors:
+        callable_path = descriptor.callable_path
+        if callable_path is None or registry._by_callable_path.get(callable_path) is not descriptor:
+            raise ValueError("semantic callable index does not preserve descriptor identity")
+
+    _validate_render_budgets(registry, help_descriptors)
+
+    exact_ids = {descriptor.canonical_id for descriptor in exact_descriptors}
+    expected_root_sections: tuple[SemanticRootGroup, ...] = ("tasks",)
+    if tuple(section.section_id for section in registry.root_sections) != expected_root_sections:
+        raise ValueError("semantic root sections must use the reviewed compact topology")
+    root_routes = tuple(target for section in registry.root_sections for target in section.members)
+    if len(root_routes) != len(set(root_routes)):
+        raise ValueError("duplicate semantic root route")
+    if len(root_routes) > registry.render_budget("root").max_outgoing_routes:
+        raise ValueError("semantic root exceeds its route budget")
+
+    known_semantic_type_targets = {
+        "semantic_catalog",
+        "semantic_object",
+    }
+
+    def validate_target(target: LiveHelpTarget, *, owner: str) -> None:
+        target_id = target.canonical_id
+        if target_id is None:
+            raise ValueError(f"semantic Help route lacks a canonical id: {owner}")
+        if target.surface == "semantic":
+            if target_id not in set(canonical_ids) | known_semantic_type_targets:
+                raise ValueError(f"unknown semantic Help route: {owner} -> {target_id}")
+            return
+        try:
+            if target.surface == "datasource":
+                DATASOURCE_REGISTRY.by_canonical_id(target_id)
+            elif target.surface in {"analysis", "ontology"}:
+                # Unified route tests validate cross-surface existence. Importing the
+                # analysis or ontology registry here would create a cycle during
+                # an analysis-first or ontology-first cold start.
+                return
+            else:
+                raise ValueError(f"unsupported semantic Help route surface: {target.surface}")
+        except KeyError as exc:
+            raise ValueError(f"unknown external semantic Help route: {owner}") from exc
+
+    for section in registry.root_sections:
+        if not section.label.strip() or not section.members:
+            raise ValueError(f"semantic root section is incomplete: {section.section_id}")
+        for target in section.members:
+            validate_target(target, owner=f"root.{section.section_id}")
+        if len(section.route_summaries) != len(section.members) or any(
+            not summary.strip() for summary in section.route_summaries
+        ):
+            raise ValueError(f"semantic root decisions are incomplete: {section.section_id}")
+
+    for error_kind, repair_contract in registry._repair_contracts.items():
+        if error_kind != repair_contract.error_kind or not error_kind.strip():
+            raise ValueError("semantic repair contract key drift")
+        target = repair_contract.help_target
+        target_id = target.canonical_id
+        if target_id is None:
+            raise ValueError(f"semantic repair target lacks a canonical id: {error_kind}")
+        if target.surface != "semantic":
+            continue
+        validate_target(target, owner=f"repair.{error_kind}")
+        descriptor = registry.by_canonical_id(target_id)
+        if not isinstance(descriptor, (AuthoringCapability, SemanticObjectContract)):
+            raise ValueError(f"semantic repair target is over-broad: {error_kind}")
+
+    _validate_object_contracts(
+        registry, help_descriptors, validate_target, exact_ids, canonical_ids
+    )
+
+    ref_method_ids, source_check_method_ids = _validate_factory_methods(registry, validate_target)
+    _validate_discovery(
+        registry,
+        help_descriptors,
+        exact_descriptors,
+        ref_method_ids,
+        source_check_method_ids,
+        validate_target,
+    )

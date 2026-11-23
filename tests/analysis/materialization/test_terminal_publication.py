@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -23,22 +24,37 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._definition.types import CalendarCoordinate
+from marivo._kernel.temporal import anchor_from_datetime
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     MemoryFrameBacking,
     StoredFrameBacking,
 )
+from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod
+from marivo.analysis.dsl.column import row_count
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_publication, terminal_store
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import decode_failure, failure_payload
-from marivo.analysis.materialization.graph_reading import open_manifest
+from marivo.analysis.materialization.frame_method_facts import decode_method_payload, method_payload
+from marivo.analysis.materialization.graph_reading import (
+    ExportRead,
+    FrameReader,
+    OutputRead,
+    ReadLayout,
+    open_manifest,
+    read_output,
+)
+from marivo.analysis.materialization.pandas_export import export_frame
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.terminal_protocol import decode, encode
 from marivo.analysis.materialization.terminal_publication import reconcile
-from marivo.analysis.materialization.terminal_storage import POLICY, read_output, write_output
+from marivo.analysis.materialization.terminal_storage import POLICY, write_output
+from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 from marivo.analysis.model.artifact_data import ArtifactData, ArtifactManifest
 from marivo.analysis.model.data_schema import CalendarDataAxis, DataAxis, DataSchema
 from marivo.analysis.model.data_types import (
@@ -55,8 +71,12 @@ from marivo.analysis.model.execution_errors import (
 )
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.model.lineage import empty as empty_lineage
+from marivo.analysis.model.receipts import canonical_json
 from marivo.analysis.model.time_facts import FrameCalendarAxisSchema
 from marivo.analysis.session.core import Session
+from marivo.datasource._lifetime import BackendLease
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.semantic.errors import SemanticExpressionError
 from tests.analysis.materialization.terminal_recovery_worker import method_result
 from tests.shared_fixtures import catalog_value, frozen_coordinates, terminal_run, terminal_runs
 
@@ -112,9 +132,6 @@ def result_metadata() -> FrameResultMetadata:
 
 
 def calendar_constant(session: Session, calendar: mv.CalendarAxis) -> AnalysisFrame:
-    from marivo._definition.types import CalendarCoordinate
-    from marivo._kernel.temporal import anchor_from_datetime
-    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 
     grid = calendar.grid
     coordinate = CalendarCoordinate(
@@ -265,7 +282,6 @@ def test_storage_wide_complete_keys_exact_dtypes_and_nullable_values(tmp_path: P
             ArtifactData(schema, handle),
             terminal_store.describe(replace(result_metadata(), lineage=empty_lineage(schema))),
         )
-        from marivo.analysis.materialization.pandas_export import export_frame
 
         exported = export_frame(manifest.data.schema, output)
         assert exported.columns.nlevels == 1
@@ -298,7 +314,6 @@ def test_zero_axis_zero_value_unit_rows(tmp_path: Path, count: int) -> None:
     output = read_output(tmp_path, DataSchema((), ()), handle)
     assert output.shape == (count, 0)
     assert output.index.equals(pd.RangeIndex(count))
-    from marivo.analysis.materialization.pandas_export import export_frame
 
     manifest = ArtifactManifest(
         "store",
@@ -476,7 +491,7 @@ import pandas as pd
 from marivo.analysis.model.data_schema import CalendarDataAxis
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization import terminal_store, terminal_publication
-from marivo.analysis.materialization.terminal_storage import read_output
+from marivo.analysis.materialization.graph_reading import read_output
 store = SessionStore.open_existing(Path(sys.argv[1]))
 for artifact_id in sys.argv[3:]:
     with store._read() as conn:
@@ -555,7 +570,7 @@ def test_private_cold_roundtrip_does_not_need_producer_or_catalog(
 import sys
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization import terminal_store, terminal_publication
-from marivo.analysis.materialization.terminal_storage import read_output
+from marivo.analysis.materialization.graph_reading import read_output
 store=SessionStore.open_existing(Path(sys.argv[1]))
 with store._read() as conn:
     manifest=terminal_store.manifest(store,conn,sys.argv[2])
@@ -613,7 +628,6 @@ def test_process_loss_reconciles_original_without_replay(session: Session, point
 
 @pytest.mark.release
 def test_process_writer_contention_does_not_admit_contender(session: Session) -> None:
-    from marivo.analysis.materialization.writer_guard import session_writer_guard
 
     store = session._runtime.store
     command = [
@@ -664,7 +678,6 @@ def test_unknown_commit_keeps_files_and_journal_until_reconciliation(
 
 
 def test_obsolete_output_envelope_is_rejected_without_rewrite() -> None:
-    from marivo.analysis.model.receipts import canonical_json
 
     text = canonical_json({"format": "marivo.graph/v10", "value": {}})
     with pytest.raises(IntegrityError):
@@ -709,7 +722,6 @@ def test_explicit_numeric_error_prevents_admission_and_publication(
     total = amount.sum(nulls="error")
     with pytest.raises(MaterializationError) as caught:
         source_session.observe({"strict": total}).persist()
-    from marivo.semantic.errors import SemanticExpressionError
 
     assert isinstance(caught.value.__cause__, SemanticExpressionError)
     assert caught.value.stage == "numeric_value"
@@ -721,7 +733,6 @@ def test_explicit_numeric_error_prevents_admission_and_publication(
 def test_source_disconnect_failure_prevents_publication(
     source_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource._lifetime import BackendLease
 
     original = BackendLease.close
 
@@ -803,7 +814,6 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     session = source_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
@@ -852,7 +862,6 @@ def test_public_read_isolated_copy_and_historical_values(source_session: Session
 def test_preview_bounds_batch_decoding_and_skips_unused_parts(
     session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from marivo.analysis.materialization.graph_reading import FrameReader, OutputRead
 
     count = POLICY.row_group_rows + 9
     key = DataColumn("key.0", "group", ScalarDataType("int64"), False)
@@ -988,7 +997,6 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
 
 @pytest.mark.release
 def test_public_produce_and_cold_read_are_independent_processes(source_session: Session) -> None:
-    import shutil
 
     root = source_session.project_root
     worktree = Path(__file__).resolve().parents[3]
@@ -1045,7 +1053,6 @@ exec(compile(example.example.code, '<persist-help>', 'exec'))
 
 @pytest.mark.release
 def test_period_comparison_endpoints_and_report_cold_recovery(source_session: Session) -> None:
-    import shutil
 
     root = source_session.project_root
     worktree = Path(__file__).resolve().parents[3]
@@ -1086,7 +1093,6 @@ def test_period_comparison_endpoints_and_report_cold_recovery(source_session: Se
 
 
 def test_composite_coordinates_remain_one_ordered_tuple(tmp_path: Path) -> None:
-    from marivo.analysis.materialization.pandas_export import export_frame
 
     keys = (
         DataColumn("a", "account", ScalarDataType("int64"), False),
@@ -1117,7 +1123,6 @@ def test_composite_coordinates_remain_one_ordered_tuple(tmp_path: Path) -> None:
 
 
 def test_operator_sequence_survives_real_source_finish_and_storage(source_session: Session) -> None:
-    from marivo.analysis.dsl.column import row_count
 
     session = source_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
@@ -1193,11 +1198,6 @@ print('cold-reducer-exact')
 def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
     session: Session, empty: bool
 ) -> None:
-    from marivo.analysis.materialization.frame_method_facts import (
-        decode_method_payload,
-        method_payload,
-    )
-    from marivo.analysis.materialization.graph_reading import ExportRead, OutputRead, ReadLayout
 
     result = method_result(empty=empty)
     saved = AnalysisFrame._from_memory(session._runtime.local, result).persist()
@@ -1249,7 +1249,6 @@ def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
 
 
 def test_malformed_method_numeric_facts_fail_before_admission(session: Session) -> None:
-    from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod
 
     result = method_result()
     facts = result.method_facts[0]

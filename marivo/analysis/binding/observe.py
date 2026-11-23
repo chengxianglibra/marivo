@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, field
 from typing import Literal
 
 from marivo._definition.correspondence import coordinate_matches, interval_key_pairs
@@ -12,30 +12,25 @@ from marivo._definition.expressions import (
     DeclaredMetricRef,
     EntityCount,
     FieldCalendarSample,
-    MeasureAssertion,
     MemberCount,
     MetricNode,
+    MetricWindow,
     PerReduce,
     PerWeightedMean,
     PredicateExpression,
-    RowExpression,
-    RowField,
-    RowNode,
     SourceAggregate,
     SourceWeightedMean,
 )
 from marivo._definition.graph import DefinitionNode, children, walk
 from marivo._definition.observation_time import ObservationPeriod as ObservationPeriod
+from marivo._definition.observations import ContributionBinding as ContributionBinding
+from marivo._definition.observations import ObservationBinding as ObservationBinding
 from marivo._definition.observations import (
-    CalendarGrouping,
     SampleAxis,
     SampleAxisMatch,
     SampleAxisMatches,
-    SampleIntervalRanges,
     SampleLayer,
 )
-from marivo._definition.observations import ContributionBinding as ContributionBinding
-from marivo._definition.observations import ObservationBinding as ObservationBinding
 from marivo._definition.population_builders import membership_anchor
 from marivo._definition.relations import (
     MembershipBinding,
@@ -56,19 +51,19 @@ from marivo._definition.types import (
     IntervalCoordinate,
     RowAttributeTime,
     field_axis,
-    field_read_key,
-    fixed_attribute_time,
 )
 from marivo._kernel.temporal import Grain, InstantAnchor
-from marivo.analysis.binding.calendar_samples import validate_sample_parent
+from marivo.analysis.binding.contribution_binding import (
+    ContributionGeometry,
+    ObservationCoordinate,
+    bind_contribution,
+)
 from marivo.analysis.binding.coordinates import (
     CoordinateBinding,
-    bind_identity,
-    bind_read,
-    native_read,
 )
-from marivo.analysis.binding.membership import membership_reads
 from marivo.analysis.binding.relationship_binding import RelationshipResolver
+from marivo.analysis.binding.temporal_predicates import normalize_temporal_predicate
+from marivo.analysis.binding.windows import bind_windows
 from marivo.analysis.model.errors import reject
 from marivo.semantic.spi import CompiledSemanticState
 from marivo.semantic.spi import DefinitionResolver as _Resolver
@@ -172,28 +167,11 @@ def _interval_ordinal_support(
     return tuple(sorted(ordinals))
 
 
-def _row_fields(node: DefinitionNode) -> tuple[RowField, ...]:
-    if isinstance(node, RowField):
-        return (node,)
-    return tuple(field for edge in children(node) for field in _row_fields(edge.child))
-
-
-def _predicate_reads(
-    node: PredicateExpression, state: CompiledSemanticState, resolver: _Resolver
-) -> tuple[FieldRead, ...]:
-    return tuple(
-        field.read or native_read(field.ref, state.registry, resolver)
-        for leaf in node.inputs
-        if isinstance(leaf, RowExpression)
-        for field in _row_fields(leaf)
-    )
-
-
 def bind_observation(
     metrics: tuple[tuple[str, MetricNode], ...],
     declared: dict[ExactRef, MetricNode],
     *,
-    by: tuple[FieldRead | EntityIdentityRead | CalendarCoordinate | IntervalCoordinate, ...],
+    by: tuple[ObservationCoordinate, ...],
     where: PredicateExpression | None,
     timezone: str,
     state: CompiledSemanticState | None,
@@ -203,7 +181,35 @@ def bind_observation(
     pending_interval: int | None = None,
     empty_interval: bool = False,
 ) -> ObservationBinding:
-    if not isinstance(by, tuple) or any(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    _validate_output_coordinates(by)
+    geometry, time_axis = _capture_output_geometry(
+        by, memberships, report_period, pending_interval, empty_interval
+    )
+    condition = (
+        normalize_temporal_predicate(where, timezone, location="Session.observe.where")
+        if where is not None
+        else None
+    )
+    binder = _ObservationBinder(
+        geometry,
+        metrics,
+        declared,
+        condition,
+        timezone,
+        state,
+        _Resolver(state) if state is not None else None,
+        RelationshipResolver.build(state.registry) if state is not None else None,
+        SampleLayer(geometry.axes, memberships),
+    )
+    for index, (_, node) in enumerate(metrics):
+        binder.visit(node, (index,), ())
+    return _finalize_observation(
+        binder, time_axis, where, population, pending_interval, empty_interval
+    )
+
+
+def _validate_output_coordinates(by: object) -> None:
+    if not isinstance(by, tuple) or any(
         not isinstance(
             field, (FieldRead, EntityIdentityRead, CalendarCoordinate, IntervalCoordinate)
         )
@@ -215,6 +221,15 @@ def bind_observation(
             "Use by=(field, scope.by(mv.grain('day'))) or where=scope for range-only totals.",
             "Session.observe",
         )
+
+
+def _capture_output_geometry(
+    by: tuple[ObservationCoordinate, ...],
+    memberships: tuple[MembershipBinding, ...],
+    report_period: ObservationPeriod | None,
+    pending_interval: int | None,
+    empty_interval: bool,
+) -> tuple[ContributionGeometry, CalendarCoordinate | IntervalCoordinate | None]:
     time_axes = tuple(
         axis for axis in by if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
     )
@@ -226,7 +241,6 @@ def bind_observation(
             "Session.observe",
         )
     time_axis = time_axes[0] if time_axes else None
-    calendar = time_axis if isinstance(time_axis, CalendarCoordinate) else None
     period = report_period or (
         ObservationPeriod(time_axis.start, time_axis.end, time_axis.timezone)
         if isinstance(time_axis, IntervalCoordinate)
@@ -260,22 +274,36 @@ def bind_observation(
     )
     if len(set(axes)) != len(axes):
         reject("distinct output axes", repr(by), "Remove repeated axes.", "Session.observe")
-    from marivo.analysis.binding.temporal_predicates import normalize_temporal_predicate
-
-    condition = (
-        normalize_temporal_predicate(where, timezone, location="Session.observe.where")
-        if where is not None
-        else None
+    return (
+        ContributionGeometry(
+            by, axes, memberships, period, pending_interval is not None or empty_interval
+        ),
+        time_axis,
     )
-    contributions: list[ContributionBinding] = []
-    calendar_samples: list[tuple[tuple[int, ...], BuiltinSampleCoordinate]] = []
-    sample_matches: list[tuple[tuple[int, ...], SampleAxisMatches]] = []
-    output_layer = SampleLayer(axes, memberships)
-    count_populations: dict[PopulationDependency, PopulationDependency] = {}
-    resolver = _Resolver(state) if state is not None else None
-    paths = RelationshipResolver.build(state.registry) if state is not None else None
+
+
+@dataclass(slots=True)
+class _ObservationBinder:
+    geometry: ContributionGeometry
+    metrics: tuple[tuple[str, MetricNode], ...]
+    declared: dict[ExactRef, MetricNode]
+    condition: PredicateExpression | None
+    timezone: str
+    state: CompiledSemanticState | None
+    resolver: _Resolver | None
+    paths: RelationshipResolver | None
+    output_layer: SampleLayer
+    contributions: list[ContributionBinding] = field(default_factory=list)
+    calendar_samples: list[tuple[tuple[int, ...], BuiltinSampleCoordinate]] = field(
+        default_factory=list
+    )
+    sample_matches: list[tuple[tuple[int, ...], SampleAxisMatches]] = field(default_factory=list)
+    count_populations: dict[PopulationDependency, PopulationDependency] = field(
+        default_factory=dict
+    )
 
     def visit(
+        self,
         node: DefinitionNode,
         occurrence: tuple[int, ...],
         filters: tuple[PredicateExpression, ...],
@@ -283,100 +311,32 @@ def bind_observation(
         sample_layers: tuple[SampleLayer, ...] = (),
     ) -> None:
         if isinstance(node, DeclaredMetricRef):
-            visit(declared[node.ref], (*occurrence, 0), filters, sample_axes, sample_layers)
+            self.visit(
+                self.declared[node.ref], (*occurrence, 0), filters, sample_axes, sample_layers
+            )
             return
         if isinstance(node, ContributionFilter):
-            visit(
+            self.visit(
                 node.operand,
                 (*occurrence, 0),
                 (
                     *filters,
-                    normalize_temporal_predicate(node.predicate, timezone, location="Metric.where"),
+                    normalize_temporal_predicate(
+                        node.predicate, self.timezone, location="Metric.where"
+                    ),
                 ),
                 sample_axes,
                 sample_layers,
             )
             return
         if isinstance(node, MemberCount):
-            domain = node.population
-            requested = tuple(dict.fromkeys((*axes, *sample_axes)))
-            for axis in requested:
-                if isinstance(axis, BuiltinSampleCoordinate):
-                    continue
-                if any(coordinate_matches(axis, candidate) for candidate in domain.axes):
-                    continue
-                if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) and not any(
-                    isinstance(existing, (CalendarCoordinate, IntervalCoordinate))
-                    for existing in domain.axes
-                ):
-                    continue
-                reject(
-                    "count coordinates already present in the Population",
-                    repr(axis),
-                    "Classify the identity domain explicitly before counting by new attributes.",
-                    "Population.count",
-                )
-            count_populations[domain] = domain
+            self._bind_count(node, sample_axes)
             return
         if isinstance(node, (PerReduce, PerWeightedMean)):
-            sample_domain = node.samples
-            inner_domain_axes: tuple[SampleAxis, ...]
-            if isinstance(sample_domain, (Grain, FieldCalendarSample)):
-                inner = BuiltinSampleCoordinate(sample_domain, timezone)
-                calendar_samples.append((occurrence, inner))
-                inner_domain_axes = (inner,)
-            else:
-                inner_domain_axes = (
-                    sample_domain if isinstance(sample_domain, tuple) else sample_domain.axes
-                )
-            inner_axes = tuple(
-                axis
-                for axis in inner_domain_axes
-                if isinstance(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                    axis,
-                    (AxisBinding, CalendarCoordinate, IntervalCoordinate, BuiltinSampleCoordinate),
-                )
-            )
-            inner_memberships = (
-                sample_domain.memberships if isinstance(sample_domain, SampleDomain) else ()
-            )
-            explicit_population = sample_population(sample_domain)
-            sample_layer = SampleLayer(
-                inner_axes, inner_memberships, _selected_interval_ordinals(explicit_population)
-            )
-            if explicit_population is not None:
-                matches = _shared_sample_axes((output_layer, *sample_layers), sample_layer)
-                if matches:
-                    sample_matches.append((occurrence, matches))
-            contribution_count = len(contributions)
-            for edge in children(node):
-                if edge.role in ("operand", "value", "weight"):
-                    visit(
-                        edge.child,
-                        (*occurrence, edge.index),
-                        filters,
-                        (*sample_axes, *inner_axes),
-                        (*sample_layers, sample_layer),
-                    )
-            if (
-                isinstance(sample_domain, (Grain, FieldCalendarSample))
-                and len(contributions) == contribution_count
-            ):
-                reject(
-                    "fact contributions representing actual calendar samples",
-                    "a source-free or count-only sample formula",
-                    "Use a fact Metric inside the calendar sample.",
-                    "Metric.per",
-                )
-            if inner_memberships and len(contributions) == contribution_count:
-                reject(
-                    "fact contributions for membership allocation",
-                    "count-only internal samples",
-                    "Remove ineffective memberships or include a fact Metric in the sample formula.",
-                    "Metric.per.memberships",
-                )
+            self._bind_sample(node, occurrence, filters, sample_axes, sample_layers)
             return
         if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
+            state, resolver, paths = self.state, self.resolver, self.paths
             if state is None or resolver is None or paths is None:
                 reject(
                     "captured semantic declarations for source binding",
@@ -384,345 +344,123 @@ def bind_observation(
                     "Load the source definitions in this Session's Catalog.",
                     "session.observe",
                 )
-            fields = _row_fields(node)
-            roots = (
-                {node.entity.ref}
-                if isinstance(node, EntityCount)
-                else {node.contribution_root.ref}
-                if node.contribution_root is not None
-                else {field.root.ref for field in fields}
-            )
-            if len(roots) != 1:
-                reject(
-                    "one contribution root per source reduction",
-                    repr(roots),
-                    "Reduce each fact root separately before composing Metrics.",
-                    "session.observe",
-                )
-            root_ref = next(iter(roots))
-            if root_ref.path not in state.registry.entities:
-                reject(
-                    "a declared contribution Entity",
-                    root_ref.path,
-                    "Resolve the source Metric in this Session's Catalog.",
-                    "session.observe",
-                )
-            root = resolver.entity_ref(root_ref.path)
-            contribution_period = period
-            coordinate_calendar_axes = tuple(
-                axis for axis in axes if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-            )
-            if (
-                contribution_period is None
-                and coordinate_calendar_axes
-                and pending_interval is None
-                and not empty_interval
-            ):
-                cells = tuple(
-                    cell
-                    for axis in coordinate_calendar_axes
-                    for cell in (
-                        axis.cells
-                        if isinstance(axis, CalendarCoordinate)
-                        else ((axis.start, axis.end, axis.start, axis.end),)
-                    )
-                )
-                if cells:
-                    contribution_period = ObservationPeriod(
-                        min(cell[2] for cell in cells),
-                        max(cell[3] for cell in cells),
-                        coordinate_calendar_axes[0].timezone,
-                    )
-            time = None
-            time_read = None
-            if node.time is not None:
-                time_read = native_read(node.time.field, state.registry, resolver)
-            reads = [
-                field.read or native_read(field.ref, state.registry, resolver) for field in fields
-            ]
-            if node.time is not None and time_read is not None:
-                reads.append(
-                    replace(
-                        time_read,
-                        path=node.time.path,
-                        at=node.time.at,
-                        source_at=node.time.source_at,
-                        step_ats=node.time.step_ats,
-                    )
-                )
-            predicates = (*filters, *((condition,) if condition is not None else ()))
-            for predicate in predicates:
-                reads.extend(_predicate_reads(predicate, state, resolver))
-            from marivo._definition.relations import condition_populations
-
-            population_reads: dict[AxisBinding, FieldRead | EntityIdentityRead] = {}
-            for predicate in predicates:
-                for domain in condition_populations(predicate):
-                    for axis in domain.axes:
-                        if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
-                            if node.time is None:
-                                reject(
-                                    "a contribution clock for time coordinates in in_population",
-                                    f"{root.ref.key} has no contribution clock for {type(axis).__name__}",
-                                    "Use a Metric with the intended TimeField or project the time axis out of the predicate Population.",
-                                    "Metric.where",
-                                    canonical_id="in_population",
-                                )
-                            continue
-                        read = axis.as_read()
-                        parent_read = next(
-                            (
-                                allocated
-                                for membership in memberships
-                                for original, allocated in zip(
-                                    membership.fields,
-                                    membership_reads(membership, root),
-                                    strict=True,
-                                )
-                                if coordinate_matches(field_axis(original), axis)
-                            ),
-                            None,
-                        )
-                        if read.path_facts and any(
-                            step.cardinality in ("one_to_many", "many_to_many")
-                            for step in read.path_facts
-                        ):
-                            if read.path_root is None or read.path_root.ref != root.ref:
-                                reject(
-                                    "an explicit relationship role starting at the contribution Entity",
-                                    repr(read.path_root),
-                                    "Use mv.identity(mv.path(...)) starting at this Metric's contribution root.",
-                                    "Metric.where",
-                                )
-                            population_reads[axis] = read
-                            continue
-                        population_reads[axis] = (
-                            parent_read
-                            if parent_read is not None
-                            else (
-                                bind_read(read, root, state.registry, resolver, paths)
-                                if isinstance(read, FieldRead)
-                                else bind_identity(read, root, state.registry, resolver, paths)
-                            )
-                        )
-            bound = tuple(bind_read(read, root, state.registry, resolver, paths) for read in reads)
-            if node.time is not None:
-                bound_time = bound[len(fields)]
-                time = replace(
-                    node.time,
-                    field=bound_time.field,
-                    path=bound_time.path,
-                    at=fixed_attribute_time(bound_time.at),
-                    source_at=bound_time.source_at,
-                    step_ats=bound_time.step_ats,
-                )
-            all_memberships = tuple(
-                dict.fromkeys(
-                    (
-                        *memberships,
-                        *(binding for layer in sample_layers for binding in layer.memberships),
-                    )
-                )
-            )
-            coordinate_list: list[FieldRead | EntityIdentityRead] = []
-            coordinate_layers = (
-                (by, memberships),
-                *(
-                    (
-                        tuple(
-                            axis.as_read() for axis in layer.axes if isinstance(axis, AxisBinding)
-                        ),
-                        layer.memberships,
-                    )
-                    for layer in sample_layers
-                ),
-            )
-            for layer_reads, layer_memberships in coordinate_layers:
-                allocated = tuple(
-                    (original, read)
-                    for item in layer_memberships
-                    for original, read in zip(
-                        item.fields, membership_reads(item, root), strict=True
-                    )
-                )
-                for coordinate_read in layer_reads:
-                    if isinstance(coordinate_read, (CalendarCoordinate, IntervalCoordinate)):
-                        continue
-                    if isinstance(coordinate_read, EntityIdentityRead):
-                        coordinate_list.append(
-                            bind_identity(coordinate_read, root, state.registry, resolver, paths)
-                        )
-                    else:
-                        member = next(
-                            (
-                                item
-                                for original, item in allocated
-                                if coordinate_matches(
-                                    field_axis(original), field_axis(coordinate_read)
-                                )
-                            ),
-                            None,
-                        )
-                        coordinate_list.append(
-                            member
-                            if member is not None
-                            else bind_read(coordinate_read, root, state.registry, resolver, paths)
-                        )
-            coordinates = tuple(coordinate_list)
-            output_axis_count = sum(
-                not isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) for axis in by
-            )
-            coordinate_calendars: list[tuple[str, CalendarGrouping]] = []
-            sample_calendar_reads: list[tuple[str, FieldRead]] = []
-            sample_time_slots: list[str] = []
-            sample_interval_ranges: list[tuple[str, SampleIntervalRanges]] = []
-            parent_calendars: list[
-                tuple[FieldRead, CalendarCoordinate | BuiltinSampleCoordinate]
-            ] = []
-            contribution_time_read = bound[len(fields)] if time is not None else None
-            physical_reads = iter(coordinates)
-            physical_slot = 0
-            coordinate_slots: list[str] = []
-            from marivo._definition.types import coordinate_read_keys
-
-            bound_axes = (
-                *((axis, None) for axis in axes),
-                *(
-                    (axis, layer.interval_ordinals)
-                    for layer in sample_layers
-                    for axis in layer.axes
-                ),
-            )
-            for axis_index, (axis, ordinals) in enumerate(bound_axes):
-                if isinstance(axis, BuiltinSampleCoordinate):
-                    slot = f"key.{physical_slot}"
-                    if isinstance(axis.sample, FieldCalendarSample):
-                        sample_field = axis.sample.field
-                        if sample_field.entity.ref != root.ref:
-                            reject(
-                                "one native calendar sample field on every contribution root",
-                                field_read_key(sample_field),
-                                "Fold each root's Metric by its own native field before composing them.",
-                                "Metric.per",
-                            )
-                        sample_read = native_read(sample_field.field, state.registry, resolver)
-                    else:
-                        if contribution_time_read is None:
-                            physical_slot += 1
-                            continue
-                        sample_read = contribution_time_read
-                    for parent_read, parent in parent_calendars:
-                        if sample_read == parent_read:
-                            validate_sample_parent(axis, parent)
-                    parent_calendars.append((sample_read, axis))
-                    coordinate_calendars.append((slot, axis))
-                    sample_calendar_reads.append((slot, sample_read))
-                    physical_slot += 1
-                elif isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
-                    slot = f"key.{physical_slot}"
-                    if contribution_time_read is not None:
-                        coordinate_calendars.append((slot, axis))
-                        if axis_index >= len(axes):
-                            sample_time_slots.append(slot)
-                            if isinstance(axis, IntervalCoordinate):
-                                selected = range(len(axis.bounds)) if ordinals is None else ordinals
-                                sample_interval_ranges.append(
-                                    (
-                                        slot,
-                                        tuple((index, *axis.bounds[index]) for index in selected),
-                                    )
-                                )
-                    if isinstance(axis, CalendarCoordinate) and contribution_time_read is not None:
-                        parent_calendars.append((contribution_time_read, axis))
-                    physical_slot += 1
-                else:
-                    width = len(coordinate_read_keys(next(physical_reads)))
-                    coordinate_slots.extend(
-                        f"key.{i}" for i in range(physical_slot, physical_slot + width)
-                    )
-                    physical_slot += width
-            if isinstance(node, SourceAggregate) and node.reducer == "sum":
-                for field in fields:
-                    measure = state.registry.measures.get(field.ref.ref.path)
-                    status = measure.status_time_dimension if measure is not None else None
-                    if status is not None and not any(
-                        isinstance(read, FieldRead)
-                        and read.field.ref.path == status
-                        and not read.path
-                        and read.at is None
-                        for read in coordinates
-                    ):
-                        reject(
-                            "the exact native status-time coordinate for this sum",
-                            f"{field.ref.ref.key} without {status}",
-                            "Retain the raw status TimeField with per(status_time).last() before folding calendar buckets.",
-                            "Metric.per",
-                        )
-
-            def bind_row(value: RowNode) -> RowNode:
-                if isinstance(value, RowField):
-                    return replace(
-                        value,
-                        read=bind_read(
-                            value.read or native_read(value.ref, state.registry, resolver),
-                            root,
-                            state.registry,
-                            resolver,
-                            paths,
-                        ),
-                    )
-                if isinstance(value, MeasureAssertion):
-                    return replace(value, operand=bind_row(value.operand))
-                return replace(value, inputs=tuple(bind_leaf(item) for item in value.inputs))
-
-            def bind_leaf(value: RowField | MeasureAssertion) -> RowField | MeasureAssertion:
-                result = bind_row(value)
-                assert isinstance(result, (RowField, MeasureAssertion))
-                return result
-
-            def bind_predicate(predicate: PredicateExpression) -> PredicateExpression:
-                return replace(
-                    predicate,
-                    inputs=tuple(
-                        replace(item, inputs=tuple(bind_leaf(leaf) for leaf in item.inputs))
-                        if isinstance(item, RowExpression)
-                        else item
-                        for item in predicate.inputs
-                    ),
-                )
-
-            contributions.append(
-                ContributionBinding(
-                    occurrence,
+            self.contributions.append(
+                bind_contribution(
                     node,
-                    root,
-                    tuple(bind_predicate(p) for p in filters),
-                    bind_predicate(condition) if condition is not None else None,
-                    (
-                        *bound,
-                        *(read for _, read in sample_calendar_reads),
-                    ),
-                    coordinates,
-                    time,
-                    contribution_period if time is not None else None,
-                    sample_axes=sample_axes,
-                    metric=metrics[occurrence[0]][0],
-                    memberships=all_memberships,
-                    output_axis_count=output_axis_count,
-                    calendars=tuple(coordinate_calendars),
-                    coordinate_slots=tuple(coordinate_slots),
-                    sample_calendar_reads=tuple(sample_calendar_reads),
-                    sample_time_slots=tuple(sample_time_slots),
-                    sample_interval_ranges=tuple(sample_interval_ranges),
-                    population_reads=tuple(population_reads.items()),
+                    occurrence,
+                    self.metrics[occurrence[0]][0],
+                    self.geometry,
+                    state,
+                    resolver,
+                    paths,
+                    filters,
+                    self.condition,
+                    sample_axes,
+                    sample_layers,
                 )
             )
             return
         for edge in children(node):
-            visit(edge.child, (*occurrence, edge.index), filters, sample_axes, sample_layers)
+            self.visit(edge.child, (*occurrence, edge.index), filters, sample_axes, sample_layers)
 
-    for index, (_, node) in enumerate(metrics):
-        visit(node, (index,), ())
+    def _bind_count(self, node: MemberCount, sample_axes: tuple[SampleAxis, ...]) -> None:
+        domain = node.population
+        requested = tuple(dict.fromkeys((*self.geometry.axes, *sample_axes)))
+        for axis in requested:
+            if isinstance(axis, BuiltinSampleCoordinate):
+                continue
+            if any(coordinate_matches(axis, candidate) for candidate in domain.axes):
+                continue
+            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) and not any(
+                isinstance(existing, (CalendarCoordinate, IntervalCoordinate))
+                for existing in domain.axes
+            ):
+                continue
+            reject(
+                "count coordinates already present in the Population",
+                repr(axis),
+                "Classify the identity domain explicitly before counting by new attributes.",
+                "Population.count",
+            )
+        self.count_populations[domain] = domain
+
+    def _bind_sample(
+        self,
+        node: PerReduce | PerWeightedMean,
+        occurrence: tuple[int, ...],
+        filters: tuple[PredicateExpression, ...],
+        sample_axes: tuple[SampleAxis, ...],
+        sample_layers: tuple[SampleLayer, ...],
+    ) -> None:
+        sample_domain = node.samples
+        inner_domain_axes: tuple[object, ...]
+        if isinstance(sample_domain, (Grain, FieldCalendarSample)):
+            inner = BuiltinSampleCoordinate(sample_domain, self.timezone)
+            self.calendar_samples.append((occurrence, inner))
+            inner_domain_axes = (inner,)
+        else:
+            inner_domain_axes = (
+                sample_domain if isinstance(sample_domain, tuple) else sample_domain.axes
+            )
+        inner_axes = _sample_axes_from_capture(inner_domain_axes)
+        inner_memberships = (
+            sample_domain.memberships if isinstance(sample_domain, SampleDomain) else ()
+        )
+        explicit_population = sample_population(sample_domain)
+        sample_layer = SampleLayer(
+            inner_axes, inner_memberships, _selected_interval_ordinals(explicit_population)
+        )
+        if explicit_population is not None:
+            matches = _shared_sample_axes((self.output_layer, *sample_layers), sample_layer)
+            if matches:
+                self.sample_matches.append((occurrence, matches))
+        contribution_count = len(self.contributions)
+        for edge in children(node):
+            if edge.role in ("operand", "value", "weight"):
+                self.visit(
+                    edge.child,
+                    (*occurrence, edge.index),
+                    filters,
+                    (*sample_axes, *inner_axes),
+                    (*sample_layers, sample_layer),
+                )
+        if (
+            isinstance(sample_domain, (Grain, FieldCalendarSample))
+            and len(self.contributions) == contribution_count
+        ):
+            reject(
+                "fact contributions representing actual calendar samples",
+                "a source-free or count-only sample formula",
+                "Use a fact Metric inside the calendar sample.",
+                "Metric.per",
+            )
+        if inner_memberships and len(self.contributions) == contribution_count:
+            reject(
+                "fact contributions for membership allocation",
+                "count-only internal samples",
+                "Remove ineffective memberships or include a fact Metric in the sample formula.",
+                "Metric.per.memberships",
+            )
+
+
+def _finalize_observation(
+    binder: _ObservationBinder,
+    time_axis: CalendarCoordinate | IntervalCoordinate | None,
+    where: PredicateExpression | None,
+    population: PopulationDependency | None,
+    pending_interval: int | None,
+    empty_interval: bool,
+) -> ObservationBinding:
+    axes, memberships, period = (
+        binder.geometry.axes,
+        binder.geometry.memberships,
+        binder.geometry.period,
+    )
+    metrics, declared, condition = binder.metrics, binder.declared, binder.condition
+    contributions = binder.contributions
+    count_populations = binder.count_populations
+    calendar_samples, sample_matches = binder.calendar_samples, binder.sample_matches
+    calendar = time_axis if isinstance(time_axis, CalendarCoordinate) else None
     if (
         time_axis is not None
         and population is None
@@ -740,25 +478,7 @@ def bind_observation(
             "session.observe",
             canonical_id="session.observe",
         )
-    row_reads = tuple(
-        read
-        for contribution in contributions
-        for read in (*contribution.reads, *contribution.coordinates)
-        if isinstance(read.at, RowAttributeTime)
-    )
-    if row_reads:
-        from marivo._definition.expressions import MetricWindow
-
-        if len({item.root.ref for item in contributions}) != 1 or any(
-            isinstance(item, (MetricWindow, PerReduce, PerWeightedMean))
-            for item in walk((node for _, node in metrics), resolve=declared.get).order
-        ):
-            reject(
-                "single-root observe classification without windows or internal samples",
-                ", ".join(sorted({item.root.ref.path for item in contributions})),
-                "Use ordinary single-root observe with a fact-root TimeDimension, or use a fixed InstantAnchor for this composition.",
-                "session.observe.at",
-            )
+    _validate_row_anchor_contributions(contributions, metrics, declared)
     if memberships and not contributions:
         reject(
             "fact contributions for membership allocation",
@@ -784,8 +504,6 @@ def bind_observation(
         if axes
         else "singleton"
     )
-    from marivo.analysis.binding.windows import bind_windows
-
     bound_contributions = (
         tuple(contributions)
         if pending_interval is not None or empty_interval
@@ -831,3 +549,39 @@ def bind_observation(
         empty_interval,
         tuple(sample_matches),
     )
+
+
+def _sample_axes_from_capture(values: tuple[object, ...]) -> tuple[SampleAxis, ...]:
+    return tuple(
+        value
+        for value in values
+        if isinstance(
+            value, (AxisBinding, CalendarCoordinate, IntervalCoordinate, BuiltinSampleCoordinate)
+        )
+    )
+
+
+def _validate_row_anchor_contributions(
+    contributions: list[ContributionBinding],
+    metrics: tuple[tuple[str, MetricNode], ...],
+    declared: dict[ExactRef, MetricNode],
+) -> None:
+    row_reads = tuple(
+        read
+        for contribution in contributions
+        for read in (*contribution.reads, *contribution.coordinates)
+        if isinstance(read.at, RowAttributeTime)
+    )
+    if row_reads and (
+        len({item.root.ref for item in contributions}) != 1
+        or any(
+            isinstance(item, (MetricWindow, PerReduce, PerWeightedMean))
+            for item in walk((node for _, node in metrics), resolve=declared.get).order
+        )
+    ):
+        reject(
+            "single-root observe classification without windows or internal samples",
+            ", ".join(sorted({item.root.ref.path for item in contributions})),
+            "Use ordinary single-root observe with a fact-root TimeDimension, or use a fixed InstantAnchor for this composition.",
+            "session.observe.at",
+        )

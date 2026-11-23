@@ -1,79 +1,32 @@
 # Marivo 工程质量工具快速参考
 
-## 日常开发命令
+从仓库根目录运行。环境和依赖安装见[开发规范](CONTRIBUTING.md#开发工具)。
 
-### 代码格式化
+| 目的 | 命令 |
+| --- | --- |
+| 日常增量检查 | `make check-fast` |
+| 检查格式、Lint 和完整导入图 | `make lint` |
+| 检查库和测试的类型 | `make typecheck` |
+| 运行默认本地测试 | `make test` |
+| 运行单个测试文件 | `make test TESTS='tests/surface/test_architecture_guard.py'` |
+| 完整本地门禁 | `make check` |
+| 构建并严格检查 API 文档 | `make docs-api` |
+| 运行形式化验证 | `make verify-formal` |
+| 运行已配置的 Provider 测试 | `make runtime-test` |
+| 构建和验证分发包 | `make pypi-build && make pypi-check` |
+
+`make check` 执行 Lint、类型检查、默认测试和严格 Sphinx 构建。默认测试排除
+Runtime 和 release 标记。Provider 测试由本地 Podman 环境和各 Profile 的启用
+变量驱动。[Makefile](Makefile) · [测试配置](tests/conftest.py) ·
+[Provider 环境](tests/datasource/environment/README.md)
+
+用下列命令查看默认测试的覆盖率。分支和文件范围由项目配置决定。
+[覆盖率配置](pyproject.toml)
+
 ```bash
-# 检查格式问题
-ruff format --check .
-
-# 自动格式化所有文件
-ruff format .
+.venv/bin/pytest --cov=marivo --cov-report=term-missing
+.venv/bin/pytest --cov=marivo --cov-report=html
 ```
 
-### 代码检查
-```bash
-# 检查所有问题
-ruff check .
-
-# 自动修复可修复的问题
-ruff check --fix .
-```
-
-### 类型检查
-```bash
-# 检查app目录的类型
-mypy app
-```
-
-### 测试
-```bash
-# 运行所有测试（并行）
-pytest
-
-# 运行测试并生成覆盖率报告
-pytest --cov=app --cov-report=term-missing
-
-# 生成HTML覆盖率报告
-pytest --cov=app --cov-report=html
-open htmlcov/index.html
-```
-
-### Pre-commit
-```bash
-# 手动运行所有pre-commit检查
-.venv/bin/pre-commit run --all-files
-
-# 只检查暂存的文件
-.venv/bin/pre-commit run
-```
-
-## 提交前检查清单
-
-- [ ] `ruff format .` - 代码已格式化
-- [ ] `ruff check .` - 通过linting检查
-- [ ] `mypy app` - 通过类型检查
-- [ ] `pytest` - 所有测试通过
-- [ ] 更新了相关文档
-
-## 配置文件
-
-- `pyproject.toml` - 所有工具的配置
-- `.pre-commit-config.yaml` - Pre-commit hooks配置
-- `.github/workflows/ci.yml` - CI/CD配置
-- `CONTRIBUTING.md` - 完整的开发规范
-
-## 当前质量指标
-
-- 测试覆盖率: 83.84%
-- 类型注解覆盖: 100%
-- 测试通过率: 99.9% (942/943)
-- 代码格式化: 100%
-
-## 工具版本
-
-- Python: 3.10+
-- Ruff: >=0.3.0
-- Mypy: >=1.9
-- pytest: >=8
-- pytest-cov: >=5.0
+Pre-commit 检查可以通过 `.venv/bin/pre-commit run --all-files` 单独运行。
+依赖门禁、冷启动检查及棘轮维护见[架构边界与静态检查](docs/architecture/architecture-boundaries.md)。

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 
+import pyarrow.parquet as pq
 import pytest
 
+from marivo.analysis._help_specs.manifest import REGISTRY
+from marivo.analysis.materialization.terminal_protocol import encode
 from marivo.analysis.model.execution_errors import IntegrityError
 from tests.analysis.materialization.state_fixtures import _values
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
@@ -14,7 +17,6 @@ from tests.shared_fixtures import DslCaseFactory, terminal_runs
 def test_current_continuation_registry_resolves_to_actual_bound_methods(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis._help_specs.manifest import REGISTRY
 
     case = analysis_dsl_case_factory("j2")
     logical = _values(case)
@@ -35,7 +37,6 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.materialization.terminal_protocol import encode
 
     case = analysis_dsl_case_factory("j1")
     saved = _values(case).persist()
@@ -65,7 +66,6 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
             "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
             (original, value.artifact_id),
         )
-    import pyarrow.parquet as pq
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Artifact audit opened result payloads")

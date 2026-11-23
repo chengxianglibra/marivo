@@ -11,8 +11,8 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.compiler.frame_plan import CompiledFramePlan
-from marivo.analysis.compiler.graph_plan import FrameKeysInput, QueryPlan
+from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
+from marivo.analysis.compiler.query_stages import FrameKeysInput, QueryPlan
 from marivo.analysis.materialization import frame_evaluation
 from marivo.analysis.materialization.graph_source_execution import run_frame_plan
 from marivo.analysis.session.core import Session

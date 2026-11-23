@@ -24,7 +24,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
-from marivo._definition.observations import SampleAxisMatches, sample_key_matches
+from marivo._definition.observations import SampleAxis, SampleAxisMatches, sample_key_matches
 from marivo._definition.relations import PopulationDependency, sample_population
 from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._kernel.temporal import Grain
@@ -64,6 +64,18 @@ class SampleRelation:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "unique_keys", self.unique_keys.project(tuple(self.table.columns)))
+
+
+@dataclass(frozen=True, slots=True)
+class _SampleInputs:
+    bindings: tuple[FormulaInput, ...]
+    axes: tuple[SampleAxis, ...]
+    sample_groups: tuple[tuple[str, ...], ...]
+    complete_keys: tuple[str, ...]
+    parent: ir.Table
+    table: ir.Table
+    operands: tuple[SampleRelation, ...]
+    implicit: bool
 
 
 class SampleReductionUnavailableError(AnalysisStageUnavailableError):
@@ -303,146 +315,143 @@ class SampleLowerer:
         if isinstance(node, (ContributionFilter, MetricWindow)):
             return self.lower(node.operand, (*path, 0), keys, forced)
         if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
-            bindings = self.bindings(path)
-            if any(
-                name.startswith("predicate_check.")
-                and expected != "non-NULL internal calendar sample time"
-                for binding in bindings
-                for name, expected, _ in binding.checks
-            ):
-                # Calendar-time assertions retain sample-scope presence. Input
-                # predicates can instead remove every sample carrying a check.
-                raise SampleReductionUnavailableError(
-                    "input predicate checks retain their source validation boundary"
-                )
-            if any(binding.keys != keys for binding in bindings):
-                raise SampleReductionUnavailableError(
-                    "contribution has a different complete sample grain"
-                )
-            binding = bindings[0]
-            if any(isinstance(item.column.dtype, DurationDataType) for item in bindings):
-                raise SampleReductionUnavailableError(
-                    "Duration retains its exact local tick finisher"
-                )
-            if any(
-                item.column.dtype != binding.column.dtype
-                or tuple((expected, received) for _, expected, received in item.checks)
-                != tuple((expected, received) for _, expected, received in binding.checks)
-                for item in bindings
-            ):
-                raise SampleReductionUnavailableError(
-                    "window contributions retain different carriers or check contracts"
-                )
-            value = self.name()
-            checks = tuple(
-                (self.name("check"), expected, received) for _, expected, received in binding.checks
-            )
-            tables = []
-            for contribution_input in bindings:
-                source = self.relations[contribution_input.stage_id]
-                present = _present(source, len(keys))
-                table = source.select(
-                    **{key: normalized_returned_key(source[key], self.provider) for key in keys},
-                    **{value: source[contribution_input.column.slot_id]},
-                    **{
-                        name: source[column].fill_null(False)
-                        for (name, _, _), (column, _, _) in zip(
-                            checks, contribution_input.checks, strict=True
-                        )
-                    },
-                    __sample_present=ibis.literal(True) if present is None else present,
-                )
-                tables.append(table if present is None else table.filter(table["__sample_present"]))
-            table = tables[0]
-            for other in tables[1:]:
-                table = table.union(other, distinct=False)
-            facts = (
-                self.unique_keys.get(binding.stage_id, UniqueKeys()).project(tuple(table.columns))
-                if len(bindings) == 1
-                else UniqueKeys(tuple(table.columns))
-            )
-            result = SampleRelation(table, value, checks, binding.zero_when_absent, facts)
-            return (
-                result
-                if forced is None
-                else SampleRelation(
-                    self.align(forced, (result,), keys),
-                    value,
-                    checks,
-                    binding.zero_when_absent,
-                    self.aligned_keys(forced, (result,), keys),
-                )
-            )
+            return self._lower_contribution(path, keys, forced)
         if isinstance(node, MemberCount):
             raise SampleReductionUnavailableError(
                 "member counts retain their independent complete domain"
             )
         if isinstance(node, MetricExpression):
-            operands = tuple(
-                self.lower(child, (*path, i), keys, forced) for i, child in enumerate(node.operands)
-            )
-            table = self.shared_input(operands, keys) if forced is None else None
-            if table is None:
-                table = self.align(
-                    self.sample_domain(keys, path) if forced is None else forced, operands, keys
-                )
-            values = {
-                (*path, i): NumericValue(
-                    table[operand.value],
-                    tuple(
-                        NumericCheck(table[name], expected, received)
-                        for name, expected, received in operand.checks
-                    ),
-                )
-                for i, operand in enumerate(operands)
-            }
-            item = lower_metric_formula(node, path, values, self.declared)
-            value = self.name()
-            checks = tuple(
-                (self.name("check"), check.expected, check.received) for check in item.checks
-            )
-            return SampleRelation(
-                table.select(
-                    *keys,
-                    **{value: item.value},
-                    **{
-                        name: check.violation
-                        for (name, _, _), check in zip(checks, item.checks, strict=True)
-                    },
-                ),
-                value,
-                checks,
-                unique_keys=self.aligned_keys(table, operands, keys),
-            )
+            return self._lower_expression(node, path, keys, forced)
         if not isinstance(node, (PerReduce, PerWeightedMean)):
             raise SampleReductionUnavailableError(
                 f"{type(node).__name__} has no native sample relation"
             )
+        return self._lower_sample(node, path, keys, forced)
+
+    def _lower_contribution(
+        self, path: tuple[int, ...], keys: tuple[str, ...], forced: ir.Table | None
+    ) -> SampleRelation:
         bindings = self.bindings(path)
-        groups = bindings[0].key_groups
-        remaining = tuple(group for group in groups if not all(key in keys for key in group))
-        calendar = dict(self.program.calendar_samples).get(path)
-        if isinstance(node.samples, (Grain, FieldCalendarSample)) and calendar is None:
+        if any(
+            name.startswith("predicate_check.")
+            and expected != "non-NULL internal calendar sample time"
+            for binding in bindings
+            for name, expected, _ in binding.checks
+        ):
+            # Calendar-time assertions retain sample-scope presence. Input
+            # predicates can instead remove every sample carrying a check.
             raise SampleReductionUnavailableError(
-                "calendar sample has no captured contribution selection"
+                "input predicate checks retain their source validation boundary"
             )
-        axes = (
-            (calendar,)
-            if isinstance(node.samples, (Grain, FieldCalendarSample))
-            else node.samples
-            if isinstance(node.samples, tuple)
-            else node.samples.axes
+        if any(binding.keys != keys for binding in bindings):
+            raise SampleReductionUnavailableError(
+                "contribution has a different complete sample grain"
+            )
+        binding = bindings[0]
+        if any(isinstance(item.column.dtype, DurationDataType) for item in bindings):
+            raise SampleReductionUnavailableError("Duration retains its exact local tick finisher")
+        if any(
+            item.column.dtype != binding.column.dtype
+            or tuple((expected, received) for _, expected, received in item.checks)
+            != tuple((expected, received) for _, expected, received in binding.checks)
+            for item in bindings
+        ):
+            raise SampleReductionUnavailableError(
+                "window contributions retain different carriers or check contracts"
+            )
+        value = self.name()
+        checks = tuple(
+            (self.name("check"), expected, received) for _, expected, received in binding.checks
         )
-        sample_groups = remaining[: len(axes)]
-        if len(sample_groups) != len(axes):
-            raise SampleReductionUnavailableError(
-                "sample identity has no complete physical key groups"
+        tables = []
+        for contribution_input in bindings:
+            source = self.relations[contribution_input.stage_id]
+            present = _present(source, len(keys))
+            table = source.select(
+                **{key: normalized_returned_key(source[key], self.provider) for key in keys},
+                **{value: source[contribution_input.column.slot_id]},
+                **{
+                    name: source[column].fill_null(False)
+                    for (name, _, _), (column, _, _) in zip(
+                        checks, contribution_input.checks, strict=True
+                    )
+                },
+                __sample_present=ibis.literal(True) if present is None else present,
             )
-        sample_keys = tuple(key for group in sample_groups for key in group)
-        complete_keys = (*keys, *sample_keys)
-        children = (node.operand,) if isinstance(node, PerReduce) else (node.value, node.weight)
+            tables.append(table if present is None else table.filter(table["__sample_present"]))
+        table = tables[0]
+        for other in tables[1:]:
+            table = table.union(other, distinct=False)
+        facts = (
+            self.unique_keys.get(binding.stage_id, UniqueKeys()).project(tuple(table.columns))
+            if len(bindings) == 1
+            else UniqueKeys(tuple(table.columns))
+        )
+        result = SampleRelation(table, value, checks, binding.zero_when_absent, facts)
+        return (
+            result
+            if forced is None
+            else SampleRelation(
+                self.align(forced, (result,), keys),
+                value,
+                checks,
+                binding.zero_when_absent,
+                self.aligned_keys(forced, (result,), keys),
+            )
+        )
+
+    def _lower_expression(
+        self,
+        node: MetricExpression,
+        path: tuple[int, ...],
+        keys: tuple[str, ...],
+        forced: ir.Table | None,
+    ) -> SampleRelation:
+        operands = tuple(
+            self.lower(child, (*path, i), keys, forced) for i, child in enumerate(node.operands)
+        )
+        table = self.shared_input(operands, keys) if forced is None else None
+        if table is None:
+            table = self.align(
+                self.sample_domain(keys, path) if forced is None else forced, operands, keys
+            )
+        values = {
+            (*path, i): NumericValue(
+                table[operand.value],
+                tuple(
+                    NumericCheck(table[name], expected, received)
+                    for name, expected, received in operand.checks
+                ),
+            )
+            for i, operand in enumerate(operands)
+        }
+        item = lower_metric_formula(node, path, values, self.declared)
+        value = self.name()
+        checks = tuple(
+            (self.name("check"), check.expected, check.received) for check in item.checks
+        )
+        return SampleRelation(
+            table.select(
+                *keys,
+                **{value: item.value},
+                **{
+                    name: check.violation
+                    for (name, _, _), check in zip(checks, item.checks, strict=True)
+                },
+            ),
+            value,
+            checks,
+            unique_keys=self.aligned_keys(table, operands, keys),
+        )
+
+    def _sample_parent(
+        self,
+        keys: tuple[str, ...],
+        path: tuple[int, ...],
+        forced: ir.Table | None,
+        definition: PopulationDependency | None,
+    ) -> ir.Table:
         parent = self.sample_domain(keys, path) if forced is None else forced
-        definition = sample_population(node.samples)
         if definition is not None and keys == self.keys and forced is None:
             # Explicit internal domains consume the complete enclosing output domain.
             parent = self.sample_domain(keys, ())
@@ -459,7 +468,17 @@ class SampleLowerer:
                 parent = distinct_returned_keys(
                     parent.union(selected_domain, distinct=False), self.provider
                 )
-        implicit = definition is None
+        return parent
+
+    def _sample_domain_relation(
+        self,
+        parent: ir.Table,
+        definition: PopulationDependency | None,
+        groups: tuple[tuple[str, ...], ...],
+        sample_keys: tuple[str, ...],
+        complete_keys: tuple[str, ...],
+        path: tuple[int, ...],
+    ) -> ir.Table:
         if definition is None:
             sample_domain = self.sample_domain(complete_keys, path)
         else:
@@ -483,8 +502,45 @@ class SampleLowerer:
                 sample_domain = parent.inner_join(selected_samples, predicates)
             else:
                 sample_domain = parent.cross_join(selected_samples)
+        return sample_domain
+
+    def _sample_inputs(
+        self,
+        node: PerReduce | PerWeightedMean,
+        path: tuple[int, ...],
+        keys: tuple[str, ...],
+        forced: ir.Table | None,
+    ) -> _SampleInputs:
+        bindings = self.bindings(path)
+        groups = bindings[0].key_groups
+        remaining = tuple(group for group in groups if not all(key in keys for key in group))
+        calendar = dict(self.program.calendar_samples).get(path)
+        axes: tuple[SampleAxis, ...]
+        if isinstance(node.samples, (Grain, FieldCalendarSample)):
+            if calendar is None:
+                raise SampleReductionUnavailableError(
+                    "calendar sample has no captured contribution selection"
+                )
+            axes = (calendar,)
+        else:
+            axes = node.samples if isinstance(node.samples, tuple) else node.samples.axes
+        sample_groups = remaining[: len(axes)]
+        if len(sample_groups) != len(axes):
+            raise SampleReductionUnavailableError(
+                "sample identity has no complete physical key groups"
+            )
+        sample_keys = tuple(key for group in sample_groups for key in group)
+        complete_keys = (*keys, *sample_keys)
+        children = (node.operand,) if isinstance(node, PerReduce) else (node.value, node.weight)
+        definition = sample_population(node.samples)
+        parent = self._sample_parent(keys, path, forced, definition)
+        sample_domain = self._sample_domain_relation(
+            parent, definition, groups, sample_keys, complete_keys, path
+        )
         operands = tuple(
-            self.lower(child, (*path, i), complete_keys, None if implicit else sample_domain)
+            self.lower(
+                child, (*path, i), complete_keys, None if definition is None else sample_domain
+            )
             for i, child in enumerate(children)
         )
         table = (
@@ -492,6 +548,23 @@ class SampleLowerer:
             if len(operands) == 1
             else self.align(sample_domain, operands, complete_keys)
         )
+        return _SampleInputs(
+            bindings,
+            axes,
+            sample_groups,
+            complete_keys,
+            parent,
+            table,
+            operands,
+            definition is None,
+        )
+
+    def _sample_checks(
+        self,
+        node: PerReduce | PerWeightedMean,
+        table: ir.Table,
+        operands: tuple[SampleRelation, ...],
+    ) -> tuple[dict[str, ir.Value], list[tuple[str, str, str]]]:
         value = table[operands[0].value]
         if not value.type().is_numeric():
             raise SampleReductionUnavailableError("sample reducer retains a nonnumeric carrier")
@@ -520,124 +593,118 @@ class SampleLowerer:
                     f"{node.reducer if isinstance(node, PerReduce) else 'weighted_mean'}(nulls='error')",
                 )
             )
-        output = self.name()
-        zero = False
-        if isinstance(node, PerWeightedMean):
-            weight = table[operands[1].value]
-            pair = value.notnull() & weight.notnull()
-            product = numeric_binary("multiply", NumericValue(value), NumericValue(weight)).value
-            numerator = pair.ifelse(product, _null(product)).sum().fill_null(0)
-            denominator = pair.ifelse(weight, _null(weight)).sum().fill_null(0)
-            reduced = numeric_binary(
-                "divide", NumericValue(numerator), NumericValue(denominator)
-            ).value
-        elif node.reducer == "mean":
-            reduced = native_mean(value)
-        elif node.reducer == "sum":
-            reduced = finish_nullable_sum(value.sum(), table.count(), value.count())
-            zero = True
-        elif node.reducer in ("count", "count_distinct"):
-            reduced = value.count() if node.reducer == "count" else value.nunique()
-            zero = True
-        elif node.reducer in ("first", "last"):
-            order = next(
-                (
-                    group[0]
-                    for group, axis in zip(sample_groups, axes, strict=True)
-                    if isinstance(axis, (CalendarCoordinate, BuiltinSampleCoordinate))
-                    or (isinstance(axis, AxisBinding) and axis.field == node.order_by)
-                ),
-                None,
+        return metrics, fold_checks
+
+    def _ordered_sample(
+        self,
+        node: PerReduce,
+        output: str,
+        captured: _SampleInputs,
+        keys: tuple[str, ...],
+        metrics: dict[str, ir.Value],
+        fold_checks: list[tuple[str, str, str]],
+    ) -> SampleRelation:
+        table, operands, parent = captured.table, captured.operands, captured.parent
+        axes, sample_groups, complete_keys = (
+            captured.axes,
+            captured.sample_groups,
+            captured.complete_keys,
+        )
+        value = table[operands[0].value]
+        order = next(
+            (
+                group[0]
+                for group, axis in zip(sample_groups, axes, strict=True)
+                if isinstance(axis, (CalendarCoordinate, BuiltinSampleCoordinate))
+                or (isinstance(axis, AxisBinding) and axis.field == node.order_by)
+            ),
+            None,
+        )
+        if order is None:
+            raise SampleReductionUnavailableError("ordered samples have no unique bound time key")
+        # The input relation must prove parent + order before NULL filtering.
+        input_facts = (
+            operands[0].unique_keys
+            if len(operands) == 1
+            else self.aligned_keys(table, operands, complete_keys)
+        )
+        if not input_facts.proves((*keys, order)):
+            name = self.name("check")
+            metrics[name] = (
+                table[order].nunique() + table[order].isnull().any().fill_null(False).ifelse(1, 0)
+                != table.count()
             )
-            if order is None:
-                raise SampleReductionUnavailableError(
-                    "ordered samples have no unique bound time key"
-                )
-            # The input relation must prove parent + order before NULL filtering.
-            input_facts = (
-                operands[0].unique_keys
-                if len(operands) == 1
-                else self.aligned_keys(table, operands, complete_keys)
+            fold_checks.append(
+                (name, "one internal sample per time key", "first/last duplicate time keys")
             )
-            if not input_facts.proves((*keys, order)):
-                name = self.name("check")
-                metrics[name] = (
-                    table[order].nunique()
-                    + table[order].isnull().any().fill_null(False).ifelse(1, 0)
-                    != table.count()
-                )
-                fold_checks.append(
-                    (name, "one internal sample per time key", "first/last duplicate time keys")
-                )
-            candidate = table if node.include_null else table.filter(value.notnull())
-            rank = self.name("rank")
-            position, origin = query_dialect(self.provider).row_number()
-            ordered = candidate.mutate(
-                **{
-                    rank: position.over(
-                        ibis.window(
-                            group_by=[
-                                string_bytes(candidate[key], self.provider)
-                                if candidate[key].type().is_string()
-                                else candidate[key]
-                                for key in keys
-                            ],
-                            order_by=candidate[order].asc(nulls_first=False)
-                            if node.reducer == "first"
-                            else candidate[order].desc(nulls_first=True),
-                        )
+        candidate = table if node.include_null else table.filter(value.notnull())
+        rank = self.name("rank")
+        position, origin = query_dialect(self.provider).row_number()
+        ordered = candidate.mutate(
+            **{
+                rank: position.over(
+                    ibis.window(
+                        group_by=[
+                            string_bytes(candidate[key], self.provider)
+                            if candidate[key].type().is_string()
+                            else candidate[key]
+                            for key in keys
+                        ],
+                        order_by=candidate[order].asc(nulls_first=False)
+                        if node.reducer == "first"
+                        else candidate[order].desc(nulls_first=True),
                     )
-                }
-            )
-            selected = ordered.filter(ordered[rank] == origin)
-            result = (
-                table.group_by(*keys).aggregate(**metrics)
-                if keys
-                else table.aggregate(**metrics)
-                if metrics
-                else ibis.literal(True).name("__sample_unit").as_table()
-            )
-            endpoint = SampleRelation(
-                selected.select(*keys, **{output: selected[operands[0].value]}),
-                output,
-                unique_keys=UniqueKeys((*keys, output), (keys,)),
-            )
-            aligned = self.align(result, (endpoint,), keys)
-            ordered_result = SampleRelation(
-                aligned,
-                output,
-                tuple(fold_checks),
-                unique_keys=UniqueKeys(tuple(aligned.columns), (keys,)),
-            )
-            # An enclosing explicit domain may exclude observed parents or add
-            # absent ones whose NULL endpoints must reach the outer reducer.
-            completed = self.align(parent, (ordered_result,), keys)
-            return SampleRelation(
-                completed,
-                output,
-                tuple(fold_checks),
-                unique_keys=UniqueKeys(tuple(completed.columns), (keys,)),
-            )
-        elif node.reducer in ("approx_median", "approx_quantile"):
-            reduced = value.cast("float64").approx_quantile(node.q if node.q is not None else 0.5)
-            if value.type().is_decimal():
-                reduced = force_cast(reduced, value.type())
-            reduced = (value.count() == 0).ifelse(_null(reduced), reduced)
-        else:
-            reduced = (
-                value.min()
-                if node.reducer == "min"
-                else value.max()
-                if node.reducer == "max"
-                else value.quantile(node.q if node.q is not None else 0.5)
-            )
-            if value.type().is_decimal() and node.reducer in ("median", "quantile"):
-                reduced = force_cast(reduced, reduced.type())
-            reduced = (value.count() == 0).ifelse(_null(reduced), reduced)
+                )
+            }
+        )
+        selected = ordered.filter(ordered[rank] == origin)
+        result = (
+            table.group_by(*keys).aggregate(**metrics)
+            if keys
+            else table.aggregate(**metrics)
+            if metrics
+            else ibis.literal(True).name("__sample_unit").as_table()
+        )
+        endpoint = SampleRelation(
+            selected.select(*keys, **{output: selected[operands[0].value]}),
+            output,
+            unique_keys=UniqueKeys((*keys, output), (keys,)),
+        )
+        aligned = self.align(result, (endpoint,), keys)
+        ordered_result = SampleRelation(
+            aligned,
+            output,
+            tuple(fold_checks),
+            unique_keys=UniqueKeys(tuple(aligned.columns), (keys,)),
+        )
+        # An enclosing explicit domain may exclude observed parents or add
+        # absent ones whose NULL endpoints must reach the outer reducer.
+        completed = self.align(parent, (ordered_result,), keys)
+        return SampleRelation(
+            completed,
+            output,
+            tuple(fold_checks),
+            unique_keys=UniqueKeys(tuple(completed.columns), (keys,)),
+        )
+
+    def _lower_sample(
+        self,
+        node: PerReduce | PerWeightedMean,
+        path: tuple[int, ...],
+        keys: tuple[str, ...],
+        forced: ir.Table | None,
+    ) -> SampleRelation:
+        captured = self._sample_inputs(node, path, keys, forced)
+        parent, table, operands = captured.parent, captured.table, captured.operands
+        metrics, fold_checks = self._sample_checks(node, table, operands)
+        output = self.name()
+        if isinstance(node, PerReduce) and node.reducer in ("first", "last"):
+            return self._ordered_sample(node, output, captured, keys, metrics, fold_checks)
+        reduced, zero = _reduce_sample_value(node, table, operands)
         metrics[output] = reduced
         result = aggregate_returned_keys(table, keys, metrics, self.provider)
         if (
-            implicit
+            captured.implicit
             and forced is None
             and all(
                 not any(
@@ -645,7 +712,7 @@ class SampleLowerer:
                     or name in ("__sample_present", "__numeric_present")
                     for name in self.relations[binding.stage_id].columns
                 )
-                for binding in bindings
+                for binding in captured.bindings
             )
         ):
             return SampleRelation(
@@ -672,3 +739,42 @@ class SampleLowerer:
             zero,
             UniqueKeys(tuple(completed.columns), (keys,)),
         )
+
+
+def _reduce_sample_value(
+    node: PerReduce | PerWeightedMean, table: ir.Table, operands: tuple[SampleRelation, ...]
+) -> tuple[ir.Value, bool]:
+    value = table[operands[0].value]
+    zero = False
+    if isinstance(node, PerWeightedMean):
+        weight = table[operands[1].value]
+        pair = value.notnull() & weight.notnull()
+        product = numeric_binary("multiply", NumericValue(value), NumericValue(weight)).value
+        numerator = pair.ifelse(product, _null(product)).sum().fill_null(0)
+        denominator = pair.ifelse(weight, _null(weight)).sum().fill_null(0)
+        reduced = numeric_binary("divide", NumericValue(numerator), NumericValue(denominator)).value
+    elif node.reducer == "mean":
+        reduced = native_mean(value)
+    elif node.reducer == "sum":
+        reduced = finish_nullable_sum(value.sum(), table.count(), value.count())
+        zero = True
+    elif node.reducer in ("count", "count_distinct"):
+        reduced = value.count() if node.reducer == "count" else value.nunique()
+        zero = True
+    elif node.reducer in ("approx_median", "approx_quantile"):
+        reduced = value.cast("float64").approx_quantile(node.q if node.q is not None else 0.5)
+        if value.type().is_decimal():
+            reduced = force_cast(reduced, value.type())
+        reduced = (value.count() == 0).ifelse(_null(reduced), reduced)
+    else:
+        reduced = (
+            value.min()
+            if node.reducer == "min"
+            else value.max()
+            if node.reducer == "max"
+            else value.quantile(node.q if node.q is not None else 0.5)
+        )
+        if value.type().is_decimal() and node.reducer in ("median", "quantile"):
+            reduced = force_cast(reduced, reduced.type())
+        reduced = (value.count() == 0).ifelse(_null(reduced), reduced)
+    return reduced, zero

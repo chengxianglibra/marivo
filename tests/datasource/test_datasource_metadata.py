@@ -9,9 +9,12 @@ import ibis
 import pytest
 
 import marivo.datasource as md
-from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES
+from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult
 from marivo.datasource.errors import DatasourceMetadataError
-from marivo.datasource.inspection.metadata import _inspect_source
+from marivo.datasource.inspection.metadata import (
+    _inspect_source,
+    _with_primary_key_capability_warning,
+)
 from marivo.datasource.inspection.metadata import inspect_table as _inspect_table
 from marivo.datasource.metadata_types import (
     ColumnMetadata,
@@ -19,6 +22,7 @@ from marivo.datasource.metadata_types import (
     PartitionMetadata,
     TableMetadata,
     TablePhysicalProfile,
+    UniqueConstraintMetadata,
 )
 from marivo.datasource.runtime import backends as backends
 from marivo.datasource.runtime.backends import BuiltDatasourceBackend
@@ -2208,7 +2212,6 @@ def _make_table_metadata(
 
 
 def test_table_metadata_default_inspection_contract() -> None:
-    from marivo._kernel.render import AgentResult
 
     metadata = _make_table_metadata()
     assert isinstance(metadata, AgentResult)
@@ -2288,7 +2291,6 @@ def test_inspect_table_duckdb_populates_physical_profile_from_estimated_size(
 
 
 def test_table_metadata_to_dict_includes_key_constraints() -> None:
-    from marivo.datasource.metadata_types import UniqueConstraintMetadata
 
     metadata = TableMetadata(
         datasource="wh",
@@ -2316,7 +2318,6 @@ def test_table_metadata_to_dict_includes_key_constraints() -> None:
 def test_non_duckdb_backend_emits_primary_keys_unavailable_warning(
     project_root: Path,
 ) -> None:
-    from marivo.datasource.inspection.metadata import _with_primary_key_capability_warning
 
     metadata = TableMetadata(
         datasource="wh",

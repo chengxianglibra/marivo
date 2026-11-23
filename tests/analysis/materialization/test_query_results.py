@@ -1,20 +1,27 @@
 """Result expressions consume the same checked source/pandas stage input."""
 
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import duckdb
+import ibis.expr.operations as ops
+import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
 import pytest
 
 import marivo
 import marivo.analysis as mv
+from marivo._help.render import help as public_help
+from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.dsl.column import row_count
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic._expression_values import FieldExpression
 from marivo.semantic.catalog_model.objects import Entity
 from marivo.semantic.reader import SemanticProject
@@ -66,7 +73,6 @@ other_channel = ms.dimension_column(name='channel', entity=other_orders, column=
 def test_constructor_mapping_refusal_precedes_source_io(
     result_session: Session, monkeypatch: pytest.MonkeyPatch, mapping: object, entry: str
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     session = result_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
@@ -96,7 +102,6 @@ def test_constructor_mapping_refusal_precedes_source_io(
 
 
 def _assert_compute_repair(error: AnalysisError) -> None:
-    from marivo._help.render import help as public_help
 
     assert marivo.help is public_help
     assert error.expected and error.received and error.repair is not None
@@ -110,9 +115,6 @@ def _assert_compute_repair(error: AnalysisError) -> None:
 def test_actual_source_failure_compute_help_resolves_without_run(
     result_session: Session, monkeypatch: pytest.MonkeyPatch, failure_kind: str
 ) -> None:
-    from marivo.analysis.model.execution_errors import MaterializationError
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = result_session
     source = session.observe(
@@ -385,7 +387,6 @@ def test_empty_reduction_keeps_scalar_and_checks(result_session: Session) -> Non
 
 
 def test_literal_values_and_saved_top_order(result_session: Session) -> None:
-    from marivo.analysis.core.frame_data import StoredFrameBacking
 
     session = result_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
@@ -414,10 +415,6 @@ def test_literal_values_and_saved_top_order(result_session: Session) -> None:
 def test_values_bind_real_key_types_and_preserve_exact_constants(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from datetime import datetime
-    from decimal import Decimal
-
-    from marivo.datasource.runtime.adapters import SourceSession
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("literal Query must not read business values")
@@ -555,7 +552,6 @@ def test_population_count_counts_full_tuples_and_empty_cells(result_session: Ses
 
 
 def test_population_count_does_not_expand_fact_coverage(result_session: Session) -> None:
-    from marivo.analysis.model.execution_errors import MaterializationError
 
     session = result_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
@@ -578,8 +574,6 @@ def test_population_count_does_not_expand_fact_coverage(result_session: Session)
 def test_dependent_source_uses_complete_null_safe_key_relations(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = result_session
     with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
@@ -634,11 +628,6 @@ def test_dependent_source_uses_complete_null_safe_key_relations(
 def test_frame_population_transport_keeps_consumer_expression_bounded(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import ibis.expr.operations as ops
-    import ibis.expr.types as ir
-
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = result_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
@@ -684,11 +673,6 @@ def test_frame_population_transport_keeps_consumer_expression_bounded(
 def test_source_read_frame_bridge_uses_bounded_key_transport(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import ibis.expr.operations as ops
-    import ibis.expr.types as ir
-
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = result_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
@@ -744,8 +728,6 @@ def test_source_read_frame_bridge_preserves_complete_keys_and_complements(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     large = 2**53 + 1
     database = tmp_path / "accounts.duckdb"
@@ -825,8 +807,6 @@ def test_source_read_frame_bridge_checks_source_contracts_before_selection(
     monkeypatch: pytest.MonkeyPatch,
     selected_region: str,
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = result_session
     with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
@@ -856,8 +836,6 @@ def test_source_read_frame_bridge_checks_source_contracts_before_selection(
 def test_top_selected_frame_bridge_keeps_source_checks(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = result_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
@@ -889,8 +867,6 @@ def test_top_selected_frame_bridge_keeps_source_checks(
 def test_float_nan_attribute_selection_is_distinct_from_null(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = result_session
     with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
@@ -924,8 +900,6 @@ def test_float_nan_attribute_selection_is_distinct_from_null(
 def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = result_session
     with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
@@ -975,11 +949,6 @@ def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
 def test_shared_frame_selection_transports_once_for_checked_source_consumers(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import ibis.expr.types as ir
-    import pyarrow as pa
-
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = result_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
@@ -1095,8 +1064,6 @@ def test_two_datasource_composite_parameters_compare_and_terminal_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from marivo.datasource.runtime.read_types import CompiledRead
 
     databases = tuple(tmp_path / (name + ".duckdb") for name in ("crm", "billing"))
     for database, amounts in zip(databases, ((150, 50), (100, 25)), strict=True):

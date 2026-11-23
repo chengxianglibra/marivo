@@ -10,7 +10,8 @@ from marivo.analysis.materialization.prior_generations import (
     discover_prior_generations,
     prior_generation_guidance,
 )
-from marivo.analysis.materialization.store import SessionStore, _one, _rows, _text
+from marivo.analysis.materialization.sqlite_values import _one, _rows, _text
+from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.model.pages import encode_keyset_cursor
 from marivo.analysis.model.receipts import invalid
 from marivo.analysis.session._lazy_read_model import (

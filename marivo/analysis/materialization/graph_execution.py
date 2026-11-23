@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TypeVar
 
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.query_stages import (
     FrameCompute,
     FrameInput,
     FrameKeysInput,

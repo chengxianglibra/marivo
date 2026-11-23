@@ -5,10 +5,17 @@ from __future__ import annotations
 from dataclasses import replace
 
 from marivo._definition.query import FilterValues, ValueBinary
-from marivo.analysis.compiler.frame_plan import CompiledFramePlan, frame_program
-from marivo.analysis.compiler.graph_plan import FrameCompute, FrameFilterFusion, QueryStage
-from marivo.analysis.compiler.optimization import FusionGroup, RuleDecision, _consumers
+from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
+from marivo.analysis.compiler.frame_plan import frame_program
+from marivo.analysis.compiler.optimization import _consumers
 from marivo.analysis.compiler.query_program import FrameProgram
+from marivo.analysis.compiler.query_stages import (
+    FrameCompute,
+    FrameFilterFusion,
+    FusionGroup,
+    QueryStage,
+    RuleDecision,
+)
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.frame_contracts import CheckedStageInputT
 from marivo.analysis.model.local_laws import (

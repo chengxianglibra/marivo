@@ -7,7 +7,6 @@ import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import (
-    Any,
     Generic,
     Literal,
     SupportsIndex,
@@ -19,7 +18,7 @@ from typing import (
     get_origin,
 )
 
-from pydantic_core import core_schema
+from pydantic_core import CoreSchema, core_schema
 
 from marivo._kernel.compat import Never, Self, StrEnum
 from marivo._kernel.errors import invalid
@@ -79,15 +78,15 @@ class RelationshipKind(SemanticKindTag):
 FieldKind: TypeAlias = DimensionKind | TimeDimensionKind | MeasureKind
 
 
-_KIND_BY_MARKER: dict[type[SemanticKindTag], frozenset[SemanticKind]] = {
-    DomainKind: frozenset({SemanticKind.DOMAIN}),
-    DatasourceKind: frozenset({SemanticKind.DATASOURCE}),
-    EntityKind: frozenset({SemanticKind.ENTITY}),
-    DimensionKind: frozenset({SemanticKind.DIMENSION}),
-    TimeDimensionKind: frozenset({SemanticKind.TIME_DIMENSION}),
-    MeasureKind: frozenset({SemanticKind.MEASURE}),
-    MetricKind: frozenset({SemanticKind.METRIC}),
-    RelationshipKind: frozenset({SemanticKind.RELATIONSHIP}),
+_KIND_BY_MARKER: dict[type[SemanticKindTag], SemanticKind] = {
+    DomainKind: SemanticKind.DOMAIN,
+    DatasourceKind: SemanticKind.DATASOURCE,
+    EntityKind: SemanticKind.ENTITY,
+    DimensionKind: SemanticKind.DIMENSION,
+    TimeDimensionKind: SemanticKind.TIME_DIMENSION,
+    MeasureKind: SemanticKind.MEASURE,
+    MetricKind: SemanticKind.METRIC,
+    RelationshipKind: SemanticKind.RELATIONSHIP,
 }
 
 _SEGMENT_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -208,7 +207,7 @@ class Ref(Generic[KindT]):
         cls,
         source_type: object,
         handler: object,
-    ) -> Any:
+    ) -> CoreSchema:
         del cls, handler
         allowed_kinds = _allowed_kinds_for_annotation(source_type)
         allowed_values = [kind.value for kind in sorted(allowed_kinds, key=lambda item: item.value)]
@@ -280,6 +279,11 @@ def _create_ref(kind: SemanticKind, path: object) -> Ref[SemanticKindTag]:
     return value
 
 
+def _create_typed_ref(marker: type[KindT], path: str) -> Ref[KindT]:
+    # The immutable kind is selected by this same generic marker.
+    return cast("Ref[KindT]", _create_ref(_KIND_BY_MARKER[marker], path))
+
+
 @final
 class _RefFactory:
     """Exact semantic-ref factories kept separate from immutable identities."""
@@ -287,34 +291,28 @@ class _RefFactory:
     __slots__ = ()
 
     def domain(self, path: str) -> Ref[DomainKind]:
-        return cast("Ref[DomainKind]", _create_ref(SemanticKind.DOMAIN, path))
+        return _create_typed_ref(DomainKind, path)
 
     def datasource(self, path: str) -> Ref[DatasourceKind]:
-        return cast("Ref[DatasourceKind]", _create_ref(SemanticKind.DATASOURCE, path))
+        return _create_typed_ref(DatasourceKind, path)
 
     def entity(self, path: str) -> Ref[EntityKind]:
-        return cast("Ref[EntityKind]", _create_ref(SemanticKind.ENTITY, path))
+        return _create_typed_ref(EntityKind, path)
 
     def dimension(self, path: str) -> Ref[DimensionKind]:
-        return cast("Ref[DimensionKind]", _create_ref(SemanticKind.DIMENSION, path))
+        return _create_typed_ref(DimensionKind, path)
 
     def time_dimension(self, path: str) -> Ref[TimeDimensionKind]:
-        return cast(
-            "Ref[TimeDimensionKind]",
-            _create_ref(SemanticKind.TIME_DIMENSION, path),
-        )
+        return _create_typed_ref(TimeDimensionKind, path)
 
     def measure(self, path: str) -> Ref[MeasureKind]:
-        return cast("Ref[MeasureKind]", _create_ref(SemanticKind.MEASURE, path))
+        return _create_typed_ref(MeasureKind, path)
 
     def metric(self, path: str) -> Ref[MetricKind]:
-        return cast("Ref[MetricKind]", _create_ref(SemanticKind.METRIC, path))
+        return _create_typed_ref(MetricKind, path)
 
     def relationship(self, path: str) -> Ref[RelationshipKind]:
-        return cast(
-            "Ref[RelationshipKind]",
-            _create_ref(SemanticKind.RELATIONSHIP, path),
-        )
+        return _create_typed_ref(RelationshipKind, path)
 
 
 ref = _RefFactory()
@@ -367,7 +365,7 @@ def _allowed_kinds_for_annotation(source_type: object) -> frozenset[SemanticKind
 
     def collect(marker: object) -> set[SemanticKind]:
         if marker in _KIND_BY_MARKER:
-            return set(_KIND_BY_MARKER[marker])
+            return {_KIND_BY_MARKER[marker]}
         if get_origin(marker) is types.UnionType:
             kinds: set[SemanticKind] = set()
             for member in get_args(marker):
@@ -382,14 +380,14 @@ def _allowed_kinds_for_annotation(source_type: object) -> frozenset[SemanticKind
 
 
 _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
-    SemanticKind.DOMAIN: cast("Callable[[str], Ref[SemanticKindTag]]", ref.domain),
-    SemanticKind.DATASOURCE: cast("Callable[[str], Ref[SemanticKindTag]]", ref.datasource),
-    SemanticKind.ENTITY: cast("Callable[[str], Ref[SemanticKindTag]]", ref.entity),
-    SemanticKind.DIMENSION: cast("Callable[[str], Ref[SemanticKindTag]]", ref.dimension),
-    SemanticKind.TIME_DIMENSION: cast("Callable[[str], Ref[SemanticKindTag]]", ref.time_dimension),
-    SemanticKind.MEASURE: cast("Callable[[str], Ref[SemanticKindTag]]", ref.measure),
-    SemanticKind.METRIC: cast("Callable[[str], Ref[SemanticKindTag]]", ref.metric),
-    SemanticKind.RELATIONSHIP: cast("Callable[[str], Ref[SemanticKindTag]]", ref.relationship),
+    SemanticKind.DOMAIN: ref.domain,
+    SemanticKind.DATASOURCE: ref.datasource,
+    SemanticKind.ENTITY: ref.entity,
+    SemanticKind.DIMENSION: ref.dimension,
+    SemanticKind.TIME_DIMENSION: ref.time_dimension,
+    SemanticKind.MEASURE: ref.measure,
+    SemanticKind.METRIC: ref.metric,
+    SemanticKind.RELATIONSHIP: ref.relationship,
 }
 
 

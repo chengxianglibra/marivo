@@ -6,6 +6,7 @@ from hashlib import sha256
 
 import pandas as pd
 
+from marivo.analysis.core.attachments import OutputAttachment
 from marivo.analysis.core.frame_method_facts import (
     FrameMethodCoordinate,
     FrameMethodFacts,
@@ -15,15 +16,14 @@ from marivo.analysis.materialization.contracts import parse_json
 from marivo.analysis.materialization.terminal_protocol import (
     decode_method_record,
     encode_method_record,
-    invalid,
     method_facts_header,
 )
-from marivo.analysis.methods.carriers.attachments import OutputAttachment
 from marivo.analysis.model.artifact_data import (
     METHOD_PAYLOAD_SCHEMA,
     SavedAttachment,
     SavedFrameMethodFacts,
 )
+from marivo.analysis.model.execution_errors import terminal_output_integrity_error as invalid
 from marivo.analysis.model.receipts import canonical_json
 
 

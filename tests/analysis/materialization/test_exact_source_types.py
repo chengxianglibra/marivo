@@ -10,7 +10,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.graph_source_execution import admit_source_type
+from marivo.analysis.materialization.source_types import admit_source_type
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_types import DataColumn, DecimalDataType
 from marivo.analysis.model.errors import CoreRuleError

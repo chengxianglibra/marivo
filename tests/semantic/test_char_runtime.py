@@ -8,6 +8,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
+from marivo.datasource.engines.base import MetadataInspectRequest
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import SourceData, source_case
@@ -71,7 +72,6 @@ def test_char_entity_preview_and_analysis(
         report = catalog.validate(entities)
         assert report.status == "current", report.to_dict()
         # Physical metadata retains the width, while schema validation accepts string fields.
-        from marivo.datasource.engines.base import MetadataInspectRequest
 
         bound = case.session.bind(case.source, source_identity="char-metadata")
         metadata = case.session.provider.metadata.inspect_table(

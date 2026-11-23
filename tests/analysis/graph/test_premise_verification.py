@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
+from inspect import signature
 from pathlib import Path
 
 import duckdb
@@ -14,6 +19,7 @@ from marivo.datasource.runtime.read_types import CompiledRead
 from tests.analysis.graph.physical_workloads import workload
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value, terminal_runs
+from tests.support.paths import PROJECT_ROOT
 
 
 def _reads(monkeypatch: pytest.MonkeyPatch) -> list[CompiledRead]:
@@ -165,7 +171,6 @@ def test_shared_matching_assumption_never_becomes_completed_evidence(
 
 
 def test_outer_alignment_has_one_public_correspondence_contract() -> None:
-    from inspect import signature
 
     assert tuple(signature(mv.AnalysisFrame.align).parameters) == (
         "self",
@@ -181,12 +186,6 @@ def test_outer_alignment_has_one_public_correspondence_contract() -> None:
 def test_checked_pairing_survives_source_offline_cold_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import json
-    import os
-    import subprocess
-    import sys
-
-    from tests.support.paths import PROJECT_ROOT
 
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
         session = work.session

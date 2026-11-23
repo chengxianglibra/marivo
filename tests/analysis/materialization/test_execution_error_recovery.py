@@ -4,6 +4,7 @@ from typing import NoReturn
 
 import pandas as pd
 import pytest
+import sqlglot
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -74,7 +75,6 @@ def test_member_construction_is_lazy_and_execution_retains_complete_keys(
         record for record in execution_records(case.root) if record["event"] == "query.submitted"
     ]
     assert submitted
-    import sqlglot
 
     assert all(
         sqlglot.parse_one(str(record["sql"]), read="duckdb").args.get("limit") is None

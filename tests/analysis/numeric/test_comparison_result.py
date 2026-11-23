@@ -5,14 +5,16 @@ from __future__ import annotations
 from dataclasses import replace
 from decimal import Decimal
 
+import duckdb
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.graph_reading import read_output
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value
+from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value, run_ids
 
 
 def _monthly(case: DslCase, start: str, end: str, metric: str = "revenue") -> mv.AnalysisFrame:
@@ -39,7 +41,6 @@ def test_correspondence_factories_are_axis_free_and_checked() -> None:
 def test_comparison_owns_independent_nullable_columns(
     analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from tests.shared_fixtures import run_ids
 
     case = analysis_dsl_case_factory("j2")
     current = _monthly(case, "2026-09-01", "2026-10-01")
@@ -109,7 +110,6 @@ def test_comparison_owns_independent_nullable_columns(
 def test_decimal_absolute_keeps_precision_and_relative_uses_float(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -137,7 +137,6 @@ def test_decimal_absolute_keeps_precision_and_relative_uses_float(
 def test_comparison_output_rejects_incomplete_and_forged_columns(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis.materialization.terminal_storage import read_output
 
     case = analysis_dsl_case_factory("j2")
     current = _monthly(case, "2026-09-01", "2026-10-01", "order_count")

@@ -9,6 +9,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
+import marivo.analysis.materialization.frame_source_preparation as evaluator
 import marivo.semantic as ms
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
@@ -21,9 +22,15 @@ from marivo.analysis.dsl.frame_sources import values
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.model.data_schema import DataAxis, DataSchema
-from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType, TimestampDataType
 from marivo.analysis.model.errors import CoreRuleError
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.layout_facts import (
+    FrameAxisGroup,
+    FrameFixedGroup,
+    FramePairStatisticContext,
+    FrameStatisticContext,
+)
 from marivo.analysis.model.lineage import empty as empty_lineage
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 from tests.support.source_trace import capture_source
@@ -65,7 +72,6 @@ def _memory_metadata(local: LocalFrameServices) -> FrameResultMetadata:
 def test_literal_compute_is_runless_and_memory_compute_returns_self(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import marivo.analysis.materialization.frame_source_preparation as evaluator
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("source preparation is forbidden")
@@ -570,7 +576,6 @@ def test_axis_alias_errors_distinguish_keys_values_and_foreign_axes(
 
 
 def test_ordinary_time_coordinate_exports_one_value_with_aliases(local: LocalFrameServices) -> None:
-    from marivo.analysis.model.data_types import TimestampDataType
 
     key = DataColumn("time", "event_date", TimestampDataType("us", "UTC"), False)
     value = DataColumn("amount", "amount", ScalarDataType("int64"), True)
@@ -603,11 +608,6 @@ def test_ordinary_time_coordinate_exports_one_value_with_aliases(local: LocalFra
 def test_current_row_contexts_are_local_and_restrict_without_recalculation(
     local: LocalFrameServices,
 ) -> None:
-    from marivo.analysis.model.layout_facts import (
-        FrameAxisGroup,
-        FrameFixedGroup,
-        FrameStatisticContext,
-    )
 
     root = _memory(local)
     summary = root.reduce(
@@ -623,7 +623,6 @@ def test_current_row_contexts_are_local_and_restrict_without_recalculation(
         result = root.correlate(root["value"], root["value"] * 2, method=method)
         coefficient = result.schema.value_contexts["coefficient"]
         pairs = result.schema.value_contexts["n_pairs"]
-        from marivo.analysis.model.layout_facts import FramePairStatisticContext
 
         assert isinstance(coefficient, FramePairStatisticContext)
         assert isinstance(pairs, FramePairStatisticContext)
@@ -661,7 +660,6 @@ def test_current_row_contexts_are_local_and_restrict_without_recalculation(
 def test_comparison_keeps_distinct_fixed_statistics_on_their_endpoints(
     local: LocalFrameServices,
 ) -> None:
-    from marivo.analysis.model.layout_facts import FrameFixedGroup, FrameStatisticContext
 
     root = _memory(local)
     grouped = root.reduce({"total": root["value"].sum()}, by=root.axes)

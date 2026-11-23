@@ -12,7 +12,7 @@ from typing import Generic, Literal, NoReturn, TypeAlias, TypeVar
 from ibis.common.deferred import Attr, BinaryOperator, Call, Just, Resolver, UnaryOperator, Variable
 
 from marivo._definition.correspondence import ComparisonAxis
-from marivo._definition.deferred import attribute_name
+from marivo._definition.deferred import RescaleResolver, attribute_name
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
@@ -264,7 +264,6 @@ def _row_allows(node: RowNode, axis: ComparisonAxis) -> bool:
         )
 
     def visit(recipe: Resolver) -> bool | None:
-        from marivo._definition.deferred import RescaleResolver
 
         if isinstance(recipe, RescaleResolver):
             return visit(recipe.recipe)
@@ -306,25 +305,34 @@ def _roots(node: RowNode) -> tuple[ExactRef, ...]:
     return tuple(root for item in node.inputs for root in _roots(item))
 
 
-def build_attribute_rule(
-    node: MetricNode,
-    declared: Mapping[ExactRef, MetricNode],
-    contributions: tuple[ContributionBinding, ...],
-    *,
-    occurrence: tuple[int, ...],
-    by: tuple[ComparisonAxis, ...],
-    metric: str,
-) -> AttributeRule:
-    """Capture a rule for one named output, retaining its exact source-use paths.
+def _combine_rules(operation: LinearOperation) -> AdditiveRule | LinearRule:
+    if isinstance(operation, (RuleAdd, RuleSubtract)):
+        if isinstance(operation.left, AdditiveRule) and isinstance(operation.right, AdditiveRule):
+            if isinstance(operation, RuleAdd):
+                return AdditiveRule(RuleAdd(operation.left, operation.right))
+            return AdditiveRule(RuleSubtract(operation.left, operation.right))
+    elif isinstance(operation.operand, AdditiveRule):
+        if isinstance(operation, RuleNegate):
+            return AdditiveRule(RuleNegate(operation.operand))
+        if isinstance(operation, RuleDivide):
+            return AdditiveRule(RuleDivide(operation.operand, operation.scalar))
+        if isinstance(operation, RuleRescale):
+            return AdditiveRule(RuleRescale(operation.operand, operation.scalar, operation.unit))
+        return AdditiveRule(RuleScale(operation.operand, operation.scalar, operation.side))
+    return LinearRule(operation)
 
-    ``occurrence`` is the output's existing observation path, normally ``(i,)``.
-    The returned requests require runtime partition, coverage and route checks;
-    successful recognition does not certify those checks.
-    """
-    active: set[ExactRef] = set()
-    windows: list[ObservationWindow] = []
+
+@dataclass(slots=True)
+class _AttributeRuleBinding:
+    declared: Mapping[ExactRef, MetricNode]
+    contributions: tuple[ContributionBinding, ...]
+    by: tuple[ComparisonAxis, ...]
+    metric: str
+    active: set[ExactRef] = field(default_factory=set, init=False)
+    windows: list[ObservationWindow] = field(default_factory=list, init=False)
 
     def fail(
+        self,
         path: tuple[int, ...],
         received: str,
         *,
@@ -332,23 +340,28 @@ def build_attribute_rule(
     ) -> NoReturn:
         raise AttributeRuleError(
             reason=reason,
-            metric=metric,
+            metric=self.metric,
             occurrence=path,
             expected="a closed exact contribution rule with captured component roles",
             received=received,
         )
 
     def source(
+        self,
         leaf: SourceAggregate | SourceWeightedMean | EntityCount,
         path: tuple[int, ...],
         roles: tuple[AttributeComponentRole, ...],
         support: AttributeSupport,
     ) -> AttributeSourceRequest:
         matches = tuple(
-            item for item in contributions if (item.logical_occurrence or item.occurrence) == path
+            item
+            for item in self.contributions
+            if (item.logical_occurrence or item.occurrence) == path
         )
-        if not matches or (not windows and len(matches) != 1):
-            fail(path, f"{len(matches)} captured source bindings", reason="missing_component_proof")
+        if not matches or (not self.windows and len(matches) != 1):
+            self.fail(
+                path, f"{len(matches)} captured source bindings", reason="missing_component_proof"
+            )
         binding = matches[0]
         roots = (
             (leaf.entity,)
@@ -364,10 +377,12 @@ def build_attribute_rule(
             or not roots
             or any(root.ref != binding.root.ref for root in roots)
         ):
-            fail(path, "a mismatched captured source leaf/root", reason="missing_component_proof")
+            self.fail(
+                path, "a mismatched captured source leaf/root", reason="missing_component_proof"
+            )
         if any(item.sample_axes for item in matches):
-            fail(path, "sampled or windowed source input", reason="missing_component_proof")
-        if windows:
+            self.fail(path, "sampled or windowed source input", reason="missing_component_proof")
+        if self.windows:
             if any(
                 item.window_key is None
                 or item.period is None
@@ -377,73 +392,53 @@ def build_attribute_rule(
                 or item.root.ref != binding.root.ref
                 for item in matches
             ) or len({item.window_key for item in matches}) != len(matches):
-                fail(path, "incomplete fixed window fibers", reason="missing_component_proof")
+                self.fail(path, "incomplete fixed window fibers", reason="missing_component_proof")
             return AttributeSourceRequest(
-                binding, roles, support, AttributeWindowProof(windows[-1], matches)
+                binding, roles, support, AttributeWindowProof(self.windows[-1], matches)
             )
         if binding.window_key is not None or binding.logical_occurrence is not None:
-            fail(path, "uncaptured window wrapper", reason="missing_component_proof")
+            self.fail(path, "uncaptured window wrapper", reason="missing_component_proof")
         return AttributeSourceRequest(binding, roles, support)
 
-    def combine(operation: LinearOperation) -> AdditiveRule | LinearRule:
-        if isinstance(operation, (RuleAdd, RuleSubtract)):
-            if isinstance(operation.left, AdditiveRule) and isinstance(
-                operation.right, AdditiveRule
-            ):
-                if isinstance(operation, RuleAdd):
-                    return AdditiveRule(RuleAdd(operation.left, operation.right))
-                return AdditiveRule(RuleSubtract(operation.left, operation.right))
-        elif isinstance(operation.operand, AdditiveRule):
-            if isinstance(operation, RuleNegate):
-                return AdditiveRule(RuleNegate(operation.operand))
-            if isinstance(operation, RuleDivide):
-                return AdditiveRule(RuleDivide(operation.operand, operation.scalar))
-            if isinstance(operation, RuleRescale):
-                return AdditiveRule(
-                    RuleRescale(operation.operand, operation.scalar, operation.unit)
-                )
-            return AdditiveRule(RuleScale(operation.operand, operation.scalar, operation.side))
-        return LinearRule(operation)
-
-    def visit(item: MetricNode, path: tuple[int, ...]) -> AttributeRule:
+    def visit(self, item: MetricNode, path: tuple[int, ...]) -> AttributeRule:
         if isinstance(item, DeclaredMetricRef):
-            if item.ref in active or item.ref not in declared:
-                fail(
+            if item.ref in self.active or item.ref not in self.declared:
+                self.fail(
                     path,
                     "an unresolved or cyclic declared Metric",
                     reason="missing_component_proof",
                 )
-            active.add(item.ref)
-            result = visit(declared[item.ref], (*path, 0))
-            active.remove(item.ref)
+            self.active.add(item.ref)
+            result = self.visit(self.declared[item.ref], (*path, 0))
+            self.active.remove(item.ref)
             if isinstance(result, AdditiveRule):
                 result = replace(result, origins=(*result.origins, item.ref))
             return result
         if isinstance(item, ContributionFilter):
-            return visit(item.operand, (*path, 0))
+            return self.visit(item.operand, (*path, 0))
         if isinstance(item, MetricWindow):
-            if windows:
-                fail(path, "nested windows", reason="missing_component_proof")
-            windows.append(item.rule)
-            result = visit(item.operand, (*path, 0))
-            windows.pop()
+            if self.windows:
+                self.fail(path, "nested windows", reason="missing_component_proof")
+            self.windows.append(item.rule)
+            result = self.visit(item.operand, (*path, 0))
+            self.windows.pop()
             if not isinstance(result, AdditiveRule):
-                fail(
+                self.fail(
                     path,
                     "fixed window requires an additive child",
                     reason="missing_component_proof",
                 )
             return result
         if isinstance(item, (PerReduce, PerWeightedMean)):
-            fail(path, type(item).__name__, reason="missing_component_proof")
+            self.fail(path, type(item).__name__, reason="missing_component_proof")
         if isinstance(item, EntityCount):
             return AdditiveRule(
-                AdditiveSource(source(item, path, ("additive_value",), "rows"), False)
+                AdditiveSource(self.source(item, path, ("additive_value",), "rows"), False)
             )
         if isinstance(item, SourceWeightedMean):
             return RatioComponentRule(
                 NativeWeightedMean(
-                    source(
+                    self.source(
                         item,
                         path,
                         (
@@ -460,21 +455,21 @@ def build_attribute_rule(
             if item.reducer == "mean":
                 return RatioComponentRule(
                     NativeMean(
-                        source(
+                        self.source(
                             item, path, ("valid_value_sum", "valid_value_count"), "non_null_value"
                         )
                     )
                 )
             if item.reducer not in ("sum", "count", "count_distinct"):
-                fail(path, f"source reducer {item.reducer}")
+                self.fail(path, f"source reducer {item.reducer}")
             if item.reducer == "sum" and (
-                not by or not all(_row_allows(item.operand, axis) for axis in by)
+                not self.by or not all(_row_allows(item.operand, axis) for axis in self.by)
             ):
-                fail(path, "sum permission does not cover every requested classification axis")
+                self.fail(path, "sum permission does not cover every requested classification axis")
             distinct = item.reducer == "count_distinct"
             return AdditiveRule(
                 AdditiveSource(
-                    source(
+                    self.source(
                         item,
                         path,
                         ("additive_value",),
@@ -484,12 +479,15 @@ def build_attribute_rule(
                 )
             )
         if not isinstance(item, MetricExpression):
-            fail(path, type(item).__name__)
+            self.fail(path, type(item).__name__)
+        return self._visit_recipe(item, path)
+
+    def _visit_recipe(self, item: MetricExpression, path: tuple[int, ...]) -> AttributeRule:
         used: list[int] = []
 
         def rule(value: _RecipeValue) -> AttributeRule:
             if isinstance(value, FixedScalar):
-                fail(path, "a constant offset or constant-only Metric")
+                self.fail(path, "a constant offset or constant-only Metric")
             return value
 
         def ratio(
@@ -497,22 +495,21 @@ def build_attribute_rule(
             right: _RecipeValue,
         ) -> RatioComponentRule:
             if not isinstance(left, AdditiveRule) or not isinstance(right, AdditiveRule):
-                fail(path, "a divide without two ordered additive components")
+                self.fail(path, "a divide without two ordered additive components")
             return RatioComponentRule(DirectRatio(left, right))
 
         def recipe(value: Resolver) -> _RecipeValue:
-            from marivo._definition.deferred import RescaleResolver
 
             if isinstance(value, RescaleResolver):
                 scalar = recipe(Just(value.divisor))
                 assert isinstance(scalar, FixedScalar)
-                return combine(RuleRescale(rule(recipe(value.recipe)), scalar, value.unit))
+                return _combine_rules(RuleRescale(rule(recipe(value.recipe)), scalar, value.unit))
             if type(value) is Variable:
                 for index, operand in enumerate(item.operands):
                     if value.name == f"slot_{index}":
                         used.append(index)
-                        return visit(operand, (*path, index))
-                fail(path, f"unknown Metric slot {value.name}")
+                        return self.visit(operand, (*path, index))
+                self.fail(path, f"unknown Metric slot {value.name}")
             if type(value) is Just:
                 scalar = value.value
                 if (
@@ -520,41 +517,57 @@ def build_attribute_rule(
                     or (isinstance(scalar, float) and not math.isfinite(scalar))
                     or (isinstance(scalar, Decimal) and not scalar.is_finite())
                 ):
-                    fail(path, "a non-finite or non-numeric fixed scalar")
+                    self.fail(path, "a non-finite or non-numeric fixed scalar")
                 assert isinstance(scalar, (int, float, Decimal))
                 return FixedScalar(scalar, literal_token(scalar))
             if type(value) is UnaryOperator and value.func is operator.neg:
-                return combine(RuleNegate(rule(recipe(value.arg))))
+                return _combine_rules(RuleNegate(rule(recipe(value.arg))))
             if type(value) is BinaryOperator:
                 left, right = recipe(value.left), recipe(value.right)
                 if value.func is operator.add:
-                    return combine(RuleAdd(rule(left), rule(right)))
+                    return _combine_rules(RuleAdd(rule(left), rule(right)))
                 if value.func is operator.sub:
-                    return combine(RuleSubtract(rule(left), rule(right)))
+                    return _combine_rules(RuleSubtract(rule(left), rule(right)))
                 if value.func is operator.truediv:
                     if isinstance(right, FixedScalar) and not isinstance(left, FixedScalar):
                         if right.value == 0:
-                            fail(path, "a zero fixed divisor")
-                        return combine(RuleDivide(left, right))
+                            self.fail(path, "a zero fixed divisor")
+                        return _combine_rules(RuleDivide(left, right))
                     return ratio(left, right)
                 if value.func is operator.mul:
                     if isinstance(left, FixedScalar) and not isinstance(right, FixedScalar):
-                        return combine(RuleScale(right, left, "left"))
+                        return _combine_rules(RuleScale(right, left, "left"))
                     if isinstance(right, FixedScalar) and not isinstance(left, FixedScalar):
-                        return combine(RuleScale(left, right, "right"))
-                fail(path, "an unsupported completed-Metric operator")
-            fail(path, f"unsupported Metric recipe {type(value).__name__}")
+                        return _combine_rules(RuleScale(left, right, "right"))
+                self.fail(path, "an unsupported completed-Metric operator")
+            self.fail(path, f"unsupported Metric recipe {type(value).__name__}")
 
         result = rule(recipe(item.recipe))
         if sorted(used) != list(range(len(item.operands))):
-            fail(
+            self.fail(
                 path,
                 "Metric slots must each have one captured use",
                 reason="missing_component_proof",
             )
         return result
 
-    return visit(node, occurrence)
+
+def build_attribute_rule(
+    node: MetricNode,
+    declared: Mapping[ExactRef, MetricNode],
+    contributions: tuple[ContributionBinding, ...],
+    *,
+    occurrence: tuple[int, ...],
+    by: tuple[ComparisonAxis, ...],
+    metric: str,
+) -> AttributeRule:
+    """Capture a rule for one named output, retaining its exact source-use paths.
+
+    ``occurrence`` is the output's existing observation path, normally ``(i,)``.
+    The returned requests require runtime partition, coverage and route checks;
+    successful recognition does not certify those checks.
+    """
+    return _AttributeRuleBinding(declared, contributions, by, metric).visit(node, occurrence)
 
 
 def component_requests(rule: AttributeRule) -> tuple[AttributeSourceRequest, ...]:

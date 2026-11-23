@@ -21,11 +21,11 @@ from marivo.analysis.core.frame_data import (
     SourceMetric,
     key_checkpoint,
 )
-from marivo.analysis.core.frame_expression import (
+from marivo.analysis.core.frame_operations import (
     AlignFrameValues,
     CompareFrameValues,
+    FixFrameValues,
 )
-from marivo.analysis.core.frame_fix import FixFrameValues
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.frame_contracts import FrameKeyInput

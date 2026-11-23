@@ -5,7 +5,10 @@ from __future__ import annotations
 import pytest
 
 from marivo._help.model import MarivoHelpTargetError
+from marivo.datasource.constraints import default_constraint_for_error_kind
+from marivo.datasource.errors import DatasourceFieldInvalidError, repair
 from marivo.semantic.constraints import CONSTRAINTS as SEMANTIC_CONSTRAINTS
+from marivo.semantic.constraints import default_hint_for_error_kind as semantic_hint
 from tests.shared_fixtures import rendered_help
 from tests.support.paths import PROJECT_ROOT
 
@@ -39,7 +42,6 @@ def test_constraint_paths_exist() -> None:
 
 
 def test_datasource_constraint_defaults_use_error_kind_only() -> None:
-    from marivo.datasource.constraints import default_constraint_for_error_kind
 
     constraint = default_constraint_for_error_kind("DatasourceLoad")
 
@@ -48,13 +50,11 @@ def test_datasource_constraint_defaults_use_error_kind_only() -> None:
 
 
 def test_shared_catalog_hint_lookup_supports_semantic() -> None:
-    from marivo.semantic.constraints import default_hint_for_error_kind as semantic_hint
 
     assert semantic_hint("missing_entity_ref")
 
 
 def test_datasource_error_requires_typed_repair() -> None:
-    from marivo.datasource.errors import DatasourceFieldInvalidError, repair
 
     err = DatasourceFieldInvalidError(
         message="secret",

@@ -11,14 +11,28 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._definition.deferred import resolver_of, semantic_input
+from marivo._definition.expressions import MemberCount
+from marivo._definition.graph import walk
 from marivo._definition.observations import ObservationBinding
-from marivo._definition.types import AxisBinding, CalendarCoordinate
-from marivo._kernel.temporal import InstantAnchor
+from marivo._definition.types import AxisBinding, CalendarCoordinate, ExactRef
+from marivo._kernel.temporal import (
+    InstantAnchor,
+    _time_scope_from_contract_data,
+    _validate_time_scope_data,
+)
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.time_facts import (
+    FrameAxisTime,
+    FrameComparedTime,
+    FrameObservationContext,
+    FrameTrailingPeriodsWindow,
+)
 from marivo.analysis.session.core import Session
+from marivo.datasource.runtime import backends as backends
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_field, consume_predicate
 from marivo.semantic._expression_values import RowExpression
 from marivo.semantic.catalog_model.objects import Entity
@@ -130,7 +144,6 @@ def bound_catalog(
         fanout: bool = False,
         sampled: bool = False,
     ) -> Session:
-        from marivo.datasource.runtime import backends as backends
 
         def forbidden(*args: object, **kwargs: object) -> None:
             raise AssertionError("binding opened a datasource")
@@ -334,8 +347,6 @@ def test_same_path_definition_versions_are_not_an_admission_gate(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
 
-    from marivo._definition.types import ExactRef
-
     session = bound_catalog()
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     current = consume_field(amount)
@@ -357,7 +368,6 @@ def test_same_path_definition_versions_are_not_an_admission_gate(
 def test_exact_boundaries_calendar_and_host_independence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo._kernel.temporal import _time_scope_from_contract_data, _validate_time_scope_data
 
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("clock", timezone="America/New_York")
@@ -451,7 +461,6 @@ def filtered():
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("binding opened a datasource")
@@ -478,9 +487,6 @@ def filtered():
 def test_explicit_count_capture_keeps_each_domain_without_reading(
     bound_catalog: BoundCatalogFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo._definition.expressions import MemberCount
-    from marivo._definition.graph import walk
-    from marivo.datasource.runtime.adapters import SourceSession
 
     session = bound_catalog()
     entity = catalog_get(session.catalog, "entity:sales.orders", kind="entity")
@@ -517,11 +523,6 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
 def test_observation_context_captures_direct_subject_and_only_explicit_window(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
-    from marivo.analysis.model.time_facts import (
-        FrameAxisTime,
-        FrameObservationContext,
-        FrameTrailingPeriodsWindow,
-    )
 
     session = bound_catalog()
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
@@ -577,7 +578,6 @@ def test_explicit_window_fact_variants_are_closed(
     frame = session.observe(
         {"value": metric.window(rules[variant])}, by=(axis_scope.by(mv.grain("day")),)
     )
-    from marivo.analysis.model.time_facts import FrameObservationContext
 
     context = frame.schema.value_contexts["value"]
     assert isinstance(context, FrameObservationContext)
@@ -588,11 +588,6 @@ def test_explicit_window_fact_variants_are_closed(
 def test_comparison_contexts_keep_distinct_endpoint_windows_and_fixed_choices(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
-    from marivo.analysis.model.time_facts import (
-        FrameComparedTime,
-        FrameObservationContext,
-        FrameTrailingPeriodsWindow,
-    )
 
     session = bound_catalog()
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
@@ -641,7 +636,6 @@ def test_comparison_contexts_keep_distinct_endpoint_windows_and_fixed_choices(
 def test_ordinal_align_drops_context_references_to_unpublished_comparisons(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
-    from marivo.analysis.model.time_facts import FrameComparedTime, FrameObservationContext
 
     session = bound_catalog()
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
@@ -669,11 +663,6 @@ def test_ordinal_align_drops_context_references_to_unpublished_comparisons(
 def test_nested_comparison_rebinds_existing_endpoint_contexts_without_changing_time(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
-    from marivo.analysis.model.time_facts import (
-        FrameComparedTime,
-        FrameObservationContext,
-        FrameTrailingPeriodsWindow,
-    )
 
     session = bound_catalog()
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")

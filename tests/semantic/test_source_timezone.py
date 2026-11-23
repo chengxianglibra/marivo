@@ -10,10 +10,15 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.runtime.connections import DatasourceConnectionService
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed, SourceTimezoneMissing
 from marivo.semantic.static_check.dimensions import normalize_target_dimension
-from marivo.semantic.static_check.source_timezone import effective_source_timezone
+from marivo.semantic.static_check.physical_identity import entity_dependency_fingerprint
+from marivo.semantic.static_check.source_timezone import (
+    effective_source_timezone,
+    source_timezone_axis,
+)
 from marivo.semantic.static_check.targets import normalize_target_entity
 
 if TYPE_CHECKING:
@@ -128,7 +133,6 @@ def test_native_missing_timezone_rejects_before_business_read(
         semantic_project_factory,
         fields=f"axis=ms.time_dimension_column(name='axis',entity=events,column={column!r})\n",
     )
-    from marivo.datasource.runtime.connections import DatasourceConnectionService
 
     monkeypatch.setattr(
         DatasourceConnectionService,
@@ -209,7 +213,6 @@ def test_date_snapshot_contradiction_is_structured(
 def test_source_declaration_fingerprints_use_normalized_timezone(
     tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
 ) -> None:
-    from marivo.semantic.static_check.physical_identity import entity_dependency_fingerprint
 
     catalog, _ = _project(
         tmp_path,
@@ -233,7 +236,6 @@ def test_source_declaration_fingerprints_use_normalized_timezone(
 def test_hour_prefix_inherits_datasource_from_derived_date_field(
     tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
 ) -> None:
-    from marivo.semantic.static_check.source_timezone import source_timezone_axis
 
     catalog, _ = _project(
         tmp_path,

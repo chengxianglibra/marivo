@@ -1,5 +1,6 @@
 """Source regrouping preserves internal samples and bound window endpoints."""
 
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import duckdb
@@ -8,6 +9,11 @@ import pyarrow.compute as pc
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.compiler.lowered_query import LoweredRead
+from marivo.analysis.compiler.query_stages import SourceReadStage
+from marivo.analysis.materialization import source_reads
+from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.methods.carriers.stages import StageOutput
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 from tests.support.source_trace import capture_source
 
@@ -206,22 +212,16 @@ def test_collated_original_keeps_its_existing_fine_grouping_boundary(
 def test_empty_actual_read_retains_zero_or_unknown_original_count(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, unknown: bool
 ) -> None:
-    from dataclasses import replace
-
-    from marivo.analysis.compiler.graph_lowering import LoweredRead
-    from marivo.analysis.compiler.graph_plan import SourceReadStage
-    from marivo.analysis.materialization import graph_source_execution
-    from marivo.analysis.methods.carriers.stages import StageOutput
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute('DELETE FROM "order"')
     amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
     customer = catalog_value(case.session.catalog, "sales.order.customer_id", kind="dimension")
-    original = graph_source_execution.read_stage
+    original = source_reads.read_stage
 
     def without_count(
-        prepared: graph_source_execution.PreparedSources,
+        prepared: PreparedSources,
         stage: SourceReadStage,
         request: LoweredRead,
         *,
@@ -231,7 +231,7 @@ def test_empty_actual_read_retains_zero_or_unknown_original_count(
         return replace(result, source_rows=None)
 
     if unknown:
-        monkeypatch.setattr(graph_source_execution, "read_stage", without_count)
+        monkeypatch.setattr(source_reads, "read_stage", without_count)
     trace = capture_source(monkeypatch)
     saved = case.session.observe({"total": amount.sum()}, by=(customer,)).persist()
     assert len(saved.source_reads) == len(trace.native_sql) == 1

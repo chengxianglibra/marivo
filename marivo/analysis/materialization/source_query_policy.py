@@ -6,9 +6,9 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import EntityCount, SourceAggregate, SourceWeightedMean
-from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import SourceReadStage, read_reduction, require_reduction
+from marivo.analysis.compiler.lowered_query import LoweredRead
 from marivo.analysis.compiler.query_program import ResultProgram
+from marivo.analysis.compiler.query_stages import SourceReadStage, read_reduction, require_reduction
 from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
 from marivo.datasource.spi import SourceSession, physical_fields
 

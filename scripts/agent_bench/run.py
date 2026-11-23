@@ -326,6 +326,52 @@ def preserve_delivery(options: Options, before: dict[str, FileRecord]) -> None:
     )
 
 
+def reconcile_first_result(
+    first: dict[str, Json],
+    started: float,
+    actions: list[dict[str, Json]],
+    completed: list[dict[str, Json]],
+    failures: list[RouterFailure],
+) -> None:
+    marker_epoch = object_json(first["marker"]).get("epoch")
+    if (
+        isinstance(marker_epoch, (int, float))
+        and not isinstance(marker_epoch, bool)
+        and started <= marker_epoch <= time.time()
+    ):
+        first["reconciled"] = {
+            "basis": "controller event receipt time <= self-reported marker epoch; not model-internal timing",
+            "started_visible_actions": [
+                action
+                for action in actions
+                if isinstance(action["received_epoch"], (int, float))
+                and action["received_epoch"] <= marker_epoch
+            ],
+            "completed_visible_actions": [
+                action
+                for action in completed
+                if isinstance(action["received_epoch"], (int, float))
+                and action["received_epoch"] <= marker_epoch
+            ],
+        }
+        before_marker = [
+            failure
+            for failure in failures
+            if failure.timestamp_epoch is None or failure.timestamp_epoch <= marker_epoch
+        ]
+        reconciled = object_json(first["reconciled"])
+        started_before_marker = reconciled["started_visible_actions"]
+        assert isinstance(started_before_marker, list)
+        first["action_observability"] = action_observability(
+            len(started_before_marker), before_marker
+        )
+        first["router_failure_source_lines_requiring_reconciliation"] = [
+            failure.stderr_line for failure in before_marker
+        ]
+    else:
+        first["reconciled"] = {"error": "marker epoch is missing, nonnumeric, or outside the run"}
+
+
 def run(options: Options) -> int:
     if options.output.is_relative_to(options.project):
         raise ValueError("Output must be outside the project directory")
@@ -468,45 +514,7 @@ def run(options: Options) -> int:
         },
     )
     if first is not None:
-        marker_epoch = object_json(first["marker"]).get("epoch")
-        if (
-            isinstance(marker_epoch, (int, float))
-            and not isinstance(marker_epoch, bool)
-            and started <= marker_epoch <= time.time()
-        ):
-            first["reconciled"] = {
-                "basis": "controller event receipt time <= self-reported marker epoch; not model-internal timing",
-                "started_visible_actions": [
-                    action
-                    for action in actions
-                    if isinstance(action["received_epoch"], (int, float))
-                    and action["received_epoch"] <= marker_epoch
-                ],
-                "completed_visible_actions": [
-                    action
-                    for action in completed
-                    if isinstance(action["received_epoch"], (int, float))
-                    and action["received_epoch"] <= marker_epoch
-                ],
-            }
-            before_marker = [
-                failure
-                for failure in failures
-                if failure.timestamp_epoch is None or failure.timestamp_epoch <= marker_epoch
-            ]
-            reconciled = object_json(first["reconciled"])
-            started_before_marker = reconciled["started_visible_actions"]
-            assert isinstance(started_before_marker, list)
-            first["action_observability"] = action_observability(
-                len(started_before_marker), before_marker
-            )
-            first["router_failure_source_lines_requiring_reconciliation"] = [
-                failure.stderr_line for failure in before_marker
-            ]
-        else:
-            first["reconciled"] = {
-                "error": "marker epoch is missing, nonnumeric, or outside the run"
-            }
+        reconcile_first_result(first, started, actions, completed, failures)
         save_json(options.output / "first-result.json", first)
     save_json(
         options.output / "run.json",

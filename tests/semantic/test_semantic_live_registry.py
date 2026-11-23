@@ -12,9 +12,15 @@ from typing import get_args
 
 import pytest
 
+import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability
+from marivo._help.model import NativeHelpRoute
+from marivo._help.route import route_help_target
 from marivo._kernel.refs import SemanticKind
+from marivo.datasource.runtime.preview import PreviewResult
+from marivo.introspection.capabilities.resolve import resolve_live_target
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.reflect import import_registered_callable
 from marivo.introspection.live.targets import canonical_target
 from marivo.semantic._help_specs.manifest import (
     ERROR_TYPES,
@@ -38,8 +44,14 @@ from marivo.semantic._help_specs.model import (
     SemanticRootSection,
 )
 from marivo.semantic._help_specs.type_specs import TYPE_CONTRACTS
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.catalog_entries import CatalogPage
+from marivo.semantic.dtos import PreviewBatchResult
 from marivo.semantic.error_repairs import SemanticRepairContract
+from marivo.semantic.errors import ErrorKind
 from marivo.semantic.help_spi import SEMANTIC_LIVE_SURFACE
+from marivo.semantic.readiness import ReadinessReport
+from marivo.semantic.runtime_check.results import ValidationCheckResult, ValidationReport
 from tests.semantic.help_invariants import validate_registry
 
 
@@ -351,9 +363,6 @@ def test_ontology_cold_import_does_not_reenter_semantic_registry() -> None:
 
 
 def test_every_registry_repair_routes_to_a_public_exact_target() -> None:
-    from marivo._help.model import NativeHelpRoute
-    from marivo._help.route import route_help_target
-    from marivo.semantic.errors import ErrorKind
 
     expected = {
         "outside_loader_context": "semantic.load",
@@ -386,7 +395,6 @@ def test_every_registry_repair_routes_to_a_public_exact_target() -> None:
 
 
 def test_registry_covers_all_public_callables() -> None:
-    import marivo.semantic as ms
 
     for name in ms.__all__:
         exported = getattr(ms, name)
@@ -397,8 +405,6 @@ def test_registry_covers_all_public_callables() -> None:
 
 
 def test_ref_factory_namespace_and_every_exact_method_share_registry_contracts() -> None:
-    import marivo.semantic as ms
-    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     resolved = resolve_live_target("ref", SEMANTIC_LIVE_SURFACE)
     assert resolved.descriptor is REGISTRY.by_canonical_id("ref")
@@ -427,8 +433,6 @@ def test_ref_factory_namespace_and_every_exact_method_share_registry_contracts()
 
 
 def test_source_check_namespace_and_every_exact_method_share_registry_contracts() -> None:
-    import marivo.semantic as ms
-    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     expected_outputs = {
         "not_null": "NotNullSourceCheck",
@@ -462,7 +466,6 @@ def test_source_check_namespace_and_every_exact_method_share_registry_contracts(
 
 
 def test_every_bound_input_fact_names_live_parameters() -> None:
-    from marivo.introspection.live.reflect import import_registered_callable
 
     for descriptor in REGISTRY.descriptors:
         if descriptor.callable_path is None:
@@ -478,7 +481,6 @@ def test_every_bound_input_fact_names_live_parameters() -> None:
 
 
 def test_registry_covers_all_public_types() -> None:
-    import marivo.semantic as ms
 
     for name in ms.__all__:
         exported = getattr(ms, name)
@@ -489,8 +491,6 @@ def test_registry_covers_all_public_types() -> None:
 
 
 def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
-    from marivo.datasource.runtime.preview import PreviewResult
-    from marivo.introspection.capabilities.resolve import resolve_live_target
 
     for type_obj, contract in TYPE_CONTRACTS.items():
         if contract.name == "ref":
@@ -516,16 +516,6 @@ def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
 
 
 def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
-    from marivo._help.model import NativeHelpRoute
-    from marivo._help.route import route_help_target
-    from marivo.datasource.runtime.preview import PreviewResult
-    from marivo.introspection.capabilities.resolve import resolve_live_target
-    from marivo.semantic.dtos import PreviewBatchResult
-    from marivo.semantic.readiness import ReadinessReport
-    from marivo.semantic.runtime_check.results import (
-        ValidationCheckResult,
-        ValidationReport,
-    )
 
     result_types = (
         PreviewResult,
@@ -559,8 +549,6 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
 
 
 def test_catalog_type_contract_uses_the_closed_directory_protocol() -> None:
-    from marivo.semantic.catalog import SemanticCatalog
-    from marivo.semantic.catalog_entries import CatalogPage
 
     catalog_contract = TYPE_CONTRACTS[SemanticCatalog]
     page_contract = TYPE_CONTRACTS[CatalogPage]
@@ -585,7 +573,6 @@ def test_catalog_type_contract_uses_the_closed_directory_protocol() -> None:
 
 @pytest.mark.parametrize("target", ("additive_over", "additive_except"))
 def test_additivity_capabilities_disclose_one_or_more_positional_axes(target: str) -> None:
-    import marivo.semantic as ms
 
     capability = _authoring(target)
     (requirement,) = capability.input_requirements
@@ -597,7 +584,6 @@ def test_additivity_capabilities_disclose_one_or_more_positional_axes(target: st
 
 
 def test_preview_capability_accepts_one_named_object() -> None:
-    import marivo.semantic as ms
 
     preview = _authoring("preview")
     subject = next(

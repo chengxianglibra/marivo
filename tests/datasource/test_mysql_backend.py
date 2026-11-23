@@ -4,6 +4,7 @@ import getpass
 from unittest.mock import MagicMock, Mock
 
 import ibis
+import pandas as pd
 import pytest
 from pymysql.connections import Connection
 
@@ -87,7 +88,6 @@ def test_table_metadata_preserves_quoted_names_unsigned_and_decimal() -> None:
 def test_invalid_temporal_strings_preserve_null_decoding(
     dtype: str, invalid: str, valid: str
 ) -> None:
-    import pandas as pd
 
     result = mysql.convert_mysql_frame(
         pd.DataFrame({"value": [invalid, valid, None]}), ibis.schema({"value": dtype})

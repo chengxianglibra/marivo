@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 import pandas as pd
 import pytest
@@ -89,7 +90,6 @@ def test_graph_has_no_hidden_600_second_expiry(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import time
 
     case = analysis_dsl_case_factory("j2")
     logical = case.session.read(

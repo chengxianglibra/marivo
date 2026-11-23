@@ -89,3 +89,13 @@ class SessionBusyError(MaterializationError):
             stage="writer_guard",
             help_target=help_target,
         )
+
+
+def terminal_output_integrity_error(received: str) -> IntegrityError:
+    return IntegrityError(
+        expected="a complete Store 28 Frame output v17 value",
+        received=received,
+        repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
+        stage="terminal_output",
+        help_target="analysis_frame",
+    )

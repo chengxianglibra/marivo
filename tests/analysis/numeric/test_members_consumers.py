@@ -1,6 +1,7 @@
 """Public source-origin complete-identity and exact-version C03 vectors."""
 
 from collections.abc import Callable
+from contextlib import ExitStack
 from datetime import date
 from pathlib import Path
 
@@ -223,7 +224,6 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    from contextlib import ExitStack
 
     backend = "duckdb"
     monkeypatch.chdir(tmp_path)

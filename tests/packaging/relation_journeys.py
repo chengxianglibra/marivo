@@ -7,11 +7,12 @@ import json
 import os
 import shutil
 import sys
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime, timezone
 from fractions import Fraction
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 
 import duckdb
 import ibis
@@ -622,6 +623,290 @@ def _derived(
     return result
 
 
+class _CellsOracle(Protocol):
+    def __call__(
+        self, name: str, expected: dict[tuple[str, ...], object], value: str = "value"
+    ) -> None: ...
+
+
+class _EventCount(Protocol):
+    def __call__(self, member: str, month: str, channel: str | None = None) -> int: ...
+
+
+def _assert_comparison_oracles(
+    saved: dict[str, mv.AnalysisFrame],
+    exports: dict[str, pd.DataFrame],
+    members: tuple[str, ...],
+    months: tuple[str, ...],
+    amount: Callable[[str, str], int],
+    count: _EventCount,
+    cells: _CellsOracle,
+) -> None:
+    cells(
+        "relative",
+        {
+            (m,): float(
+                Fraction(amount(m, months[1]) - amount(m, months[0]), abs(amount(m, months[0])))
+            )
+            if amount(m, months[0])
+            else None
+            for m in members
+        },
+    )
+    cells(
+        "union",
+        {
+            (m,): amount(m, months[1]) - amount(m, months[0]) if amount(m, months[0]) > 80 else None
+            for m in members
+        },
+        "reference.absolute.value",
+    )
+    union_rows = _frame(saved["union"], exports["union"])
+    union = union_rows.set_index(_ordinary_keys(saved["union"])[0])
+    # Presence is independent of all value masks and complete identity keys.
+    exported = exports["union"]
+    assert exported["current.present"].all()
+    assert exported["reference.present"].tolist() == [True, True, False, False]
+    current_rows = _frame(saved["current"], exports["current"])
+    assert union.index.tolist() == current_rows[_ordinary_keys(saved["current"])[0]].tolist()
+    assert len(union) == 4
+    cells(
+        "nested",
+        {
+            (m,): count(m, months[1]) - 2 * count(m, months[0]) + count(m, "2026-06")
+            for m in members
+        },
+    )
+    cells(
+        "ratio",
+        {(m,): float(Fraction(amount(m, months[1]), count(m, months[1]))) for m in members},
+    )
+    cells(
+        "branch_ratio",
+        {(m,): float(Fraction(count(m, months[1], "web"), count(m, months[1]))) for m in members},
+    )
+    cells("shared_ratio", {(m,): 1.0 if amount(m, months[1]) else None for m in members})
+    cells(
+        "negative_relative",
+        {
+            (m,): float(
+                Fraction(
+                    2 * (amount(m, months[1]) - amount(m, months[0])),
+                    abs(amount(m, months[0]) - amount(m, months[1])),
+                )
+            )
+            if amount(m, months[0]) != amount(m, months[1])
+            else None
+            for m in members
+        },
+    )
+    cells(
+        "period",
+        {
+            (f"{left}-01", m): count(m, left) - count(m, right)
+            for m in members
+            for left, right in (("2026-09", "2026-07"), ("2026-10", "2026-08"))
+        },
+        "reference.absolute.value",
+    )
+    period = saved["period"]._schema
+    assert isinstance(period, DataSchema)
+    current_axis = period.axes[0]
+    assert isinstance(current_axis, CalendarDataAxis)
+    relation = period.comparisons[0].binding
+    assert isinstance(relation, CalendarComparisonBinding)
+    assert current_axis.frozen is not None and relation.baseline.frozen is not None
+    tables = _frozen_tables(saved["period"])
+    mapping = tables[relation.mapping_name]
+    endpoint_months = []
+    for map_column, endpoint in (
+        (current_axis.columns[0].slot_id, current_axis),
+        ("baseline.0", relation.baseline),
+    ):
+        assert endpoint.frozen is not None and len(endpoint.columns) == 1
+        directory = tables[endpoint.frozen.directory_name]
+        lookup = dict(
+            zip(directory[endpoint.columns[0].slot_id], directory.nominal_label, strict=True)
+        )
+        endpoint_months.append([str(lookup[key])[:7] for key in mapping[map_column]])
+    assert list(zip(*endpoint_months, strict=True)) == [
+        ("2026-09", "2026-07"),
+        ("2026-10", "2026-08"),
+    ]
+    cells(
+        "running",
+        {
+            (f"{month}-01", m): sum(amount(m, earlier) for earlier in months[: index + 1])
+            for m in members
+            for index, month in enumerate(months)
+        },
+    )
+    cells(
+        "folded",
+        {
+            (f"{month}-01", m): amount(m, month) if count(m, month) else None
+            for m in members
+            for month in months
+        },
+    )
+    cells(
+        "running_total",
+        {
+            (f"{month}-01",): sum(
+                amount(m, earlier) for m in members for earlier in months[: index + 1]
+            )
+            for index, month in enumerate(months)
+        },
+    )
+    cells(
+        "folded_total",
+        {(m,): max(amount(m, month) for month in months if count(m, month)) for m in members},
+    )
+    cells(
+        "branch_total",
+        {
+            (): float(
+                Fraction(
+                    sum(count(m, months[1], "web") for m in members),
+                    sum(count(m, months[1]) for m in members),
+                )
+            )
+        },
+    )
+
+
+def _assert_attribution_oracles(
+    saved: dict[str, mv.AnalysisFrame],
+    derived: dict[str, Json],
+    facts: DslRows,
+    members: tuple[str, ...],
+    months: tuple[str, ...],
+    amount: Callable[[str, str], int],
+    count: _EventCount,
+    cells: _CellsOracle,
+) -> None:
+    total = sum(amount(m, months[1]) for m in members)
+    cells("counts", {(m,): count(m, months[1]) for m in members})
+    cells(
+        "difference",
+        {(): sum(amount(m, months[1]) - amount(m, months[0]) for m in members)},
+        "reference.absolute.value",
+    )
+    cells("current", {(m,): amount(m, months[1]) for m in members})
+    ratios = arr(derived["ratios"])
+    assert {obj(row)[_ordinary_keys(saved["current"])[0]]: obj(row)["ratio"] for row in ratios} == {
+        m: float(Fraction(amount(m, months[1]), total)) for m in members
+    }
+    ordered = sorted(members, key=lambda m: (-amount(m, months[1]), m))
+    ranking = arr(derived["ranking"])
+    assert [obj(row)[_ordinary_keys(saved["current"])[0]] for row in ranking] == ordered
+    assert [obj(row)["rank"] for row in ranking] == [
+        1 + sum(amount(other, months[1]) > amount(m, months[1]) for other in members)
+        for m in ordered
+    ]
+    assert [
+        obj(row)[_ordinary_keys(saved["current"])[0]] for row in arr(derived["limited"])
+    ] == ordered[:1]
+    grouped = {
+        str(region): sum(
+            count(str(m), months[1]) for m, label in facts.customers if label == region
+        )
+        for _, region in facts.customers
+    }
+    denominator = sum(grouped.values())
+    cells("groups", {(group,): value for group, value in grouped.items()})
+    assert derived["weights"] == {
+        group: float(Fraction(value, denominator)) for group, value in grouped.items()
+    }
+    assert derived["standardized"] == float(
+        sum((Fraction(value * value, denominator) for value in grouped.values()), Fraction())
+    )
+    assert derived["penetration"] == float(
+        Fraction(sum(count(m, months[1]) > 0 for m in members), len(members))
+    )
+    sides = {
+        month: {
+            sensor: sum(
+                int(value)
+                for _, _, channel, _, day, value in facts.orders
+                if channel == sensor and day.startswith(month)
+            )
+            for _, _, sensor, _, _, _ in facts.orders
+            if sensor is not None
+        }
+        for month in months[:2]
+    }
+    channels = sorted(sides[months[0]])
+    channels.sort(
+        key=lambda channel: abs(sides[months[0]][channel]) + abs(sides[months[1]][channel]),
+        reverse=True,
+    )
+    first = channels[0]
+    expected = {
+        (first, 0): (sides[months[1]][first], sides[months[0]][first]),
+        (None, 1): tuple(
+            sum(sides[month][channel] for channel in channels[1:])
+            for month in (months[1], months[0])
+        ),
+    }
+    for name in ("attribution", "table", "selected"):
+        rows = arr(derived[name])
+        admitted = {
+            key: pair
+            for key, pair in expected.items()
+            if name != "selected" or pair[0] - pair[1] > 0
+        }
+        assert len(rows) == len(admitted)
+        for row in rows:
+            record = obj(row)
+            channel, flags = record["channel"], record["other_flags"]
+            assert channel is None or isinstance(channel, str)
+            assert isinstance(flags, int)
+            current, baseline = admitted[(channel, flags)]
+            assert (record["current"], record["baseline"], record["contribution"]) == (
+                current,
+                baseline,
+                current - baseline,
+            )
+    mix_channels = sorted(channels)
+    mix_channels.sort(
+        key=lambda sensor: sum(
+            day.startswith(month) and channel == sensor
+            for _, _, channel, _, day, _ in facts.orders
+            for month in months[:2]
+        ),
+        reverse=True,
+    )
+    first_mix = mix_channels[0]
+    mix_expected = {
+        (first_mix, 0): tuple(
+            Fraction(sides[month][first_mix], sum(count(m, month) for m in members))
+            for month in (months[1], months[0])
+        ),
+        (None, 1): tuple(
+            Fraction(
+                sum(sides[month][channel] for channel in mix_channels[1:]),
+                sum(count(m, month) for m in members),
+            )
+            for month in (months[1], months[0])
+        ),
+    }
+    for row in arr(derived["component_mix"]):
+        record = obj(row)
+        channel, flags = record["channel"], record["other_flags"]
+        assert channel is None or isinstance(channel, str)
+        assert isinstance(flags, int)
+        mix_current, mix_baseline = mix_expected[(channel, flags)]
+        assert (record["current"], record["baseline"], record["contribution"]) == (
+            float(mix_current),
+            float(mix_baseline),
+            float(mix_current - mix_baseline),
+        )
+    assert len(arr(derived["component_mix_where"])) == sum(
+        current - baseline > 0 for current, baseline in mix_expected.values()
+    )
+
+
 def _assert_oracles(
     saved: dict[str, mv.AnalysisFrame],
     exports: dict[str, pd.DataFrame],
@@ -689,263 +974,9 @@ def _assert_oracles(
         assert derived["compare"] == _oracle()["difference"]
         assert derived["sum"] == sum(amount(m, months[1]) - amount(m, months[0]) for m in members)
     elif scenario == "a06":
-        cells(
-            "relative",
-            {
-                (m,): float(
-                    Fraction(amount(m, months[1]) - amount(m, months[0]), abs(amount(m, months[0])))
-                )
-                if amount(m, months[0])
-                else None
-                for m in members
-            },
-        )
-        cells(
-            "union",
-            {
-                (m,): amount(m, months[1]) - amount(m, months[0])
-                if amount(m, months[0]) > 80
-                else None
-                for m in members
-            },
-            "reference.absolute.value",
-        )
-        union_rows = _frame(saved["union"], exports["union"])
-        union = union_rows.set_index(_ordinary_keys(saved["union"])[0])
-        # Presence is independent of all value masks and complete identity keys.
-        exported = exports["union"]
-        assert exported["current.present"].all()
-        assert exported["reference.present"].tolist() == [True, True, False, False]
-        current_rows = _frame(saved["current"], exports["current"])
-        assert union.index.tolist() == current_rows[_ordinary_keys(saved["current"])[0]].tolist()
-        assert len(union) == 4
-        cells(
-            "nested",
-            {
-                (m,): count(m, months[1]) - 2 * count(m, months[0]) + count(m, "2026-06")
-                for m in members
-            },
-        )
-        cells(
-            "ratio",
-            {(m,): float(Fraction(amount(m, months[1]), count(m, months[1]))) for m in members},
-        )
-        cells(
-            "branch_ratio",
-            {
-                (m,): float(Fraction(count(m, months[1], "web"), count(m, months[1])))
-                for m in members
-            },
-        )
-        cells("shared_ratio", {(m,): 1.0 if amount(m, months[1]) else None for m in members})
-        cells(
-            "negative_relative",
-            {
-                (m,): float(
-                    Fraction(
-                        2 * (amount(m, months[1]) - amount(m, months[0])),
-                        abs(amount(m, months[0]) - amount(m, months[1])),
-                    )
-                )
-                if amount(m, months[0]) != amount(m, months[1])
-                else None
-                for m in members
-            },
-        )
-        cells(
-            "period",
-            {
-                (f"{left}-01", m): count(m, left) - count(m, right)
-                for m in members
-                for left, right in (("2026-09", "2026-07"), ("2026-10", "2026-08"))
-            },
-            "reference.absolute.value",
-        )
-        period = saved["period"]._schema
-        assert isinstance(period, DataSchema)
-        current_axis = period.axes[0]
-        assert isinstance(current_axis, CalendarDataAxis)
-        relation = period.comparisons[0].binding
-        assert isinstance(relation, CalendarComparisonBinding)
-        assert current_axis.frozen is not None and relation.baseline.frozen is not None
-        tables = _frozen_tables(saved["period"])
-        mapping = tables[relation.mapping_name]
-        endpoint_months = []
-        for map_column, endpoint in (
-            (current_axis.columns[0].slot_id, current_axis),
-            ("baseline.0", relation.baseline),
-        ):
-            assert endpoint.frozen is not None and len(endpoint.columns) == 1
-            directory = tables[endpoint.frozen.directory_name]
-            lookup = dict(
-                zip(directory[endpoint.columns[0].slot_id], directory.nominal_label, strict=True)
-            )
-            endpoint_months.append([str(lookup[key])[:7] for key in mapping[map_column]])
-        assert list(zip(*endpoint_months, strict=True)) == [
-            ("2026-09", "2026-07"),
-            ("2026-10", "2026-08"),
-        ]
-        cells(
-            "running",
-            {
-                (f"{month}-01", m): sum(amount(m, earlier) for earlier in months[: index + 1])
-                for m in members
-                for index, month in enumerate(months)
-            },
-        )
-        cells(
-            "folded",
-            {
-                (f"{month}-01", m): amount(m, month) if count(m, month) else None
-                for m in members
-                for month in months
-            },
-        )
-        cells(
-            "running_total",
-            {
-                (f"{month}-01",): sum(
-                    amount(m, earlier) for m in members for earlier in months[: index + 1]
-                )
-                for index, month in enumerate(months)
-            },
-        )
-        cells(
-            "folded_total",
-            {(m,): max(amount(m, month) for month in months if count(m, month)) for m in members},
-        )
-        cells(
-            "branch_total",
-            {
-                (): float(
-                    Fraction(
-                        sum(count(m, months[1], "web") for m in members),
-                        sum(count(m, months[1]) for m in members),
-                    )
-                )
-            },
-        )
+        _assert_comparison_oracles(saved, exports, members, months, amount, count, cells)
     elif scenario == "a07":
-        total = sum(amount(m, months[1]) for m in members)
-        cells("counts", {(m,): count(m, months[1]) for m in members})
-        cells(
-            "difference",
-            {(): sum(amount(m, months[1]) - amount(m, months[0]) for m in members)},
-            "reference.absolute.value",
-        )
-        cells("current", {(m,): amount(m, months[1]) for m in members})
-        ratios = arr(derived["ratios"])
-        assert {
-            obj(row)[_ordinary_keys(saved["current"])[0]]: obj(row)["ratio"] for row in ratios
-        } == {m: float(Fraction(amount(m, months[1]), total)) for m in members}
-        ordered = sorted(members, key=lambda m: (-amount(m, months[1]), m))
-        ranking = arr(derived["ranking"])
-        assert [obj(row)[_ordinary_keys(saved["current"])[0]] for row in ranking] == ordered
-        assert [obj(row)["rank"] for row in ranking] == [
-            1 + sum(amount(other, months[1]) > amount(m, months[1]) for other in members)
-            for m in ordered
-        ]
-        assert [
-            obj(row)[_ordinary_keys(saved["current"])[0]] for row in arr(derived["limited"])
-        ] == ordered[:1]
-        grouped = {
-            str(region): sum(
-                count(str(m), months[1]) for m, label in facts.customers if label == region
-            )
-            for _, region in facts.customers
-        }
-        denominator = sum(grouped.values())
-        cells("groups", {(group,): value for group, value in grouped.items()})
-        assert derived["weights"] == {
-            group: float(Fraction(value, denominator)) for group, value in grouped.items()
-        }
-        assert derived["standardized"] == float(
-            sum((Fraction(value * value, denominator) for value in grouped.values()), Fraction())
-        )
-        assert derived["penetration"] == float(
-            Fraction(sum(count(m, months[1]) > 0 for m in members), len(members))
-        )
-        sides = {
-            month: {
-                sensor: sum(
-                    int(value)
-                    for _, _, channel, _, day, value in facts.orders
-                    if channel == sensor and day.startswith(month)
-                )
-                for _, _, sensor, _, _, _ in facts.orders
-                if sensor is not None
-            }
-            for month in months[:2]
-        }
-        channels = sorted(sides[months[0]])
-        channels.sort(
-            key=lambda channel: abs(sides[months[0]][channel]) + abs(sides[months[1]][channel]),
-            reverse=True,
-        )
-        first = channels[0]
-        expected = {
-            (first, 0): (sides[months[1]][first], sides[months[0]][first]),
-            (None, 1): tuple(
-                sum(sides[month][channel] for channel in channels[1:])
-                for month in (months[1], months[0])
-            ),
-        }
-        for name in ("attribution", "table", "selected"):
-            rows = arr(derived[name])
-            admitted = {
-                key: pair
-                for key, pair in expected.items()
-                if name != "selected" or pair[0] - pair[1] > 0
-            }
-            assert len(rows) == len(admitted)
-            for row in rows:
-                record = obj(row)
-                channel, flags = record["channel"], record["other_flags"]
-                assert channel is None or isinstance(channel, str)
-                assert isinstance(flags, int)
-                current, baseline = admitted[(channel, flags)]
-                assert (record["current"], record["baseline"], record["contribution"]) == (
-                    current,
-                    baseline,
-                    current - baseline,
-                )
-        mix_channels = sorted(channels)
-        mix_channels.sort(
-            key=lambda sensor: sum(
-                day.startswith(month) and channel == sensor
-                for _, _, channel, _, day, _ in facts.orders
-                for month in months[:2]
-            ),
-            reverse=True,
-        )
-        first_mix = mix_channels[0]
-        mix_expected = {
-            (first_mix, 0): tuple(
-                Fraction(sides[month][first_mix], sum(count(m, month) for m in members))
-                for month in (months[1], months[0])
-            ),
-            (None, 1): tuple(
-                Fraction(
-                    sum(sides[month][channel] for channel in mix_channels[1:]),
-                    sum(count(m, month) for m in members),
-                )
-                for month in (months[1], months[0])
-            ),
-        }
-        for row in arr(derived["component_mix"]):
-            record = obj(row)
-            channel, flags = record["channel"], record["other_flags"]
-            assert channel is None or isinstance(channel, str)
-            assert isinstance(flags, int)
-            mix_current, mix_baseline = mix_expected[(channel, flags)]
-            assert (record["current"], record["baseline"], record["contribution"]) == (
-                float(mix_current),
-                float(mix_baseline),
-                float(mix_current - mix_baseline),
-            )
-        assert len(arr(derived["component_mix_where"])) == sum(
-            current - baseline > 0 for current, baseline in mix_expected.values()
-        )
+        _assert_attribution_oracles(saved, derived, facts, members, months, amount, count, cells)
     else:
         cells("values", {(f"{month}-01", m): count(m, month) for m in members for month in months})
         cells(

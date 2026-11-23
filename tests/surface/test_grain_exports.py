@@ -1,8 +1,11 @@
 import pytest
 
+import marivo._kernel.temporal as temporal
+import marivo.analysis as ma
+from marivo._kernel.time_types import grain_token
+
 
 def test_public_grain_value_and_factory() -> None:
-    import marivo.analysis as ma
 
     assert "Grain" in ma.__all__
     assert "grain" in ma.__all__
@@ -11,11 +14,10 @@ def test_public_grain_value_and_factory() -> None:
     with pytest.raises(TypeError):
         ma.Grain(unit="day")
     g = ma.grain("minute", count=5)
-    assert g._to_token() == "5minute"
+    assert grain_token(g) == "5minute"
 
 
 def test_unzoned_scope_cannot_be_created_or_rehydrated() -> None:
-    import marivo._kernel.temporal as temporal
 
     assert not hasattr(temporal, "time_scope")
     assert not hasattr(temporal, "absolute_time_scope")

@@ -39,6 +39,11 @@ and public rendering as applicable.
   independently resolvable guidance matter beyond reflected signatures.
 - Check failure paths and xdist isolation. If a failure may predate the change,
   reproduce it against the exact base before attributing it to the diff.
+- Follow [architecture boundaries](../../../docs/architecture/architecture-boundaries.md)
+  when reviewing imports and engine behavior. Flag function-local imports that
+  conceal cycles, engine rules outside Datasource, and private imports across
+  domains. Check both runtime and type-only dependency graphs. Flag additions to
+  Import Linter exemptions or increases to the architecture ratchet.
 - Check added scans, materialization, repeated result reads, widening and retries
   against the current contract and measured need. Preserve declared semantic trust
   and native numeric behavior. Require concrete benefit before introducing a new

@@ -9,6 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.errors import AnalysisError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case
@@ -172,8 +173,6 @@ def test_remote_fixed_strings_keep_native_padding(
             else:
                 assert rows.empty
         if backend == "clickhouse":
-            from marivo.analysis.errors import AnalysisError
-
             entity = _entity(session.catalog, "entity:sales.facts")
             category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
             parent = session.observe({"n": entity.count()}).compute()

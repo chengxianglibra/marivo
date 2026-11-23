@@ -10,6 +10,8 @@ import pytest
 import marivo.analysis as mv
 from marivo._definition.query import ReduceValues
 from marivo.analysis.compiler.query_program import FrameProgram
+from marivo.analysis.methods import query_values
+from tests.analysis.numeric.test_period_alignment import period
 from tests.shared_fixtures import DslCaseFactory
 
 
@@ -21,8 +23,6 @@ def test_outer_period_comparison_finishes_before_inherited_reduction(
     incomplete: bool,
     prune: Literal["reduce", "select", "where", "top"],
 ) -> None:
-    from marivo.analysis.methods import frame_values
-    from tests.analysis.numeric.test_period_alignment import period
 
     case = analysis_dsl_case_factory("j2")
     _, current = period(case.session, 8, 3)
@@ -47,14 +47,14 @@ def test_outer_period_comparison_finishes_before_inherited_reduction(
         selected = changed.top(0, by=changed["value"])
     reduced = selected.reduce({"total": selected["value"].sum(), "rows": mv.row_count()})
     consumed: list[tuple[pd.DataFrame, ...]] = []
-    execute = frame_values.evaluate_frame
+    execute = query_values.evaluate_frame
 
     def traced(stage: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
         if isinstance(stage.operation, ReduceValues):
             consumed.append(inputs)
         return execute(stage, inputs)
 
-    monkeypatch.setattr(frame_values, "evaluate_frame", traced)
+    monkeypatch.setattr(query_values, "evaluate_frame", traced)
     frame = reduced.compute().to_pandas()
     assert len(consumed) == 1
     if prune in ("where", "top"):

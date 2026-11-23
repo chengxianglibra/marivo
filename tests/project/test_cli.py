@@ -11,8 +11,10 @@ import pytest
 import marivo
 import marivo.skills
 from marivo import __version__
+from marivo._help import render
 from marivo._kernel.compat import tomllib
 from marivo.cli import init_project, main
+from marivo.cli.doctor import DoctorCheck, DoctorOptions, DoctorReport, DoctorSection
 
 
 def test_creates_marivo_toml(tmp_path: Path) -> None:
@@ -213,7 +215,6 @@ def test_doctor_command_prints_json(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.cli.doctor import DoctorReport
 
     report = DoctorReport(
         status="ok",
@@ -252,7 +253,6 @@ def test_doctor_command_exits_one_on_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.cli.doctor import DoctorReport
 
     report = DoctorReport(
         status="fail",
@@ -275,7 +275,6 @@ def test_doctor_command_prints_fix_snapshot(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.cli.doctor import DoctorCheck, DoctorReport, DoctorSection
 
     report = DoctorReport(
         status="fail",
@@ -312,7 +311,6 @@ def test_doctor_command_builds_doctor_options_from_flags(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.cli.doctor import DoctorOptions, DoctorReport
 
     seen: list[DoctorOptions] = []
 
@@ -366,7 +364,6 @@ def test_doctor_command_fix_snapshot_takes_precedence_over_json(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.cli.doctor import DoctorReport
 
     report = DoctorReport(
         status="ok",
@@ -437,7 +434,6 @@ def test_cli_help_render_failure_continues_and_takes_exit_code_precedence(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo._help import render
 
     original = render.render_help_text
 

@@ -4,26 +4,30 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import ExitStack
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeAlias
 
+from marivo._definition.expressions import SourceAggregate
 from marivo.analysis.binding.graph import BoundGraph
+from marivo.analysis.binding.value_time import observation_time_semantics
 from marivo.analysis.binding.windows import actual_window_axis, require_finite_attribution_scope
-from marivo.analysis.compiler.frame_plan import (
-    CompiledSourceFrame,
-    frame_expression_schema,
-)
-from marivo.analysis.compiler.graph_lowering import LoweredQuery, lower_query
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.attribute_frequencies import frequency_read, share_frequency_reads
+from marivo.analysis.compiler.attribute_inputs import input_failure
+from marivo.analysis.compiler.compiled_frame import CompiledSourceFrame
+from marivo.analysis.compiler.frame_plan import frame_expression_schema
+from marivo.analysis.compiler.graph_lowering import lower_query
+from marivo.analysis.compiler.lowered_query import LoweredQuery
+from marivo.analysis.compiler.optimization import InvocationMemo, optimize_query
+from marivo.analysis.compiler.queries import endpoint
+from marivo.analysis.compiler.query_planning import plan_query
+from marivo.analysis.compiler.query_stages import (
     QueryPlan,
     QueryStage,
     SourceReadStage,
     SourceSchema,
-    plan_query,
+    read_reduction,
 )
-from marivo.analysis.compiler.optimization import InvocationMemo, optimize_query
-from marivo.analysis.compiler.queries import endpoint
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     LiteralFrameBinding,
@@ -31,16 +35,32 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     StoredFrameBacking,
 )
+from marivo.analysis.errors import AnalysisStageUnavailableError
+from marivo.analysis.materialization import query_key_fusion, query_terminal_fusion, sample_fusion
+from marivo.analysis.materialization.actual_windows import prepare_actual_window_plan
+from marivo.analysis.materialization.attribute_source_preparation import prepare_attribute_endpoint
 from marivo.analysis.materialization.frame_inputs import CapturedFrameInputs
-from marivo.analysis.materialization.graph_source_execution import (
-    PreparedSources,
-    _query_entities,
+from marivo.analysis.materialization.interval_reports import (
+    domain_graph,
+    prune_domain_plan,
+    resolve_interval,
+    restrict_plan,
+    retain_domain,
+)
+from marivo.analysis.materialization.native_calendar import bind_pandas_calendars
+from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.materialization.query_source_dependencies import _query_entities
+from marivo.analysis.materialization.query_sources import (
     open_query_sources,
-    prepare_attribute_endpoint,
     prepare_source_free_populations,
-    qualify_query_sources,
     qualify_source_inputs,
 )
+from marivo.analysis.materialization.sample_windows import (
+    has_sample_windows,
+    prepare_sample_window_plan,
+)
+from marivo.analysis.materialization.source_qualification import qualify_attribute_game_sources
+from marivo.analysis.materialization.source_reads import qualify_query_sources
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_schema import (
     CalendarDataAxis,
@@ -61,7 +81,8 @@ from marivo.analysis.model.frame_metadata import (
 )
 from marivo.analysis.model.frame_structure import PendingDataColumn, PendingDataSchema, axis_role
 from marivo.analysis.model.time_facts import FrameSourceTime, merge_source_times
-from marivo.datasource.spi import JsonResponseCache
+from marivo.datasource.spi import JsonResponseCache, TableSourceIR
+from marivo.semantic.spi import normalize_target_entity
 
 if TYPE_CHECKING:
     from marivo.analysis.core.frame_data import FrameNode
@@ -182,27 +203,60 @@ def prepare_frame_sources(
     run_interval_domain: RunIntervalDomain | None = None,
 ) -> PreparedFrameSources:
     """Open, prepare, lower and qualify sources in captured discovery order."""
-    source_frames = captured.source_frames
-    fixed_frames = captured.fixed_frames
-    expressions = captured.expressions
-    requested = captured.requested
     # Validate every dependency before any HTTP source can acquire business data.
-    for current in source_frames.values():
+    for current in captured.source_frames.values():
         backing = current._backing
         if isinstance(backing, ExpressionFrameBacking) and isinstance(
             backing.root, SourceFrameBinding
         ):
             qualify_source_inputs(backing.root.graph, backing.root.state)
-    connection_services: dict[tuple[Path, int], DatasourceConnectionService] = {}
-    json_responses: dict[tuple[Path, int], dict[str, JsonResponseCache]] = {}
-    prepared_by_input: dict[str, PreparedSources] = {}
-    source_plans: dict[str, CompiledSourceFrame[StageOutput]] = {}
-    source_schemas: dict[str, DataSchema] = {}
-    source_graphs: dict[str, BoundGraph] = {}
-    key_schema_cache: dict[int, DataSchema] = {}
-    inputs: list[EvaluationInput] = []
-    operations = list(captured.operations)
-    for input_id, current in source_frames.items():
+    state = _FrameSourcePreparation(captured, stack, run_interval_domain, list(captured.operations))
+    for input_id, current in captured.source_frames.items():
+        state.prepare(input_id, current)
+    for input_id, current in captured.fixed_frames.items():
+        backing = current._backing
+        if isinstance(backing, MemoryFrameBacking):
+            state.inputs.append(MemoryInput(input_id, backing.metadata.result_id))
+        elif isinstance(backing, StoredFrameBacking):
+            state.inputs.append(
+                StoredInput(
+                    input_id,
+                    backing.metadata.result_id,
+                    current._local.owner.owner_id,
+                    current._local.owner.session_id,
+                    backing.artifact_id,
+                )
+            )
+    return PreparedFrameSources(
+        state.prepared_by_input,
+        state.source_plans,
+        state.source_schemas,
+        tuple(state.inputs),
+        tuple(state.operations),
+        state.source_graphs,
+    )
+
+
+@dataclass(slots=True)
+class _FrameSourcePreparation:
+    captured: CapturedFrameInputs
+    stack: ExitStack
+    run_interval_domain: RunIntervalDomain | None
+    operations: list[FrameOperationName]
+    connection_services: dict[tuple[Path, int], DatasourceConnectionService] = field(
+        default_factory=dict
+    )
+    json_responses: dict[tuple[Path, int], dict[str, JsonResponseCache]] = field(
+        default_factory=dict
+    )
+    prepared_by_input: dict[str, PreparedSources] = field(default_factory=dict)
+    source_plans: dict[str, CompiledSourceFrame[StageOutput]] = field(default_factory=dict)
+    source_schemas: dict[str, DataSchema] = field(default_factory=dict)
+    source_graphs: dict[str, BoundGraph] = field(default_factory=dict)
+    key_schema_cache: dict[int, DataSchema] = field(default_factory=dict)
+    inputs: list[EvaluationInput] = field(default_factory=list)
+
+    def prepare(self, input_id: str, current: FrameNode) -> None:
         backing = current._backing
         assert isinstance(backing, ExpressionFrameBacking)
         binding = backing.root
@@ -214,142 +268,201 @@ def prepare_frame_sources(
         schemas: tuple[SourceSchema, ...] = ()
         checked_inputs: dict[str, StageOutput] = {}
         if isinstance(binding, SourceFrameBinding):
-            if input_id in captured.games:
-                from marivo.analysis.errors import AnalysisStageUnavailableError
-                from marivo.datasource.spi import TableSourceIR
-                from marivo.semantic.spi import normalize_target_entity
-
-                for entity in _query_entities(binding.graph, binding.state):
-                    physical = normalize_target_entity(binding.state.registry, entity).source
-                    if not isinstance(physical, TableSourceIR):
-                        raise AnalysisStageUnavailableError(
-                            stage="attribute_state_binding",
-                            expected="a native physical table source for replacement-game capture",
-                            received=f"{entity}: {type(physical).__name__}",
-                            repair="Use a qualified native table-backed source for attribution, or inspect the original observations. No result was completed or published.",
-                            target="analysis_frame.attribute",
-                        )
-            key_schemas = {
-                item.input_id: frame_expression_schema(
-                    expressions[item.input_id], source_schemas, memo=key_schema_cache
-                )
-                for item in binding.frame_key_inputs
-            }
-            observation = active_graph.signature.observation
-            domain_sources = None
-            if observation is not None and observation.pending_interval is not None:
-                from marivo.analysis.materialization.interval_reports import (
-                    domain_graph,
-                    prune_domain_plan,
-                    resolve_interval,
-                    retain_domain,
-                )
-
-                assert run_interval_domain is not None
-                domain = domain_graph(active_graph)
-                if _query_entities(domain, binding.state):
-                    scope = (binding.connection.project_root, id(binding.connection.resolver))
-                    service = connection_services.get(scope)
-                    if service is None:
-                        service = stack.enter_context(binding.connection.operation())
-                        connection_services[scope] = service
-                    domain_sources = stack.enter_context(
-                        open_query_sources(
-                            service,
-                            domain,
-                            binding.state,
-                            consumption_timezone=current._local.report_timezone_name,
-                            frame_schemas=key_schemas,
-                            json_responses=json_responses.setdefault(scope, {}),
-                        )
-                    )
-                    if domain_sources.graph is not None:
-                        domain = domain_sources.graph
-                    domain_schemas = domain_sources.schemas
-                else:
-                    from marivo.analysis.materialization.native_calendar import (
-                        bind_pandas_calendars,
-                    )
-
-                    domain = bind_pandas_calendars(domain)
-                    domain_schemas = prepare_source_free_populations(
-                        domain,
-                        binding.state,
-                        frame_schemas=key_schemas,
-                    )
-                assert observation.coordinates.population is not None
-                domain_plan = optimize_query(
-                    prune_domain_plan(
-                        plan_query(domain, domain_schemas), observation.coordinates.population
-                    )
-                )
-                domain_lowered = lower_query(
-                    domain_plan,
-                    {} if domain_sources is None else domain_sources.relations,
-                    None if domain_sources is None else domain_sources.population_checks,
-                )
-                if domain_sources is not None:
-                    from marivo.analysis.materialization.query_key_fusion import (
-                        fuse_query_keys,
-                        fuse_query_terminal,
-                    )
-
-                    domain_lowered = fuse_query_keys(domain_sources, domain_lowered)
-                    domain_lowered = fuse_query_terminal(domain_sources, domain_lowered)
-                    qualify_query_sources(domain_sources, domain_lowered)
-                domain_schema = _schema(current, domain_lowered.plan, graph=domain, keys_only=True)
-                output = run_interval_domain(
-                    input_id,
-                    CompiledSourceFrame(domain_lowered, domain_schema),
-                    domain,
-                    domain_sources,
-                    source_plans,
-                    source_schemas,
-                    source_graphs,
-                    prepared_by_input,
-                )
-                active_graph = resolve_interval(active_graph, output)
-                assert observation.coordinates.population is not None
-                retain_domain(observation.coordinates.population, output, checked_inputs)
-            if _query_entities(active_graph, binding.state):
-                scope = (binding.connection.project_root, id(binding.connection.resolver))
-                service = connection_services.get(scope)
-                if service is None:
-                    service = stack.enter_context(binding.connection.operation())
-                    connection_services[scope] = service
-                prepared = stack.enter_context(
-                    open_query_sources(
-                        service,
-                        active_graph,
-                        binding.state,
-                        memo=memo,
-                        consumption_timezone=current._local.report_timezone_name,
-                        frame_schemas=key_schemas,
-                        json_responses=json_responses.setdefault(scope, {}),
-                        reuse_sources=domain_sources,
-                    )
-                )
-                prepared_by_input[input_id] = prepared
-                schemas = prepared.schemas
-            else:
-                from marivo.analysis.materialization.native_calendar import bind_pandas_calendars
-
-                active_graph = bind_pandas_calendars(active_graph)
-                schemas = prepare_source_free_populations(
-                    active_graph, binding.state, frame_schemas=key_schemas
-                )
+            active_graph, prepared, key_schemas, schemas = self._bind_source(
+                input_id,
+                current,
+                binding,
+                memo,
+                checked_inputs,
+            )
         active_graph = (
             prepared.graph if prepared is not None and prepared.graph is not None else active_graph
         )
-        from marivo.analysis.materialization.actual_windows import prepare_actual_window_plan
-        from marivo.analysis.materialization.sample_windows import (
-            has_sample_windows,
-            prepare_sample_window_plan,
+        lowered, prepared, native_reads, native_value_slots = self._compile_source(
+            input_id,
+            current,
+            binding,
+            active_graph,
+            memo,
+            prepared,
+            key_schemas,
+            schemas,
+            checked_inputs,
+        )
+        schema = _schema(
+            current,
+            lowered.plan,
+            merge_source_times(
+                () if prepared is None else prepared.source_times,
+                *(schema.source_times for schema in key_schemas.values()),
+            ),
+        )
+        if isinstance(binding, SourceFrameBinding):
+            schema = replace(
+                schema, value_time_semantics=observation_time_semantics(active_graph, binding.state)
+            )
+        self.source_graphs[input_id] = active_graph
+        self.source_schemas[input_id] = schema
+        self.source_plans[input_id] = CompiledSourceFrame(
+            lowered,
+            schema,
+            bool(native_value_slots) if input_id not in self.captured.requested else False,
+            native_reads if input_id not in self.captured.requested else (),
+            tuple(native_value_slots) if input_id not in self.captured.requested else (),
+            tuple(checked_inputs.items()),
+        )
+        has_reads = any(isinstance(stage, SourceReadStage) for stage in lowered.plan.stages)
+        self.inputs.append(SourceInput(input_id) if has_reads else LiteralInput(input_id))
+        self.operations.insert(0, "source" if has_reads else "literal")
+
+    def _bind_source(
+        self,
+        input_id: str,
+        current: FrameNode,
+        binding: SourceFrameBinding,
+        memo: InvocationMemo,
+        checked_inputs: dict[str, StageOutput],
+    ) -> tuple[BoundGraph, PreparedSources | None, dict[str, DataSchema], tuple[SourceSchema, ...]]:
+        if input_id in self.captured.games:
+            for entity in _query_entities(binding.graph, binding.state):
+                physical = normalize_target_entity(binding.state.registry, entity).source
+                if not isinstance(physical, TableSourceIR):
+                    raise AnalysisStageUnavailableError(
+                        stage="attribute_state_binding",
+                        expected="a native physical table source for replacement-game capture",
+                        received=f"{entity}: {type(physical).__name__}",
+                        repair="Use a qualified native table-backed source for attribution, or inspect the original observations. No result was completed or published.",
+                        target="analysis_frame.attribute",
+                    )
+        key_schemas = {
+            item.input_id: frame_expression_schema(
+                self.captured.expressions[item.input_id],
+                self.source_schemas,
+                memo=self.key_schema_cache,
+            )
+            for item in binding.frame_key_inputs
+        }
+        active_graph, domain_sources = self._resolve_pending_interval(
+            input_id, current, binding, key_schemas, checked_inputs
+        )
+        prepared = None
+        if _query_entities(active_graph, binding.state):
+            prepared = self._open(
+                current, binding, active_graph, key_schemas, memo=memo, reuse_sources=domain_sources
+            )
+            self.prepared_by_input[input_id] = prepared
+            schemas = prepared.schemas
+        else:
+            active_graph = bind_pandas_calendars(active_graph)
+            schemas = prepare_source_free_populations(
+                active_graph, binding.state, frame_schemas=key_schemas
+            )
+        return active_graph, prepared, key_schemas, schemas
+
+    def _open(
+        self,
+        current: FrameNode,
+        binding: SourceFrameBinding,
+        graph: BoundGraph,
+        key_schemas: dict[str, DataSchema],
+        *,
+        memo: InvocationMemo | None = None,
+        reuse_sources: PreparedSources | None = None,
+    ) -> PreparedSources:
+        scope = (binding.connection.project_root, id(binding.connection.resolver))
+        service = self.connection_services.get(scope)
+        if service is None:
+            service = self.stack.enter_context(binding.connection.operation())
+            self.connection_services[scope] = service
+        return self.stack.enter_context(
+            open_query_sources(
+                service,
+                graph,
+                binding.state,
+                memo=memo,
+                consumption_timezone=current._local.report_timezone_name,
+                frame_schemas=key_schemas,
+                json_responses=self.json_responses.setdefault(scope, {}),
+                reuse_sources=reuse_sources,
+            )
         )
 
+    def _resolve_pending_interval(
+        self,
+        input_id: str,
+        current: FrameNode,
+        binding: SourceFrameBinding,
+        key_schemas: dict[str, DataSchema],
+        checked_inputs: dict[str, StageOutput],
+    ) -> tuple[BoundGraph, PreparedSources | None]:
+        active_graph = binding.graph
+        observation = active_graph.signature.observation
+        domain_sources = None
+        if observation is not None and observation.pending_interval is not None:
+            assert self.run_interval_domain is not None
+            domain = domain_graph(active_graph)
+            if _query_entities(domain, binding.state):
+                domain_sources = self._open(current, binding, domain, key_schemas)
+                if domain_sources.graph is not None:
+                    domain = domain_sources.graph
+                domain_schemas = domain_sources.schemas
+            else:
+                domain = bind_pandas_calendars(domain)
+                domain_schemas = prepare_source_free_populations(
+                    domain,
+                    binding.state,
+                    frame_schemas=key_schemas,
+                )
+            assert observation.coordinates.population is not None
+            domain_plan = optimize_query(
+                prune_domain_plan(
+                    plan_query(domain, domain_schemas), observation.coordinates.population
+                )
+            )
+            domain_lowered = lower_query(
+                domain_plan,
+                {} if domain_sources is None else domain_sources.relations,
+                None if domain_sources is None else domain_sources.population_checks,
+            )
+            if domain_sources is not None:
+                domain_lowered = query_key_fusion.fuse_query_keys(domain_sources, domain_lowered)
+                domain_lowered = query_terminal_fusion.fuse_query_terminal(
+                    domain_sources, domain_lowered
+                )
+                qualify_query_sources(domain_sources, domain_lowered)
+            domain_schema = _schema(current, domain_lowered.plan, graph=domain, keys_only=True)
+            output = self.run_interval_domain(
+                input_id,
+                CompiledSourceFrame(domain_lowered, domain_schema),
+                domain,
+                domain_sources,
+                self.source_plans,
+                self.source_schemas,
+                self.source_graphs,
+                self.prepared_by_input,
+            )
+            active_graph = resolve_interval(active_graph, output)
+            assert observation.coordinates.population is not None
+            retain_domain(observation.coordinates.population, output, checked_inputs)
+        return active_graph, domain_sources
+
+    def _compile_source(
+        self,
+        input_id: str,
+        current: FrameNode,
+        binding: SourceFrameBinding | LiteralFrameBinding,
+        active_graph: BoundGraph,
+        memo: InvocationMemo,
+        prepared: PreparedSources | None,
+        key_schemas: dict[str, DataSchema],
+        schemas: tuple[SourceSchema, ...],
+        checked_inputs: dict[str, StageOutput],
+    ) -> tuple[LoweredQuery, PreparedSources | None, tuple[SourceReadStage, ...], list[str]]:
         sample_windows = has_sample_windows(active_graph)
         sparse_window = actual_window_axis(active_graph)
-        if sparse_window is not None and (input_id in requested or input_id in captured.games):
+        if sparse_window is not None and (
+            input_id in self.captured.requested or input_id in self.captured.games
+        ):
             require_finite_attribution_scope(active_graph)
         native_reads: tuple[SourceReadStage, ...] = ()
         native_value_slots: list[str] = []
@@ -365,7 +478,7 @@ def prepare_frame_sources(
                 key_schemas,
                 checked_inputs=checked_inputs,
             )
-            prepared_by_input[input_id] = prepared
+            self.prepared_by_input[input_id] = prepared
         elif sparse_window is not None:
             assert prepared is not None and isinstance(binding, SourceFrameBinding)
             lowered, prepared = prepare_actual_window_plan(
@@ -376,20 +489,18 @@ def prepare_frame_sources(
                 current._local.report_timezone_name,
                 key_schemas,
             )
-            prepared_by_input[input_id] = prepared
-        elif input_id in requested:
+            self.prepared_by_input[input_id] = prepared
+        elif input_id in self.captured.requested:
             assert prepared is not None and isinstance(binding, SourceFrameBinding)
-            side, rules, mapping = requested[input_id]
+            side, rules, mapping = self.captured.requested[input_id]
             prepared, plan = prepare_attribute_endpoint(
                 prepared, active_graph, binding.state, mapping, side, rules, memo=memo
             )
-            prepared_by_input[input_id] = prepared
+            self.prepared_by_input[input_id] = prepared
         else:
             plan = plan_query(active_graph, schemas, memo=memo)
             observation = active_graph.signature.observation
             if checked_inputs or (observation is not None and observation.empty_interval):
-                from marivo.analysis.materialization.interval_reports import restrict_plan
-
                 plan = restrict_plan(
                     plan, checked_inputs, empty=bool(observation and observation.empty_interval)
                 )
@@ -398,57 +509,9 @@ def prepare_frame_sources(
                 for stage in plan.stages
                 if isinstance(stage, SourceReadStage)
             )
-            if input_id in captured.games:
-                from marivo._definition.expressions import SourceAggregate
-                from marivo.analysis.compiler.attribute_frequencies import (
-                    frequency_read,
-                    share_frequency_reads,
-                )
-                from marivo.analysis.compiler.graph_plan import read_reduction
-
+            if input_id in self.captured.games:
                 assert prepared is not None
-                from marivo.analysis.errors import AnalysisStageUnavailableError
-                from marivo.analysis.materialization.graph_source_execution import (
-                    qualify_attribute_game_sources,
-                )
-
-                qualify_attribute_game_sources(prepared, plan)
-                qualified_stages: list[QueryStage] = []
-                for stage in plan.stages:
-                    if not isinstance(stage, SourceReadStage):
-                        qualified_stages.append(stage)
-                        continue
-                    reduction = read_reduction(stage)
-                    try:
-                        candidate = replace(
-                            frequency_read(stage)
-                            if reduction is not None
-                            and isinstance(reduction.node, SourceAggregate)
-                            and reduction.node.reducer in ("median", "quantile", "count_distinct")
-                            else stage,
-                            attribute_state=True,
-                        )
-                        if (
-                            reduction is not None
-                            and isinstance(reduction.node, SourceAggregate)
-                            and reduction.node.reducer.startswith("approx_")
-                        ):
-                            raise AnalysisStageUnavailableError(
-                                stage="attribute_state_binding",
-                                expected="a qualified mergeable native approximation state",
-                                received=reduction.node.reducer,
-                                repair="Use original native coalition queries.",
-                                target="analysis_frame.attribute",
-                            )
-                        lower_query(replace(plan, stages=(candidate,)), prepared.relations)
-                    except AnalysisStageUnavailableError as error:
-                        if error.stage != "attribute_state_binding":
-                            raise
-                        candidate = replace(stage, attribute_native=True)
-                        if reduction is not None:
-                            native_value_slots.append(reduction.value_slot)
-                    qualified_stages.append(candidate)
-                plan = share_frequency_reads(replace(plan, stages=tuple(qualified_stages)))
+                plan, native_value_slots = _qualify_game(prepared, plan)
             if not checked_inputs:
                 plan = optimize_query(plan)
         if lowered is None:
@@ -460,78 +523,65 @@ def prepare_frame_sources(
             )
         if (
             prepared is not None
-            and input_id not in requested
-            and input_id not in captured.games
+            and input_id not in self.captured.requested
+            and input_id not in self.captured.games
             and sparse_window is None
             and not sample_windows
             and not checked_inputs
         ):
-            from marivo.analysis.materialization.query_key_fusion import (
-                fuse_query_keys,
-                fuse_query_terminal,
-            )
-            from marivo.analysis.materialization.sample_fusion import fuse_sample_reductions
-
-            lowered = fuse_sample_reductions(prepared, lowered)
-            lowered = fuse_query_keys(prepared, lowered)
-            lowered = fuse_query_terminal(prepared, lowered)
+            lowered = sample_fusion.fuse_sample_reductions(prepared, lowered)
+            lowered = query_key_fusion.fuse_query_keys(prepared, lowered)
+            lowered = query_terminal_fusion.fuse_query_terminal(prepared, lowered)
         if prepared is not None:
             try:
                 qualify_query_sources(prepared, lowered)
             except MaterializationError as error:
-                if input_id not in requested:
+                if input_id not in self.captured.requested:
                     raise
-                from marivo.analysis.compiler.attribute_inputs import input_failure
 
                 input_failure(
                     "unqualified_contribution_route", f"{error.expected}; {error.received}"
                 )
-        schema = _schema(
-            current,
-            lowered.plan,
-            merge_source_times(
-                () if prepared is None else prepared.source_times,
-                *(schema.source_times for schema in key_schemas.values()),
-            ),
-        )
-        if isinstance(binding, SourceFrameBinding):
-            from marivo.analysis.binding.value_time import observation_time_semantics
+        return lowered, prepared, native_reads, native_value_slots
 
-            schema = replace(
-                schema, value_time_semantics=observation_time_semantics(active_graph, binding.state)
+
+def _qualify_game(prepared: PreparedSources, plan: QueryPlan) -> tuple[QueryPlan, list[str]]:
+    native_value_slots: list[str] = []
+    qualify_attribute_game_sources(prepared, plan)
+    qualified_stages: list[QueryStage] = []
+    for stage in plan.stages:
+        if not isinstance(stage, SourceReadStage):
+            qualified_stages.append(stage)
+            continue
+        reduction = read_reduction(stage)
+        try:
+            candidate = replace(
+                frequency_read(stage)
+                if reduction is not None
+                and isinstance(reduction.node, SourceAggregate)
+                and reduction.node.reducer in ("median", "quantile", "count_distinct")
+                else stage,
+                attribute_state=True,
             )
-        source_graphs[input_id] = active_graph
-        source_schemas[input_id] = schema
-        source_plans[input_id] = CompiledSourceFrame(
-            lowered,
-            schema,
-            bool(native_value_slots) if input_id not in requested else False,
-            native_reads if input_id not in requested else (),
-            tuple(native_value_slots) if input_id not in requested else (),
-            tuple(checked_inputs.items()),
-        )
-        has_reads = any(isinstance(stage, SourceReadStage) for stage in lowered.plan.stages)
-        inputs.append(SourceInput(input_id) if has_reads else LiteralInput(input_id))
-        operations.insert(0, "source" if has_reads else "literal")
-    for input_id, current in fixed_frames.items():
-        backing = current._backing
-        if isinstance(backing, MemoryFrameBacking):
-            inputs.append(MemoryInput(input_id, backing.metadata.result_id))
-        elif isinstance(backing, StoredFrameBacking):
-            inputs.append(
-                StoredInput(
-                    input_id,
-                    backing.metadata.result_id,
-                    current._local.owner.owner_id,
-                    current._local.owner.session_id,
-                    backing.artifact_id,
+            if (
+                reduction is not None
+                and isinstance(reduction.node, SourceAggregate)
+                and reduction.node.reducer.startswith("approx_")
+            ):
+                raise AnalysisStageUnavailableError(
+                    stage="attribute_state_binding",
+                    expected="a qualified mergeable native approximation state",
+                    received=reduction.node.reducer,
+                    repair="Use original native coalition queries.",
+                    target="analysis_frame.attribute",
                 )
-            )
-    return PreparedFrameSources(
-        prepared_by_input,
-        source_plans,
-        source_schemas,
-        tuple(inputs),
-        tuple(operations),
-        source_graphs,
-    )
+            lower_query(replace(plan, stages=(candidate,)), prepared.relations)
+        except AnalysisStageUnavailableError as error:
+            if error.stage != "attribute_state_binding":
+                raise
+            candidate = replace(stage, attribute_native=True)
+            if reduction is not None:
+                native_value_slots.append(reduction.value_slot)
+        qualified_stages.append(candidate)
+    plan = share_frequency_reads(replace(plan, stages=tuple(qualified_stages)))
+    return plan, native_value_slots

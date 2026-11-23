@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import textwrap
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -17,12 +18,15 @@ import marivo
 import marivo.datasource as md
 from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.errors import DatasourceAuthoringError
+from marivo.datasource.inspection.inspection import _inspect_resolved_source
+from marivo.datasource.inspection.source import SourceInspection
 from marivo.datasource.ir import (
     DatasourceIR,
     JsonSourceIR,
     QueryParamScalar,
     QueryParamScalarList,
 )
+from marivo.datasource.metadata_types import PartitionMetadata
 from marivo.datasource.runtime import connections as datasource_runtime
 from marivo.datasource.runtime.json_source import JsonResponseCache
 from marivo.datasource.runtime.preview import PreviewResult
@@ -523,11 +527,6 @@ def test_metric_preview_reuses_physical_partition_preflight(
     operation: str,
     pruned: bool,
 ) -> None:
-    from dataclasses import replace
-
-    from marivo.datasource.inspection.inspection import _inspect_resolved_source
-    from marivo.datasource.inspection.source import SourceInspection
-    from marivo.datasource.metadata_types import PartitionMetadata
 
     catalog, _root = scoped_catalog
 

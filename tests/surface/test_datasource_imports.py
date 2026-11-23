@@ -10,7 +10,11 @@ from pathlib import Path
 import pytest
 from ibis.common.deferred import Deferred
 
+import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.errors import DatasourceFieldInvalidError
+from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.store.loader import load_datasources
 from tests.support.refs import as_ref
 
 # A fresh interpreter is required: the test worker already has other marivo
@@ -76,8 +80,6 @@ def test_datasource_import_does_not_load_semantic_analysis_or_packaged_skills(
 
 
 def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
-    from marivo.datasource.ir import DatasourceIR
-    from marivo.datasource.store.loader import load_datasources
 
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True)
@@ -94,8 +96,6 @@ def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
 
 
 def test_load_datasources_rejects_required_trino_user_none(tmp_path: Path) -> None:
-    from marivo.datasource.errors import DatasourceFieldInvalidError
-    from marivo.datasource.store.loader import load_datasources
 
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True)
@@ -118,7 +118,6 @@ def test_load_datasources_rejects_required_trino_user_none(tmp_path: Path) -> No
 
 
 def test_trino_spec_splits_literal_fields_and_env_refs() -> None:
-    import marivo.datasource as md
 
     spec = md.TrinoSpec(
         name="warehouse",
@@ -146,7 +145,6 @@ def test_datasource_ref_uses_kind_qualified_identity() -> None:
 
 
 def test_datasource_public_exports() -> None:
-    import marivo.datasource as md
 
     for name in (
         "DatasourceCatalog",
@@ -189,7 +187,6 @@ def test_datasource_help_does_not_load_semantic_analysis_or_packaged_skills(
 
 
 def test_datasource_surface_does_not_own_ref_identity() -> None:
-    import marivo.datasource as md
 
     assert not hasattr(md, "Ref")
     assert not hasattr(md, "DatasourceRef")

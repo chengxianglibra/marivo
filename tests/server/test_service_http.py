@@ -20,9 +20,11 @@ from time import monotonic, sleep
 from typing import Any, Protocol, TypeAlias
 from urllib.parse import urlencode
 
+import pandas as pd
 import pytest
 from jsonschema import Draft202012Validator
 
+import marivo.analysis as mv
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.layout import MaterializationLayout
@@ -684,6 +686,63 @@ def test_granite_cache_reuses_document_vectors_across_service_processes(tmp_path
     assert not (tmp_path / _MANAGED_MODEL_DIR).exists()
 
 
+def _assert_catalog_detail_routes(request: Request, spec: Document, endpoint: str) -> None:
+    detail = _ok(request(endpoint))
+    _schema(spec, "SemanticObject", detail)
+    assert detail["business_definition"] == "before"
+    assert detail["definition"]["unit"] == "USD"
+    assert detail["provenance"]["source_file"] == "models/semantic/sales/events.py"
+    assert set(detail) == {
+        "id",
+        "kind",
+        "path",
+        "name",
+        "domain",
+        "business_definition",
+        "definition",
+        "provenance",
+    }
+    related = _ok(request(endpoint + "/related?relation=dependencies"))
+    _schema(spec, "RelatedDirectory", related)
+    assert "entity:sales.events" in {item["id"] for item in related["items"]}
+    dependents = _ok(request(endpoint + "/related?relation=dependents"))
+    assert {item["id"] for item in dependents["items"]} == {
+        "metric:sales.all_amount",
+        "metric:sales.total",
+    }
+    entity = _ok(request("/v2/semantic/objects/entity%3Asales.events"))
+    _schema(spec, "SemanticObject", entity)
+    assert entity["definition"]["source"] == {"kind": "json"}
+    assert entity["definition"]["default_time"] == "time_dimension:sales.events.created"
+    assert "private-source-token" not in json.dumps(entity)
+    metric = _ok(request("/v2/semantic/objects/metric%3Asales.total"))
+    _schema(spec, "SemanticObject", metric)
+    assert metric["definition"]["formula"] == "amount.sum(time=created)"
+    assert "sum of `amount`" in metric["definition"]["explanation"]
+    (binding,) = metric["definition"]["time_bindings"]
+    assert binding["source"] == "entity_default"
+    assert binding["field"] == "time_dimension:sales.events.created"
+    assert binding["anchor"] is None
+    independent = _ok(request("/v2/semantic/objects/metric%3Asales.all_amount"))
+    _schema(spec, "SemanticObject", independent)
+    (no_time,) = independent["definition"]["time_bindings"]
+    assert no_time["source"] == "none" and no_time["reason"] == "explicit_none"
+    datasource = _ok(request("/v2/semantic/objects/datasource%3Awarehouse"))
+    _schema(spec, "SemanticObject", datasource)
+    assert datasource["definition"]["backend_type"] == "duckdb"
+    assert "private-storage-name" not in json.dumps(datasource)
+    _error(request(endpoint + "?as_of=yesterday"), 400, "invalid_parameter")
+    for suffix in ("?kind=invalid", "?domain=", "?limit=0", "?kind=metric&kind=entity"):
+        _error(request("/v2/semantic/objects" + suffix), 400, "invalid_parameter")
+    _error(request(endpoint + "/related"), 400, "invalid_parameter")
+    _error(request(endpoint + "/related?relation=invalid"), 400, "invalid_parameter")
+    _error(request("/v2/semantic/objects/not-an-id"), 400, "invalid_parameter")
+    _error(request("/v2/semantic/objects/metric%3Asales.missing"), 404, "not_found")
+    _error(request("/v2/semantic/reload"), 405, "method_not_allowed")
+    _error(request("/v2/semantic/reload", method="POST", body=b"{}"), 400, "invalid_parameter")
+    _error(request("/v2/semantic/objects", bearer=None), 401, "unauthorized")
+
+
 def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> None:
     ids = _produce(tmp_path)
     _models(tmp_path, "before", bad=True)
@@ -748,60 +807,7 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
         )
 
         endpoint = "/v2/semantic/objects/measure%3Asales.events.amount"
-        detail = _ok(request(endpoint))
-        _schema(spec, "SemanticObject", detail)
-        assert detail["business_definition"] == "before"
-        assert detail["definition"]["unit"] == "USD"
-        assert detail["provenance"]["source_file"] == "models/semantic/sales/events.py"
-        assert set(detail) == {
-            "id",
-            "kind",
-            "path",
-            "name",
-            "domain",
-            "business_definition",
-            "definition",
-            "provenance",
-        }
-        related = _ok(request(endpoint + "/related?relation=dependencies"))
-        _schema(spec, "RelatedDirectory", related)
-        assert "entity:sales.events" in {item["id"] for item in related["items"]}
-        dependents = _ok(request(endpoint + "/related?relation=dependents"))
-        assert {item["id"] for item in dependents["items"]} == {
-            "metric:sales.all_amount",
-            "metric:sales.total",
-        }
-        entity = _ok(request("/v2/semantic/objects/entity%3Asales.events"))
-        _schema(spec, "SemanticObject", entity)
-        assert entity["definition"]["source"] == {"kind": "json"}
-        assert entity["definition"]["default_time"] == "time_dimension:sales.events.created"
-        assert "private-source-token" not in json.dumps(entity)
-        metric = _ok(request("/v2/semantic/objects/metric%3Asales.total"))
-        _schema(spec, "SemanticObject", metric)
-        assert metric["definition"]["formula"] == "amount.sum(time=created)"
-        assert "sum of `amount`" in metric["definition"]["explanation"]
-        (binding,) = metric["definition"]["time_bindings"]
-        assert binding["source"] == "entity_default"
-        assert binding["field"] == "time_dimension:sales.events.created"
-        assert binding["anchor"] is None
-        independent = _ok(request("/v2/semantic/objects/metric%3Asales.all_amount"))
-        _schema(spec, "SemanticObject", independent)
-        (no_time,) = independent["definition"]["time_bindings"]
-        assert no_time["source"] == "none" and no_time["reason"] == "explicit_none"
-        datasource = _ok(request("/v2/semantic/objects/datasource%3Awarehouse"))
-        _schema(spec, "SemanticObject", datasource)
-        assert datasource["definition"]["backend_type"] == "duckdb"
-        assert "private-storage-name" not in json.dumps(datasource)
-        _error(request(endpoint + "?as_of=yesterday"), 400, "invalid_parameter")
-        for suffix in ("?kind=invalid", "?domain=", "?limit=0", "?kind=metric&kind=entity"):
-            _error(request("/v2/semantic/objects" + suffix), 400, "invalid_parameter")
-        _error(request(endpoint + "/related"), 400, "invalid_parameter")
-        _error(request(endpoint + "/related?relation=invalid"), 400, "invalid_parameter")
-        _error(request("/v2/semantic/objects/not-an-id"), 400, "invalid_parameter")
-        _error(request("/v2/semantic/objects/metric%3Asales.missing"), 404, "not_found")
-        _error(request("/v2/semantic/reload"), 405, "method_not_allowed")
-        _error(request("/v2/semantic/reload", method="POST", body=b"{}"), 400, "invalid_parameter")
-        _error(request("/v2/semantic/objects", bearer=None), 401, "unauthorized")
+        _assert_catalog_detail_routes(request, spec, endpoint)
 
         _models(tmp_path, "after")
         reload = _ok(request("/v2/semantic/reload", method="POST"))
@@ -1214,9 +1220,6 @@ def test_read_report_with_missing_method_payload(tmp_path: Path) -> None:
 
 
 def test_plain_table_publication_and_retired_routes(tmp_path: Path) -> None:
-    import pandas as pd
-
-    import marivo.analysis as mv
 
     (tmp_path / "endpoints").mkdir()
     (tmp_path / "endpoints" / "bad.py").write_text("raise AssertionError('must not execute')")

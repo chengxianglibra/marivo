@@ -24,6 +24,12 @@ from trino.dbapi import Connection, Cursor
 
 import marivo.analysis as mv
 import marivo.datasource as md
+from marivo.datasource.runtime.adapters import SourceSession
+from tests.datasource.environment import clickhouse_analysis as ch
+from tests.datasource.environment import mysql_analysis as mysql
+from tests.datasource.environment import postgres_analysis as pg
+from tests.datasource.environment import trino_analysis as trino
+from tests.datasource.environment.credentials import password
 from tests.datasource.source_cases import source_params
 from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 
@@ -248,7 +254,6 @@ _REMOTE_DATASOURCE = {
 
 
 def _remote_credentials(backend: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    from tests.datasource.environment.credentials import password
 
     monkeypatch.setenv(f"MARIVO_TEST_{backend.upper()}_PASSWORD", password())
     monkeypatch.setenv(f"MARIVO_TEST_{backend.upper()}_USER", "analysis_reader")
@@ -257,20 +262,14 @@ def _remote_credentials(backend: str, monkeypatch: pytest.MonkeyPatch) -> None:
 def _create_remote_table(backend: str, table: str) -> None:
     create, insert = _REMOTE_PHYSICAL[backend]
     if backend == "postgres":
-        from tests.datasource.environment import postgres_analysis as pg
-
         with pg.connection(admin=True) as admin, admin.cursor() as cur:
             cur.execute(create.format(table=table))
             cur.execute(insert.format(table=table))
     elif backend == "mysql":
-        from tests.datasource.environment import mysql_analysis as mysql
-
         with mysql.connection(admin=True) as mysql_admin, mysql_admin.cursor() as cur:
             cur.execute(create.format(table=table))
             cur.execute(insert.format(table=table))
     else:
-        from tests.datasource.environment import clickhouse_analysis as ch
-
         with ch.connection(admin=True) as ch_admin:
             ch_admin.command(create.format(table=table))
             ch_admin.command(insert.format(table=table))
@@ -278,18 +277,12 @@ def _create_remote_table(backend: str, table: str) -> None:
 
 def _drop_remote_table(backend: str, table: str) -> None:
     if backend == "postgres":
-        from tests.datasource.environment import postgres_analysis as pg
-
         with pg.connection(admin=True) as admin, admin.cursor() as cur:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
     elif backend == "mysql":
-        from tests.datasource.environment import mysql_analysis as mysql
-
         with mysql.connection(admin=True) as mysql_admin, mysql_admin.cursor() as cur:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
     else:
-        from tests.datasource.environment import clickhouse_analysis as ch
-
         with ch.connection(admin=True) as ch_admin:
             ch_admin.command(f"DROP TABLE IF EXISTS {table}")
 
@@ -414,7 +407,6 @@ _TRINO_PHYSICAL = (
 
 
 def _trino_admin_cursor() -> tuple[Connection, Cursor]:
-    from tests.datasource.environment import trino_analysis as trino
 
     connection = trino.connection(admin=True).__enter__()
     cursor = connection.cursor()
@@ -427,7 +419,6 @@ def trino_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[m
     monkeypatch.setenv("MARIVO_TEST_TRINO_USER", "analysis_reader")
     monkeypatch.setenv("TZ", "UTC")
     table = "c4_" + uuid4().hex
-    from tests.datasource.environment import trino_analysis as trino
 
     with trino.connection(admin=True) as admin:
         cursor = admin.cursor()
@@ -508,7 +499,6 @@ def test_trino_decimal_mean_uses_native_avg(trino_session: mv.Session) -> None:
 def test_computed_measure_graph_reads_only_at_execute(
     computation_session: mv.Session, metric: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("computed graph read business rows before execute")

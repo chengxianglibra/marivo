@@ -8,13 +8,22 @@ import pytest
 from ibis.common.deferred import BinaryOperator, Just, Variable
 
 from marivo._definition.expressions import (
+    ContributionFilter,
     DeclaredMetricRef,
     MetricExpression,
+    PredicateExpression,
+    RowExpression,
     RowField,
     SourceAggregate,
 )
 from marivo._definition.observation_time import ContributionClockBinding
-from marivo._definition.types import AxisBinding, ExactRef, SumAll
+from marivo._definition.relations import (
+    LiteralPopulation,
+    PopulationClassify,
+    PopulationContains,
+    PopulationProgram,
+)
+from marivo._definition.types import AxisBinding, EntityIdentityRead, ExactRef, SumAll
 from marivo._kernel.refs import ref
 from marivo.analysis.binding.attribute_game import (
     AttributeGame,
@@ -113,7 +122,6 @@ def test_unsupported_numeric_power_is_rejected_during_game_binding() -> None:
 
 
 def test_formula_identity_keeps_inline_row_operations_and_ignores_only_versions() -> None:
-    from marivo._definition.expressions import RowExpression
 
     def scaled(factor: int, version: str = "v1") -> AttributeGame:
         field = replace(FIELD, ref=replace(FIELD.ref, version=version))
@@ -127,11 +135,6 @@ def test_formula_identity_keeps_inline_row_operations_and_ignores_only_versions(
 
 
 def test_formula_identity_keeps_metric_filter_predicates() -> None:
-    from marivo._definition.expressions import (
-        ContributionFilter,
-        PredicateExpression,
-        RowExpression,
-    )
 
     def filtered(bound: int) -> AttributeGame:
         predicate = PredicateExpression(
@@ -154,8 +157,6 @@ def test_formula_identity_keeps_metric_filter_predicates() -> None:
 
 
 def test_filter_population_keeps_keys_without_pinning_semantic_versions() -> None:
-    from marivo._definition.expressions import ContributionFilter, PredicateExpression
-    from marivo._definition.relations import LiteralPopulation, PopulationContains
 
     def filtered(version: str, member: str) -> AttributeGame:
         field = BY[0].field
@@ -180,14 +181,6 @@ def test_filter_population_keeps_keys_without_pinning_semantic_versions() -> Non
 
 
 def test_filter_classified_identity_preserves_formula_id() -> None:
-    from marivo._definition.expressions import ContributionFilter, PredicateExpression
-    from marivo._definition.relations import (
-        LiteralPopulation,
-        PopulationClassify,
-        PopulationContains,
-        PopulationProgram,
-    )
-    from marivo._definition.types import EntityIdentityRead
 
     literal = LiteralPopulation(BY, (("A",),), "coordinates-v1")
     classified = PopulationProgram(

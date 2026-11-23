@@ -7,11 +7,15 @@ from typing import Literal
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from tests.analysis.statistics.deviation_oracle import expected
+from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import terminal_publication
+from marivo.datasource.runtime.adapters import SourceSession
+from tests.analysis.statistics.deviation_oracle import expected, forbidden
 from tests.analysis.statistics.pandas_workflows import (
     assert_clean,
     daily,
@@ -20,6 +24,7 @@ from tests.analysis.statistics.pandas_workflows import (
     orders,
     plain,
 )
+from tests.analysis.statistics.recovery_worker import subprocess_phases
 from tests.shared_fixtures import DslCaseFactory, run_ids, terminal_runs
 
 
@@ -147,8 +152,6 @@ def test_exported_time_scores_allow_explicit_pandas_refit(
     empty: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.runtime.adapters import SourceSession
-    from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")
     artifact = daily(case, end="2026-09-01").compute()
@@ -172,7 +175,6 @@ def test_exported_time_scores_allow_explicit_pandas_refit(
 def test_observed_nullable_large_int64_preserves_native_and_saved_values(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import pyarrow as pa
 
     case = analysis_dsl_case_factory("j2")
     values = (2**63 - 5, 2**63 - 4, 2**63 - 1)
@@ -224,7 +226,6 @@ def test_export_phase_failure_is_atomic(
     phase: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
 
     case = analysis_dsl_case_factory("j2")
     query = orders(case)
@@ -232,8 +233,6 @@ def test_export_phase_failure_is_atomic(
     def inject(actual: str) -> None:
         if actual == phase:
             raise RuntimeError("injected export phase failure")
-
-    from marivo.analysis.materialization import terminal_publication
 
     monkeypatch.setattr(terminal_publication, "_event", inject)
     with pytest.raises(AnalysisError):
@@ -247,7 +246,6 @@ def test_export_phase_failure_is_atomic(
 def test_scalar_export_recovers_in_independent_processes(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from tests.analysis.statistics.recovery_worker import subprocess_phases
 
     case = analysis_dsl_case_factory("j2")
     subprocess_phases(case, "scalar")

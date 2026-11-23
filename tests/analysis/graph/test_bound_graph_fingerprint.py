@@ -1,15 +1,22 @@
 """Frozen graph identities retain exact calendar contents and object-local reuse."""
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+from enum import Enum
+from typing import TypeGuard
 
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition import graph, graph_encoding
+from marivo._definition.graph import DefinitionNode
+from marivo._definition.graph_traversal import _is_node
 from marivo._definition.grouping import grouping_binding
 from marivo._definition.observations import CoordinateBinding, ObservationBinding
 from marivo._definition.query import LiteralValues, ResultQuery
 from marivo._definition.types import Owner
+from marivo._kernel.temporal import anchor_from_datetime
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.signature import BoundSignature, ResultQuantity
 from marivo.analysis.compiler.optimization import InvocationMemo
@@ -77,15 +84,6 @@ def test_fingerprint_retains_calendar_cells_beyond_authority_identity() -> None:
 def test_plain_encoding_skips_node_dispatch_but_preserves_subclass_routes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from datetime import date, timedelta
-    from decimal import Decimal
-    from enum import Enum
-    from typing import TypeGuard
-
-    from marivo._definition import graph, graph_encoding
-    from marivo._definition.graph import DefinitionNode
-    from marivo._definition.graph_traversal import _is_node
-    from marivo._kernel.temporal import anchor_from_datetime
 
     calls = 0
 

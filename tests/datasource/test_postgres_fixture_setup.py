@@ -7,6 +7,7 @@ from threading import Barrier
 
 import pytest
 
+from tests.datasource.environment import postgres_analysis as pg
 from tests.support.json import encode
 
 
@@ -14,7 +15,6 @@ from tests.support.json import encode
 def test_parallel_postgres_setup_serializes_shared_role_updates() -> None:
     if os.environ.get("MARIVO_POSTGRES_ANALYSIS_TEST") != "1":
         pytest.skip("Requires explicit PostgreSQL analysis opt-in")
-    from tests.datasource.environment import postgres_analysis as pg
 
     barrier = Barrier(4)
 

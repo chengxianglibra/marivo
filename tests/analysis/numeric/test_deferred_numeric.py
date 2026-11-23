@@ -4,6 +4,7 @@ import math
 from decimal import Decimal
 from typing import Literal
 
+import duckdb
 import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
@@ -14,21 +15,27 @@ from ibis.common.deferred import Deferred, Variable, resolver
 
 from marivo._definition.expressions import (
     MetricExpression,
+    PerReduce,
+    PerWeightedMean,
     PredicateExpression,
     RowExpression,
     RowField,
     SourceAggregate,
     SourceWeightedMean,
 )
-from marivo._definition.types import ExactRef, SumAll
+from marivo._definition.relations import LiteralPopulation
+from marivo._definition.types import AxisBinding, ExactRef, SumAll
 from marivo._kernel.refs import ref
 from marivo.analysis.binding.programs import FormulaProgram
-from marivo.analysis.compiler.graph_plan import LocalCompute
-from marivo.analysis.compiler.observation import formula_columns
+from marivo.analysis.compiler.observation import formula_columns, lower_observation
+from marivo.analysis.compiler.query_stages import LocalCompute
+from marivo.analysis.compiler.reduction_input import ReductionInput
 from marivo.analysis.methods._ibis_numeric import evaluate_numeric
+from marivo.analysis.methods._sample_numeric import reduce_samples
 from marivo.analysis.methods.local import query_combine
-from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.model.programs import FormulaInput
+from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.semantic._numeric_lowering import lower_source_reduction
 from marivo.semantic._numeric_recipe import lower_recipe
 from marivo.semantic.errors import SemanticExpressionError
@@ -141,7 +148,6 @@ def test_combine_checks_only_demanded_completed_slots() -> None:
 def test_local_alignment_consumes_only_facts_for_its_actual_merge_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.model.unique_keys import UniqueKeys
 
     metric = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
     value = FormulaInput(
@@ -385,7 +391,6 @@ def test_native_float_overflow_is_not_replaced_with_numeric_checks(operation: st
 
 
 def test_predicate_checks_follow_coordinate_demand_without_creating_output_keys() -> None:
-    from marivo.analysis.compiler.observation import ReductionInput, lower_observation
 
     connection = ibis.duckdb.connect(threads=1)
     try:
@@ -421,9 +426,6 @@ def test_predicate_checks_follow_coordinate_demand_without_creating_output_keys(
 
 
 def test_per_reduces_completed_ratios_and_retains_literal_zero_activity_samples() -> None:
-    from marivo._definition.expressions import PerReduce
-    from marivo._definition.relations import LiteralPopulation
-    from marivo._definition.types import AxisBinding
 
     a, b = Deferred(Variable("slot_0")), Deferred(Variable("slot_1"))
     placeholder = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
@@ -485,10 +487,6 @@ def test_native_function_chain_and_rounding_match_source_route() -> None:
 
 
 def test_local_sample_accumulation_uses_native_sum_and_declared_decimal_finish() -> None:
-    from marivo._definition.expressions import PerReduce, PerWeightedMean
-    from marivo._definition.types import AxisBinding
-    from marivo.analysis.methods._sample_numeric import reduce_samples
-    from marivo.analysis.model.data_types import DecimalDataType
 
     placeholder = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
     axis = AxisBinding(
@@ -536,9 +534,6 @@ def test_local_sample_accumulation_uses_native_sum_and_declared_decimal_finish()
     [([], 0), ([None, None], None), ([None, 2, 3], 5), ([-10, 10], 0), ([2, 3], 5)],
 )
 def test_internal_sum_empty_policy(values: list[int | None], expected: int | None) -> None:
-    from marivo._definition.expressions import PerReduce
-    from marivo._definition.types import AxisBinding
-    from marivo.analysis.methods._sample_numeric import reduce_samples
 
     source = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
     axis = AxisBinding(
@@ -561,9 +556,6 @@ def test_internal_sum_empty_policy(values: list[int | None], expected: int | Non
 
 
 def test_internal_sum_keeps_large_integer_beside_null_group() -> None:
-    from marivo._definition.expressions import PerReduce
-    from marivo._definition.types import AxisBinding
-    from marivo.analysis.methods._sample_numeric import reduce_samples
 
     source = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
     axis = AxisBinding(
@@ -585,11 +577,6 @@ def test_internal_sum_keeps_large_integer_beside_null_group() -> None:
 
 
 def test_internal_sample_groups_keep_complete_exact_keys_and_empty_domain_order() -> None:
-    import pyarrow as pa
-
-    from marivo._definition.expressions import PerReduce
-    from marivo._definition.types import AxisBinding
-    from marivo.analysis.methods._sample_numeric import reduce_samples
 
     source = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
     axis = AxisBinding(
@@ -629,7 +616,6 @@ def test_internal_sample_groups_keep_complete_exact_keys_and_empty_domain_order(
 def test_cancelled_sample_weights_complete_as_null(
     analysis_dsl_case_factory: DslCaseFactory, scale: int
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j4")
     with duckdb.connect(str(case.database_path)) as connection:

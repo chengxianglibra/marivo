@@ -15,7 +15,6 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo.analysis.binding.attribute_rules import rule_effects
-from marivo.analysis.core.attribute_game import AttributeGameValues
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     FrameBacking,
@@ -26,14 +25,15 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     StoredFrameBacking,
 )
-from marivo.analysis.core.frame_expression import (
+from marivo.analysis.core.frame_operations import (
     AlignFrameValues,
     AttributeContributionValues,
+    AttributeGameValues,
     AttributeInputsValues,
     AttributeProjectValues,
     CompareFrameValues,
+    FixFrameValues,
 )
-from marivo.analysis.core.frame_fix import FixFrameValues
 from marivo.analysis.model.frame_attribute_merge import AttributeMergeValues
 
 

@@ -15,6 +15,7 @@ from dataclasses import asdict
 from difflib import SequenceMatcher
 from pathlib import Path
 
+from marivo._kernel.validation import integer
 from marivo.semantic.errors import CatalogSearchError
 from marivo.semantic.search import sentence_transformers_backend
 from marivo.semantic.search.cache import (
@@ -329,7 +330,7 @@ def search_documents(
     and are rejected when their binding or cached ranking changes. ``limit`` only
     controls the returned page, not recall, fusion, gating, or candidate count.
     """
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not integer(limit) or limit < 1:
         raise CatalogSearchError(
             stage="arguments",
             message="Invalid search page size.",

@@ -27,6 +27,7 @@ from marivo.datasource.runtime.read_types import PhysicalRequirement
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import _scalar, forbidden, snapshot
 from tests.analysis.materialization.publication_fixtures import publication_counts
+from tests.datasource.environment.credentials import password
 from tests.packaging.graph_journeys import _frame
 from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 from tests.support.json import Json, checked, encode, obj, read
@@ -36,7 +37,7 @@ from tests.support.source_trace import capture_source
 @contextmanager
 def administrator(engine: str, project: Path) -> Iterator[Callable[[str], None]]:
     if engine == "postgres":
-        from tests.datasource.environment import postgres_analysis as pg
+        from tests.datasource.environment import postgres_analysis as pg  # noqa: PLC0415 - Only the selected provider's driver is installed for this probe.
 
         with pg.connection(admin=True) as pg_connection:
 
@@ -45,7 +46,7 @@ def administrator(engine: str, project: Path) -> Iterator[Callable[[str], None]]
 
             yield execute_pg
     elif engine == "mysql":
-        from tests.datasource.environment import mysql_analysis as mysql
+        from tests.datasource.environment import mysql_analysis as mysql  # noqa: PLC0415 - Only the selected provider's driver is installed for this probe.
 
         with mysql.connection(admin=True) as mysql_connection, mysql_connection.cursor() as cursor:
 
@@ -54,7 +55,7 @@ def administrator(engine: str, project: Path) -> Iterator[Callable[[str], None]]
 
             yield execute_mysql
     elif engine == "trino":
-        from tests.datasource.environment import trino_analysis as trino
+        from tests.datasource.environment import trino_analysis as trino  # noqa: PLC0415 - Only the selected provider's driver is installed for this probe.
 
         with trino.connection(admin=True) as trino_connection:
             trino_cursor = trino_connection.cursor()
@@ -67,7 +68,7 @@ def administrator(engine: str, project: Path) -> Iterator[Callable[[str], None]]
             finally:
                 trino_cursor.close()
     elif engine == "clickhouse":
-        from tests.datasource.environment import clickhouse_analysis as ch
+        from tests.datasource.environment import clickhouse_analysis as ch  # noqa: PLC0415 - Only the selected provider's driver is installed for this probe.
 
         with ch.connection(admin=True) as client:
 
@@ -567,13 +568,13 @@ def privileges(engine: str, project: Path) -> dict[str, object]:
         return type(caught.value).__name__
 
     if engine == "postgres":
-        from tests.datasource.environment import postgres_analysis as pg
+        from tests.datasource.environment import postgres_analysis as pg  # noqa: PLC0415 - Only the selected provider's driver is installed for this probe.
 
         with pg.connection() as connection:
             assert connection.execute("SELECT current_user").fetchone() == ("analysis_reader",)
             error = denied(connection.execute)
     elif engine == "mysql":
-        from tests.datasource.environment import mysql_analysis as mysql
+        from tests.datasource.environment import mysql_analysis as mysql  # noqa: PLC0415 - Only the selected provider's driver is installed for this probe.
 
         with mysql.connection() as connection_mysql, connection_mysql.cursor() as cursor:
             cursor.execute("SELECT CURRENT_USER()")
@@ -581,7 +582,7 @@ def privileges(engine: str, project: Path) -> dict[str, object]:
             assert row is not None and str(row[0]).startswith("analysis_reader@")
             error = denied(cursor.execute)
     elif engine == "trino":
-        from tests.datasource.environment import trino_analysis as trino
+        from tests.datasource.environment import trino_analysis as trino  # noqa: PLC0415 - Only the selected provider's driver is installed for this probe.
 
         with trino.connection() as connection_trino:
             cursor_trino = connection_trino.cursor()
@@ -595,7 +596,7 @@ def privileges(engine: str, project: Path) -> dict[str, object]:
             finally:
                 cursor_trino.close()
     elif engine == "clickhouse":
-        from tests.datasource.environment import clickhouse_analysis as ch
+        from tests.datasource.environment import clickhouse_analysis as ch  # noqa: PLC0415 - Only the selected provider's driver is installed for this probe.
 
         with ch.connection() as client:
             assert client.query("SELECT currentUser(), getSetting('readonly')").first_row == (
@@ -617,8 +618,6 @@ def run(phase: str, engine: str, project: Path) -> dict[str, object]:
     os.environ["MARIVO_PROJECT_ROOT"] = str(project)
     os.environ["MARIVO_WHEEL_READER"] = "analysis_reader"
     if phase != "cold" and engine != "trino" and "MARIVO_WHEEL_PASSWORD" not in os.environ:
-        from tests.datasource.environment.credentials import password
-
         os.environ["MARIVO_WHEEL_PASSWORD"] = password()
     os.chdir(project)
     prefix_path = project / "prefix"

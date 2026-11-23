@@ -8,7 +8,6 @@ import time
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 from pandas.api.types import is_object_dtype
@@ -24,6 +23,7 @@ from marivo._kernel.symbolic import (
     native_symbol_ref,
     symbol_factory,
 )
+from marivo._kernel.validation import integer, nonblank_text
 from marivo.datasource import credentials as cr
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import decode_cursor_frame, structured_exception_chain
@@ -120,11 +120,15 @@ class RawSqlResult(_DataResult):
         return df
 
 
+def _invalid_text(value: object, blank: str) -> str:
+    return blank if isinstance(value, str) else type(value).__name__
+
+
 def _require_raw_sql_reason(reason: str) -> str:
-    if not isinstance(reason, str) or not reason.strip():  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not nonblank_text(reason):
         raise _invalid_raw_sql(
             "a non-empty reason",
-            type(reason).__name__ if not isinstance(reason, str) else "an empty reason",  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            _invalid_text(reason, "an empty reason"),
             "Pass a non-empty reason for the terminal SQL query.",
         )
     return reason.strip()
@@ -132,10 +136,10 @@ def _require_raw_sql_reason(reason: str) -> str:
 
 def _require_nonempty_sql(sql: str) -> str:
     """Validate presence without parsing or rewriting the caller's SQL."""
-    if not isinstance(sql, str) or not sql.strip():  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not nonblank_text(sql):
         raise _invalid_raw_sql(
             "a non-empty SQL statement",
-            type(sql).__name__ if not isinstance(sql, str) else "an empty SQL statement",  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            _invalid_text(sql, "an empty SQL statement"),
             "Pass the non-empty SQL statement to execute.",
         )
     return sql
@@ -153,7 +157,7 @@ def _invalid_raw_sql(expected: str, received: str, action: str) -> DatasourceFie
 
 
 def _extract_raw_sql_frame(
-    cursor: Any,
+    cursor: object,
     include_types: bool,
     *,
     limit: int | None = None,
@@ -355,11 +359,7 @@ def raw_sql(
         cannot re-enter typed analysis. Display previews may omit rows; ``rows``
         contains the complete query result as Python records.
     """
-    if (
-        not isinstance(timeout_seconds, int)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        or isinstance(timeout_seconds, bool)
-        or timeout_seconds < 1
-    ):
+    if not integer(timeout_seconds) or timeout_seconds < 1:
         raise _invalid_raw_sql(
             "a positive integer timeout_seconds",
             repr(timeout_seconds),

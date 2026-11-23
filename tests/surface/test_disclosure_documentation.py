@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import ast
 import inspect
+import os
 import re
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -172,9 +175,6 @@ def test_execution_help_examples_continue_in_a_new_process_without_sources(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     """Use the actual Help code and only printed IDs across the process boundary."""
-    import os
-    import subprocess
-    import sys
 
     case = analysis_dsl_case_factory("j2")
     examples: dict[str, str] = {}
@@ -340,7 +340,6 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import marivo
 
     root = Path(__file__).resolve().parents[2]
     assert Path(marivo.__file__).resolve() == root / "marivo/__init__.py"
@@ -460,9 +459,6 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
 @pytest.mark.release
 def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path) -> None:
     """Public examples run in isolated groups, including a source-free cold reopen."""
-    import os
-    import subprocess
-    import sys
 
     root = Path(__file__).resolve().parents[2]
     pages = root / "site/src/content/docs/docs/latest"

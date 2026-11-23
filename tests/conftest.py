@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
 import duckdb
 import ibis
 import pytest
 
+import marivo.analysis.session as session_attach
+import marivo.semantic as ms
+from marivo.analysis.materialization import prior_generations
+from marivo.semantic.reader import SemanticProject
 from tests.packaging.installer_helpers import InstallerEnv, InstallerToolchain
 from tests.packaging.wheel_support import InstalledWheel, prepare_wheel
 from tests.shared_fixtures import (
@@ -22,13 +27,11 @@ from tests.shared_fixtures import (
     analysis_dsl_project_files,
     analysis_dsl_rows,
     authoring_evidence_template,
+    catalog_value,
     sales_orders_template,
     seed_analysis_dsl_database,
 )
-from tests.support.source_trace import SourceTrace
-
-if TYPE_CHECKING:
-    from marivo.semantic.reader import SemanticProject
+from tests.support.source_trace import SourceTrace, capture_source
 
 
 class _SemanticProjectFactory(Protocol):
@@ -78,7 +81,6 @@ duckdb.connect = _native_duckdb_connect_single_thread
 @pytest.fixture
 def analysis_dsl_case_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DslCaseFactory:
     """Load one real DSL declaration project per isolated source and Session."""
-    import marivo.analysis.session as session_attach
 
     next_index = 0
 
@@ -120,7 +122,6 @@ def analysis_dsl_case_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 @pytest.fixture(autouse=True)
 def _isolate_prior_generation_notices(monkeypatch: pytest.MonkeyPatch) -> None:
-    from marivo.analysis.materialization import prior_generations
 
     monkeypatch.setattr(prior_generations, "_notified", set())
 
@@ -171,7 +172,6 @@ def _sales_orders_template_path() -> Path:
 @pytest.fixture
 def authoring_evidence_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create a real DuckDB project covering authoring through analysis handoff."""
-    import shutil
 
     database_path = tmp_path / "warehouse.duckdb"
     replica_path = tmp_path / "warehouse_replica.duckdb"
@@ -261,7 +261,6 @@ def semantic_project_factory(tmp_path: Path) -> _SemanticProjectFactory:
         models: list[str] | None = None,
         workspace_dir: Path | None = None,
     ) -> SemanticProject:
-        from marivo.semantic.reader import SemanticProject
 
         effective_dir = workspace_dir if workspace_dir is not None else tmp_path
         (effective_dir / "marivo.toml").write_text('[project]\nname = "test"\n')
@@ -305,14 +304,12 @@ def semantic_project_factory(tmp_path: Path) -> _SemanticProjectFactory:
 
 @pytest.fixture
 def acquisition_channel_entry(funnel_session: Any) -> Any:
-    from tests.shared_fixtures import catalog_value
 
     return catalog_value(funnel_session.catalog, "acquisition_channel", kind="dimension")
 
 
 @pytest.fixture
 def plan_tier_entry(funnel_session: Any) -> Any:
-    from tests.shared_fixtures import catalog_value
 
     return catalog_value(funnel_session.catalog, "plan_tier", kind="dimension")
 
@@ -409,9 +406,6 @@ def bootstrap_sales_project(tmp_path: Path, *, with_time: bool = True) -> None:
 @pytest.fixture
 def retained_coordinates_case(analysis_dsl_case_factory: DslCaseFactory) -> DslCase:
     """Preserve the independent 147 total and selected 140/3 fold oracle."""
-    import duckdb
-
-    import marivo.semantic as ms
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -434,7 +428,6 @@ def retained_coordinates_case(analysis_dsl_case_factory: DslCaseFactory) -> DslC
 @pytest.fixture
 def source_trace(monkeypatch: pytest.MonkeyPatch) -> SourceTrace:
     """Capture Ibis source execution calls and execution-owner receipts."""
-    from tests.support.source_trace import capture_source
 
     return capture_source(monkeypatch)
 

@@ -1,5 +1,6 @@
 """Multi-quantity and large exports feed explicit pandas statistical recipes."""
 
+import duckdb
 import pandas as pd
 import pytest
 
@@ -64,7 +65,6 @@ def test_three_quantity_search_and_forecast_views(
 def test_large_export_does_not_truncate_pandas_forecast_rows(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import duckdb
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:

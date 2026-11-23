@@ -1,21 +1,50 @@
 """The sole Store28 protocol closes every field and refuses historical v1 bytes."""
 
+from copy import deepcopy
 from dataclasses import fields, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
+from marivo._kernel import timezones as _timezones
+from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.materialization import terminal_protocol as protocol
+from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import parse_json
+from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.terminal_store import describe
+from marivo.analysis.materialization.terminal_store import manifest as read_manifest
 from marivo.analysis.model.artifact_data import ArtifactData, ArtifactManifest, ParquetHandle
-from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_schema import DataAlignment, DataAxis, DataSchema
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.execution_errors import IntegrityError
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.frame_source_reads import (
+    FrameSourceRead,
+    FrameSourceReadPeriod,
+    FrameSourceReadScope,
+)
+from marivo.analysis.model.layout_facts import (
+    FrameAlignmentAxis,
+    FrameAlignmentSide,
+    FrameAxisGroup,
+    FrameDerivedValueInput,
+    FrameLevelTarget,
+    FrameNamedValueInput,
+    FramePairStatisticContext,
+    FrameShareContext,
+)
+from marivo.analysis.model.lineage import SemanticObjectIdentity
 from marivo.analysis.model.lineage import empty as empty_lineage
 from marivo.analysis.model.receipts import FileEntry, LocalReceipt, canonical_json
+from marivo.analysis.model.time_facts import (
+    FrameCivilDateSourceTime,
+    FrameInstantSourceTime,
+    FrameWallClockSourceTime,
+)
 
 FROZEN = Path(__file__).with_name("terminal_v1_frozen.json").read_text().strip()
 
@@ -173,12 +202,6 @@ def test_nested_exact_fields_are_required_and_old_query_marker_is_absent() -> No
 
 
 def test_saved_context_pool_is_shared_and_does_not_grow_with_rows(tmp_path: Path) -> None:
-    import pandas as pd
-
-    from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-    from marivo.analysis.dsl.frame import AnalysisFrame
-    from marivo.analysis.materialization.admission import DatasetRuntime
-    from marivo.analysis.materialization.terminal_store import manifest as read_manifest
 
     local = DatasetRuntime.create(tmp_path, "context-pool", timezone="UTC").local
     counts = []
@@ -224,17 +247,6 @@ def test_saved_context_pool_is_shared_and_does_not_grow_with_rows(tmp_path: Path
 
 
 def interpretation_manifest() -> ArtifactManifest:
-    from marivo.analysis.model.data_schema import DataAlignment
-    from marivo.analysis.model.layout_facts import (
-        FrameAlignmentAxis,
-        FrameAlignmentSide,
-        FrameAxisGroup,
-        FrameDerivedValueInput,
-        FrameNamedValueInput,
-        FramePairStatisticContext,
-        FrameShareContext,
-    )
-    from marivo.analysis.model.lineage import SemanticObjectIdentity
 
     value = manifest()
     origin = SemanticObjectIdentity("metric", "sales.revenue", "captured-revenue")
@@ -279,12 +291,6 @@ def interpretation_manifest() -> ArtifactManifest:
 
 
 def test_share_pair_inputs_and_alignment_are_closed_interned_manifest_facts() -> None:
-    from marivo.analysis.model.layout_facts import (
-        FrameDerivedValueInput,
-        FrameNamedValueInput,
-        FramePairStatisticContext,
-        FrameShareContext,
-    )
 
     original = interpretation_manifest()
     wire = parse_json(protocol.encode(original))
@@ -306,7 +312,6 @@ def test_share_pair_inputs_and_alignment_are_closed_interned_manifest_facts() ->
 
 
 def test_nested_attribute_carriers_encode_new_contexts_without_authorizing_targets() -> None:
-    from marivo.analysis.model.layout_facts import FrameLevelTarget
 
     for name, context in interpretation_manifest().data.schema.value_contexts:
         target = FrameLevelTarget(name, context)
@@ -317,7 +322,6 @@ def test_nested_attribute_carriers_encode_new_contexts_without_authorizing_targe
     "damage", ("unknown_kind", "extra", "input_kind", "mutable_origins", "statistic")
 )
 def test_corrupt_share_and_pair_context_records_are_rejected(damage: str) -> None:
-    from copy import deepcopy
 
     wire = parse_json(protocol.encode(interpretation_manifest()))
     assert isinstance(wire, dict)
@@ -381,11 +385,6 @@ def test_dangling_alignment_references_cannot_enter_a_restored_schema(damage: st
 
 @pytest.mark.parametrize("rows", (0, None, 12))
 def test_source_reads_are_embedded_closed_manifest_metadata(rows: int | None) -> None:
-    from marivo.analysis.model.frame_source_reads import (
-        FrameSourceRead,
-        FrameSourceReadPeriod,
-        FrameSourceReadScope,
-    )
 
     instant = datetime(2026, 1, 1, tzinfo=timezone.utc)
     reads = (
@@ -420,9 +419,6 @@ def test_source_reads_are_embedded_closed_manifest_metadata(rows: int | None) ->
     "damage", ("list", "count_bool", "scope", "period", "naive", "conflicting_id", "duplicate_id")
 )
 def test_corrupt_nested_source_reads_cannot_become_empty(damage: str) -> None:
-    from copy import deepcopy
-
-    from marivo.analysis.model.frame_source_reads import FrameSourceRead, FrameSourceReadScope
 
     instant = datetime(2026, 1, 1, tzinfo=timezone.utc)
     read = FrameSourceRead("read_first", instant, (FrameSourceReadScope("sales.orders", None),), 3)
@@ -471,7 +467,6 @@ def test_corrupt_nested_source_reads_cannot_become_empty(damage: str) -> None:
 
 
 def test_current_store_contains_no_record_collections(tmp_path: Path) -> None:
-    from marivo.analysis.materialization.store import SessionStore
 
     store = SessionStore(tmp_path)
     with store._read() as connection:
@@ -493,7 +488,6 @@ def test_current_store_contains_no_record_collections(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("damage", ("missing", "kind", "timezone", "origin", "duplicate"))
 def test_source_time_records_have_required_closed_fields(damage: str) -> None:
-    from marivo.analysis.model.time_facts import FrameCivilDateSourceTime
 
     saved = manifest()
     clock = FrameCivilDateSourceTime("sales.business_day", "date", "Asia/Tokyo", "UTC", "field")
@@ -523,12 +517,6 @@ def test_source_time_records_have_required_closed_fields(damage: str) -> None:
 def test_source_time_facts_decode_without_current_timezone_rules(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo._kernel import timezones as _timezones
-    from marivo.analysis.model.time_facts import (
-        FrameCivilDateSourceTime,
-        FrameInstantSourceTime,
-        FrameWallClockSourceTime,
-    )
 
     saved = manifest()
     clocks = (

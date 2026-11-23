@@ -6,54 +6,40 @@ from dataclasses import replace
 
 import ibis
 import ibis.expr.operations as ops
-import ibis.expr.types as ir
-import pandas as pd
 
 from marivo._definition.expressions import (
-    ContributionFilter,
     DeclaredMetricRef,
-    FieldCalendarSample,
     MemberCount,
-    MetricExpression,
     MetricNode,
-    MetricWindow,
     PerReduce,
     PerWeightedMean,
 )
 from marivo._definition.graph import children, walk
 from marivo._definition.query import PopulationValues
 from marivo._definition.relations import (
-    LiteralPopulation,
     PopulationDependency,
     SourceIdentities,
     condition_populations,
-    population_keys,
     sample_population,
 )
-from marivo._definition.types import AxisBinding, IntervalCoordinate
-from marivo._kernel.temporal import Grain
 from marivo.analysis.binding.programs import FormulaProgram
-from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
-from marivo.analysis.compiler.graph_plan import (
+from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead
+from marivo.analysis.compiler.optimization import required_slots
+from marivo.analysis.compiler.query_program import ResultProgram, SourceParameter
+from marivo.analysis.compiler.query_stages import (
     LocalCompute,
     NativeRead,
     QueryStage,
+    RuleDecision,
     SourceReadStage,
-    read_components,
     read_members,
-    read_reduction,
 )
-from marivo.analysis.compiler.optimization import RuleDecision, required_slots
-from marivo.analysis.compiler.query_program import ResultProgram, SourceParameter
-from marivo.analysis.compiler.sample_reductions import (
-    SampleLowerer,
-    SampleReductionUnavailableError,
+from marivo.analysis.materialization.native_query_checks import (
+    _population_check_summary,
 )
-from marivo.analysis.core.value_types import data_type, ibis_type
-from marivo.analysis.materialization.graph_source_execution import PreparedSources
-from marivo.analysis.materialization.query_parameters import instantiate
-from marivo.analysis.methods.carriers.stages import StageOutput
-from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.materialization.query_plan_transport import _consumers
+from marivo.analysis.materialization.sample_candidates import SampleCandidates
 from marivo.analysis.model.programs import FormulaInput
 from marivo.datasource.spi import SourceSession
 from marivo.semantic.spi import NumericCheck
@@ -61,7 +47,6 @@ from marivo.semantic.spi import NumericCheck
 
 def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
     """Keep local completion and independent consumers while compacting source samples."""
-    from marivo.analysis.materialization.query_key_fusion import _consumers, native_query_relation
 
     sources = {
         stage.stage_id: stage for stage in lowered.plan.stages if isinstance(stage, SourceReadStage)
@@ -89,330 +74,13 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                 )
             ),
         )
-        values = list(program.values)
-        replacements: list[SourceReadStage] = []
-        removed: set[str] = set()
-        lowerers: dict[SourceSession, SampleLowerer] = {}
-        active_parameters: dict[SourceSession, dict[str, SourceParameter]] = {}
-
-        def visit(
-            node: MetricNode,
-            path: tuple[int, ...],
-            keys: tuple[str, ...],
-            program: FormulaProgram = program,
-            original: LocalCompute = original,
-            replacements: list[SourceReadStage] = replacements,
-            removed: set[str] = removed,
-            reads: list[LoweredRead] = reads,
-            lowerers: dict[SourceSession, SampleLowerer] = lowerers,
-            active_parameters: dict[SourceSession, dict[str, SourceParameter]] = active_parameters,
-        ) -> None:
-            nonlocal values
-            if isinstance(node, DeclaredMetricRef):
-                visit(dict(program.declared)[node.ref], (*path, 0), keys)
-                return
-            if isinstance(node, (ContributionFilter, MetricWindow)):
-                visit(node.operand, (*path, 0), keys)
-                return
-            if isinstance(node, MetricExpression):
-                for index, child in enumerate(node.operands):
-                    visit(child, (*path, index), keys)
-                return
-            if not isinstance(node, (PerReduce, PerWeightedMean)):
-                return
-            selected = tuple(
-                value for value in program.values if value.occurrence[: len(path)] == path
-            )
-            if not selected:
-                return
-            if any(value.stage_id not in sources for value in selected):
-                decisions.append(
-                    RuleDecision(
-                        "source_sample_reduction",
-                        "refused",
-                        tuple(value.stage_id for value in selected),
-                        "Typed empty or fixed local inputs retain their execution boundary.",
-                    )
-                )
-                return
-            source_stages = tuple(sources[value.stage_id] for value in selected)
-            owner = prepared.sources.get(source_stages[0].source_id, prepared.source)
-            try:
-                if not owner.provider.query_policy.sample_fusion:
-                    raise SampleReductionUnavailableError(
-                        "provider has no qualified native sample route"
-                    )
-                if any(
-                    prepared.sources.get(stage.source_id, prepared.source) is not owner
-                    for stage in source_stages
-                ):
-                    raise SampleReductionUnavailableError(
-                        "sample formula crosses datasource execution owners"
-                    )
-                if any(
-                    read_components(stage) is not None
-                    or stage.attribute_state
-                    or stage.attribute_native
-                    for stage in source_stages
-                ):
-                    raise SampleReductionUnavailableError(
-                        "original-contribution consumers retain their complete samples"
-                    )
-                relations = {
-                    read.stage_id: read.expression
-                    for read in lowered.reads
-                    if prepared.sources.get(
-                        lowered.plan.source_read_stage(read.stage_id).source_id, prepared.source
-                    )
-                    is owner
-                }
-                dependencies = {
-                    parameter.stage_id: parameter
-                    for stage in source_stages
-                    for parameter in stage.parameters
-                }
-                active_parameters[owner] = dependencies
-                columns = {
-                    column.slot_id: column
-                    for value in program.values
-                    if value.stage_id in sources
-                    for column in sources[value.stage_id].columns
-                }
-
-                def literal(
-                    names: tuple[str, ...],
-                    rows: tuple[tuple[object, ...], ...],
-                ) -> ir.Table:
-                    fields = tuple(columns[name] for name in names)
-                    table = ibis.table(
-                        {column.slot_id: ibis_type(column.dtype) for column in fields},
-                        name="__sample_literal",
-                    )
-                    frame = pd.DataFrame(rows, columns=list(names), dtype=object)
-                    return instantiate(
-                        table,
-                        "__sample_literal",
-                        fields,
-                        StageOutput.from_frame(frame, fields, names),
-                        provider=owner.provider.name,
-                        source=owner,
-                    )
-
-                def population(
-                    definition: PopulationDependency, names: tuple[str, ...]
-                ) -> ir.Table:
-                    finite = (
-                        population_keys(definition)
-                        if isinstance(definition, LiteralPopulation)
-                        or any(isinstance(axis, IntervalCoordinate) for axis in definition.axes)
-                        else None
-                    )
-                    if finite is not None:
-                        rows = tuple(
-                            tuple(
-                                component
-                                for axis, value in zip(definition.axes, row, strict=True)
-                                for component in (
-                                    value
-                                    if isinstance(axis, AxisBinding)
-                                    and axis.role == "identity"
-                                    and isinstance(value, tuple)
-                                    else (value,)
-                                )
-                            )
-                            for row in finite
-                        )
-                        return literal(names, rows)
-                    binding = next(
-                        (item for item in program.populations if item.definition == definition),
-                        None,
-                    )
-                    if binding is None:
-                        raise SampleReductionUnavailableError(
-                            "sample Population has no prepared native relation"
-                        )
-                    native = native_query_relation(
-                        prepared,
-                        lowered,
-                        binding.stage_id,
-                        owner,
-                        shared=True,
-                        allowed_consumers=frozenset({original.stage_id}),
-                    )
-                    if (
-                        isinstance(native, str)
-                        or native.checks
-                        or any(
-                            read.numeric_checks or read.population_checks for read in native.sources
-                        )
-                    ):
-                        raise SampleReductionUnavailableError(
-                            "sample Population retains independent checks or a local boundary"
-                        )
-                    active_parameters[owner].update(
-                        (parameter.stage_id, parameter) for parameter in native.parameters
-                    )
-                    return native.expression.select(
-                        **{
-                            name: native.expression[source]
-                            for name, source in zip(names, binding.keys, strict=True)
-                        }
-                    )
-
-                lowerer = lowerers.get(owner)
-                if lowerer is None:
-                    lowerer = SampleLowerer(
-                        program,
-                        relations,
-                        original.keys,
-                        owner.provider.name,
-                        population,
-                        {
-                            value.stage_id: lowered.plan.source_read_stage(
-                                value.stage_id
-                            ).binding_id
-                            or value.stage_id
-                            for value in program.values
-                            if value.stage_id in sources
-                        },
-                        {identifier: source.unique_keys for identifier, source in sources.items()},
-                        shared_relations=frozenset(
-                            relations[identifier].op()
-                            for identifier, source in sources.items()
-                            if identifier in relations and read_members(source)
-                        ),
-                    )
-                    lowerers[owner] = lowerer
-                result = lowerer.lower(node, path, keys)
-                identifier = "source:sample:" + original.stage_id + ":" + ".".join(map(str, path))
-                slot = "sample:" + ".".join(map(str, path))
-                expression = result.table.rename({slot: result.value})
-                checks = tuple(
-                    (name, NumericCheck(expression[name], expected, received))
-                    for name, expected, received in result.checks
-                )
-                from marivo.analysis.materialization.query_key_fusion import (
-                    NativeQueryRelation,
-                    _attach_relation_checks,
-                )
-
-                preparation_sources = tuple(
-                    replace(
-                        lowered.read(stage.stage_id),
-                        numeric_checks=tuple(
-                            (name, check)
-                            for name, check in lowered.read(stage.stage_id).numeric_checks
-                            if name in {name for name, _, _ in stage.preparation_checks}
-                        ),
-                    )
-                    for stage in source_stages
-                    if stage.preparation_checks
-                )
-                expression, preparation, checked = _attach_relation_checks(
-                    expression,
-                    NativeQueryRelation(expression, frozenset(), preparation_sources),
-                    lowered.plan,
-                    numeric=checks,
-                    prepared=prepared,
-                )
-                checks = checked
-                output_columns = (
-                    *(columns[key] for key in keys),
-                    DataColumn(slot, slot, data_type(expression[slot].type()), True),
-                    *(
-                        DataColumn(name, name, ScalarDataType("boolean"), False)
-                        for name, _, _ in result.checks
-                    ),
-                )
-                logical_sources = tuple(
-                    dict.fromkeys(
-                        member
-                        for stage in source_stages
-                        for member in (read_members(stage) or (stage,))
-                    )
-                )
-                source = SourceReadStage(
-                    identifier,
-                    source_stages[0].source_id,
-                    path,
-                    output_columns,
-                    keys,
-                    NativeRead(
-                        tuple(
-                            reduction
-                            for stage in logical_sources
-                            if (reduction := read_reduction(stage)) is not None
-                        )
-                    ),
-                    (),
-                    (),
-                    None,
-                    preparation_checks=preparation,
-                    inputs=tuple(dependencies),
-                    parameters=tuple(dependencies.values()),
-                    native_reads=logical_sources,
-                    unique_keys=result.unique_keys.project(
-                        tuple(column.slot_id for column in output_columns), {result.value: slot}
-                    ),
-                )
-                replacements.append(source)
-                reads.append(LoweredRead(identifier, expression, checks))
-                values = [value for value in values if value not in selected]
-                values.append(
-                    FormulaInput(
-                        path,
-                        identifier,
-                        output_columns[len(keys)],
-                        result.zero_when_absent,
-                        result.checks,
-                        keys,
-                        tuple(
-                            group
-                            for group in selected[0].key_groups
-                            if all(key in keys for key in group)
-                        ),
-                    )
-                )
-                removed.update(value.stage_id for value in selected)
-                decisions.append(
-                    RuleDecision(
-                        "source_sample_reduction",
-                        "adopted",
-                        tuple(value.stage_id for value in selected),
-                        "Completed sample Metric, exact domain and qualified reducer execute on one source owner.",
-                    )
-                )
-                return
-            except SampleReductionUnavailableError as error:
-                decisions.append(
-                    RuleDecision(
-                        "source_sample_reduction",
-                        "refused",
-                        tuple(value.stage_id for value in selected),
-                        error.received or "sample relation is unavailable",
-                    )
-                )
-            # A local explicit parent may supply keys with no source rows.
-            # Its child must finish against that completed domain.
-            if sample_population(node.samples) is not None:
-                return
-            remaining = tuple(
-                group for group in selected[0].key_groups if not all(key in keys for key in group)
-            )
-            count = (
-                len(node.samples)
-                if isinstance(node.samples, tuple)
-                else len(node.samples.axes)
-                if not isinstance(node.samples, (Grain, FieldCalendarSample))
-                else 1
-            )
-            child_keys = (*keys, *(key for group in remaining[:count] for key in group))
-            operands = (node.operand,) if isinstance(node, PerReduce) else (node.value, node.weight)
-            for index, child in enumerate(operands):
-                visit(child, (*path, index), child_keys)
-
+        candidates = SampleCandidates(
+            prepared, lowered, original, program, sources, reads, decisions, list(program.values)
+        )
         for index, (_, node) in enumerate(program.outputs):
-            visit(node, (index,), original.keys)
+            candidates.visit(node, (index,), original.keys)
+        values = candidates.values
+        replacements, removed = candidates.replacements, candidates.removed
         if not replacements:
             continue
         adopted = True
@@ -452,6 +120,16 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
         reads = [read for read in reads if read.stage_id not in removed]
     if not adopted:
         return lowered
+    return _publish_sample_plan(lowered, stages, reads, checks_by_id, decisions)
+
+
+def _publish_sample_plan(
+    lowered: LoweredQuery,
+    stages: list[QueryStage],
+    reads: list[LoweredRead],
+    checks_by_id: dict[str, SourceReadStage],
+    decisions: list[RuleDecision],
+) -> LoweredQuery:
     by_id = {**{stage.stage_id: stage for stage in stages}, **checks_by_id}
     retained: set[str] = set()
 
@@ -544,8 +222,6 @@ def _membership_checks(
     for binding in program.populations:
         if binding.definition in roots:
             collect(binding.stage_id)
-
-    from marivo.analysis.materialization.query_key_fusion import _population_check_summary
 
     checks = []
     for source in lowered.plan.stages:

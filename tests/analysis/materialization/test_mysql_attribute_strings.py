@@ -3,6 +3,7 @@
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
+import ibis
 import pandas as pd
 import pytest
 
@@ -235,7 +236,6 @@ def test_mysql_attribute_source_condition_keeps_native_equality(string_case: Cas
 def test_mysql_attribute_string_equality_preserves_sql_nulls(
     string_case: Case, mysql_port: int
 ) -> None:
-    import ibis
 
     table = string_case.session.bind(string_case.source, source_identity="native-equality").relation
     equal = table.category == "a"

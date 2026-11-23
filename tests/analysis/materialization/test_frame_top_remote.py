@@ -14,6 +14,9 @@ from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
+from tests.datasource.environment import mysql_analysis as mysql
+from tests.datasource.environment import postgres_analysis as postgres
+from tests.datasource.environment import trino_analysis as trino
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
@@ -118,14 +121,10 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
             assert fixed.top(0, by=fixed["score"]).compute().to_pandas().empty
         assert trace.returned_rows == []
         if backend == "postgres":
-            from tests.datasource.environment import postgres_analysis as postgres
-
             assert isinstance(case.source, TableSourceIR)
             with postgres.connection(admin=True) as admin:
                 admin.execute(f"DELETE FROM public.{case.source.table}")
         elif backend == "trino":
-            from tests.datasource.environment import trino_analysis as trino
-
             assert isinstance(case.source, TableSourceIR)
             with trino.connection(admin=True, catalog="iceberg") as admin:
                 admin.cursor().execute(
@@ -330,7 +329,6 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
         ):
             result = session.observe({"total": total}, where=mv.in_population(domain))
             assert result.compute().to_pandas()["total"].tolist() == [expected]
-        from tests.datasource.environment import mysql_analysis as mysql
 
         assert isinstance(case.source, TableSourceIR)
         with mysql.connection(admin=True) as admin, admin.cursor() as cursor:

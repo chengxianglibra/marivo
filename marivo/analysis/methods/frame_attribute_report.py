@@ -16,26 +16,28 @@ from marivo.analysis.core.attribute import (
     AttributeInputError,
     AttributeMethodPayload,
 )
-from marivo.analysis.core.frame_method_facts import (
-    FrameAdditiveMethod,
-    FrameAttributeMetric,
-    FrameDivisionMethod,
+from marivo.analysis.core.data_validation import stage_arrow_type
+from marivo.analysis.core.frame_level_facts import (
     FrameLevelAdditiveMethod,
     FrameLevelDivisionMethod,
     FrameLevelLinearMethod,
     FrameLevelRatioMethod,
+    _LevelMethod,
+)
+from marivo.analysis.core.frame_method_facts import (
+    FrameAdditiveMethod,
+    FrameAttributeMetric,
+    FrameDivisionMethod,
     FrameLinearMethod,
     FrameMethodParent,
     FrameRatioMethod,
     FrameShapleyMethod,
     _key_order,
-    _LevelMethod,
     _Method,
 )
 from marivo.analysis.core.frozen_calendar import frozen_key_rows
-from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
+from marivo.analysis.methods.attribute_numeric import _numeric_binary, _Value
 from marivo.analysis.methods.carriers.stages import StageOutput, source_columns
-from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary, _Value
 from marivo.analysis.model.attribute_failures import (
     AttributeClosureWitness,
     AttributeFailureContext,
@@ -301,54 +303,11 @@ def _closure(
         )
 
 
-def report_attribute(
-    program: AttributeContributionProgram,
-    rows: pd.DataFrame,
-    payload: AttributeMethodPayload,
-    parent: StageOutput,
-    report_schema: DataSchema,
-    *,
-    paired_parent_methods: tuple[_Method, ...] = (),
-    level_methods: tuple[
-        FrameLevelAdditiveMethod
-        | FrameLevelRatioMethod
-        | FrameLevelLinearMethod
-        | FrameLevelDivisionMethod,
-        ...,
-    ] = (),
-) -> tuple[pd.DataFrame, AttributeMethodPayload]:
-    """Bind original parent observations, fresh totals and all report paths by exact keys."""
+def _report_target(
+    program: AttributeContributionProgram, report_schema: DataSchema
+) -> FrameMethodTarget:
     target = program.operation.target
     assert target is not None
-    level = target.mode == "level"
-    parent_schema = program.input_program.parent_schema
-    parent_columns = tuple(column for axis in parent_schema.axes for column in axis.columns)
-    parent_keys = tuple(frozen_key_rows(parent.table, parent_columns))
-    if target.mode == "relative":
-        for index, parent_method in enumerate(paired_parent_methods):
-            if parent_method.right.value != 0:
-                continue
-            key = repr(parent_keys[index])[:256]
-            reject(
-                "a nonzero complete-parent baseline for a defined relative target",
-                f"{'.'.join(target.path)}: baseline=0; parent={key}",
-                "Check the baseline time window and source retention/filter conditions. Select the absolute comparison output, or filter parents with a valid nonzero baseline before requesting attribution.",
-                "frame.attribute",
-                canonical_id="analysis_frame.attribute",
-            )
-    old = dict(zip(program.output_schema.value_paths, program.output_schema.values, strict=True))
-    output = dict(zip(report_schema.value_paths, report_schema.values, strict=True))
-    total_path = ("total", *target.path)
-    contribution_path = ("contribution", *target.path)
-    observed_path = ("observed_total", *target.path)
-    share_path = ("contribution_share", *target.path)
-    parent_indices = {key: index for index, key in enumerate(parent_keys)}
-    fine_keys = tuple(frozen_key_rows(rows, parent_columns))
-    fine_indices = tuple(parent_indices[key] for key in fine_keys)
-    original = parent_schema.values[target.observed]
-    observed_column = output[observed_path]
-    observed = _report_value(_Value(parent.table[original.slot_id], original), observed_column)
-    result = rows.loc[:, list(report_schema.key_fields)].copy()
     mappings = [
         FrameMethodOutput("contribution", ("contribution", *target.path)),
         FrameMethodOutput("total", ("total", *target.path)),
@@ -417,7 +376,88 @@ def report_attribute(
     }
     for path in report_schema.presence_paths:
         mappings.append(presence_mapping[path[1]])
-    descriptor = FrameMethodTarget(target.path, target.mode, tuple(mappings))
+    return FrameMethodTarget(target.path, target.mode, tuple(mappings))
+
+
+def _report_diagnostics(
+    result: pd.DataFrame,
+    rows: pd.DataFrame,
+    report_schema: DataSchema,
+    old: dict[tuple[str, ...], DataColumn],
+    output: dict[tuple[str, ...], DataColumn],
+    denominator: _Value | None,
+) -> None:
+    for path in report_schema.value_paths[4:]:
+        if path[0] == "effect":
+            source_role = "effect_" + path[1]
+        elif path[0] == "detail":
+            source_role = {
+                "value": "left",
+                "current": "left",
+                "baseline": "right",
+                "absolute": "absolute",
+            }[path[1]]
+        else:
+            endpoint, component = path[1:3]
+            source_role = (
+                component + "_" + ("left" if endpoint in ("value", "current") else "right")
+            )
+        source_column = source_columns(rows, (old[(source_role, "target")],))[0]
+        emitted = _Value(rows[source_column.slot_id], source_column)
+        if path[0] == "effect" and denominator is not None:
+            emitted = _numeric_binary("div", emitted, denominator, output=output[path].dtype)
+        result[output[path].slot_id] = _report_value(emitted, output[path]).values
+
+
+def report_attribute(
+    program: AttributeContributionProgram,
+    rows: pd.DataFrame,
+    payload: AttributeMethodPayload,
+    parent: StageOutput,
+    report_schema: DataSchema,
+    *,
+    paired_parent_methods: tuple[_Method, ...] = (),
+    level_methods: tuple[
+        FrameLevelAdditiveMethod
+        | FrameLevelRatioMethod
+        | FrameLevelLinearMethod
+        | FrameLevelDivisionMethod,
+        ...,
+    ] = (),
+) -> tuple[pd.DataFrame, AttributeMethodPayload]:
+    """Bind original parent observations, fresh totals and all report paths by exact keys."""
+    target = program.operation.target
+    assert target is not None
+    level = target.mode == "level"
+    parent_schema = program.input_program.parent_schema
+    parent_columns = tuple(column for axis in parent_schema.axes for column in axis.columns)
+    parent_keys = tuple(frozen_key_rows(parent.table, parent_columns))
+    if target.mode == "relative":
+        for index, parent_method in enumerate(paired_parent_methods):
+            if parent_method.right.value != 0:
+                continue
+            key = repr(parent_keys[index])[:256]
+            reject(
+                "a nonzero complete-parent baseline for a defined relative target",
+                f"{'.'.join(target.path)}: baseline=0; parent={key}",
+                "Check the baseline time window and source retention/filter conditions. Select the absolute comparison output, or filter parents with a valid nonzero baseline before requesting attribution.",
+                "frame.attribute",
+                canonical_id="analysis_frame.attribute",
+            )
+    old = dict(zip(program.output_schema.value_paths, program.output_schema.values, strict=True))
+    output = dict(zip(report_schema.value_paths, report_schema.values, strict=True))
+    total_path = ("total", *target.path)
+    contribution_path = ("contribution", *target.path)
+    observed_path = ("observed_total", *target.path)
+    share_path = ("contribution_share", *target.path)
+    parent_indices = {key: index for index, key in enumerate(parent_keys)}
+    fine_keys = tuple(frozen_key_rows(rows, parent_columns))
+    fine_indices = tuple(parent_indices[key] for key in fine_keys)
+    original = parent_schema.values[target.observed]
+    observed_column = output[observed_path]
+    observed = _report_value(_Value(parent.table[original.slot_id], original), observed_column)
+    result = rows.loc[:, list(report_schema.key_fields)].copy()
+    descriptor = _report_target(program, report_schema)
     methods: list[_Method | _LevelMethod] = []
     paired_methods: list[_Method] = []
     totals: list[FrameMethodValue] = []
@@ -467,26 +507,7 @@ def report_attribute(
         result[share_column.slot_id] = shares.values
     else:
         result[share_column.slot_id] = rows[old[("contribution_share", "target")].slot_id]
-    for path in report_schema.value_paths[4:]:
-        if path[0] == "effect":
-            source_role = "effect_" + path[1]
-        elif path[0] == "detail":
-            source_role = {
-                "value": "left",
-                "current": "left",
-                "baseline": "right",
-                "absolute": "absolute",
-            }[path[1]]
-        else:
-            endpoint, component = path[1:3]
-            source_role = (
-                component + "_" + ("left" if endpoint in ("value", "current") else "right")
-            )
-        source_column = source_columns(rows, (old[(source_role, "target")],))[0]
-        emitted = _Value(rows[source_column.slot_id], source_column)
-        if path[0] == "effect" and denominator is not None:
-            emitted = _numeric_binary("div", emitted, denominator, output=output[path].dtype)
-        result[output[path].slot_id] = _report_value(emitted, output[path]).values
+    _report_diagnostics(result, rows, report_schema, old, output, denominator)
     for column, source in zip(report_schema.presence, program.output_schema.presence, strict=False):
         result[column.slot_id] = rows[source.slot_id]
     parents = []
@@ -515,7 +536,7 @@ def report_attribute(
             methods[index],
             replace(observed_value, column=observed_column),
             totals[index],
-            tuple(mappings),
+            descriptor.outputs,
             "zero_total" if totals[index].value == 0 else "defined",
         )
         parents.append(

@@ -29,9 +29,13 @@ from marivo._definition.types import (
 from marivo._kernel.temporal import InstantAnchor
 from marivo.analysis.binding.membership import membership_reads
 from marivo.analysis.compiler.member_version import prepare_version_filter
+from marivo.analysis.compiler.observation import calendar_field
 from marivo.analysis.compiler.predicate import population_key
 from marivo.analysis.compiler.source_predicates import string_bytes
-from marivo.analysis.materialization.population_preparation import _domain_table, prepare_population
+from marivo.analysis.compiler.source_time import temporal_bound
+from marivo.analysis.materialization.population_domains import PrepareDomain, _domain_table
+from marivo.analysis.materialization.population_relations import traverse_membership_paths
+from marivo.analysis.model.errors import reject
 from marivo.analysis.model.time_facts import FrameSourceTime
 from marivo.semantic.spi import (
     CompiledSemanticState,
@@ -76,6 +80,7 @@ def prepare_condition_memberships(
     state: CompiledSemanticState,
     *,
     field_value: Callable[[str, ir.Table], ir.Value],
+    prepare_domain: PrepareDomain,
     source_times: list[FrameSourceTime],
 ) -> tuple[ir.Table, tuple[tuple[str, str], ...]]:
     """Classify every fact once while retaining the condition's original input domain."""
@@ -95,7 +100,7 @@ def prepare_condition_memberships(
         for domain in condition_populations(condition):
             if domain in marks:
                 continue
-            selected = prepare_population(domain, entities, state)
+            selected = prepare_domain(domain)
             index = len(marks)
             marker = f"__predicate_present_{index}"
             while marker in table.columns:
@@ -171,9 +176,6 @@ def prepare_condition_memberships(
                 zip(domain.axes, selected.key_groups, strict=True)
             ):
                 if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
-                    from marivo.analysis.compiler.observation import calendar_field
-                    from marivo.analysis.model.errors import reject
-
                     if contribution.time is None:
                         reject(
                             "a contribution clock for time coordinates in in_population",
@@ -206,8 +208,6 @@ def prepare_condition_memberships(
                         inputs.add(slot)
                         buckets = carrier[slot]
                     else:
-                        from marivo.analysis.compiler.observation import temporal_bound
-
                         target = allowed[renamed[group[0]]]
                         cells = population_time_ranges(axis)
                         inputs.add(clock)
@@ -299,7 +299,6 @@ def _related_columns(
     source_times: list[FrameSourceTime],
 ) -> tuple[ir.Table, dict[int, tuple[str, ...]], set[str]]:
     """Attach witnesses to a detached relation, sharing rows for anchored path prefixes."""
-    from marivo.analysis.materialization.population_relations import traverse_membership_paths
 
     groups: dict[InstantAnchor | None, list[tuple[int, PathParameter, FieldRead | None]]] = {}
     for index, (path, field) in related.items():

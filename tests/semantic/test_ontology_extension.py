@@ -11,6 +11,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.ontology as mo
 import marivo.semantic as ms
+from marivo._kernel.refs import ref as internal_ref
 from marivo.ontology.errors import (
     InvalidOntologyRefError,
     InvalidSemanticEdgeError,
@@ -194,7 +195,6 @@ def test_relation_constructors_enforce_roles_context_and_symmetric_identity(tmp_
 
 
 def test_ontology_endpoints_reject_composite_and_private_ref_inputs() -> None:
-    from marivo._kernel.refs import ref as internal_ref
 
     for invalid in (ms.ref.metric("sales.revenue") + 1, internal_ref.metric("sales.revenue")):
         with pytest.raises(InvalidOntologyRefError):

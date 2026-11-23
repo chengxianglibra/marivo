@@ -1,13 +1,16 @@
 """Typed PostgreSQL array keys preserve complete tuples without predicate expansion."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import ibis
 import ibis.expr.operations as ops
+import pandas as pd
 import pytest
 
 from marivo.analysis.materialization.query_parameters import instantiate
-from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType, TimestampDataType
 from marivo.datasource.runtime.read_types import PhysicalRequirement
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.query_keys import integer_string_keys as _keys
@@ -98,12 +101,6 @@ def test_array_key_relation_preserves_large_integer_nulls_and_tuple_correlation(
 def test_timestamp_keys_preserve_char_padding_and_native_infinity(
     backend: str, profile: str, weight: float, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from datetime import datetime, timezone
-
-    import pandas as pd
-
-    from marivo.analysis.methods.carriers.stages import StageOutput
-    from marivo.analysis.model.data_types import TimestampDataType
 
     data = SourceData(
         "id BIGINT, point TIMESTAMPTZ, tenant CHAR(4), weight DOUBLE PRECISION",

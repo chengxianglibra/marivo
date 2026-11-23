@@ -23,6 +23,8 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo._definition.types import LiteralValue
+from marivo._kernel.numeric_types import bind_numeric_literal
+from marivo.analysis.core.value_normalization import physical_expression
 from marivo.analysis.model.data_types import (
     DataType,
     DecimalDataType,
@@ -96,8 +98,6 @@ def expression_value(
 ) -> ir.Value:
     """Resolve only the finite result grammar over typed scalar placeholders."""
     if isinstance(expression, ValueShare):
-        from marivo.analysis.core.frame_expression import physical_expression
-
         return expression_value(
             physical_expression(expression, len(keys)),
             values,
@@ -124,8 +124,6 @@ def expression_value(
         if isinstance(expression.value, timedelta) and expression.value == timedelta(0):
             return ibis.interval(0, unit="us")
         if type(expression.value) is int and not -(2**63) <= expression.value < 2**63:
-            from decimal import Decimal
-
             digits = len(str(abs(expression.value)))
             if digits > 38:
                 reject(
@@ -135,7 +133,6 @@ def expression_value(
                     "Query.prepare",
                 )
             return ibis.literal(Decimal(expression.value), type=f"decimal({digits},0)")
-        from marivo._kernel.numeric_types import bind_numeric_literal
 
         literal = expression.value
         if for_type_inference and isinstance(literal, pd.Timestamp) and literal.nanosecond:

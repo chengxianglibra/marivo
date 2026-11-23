@@ -11,26 +11,30 @@ import pytest
 import marivo.analysis as mv
 from marivo._help.render import render_help_text
 from marivo.analysis._help_specs.manifest import assemble, prepare
-from marivo.analysis.core.frame_method_facts import (
-    FrameAdditiveMethod,
-    FrameAttributeMetric,
-    FrameDivisionMethod,
+from marivo.analysis.core.frame_level_facts import (
     FrameLevelAdditiveMethod,
     FrameLevelDivisionMethod,
     FrameLevelLinearMethod,
     FrameLevelLinearTerm,
     FrameLevelRatioMethod,
     FrameLevelSupport,
+)
+from marivo.analysis.core.frame_method_facts import (
+    FrameAdditiveMethod,
+    FrameAttributeMetric,
+    FrameDivisionMethod,
     FrameLinearMethod,
     FrameLinearTerm,
     FrameMethodCoordinate,
     FrameMethodParent,
     FrameMethodSupport,
     FrameRatioMethod,
+    FrameShapleyMethod,
+)
+from marivo.analysis.core.frame_shapley_facts import (
     FrameShapleyCapture,
     FrameShapleyGame,
     FrameShapleyLeaf,
-    FrameShapleyMethod,
     FrameShapleyNativeQuantile,
     FrameShapleyQuantile,
     FrameShapleyQuery,
@@ -43,6 +47,7 @@ from marivo.analysis.model.errors import DatasetRegistrationError
 from marivo.analysis.model.help_contracts import ANALYSIS_HELP_RENDER_BUDGETS
 from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
 from marivo.analysis.model.method_values import FrameMethodValue
+from marivo.analysis.session.core import Session
 from marivo.cli import main
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 from tests.support.documentation import _example as documentation_example
@@ -84,7 +89,6 @@ def test_analysis_root_example_discovers_and_reads_sparse_daily_revenue(
 
 
 def test_observe_routes_identity_audit_details_to_source_checks() -> None:
-    from marivo.analysis.session.core import Session
 
     for target in ("analysis.session.observe", Session.observe):
         text = render_help_text(target)[0]

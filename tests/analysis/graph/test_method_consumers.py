@@ -8,6 +8,7 @@ from typing import Literal, TypeAlias
 
 import ibis
 import pytest
+from pymysql.cursors import Cursor
 
 from marivo._kernel.refs import RefPayloadV1, ref
 from marivo.analysis.compiler.source_time import source_time
@@ -16,6 +17,7 @@ from marivo.datasource.runtime.adapters import provider_for
 from marivo.datasource.runtime.read_types import PhysicalRequirement
 from marivo.datasource.runtime.session_factory import open_source_session
 from marivo.semantic.ir import TargetDimensionContract, TimestampParse
+from tests.datasource.environment import clickhouse_analysis as ch
 from tests.datasource.source_cases import SourceData, source_case
 from tests.shared_fixtures import declared_test_timezone
 
@@ -24,7 +26,6 @@ from tests.shared_fixtures import declared_test_timezone
 def test_clickhouse_physical_utc_window_is_independent_of_session_timezone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tests.datasource.environment import clickhouse_analysis as ch
 
     data = SourceData(
         "id BIGINT, happened TIMESTAMP",
@@ -94,7 +95,6 @@ def test_mysql_reader_initialization_failure_is_typed_and_releases_connection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from pymysql.cursors import Cursor
 
     with source_case("mysql", "table", tmp_path, monkeypatch) as case:
         original = Cursor.execute

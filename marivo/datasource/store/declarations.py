@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import fields as dataclass_fields
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 from marivo._authoring.loading import _current_source_loading_file
 from marivo._kernel.config import (
@@ -53,7 +53,7 @@ def require_project_config(project_root: Path) -> ProjectConfig:
         ) from exc
 
 
-def _literal(value: Any) -> str:
+def _literal(value: object) -> str:
     if isinstance(value, EnvRef):
         return f"md.env({value.name!r})"
     return repr(value)
@@ -87,14 +87,14 @@ def _write_datasource_file(
     declared_names = {
         f.name for f in dataclass_fields(spec) if f.name not in ("fields", "env_refs")
     }
-    declared_kwargs: dict[str, Any] = {}
-    extra_kwargs: dict[str, Any] = {}
+    declared_kwargs: dict[str, object] = {}
+    extra_kwargs: dict[str, object] = {}
     for key, value in spec.fields.items():
         if key in declared_names:
             declared_kwargs[key] = value
         else:
             extra_kwargs[key] = value
-    kwargs: dict[str, Any] = {"name": spec.name, **declared_kwargs}
+    kwargs: dict[str, object] = {"name": spec.name, **declared_kwargs}
     if spec.wall_clock_timezone is not None:
         kwargs["wall_clock_timezone"] = spec.wall_clock_timezone
     if not isinstance(spec, DuckDBSpec):
@@ -109,13 +109,13 @@ def _write_datasource_file(
     ]
     constructor_line = len(lines) + 1
     lines.append(f"md.{func_name}(")
-    for key, value in kwargs.items():
+    for key, argument in kwargs.items():
         if key == "secrets" and isinstance(spec, DuckDBSpec):
             lines.append(
                 "    secrets=[" + ", ".join(secret_literal(item) for item in spec.secrets) + "],"
             )
         else:
-            lines.append(f"    {key}={_literal(value)},")
+            lines.append(f"    {key}={_literal(argument)},")
     if ai_context_call is not None:
         lines.append(f"    ai_context={ai_context_call},")
     lines.append(")")

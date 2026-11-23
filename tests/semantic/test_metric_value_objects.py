@@ -5,8 +5,9 @@ from typing import Literal
 import pytest
 
 import marivo.semantic as ms
+from marivo._help.render import render_help_text
 from marivo.semantic import authoring
-from marivo.semantic.errors import ErrorKind, SemanticDecoratorError
+from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, SemanticExpressionError
 
 
 def test_status_time_policy_keeps_fixed_axis() -> None:
@@ -33,7 +34,6 @@ def test_additivity_builders_accept_positional_axes_and_unpacked_collections() -
 def test_additivity_builders_require_nonempty_unique_native_axes(
     kind: Literal["over", "except"],
 ) -> None:
-    from marivo._help.render import render_help_text
 
     builder = ms.additive_over if kind == "over" else ms.additive_except
     with pytest.raises(SemanticDecoratorError) as empty:
@@ -54,7 +54,6 @@ def test_additivity_builders_require_nonempty_unique_native_axes(
 
 
 def test_metric_global_additivity_requires_reauthoring() -> None:
-    from marivo.semantic.errors import SemanticExpressionError
 
     with pytest.raises(SemanticExpressionError) as caught:
         authoring.metric(entities=[ms.ref.entity("sales.orders")], additivity=ms.additive_all())  # type: ignore[call-arg]  # Reject retired keywords.
@@ -63,7 +62,6 @@ def test_metric_global_additivity_requires_reauthoring() -> None:
 
 
 def test_metric_global_status_fold_requires_explicit_sample_reduction() -> None:
-    from marivo.semantic.errors import SemanticExpressionError
 
     with pytest.raises(SemanticExpressionError) as caught:
         authoring.metric(  # type: ignore[call-arg]  # Reject retired keywords.

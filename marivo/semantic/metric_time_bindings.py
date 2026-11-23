@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from marivo.semantic._deferred_semantics import MetricFacts
+from marivo.semantic._deferred_facts import MetricFacts
 from marivo.semantic._formula_display import FormulaDisplay
 from marivo.semantic.catalog_entries import (
     MetricContributionClockBinding,

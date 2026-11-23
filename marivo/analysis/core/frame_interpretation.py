@@ -2,16 +2,42 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
-from decimal import Decimal
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from dataclasses import replace
+from datetime import date, timedelta
+from typing import TYPE_CHECKING, Literal
 
+import pandas as pd
 import pyarrow as pa
 
+from marivo._definition.query import (
+    FilterValues,
+    PairStatistic,
+    ReduceValues,
+    SelectValues,
+    Statistic,
+    TopValues,
+    ValuePartition,
+    ValueShare,
+    ValueSlot,
+)
+from marivo.analysis.core.arrow_keys import FrameKeyScalar
+from marivo.analysis.core.frame_fix import validate_fixed_key
+from marivo.analysis.core.frame_operations import FixFrameValues
+from marivo.analysis.core.frozen_calendar import frozen_key_table
+from marivo.analysis.model.data_schema import (
+    CalendarComparisonBinding,
+    CalendarDataAxis,
+    DataAlignment,
+    DataAxis,
+    DataComparison,
+    IntervalComparisonBinding,
+    IntervalDataAxis,
+    PairedDataAxis,
+)
 from marivo.analysis.model.frame_facts import (
     _invalid,
 )
-from marivo.analysis.model.frozen_keys import register_native_key_types
+from marivo.analysis.model.frame_schema import capture_axis, capture_comparisons, comparison_id
 from marivo.analysis.model.layout_facts import (
     FrameAlignmentAxis,
     FrameAlignmentCoordinate,
@@ -31,6 +57,7 @@ from marivo.analysis.model.layout_facts import (
     FrameValueContext,
     FrameValueInput,
 )
+from marivo.analysis.model.lineage import expression_lineage
 from marivo.analysis.model.time_facts import (
     FrameAxisTime,
     FrameComparedTime,
@@ -40,26 +67,11 @@ from marivo.analysis.model.time_facts import (
     FrameOrdinaryAxisSchema,
     merge_source_times,
 )
-
-FrameKeyScalar: TypeAlias = (
-    bool
-    | str
-    | int
-    | float
-    | Decimal
-    | pa.Date32Scalar
-    | pa.TimestampScalar
-    | pa.DurationScalar
-    | None
-)
-
-
-register_native_key_types((pa.Date32Scalar, pa.TimestampScalar, pa.DurationScalar))
+from marivo.analysis.model.value_time import unary_time_semantics
 
 
 def restrict_context(context: FrameValueContext) -> FrameValueContext:
     """Restrict represented statistics without recomputing any numeric value."""
-    from dataclasses import replace
 
     return (
         replace(context, row_scope="restricted")
@@ -76,7 +88,6 @@ def remap_context(
     comparisons: dict[str, str] | None = None,
 ) -> FrameValueContext | None:
     """Keep only explanations whose current references have an exact local binding."""
-    from dataclasses import replace
 
     if isinstance(context, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext)):
 
@@ -118,17 +129,6 @@ def capture_value_inputs(
     operation: FrameUnaryOperationKind,
 ) -> LogicalSchema:
     """Capture new explanation inputs once, while the original logical input is available."""
-    from dataclasses import replace
-
-    from marivo._definition.query import (
-        PairStatistic,
-        ReduceValues,
-        SelectValues,
-        ValuePartition,
-        ValueShare,
-        ValueSlot,
-    )
-    from marivo.analysis.model.lineage import expression_lineage
 
     if not isinstance(operation, (SelectValues, ReduceValues)):
         return output
@@ -184,7 +184,6 @@ def transport_alignments(
     fixed: tuple[FrameFixedAxis, ...],
 ) -> tuple[DataAlignment, ...]:
     """Transport representable local relations through an actual binary endpoint mapping."""
-    from marivo.analysis.model.data_schema import DataAlignment, PairedDataAxis
 
     axes = {a.token: a for a in output.axes}
     values = {v.name for v in output.values}
@@ -221,29 +220,116 @@ def transport_alignments(
     return tuple(result)
 
 
+def _fix_axis_facts(
+    schema: LogicalSchema, output: LogicalSchema, operation: FixFrameValues
+) -> tuple[
+    dict[str, FrameValueContext],
+    tuple[FrameFixedAxis, ...],
+    tuple[DataAlignment, ...],
+    tuple[DataComparison, ...],
+    tuple[FrameDecomposition, ...],
+]:
+    contexts = dict(schema.value_contexts)
+    fixed = schema.fixed_axes
+    alignments = schema.alignments
+    comparisons = output.comparisons
+    decompositions = schema.decompositions
+    axis = schema.axes[operation.position]
+    description = capture_axis(axis)
+    assert isinstance(description, FrameOrdinaryAxisSchema)
+    exact = validate_fixed_key(axis, operation.key)
+    if exact is not None and isinstance(axis, DataAxis):
+        table = frozen_key_table(axis.columns, (exact,))
+        scalars = tuple(pa.array(table[c.slot_id])[0] for c in axis.columns)
+    else:
+        scalars = tuple(
+            pa.array(pd.Series([v]))[0] if isinstance(v, (date, timedelta)) else pa.scalar(v)
+            for v in operation.key
+        )
+    key: tuple[FrameKeyScalar, ...] = tuple(
+        v if isinstance(v, (pa.Date32Scalar, pa.TimestampScalar, pa.DurationScalar)) else v.as_py()
+        for v in scalars
+    )
+    selected = FrameFixedAxis(description, key, operation.origins)
+    fixed = (*fixed, selected)
+
+    def fixed_side(side: FrameAlignmentSide) -> FrameAlignmentSide:
+        return replace(
+            side,
+            coordinates=tuple(
+                FrameFixedGroup(selected)
+                if isinstance(c, FrameAlignmentAxis) and c.axis_token == axis.token
+                else c
+                for c in side.coordinates
+            ),
+        )
+
+    alignments = tuple(
+        replace(a, left=fixed_side(a.left), right=fixed_side(a.right)) for a in alignments
+    )
+
+    def groups(items: tuple[FrameGroup, ...]) -> tuple[FrameGroup, ...]:
+        return tuple(
+            FrameFixedGroup(selected)
+            if isinstance(g, FrameAxisGroup) and g.axis_token == axis.token
+            else g
+            for g in items
+        )
+
+    def fixed_context(context: FrameValueContext | None) -> FrameValueContext | None:
+        if isinstance(context, FrameShareContext):
+            return replace(
+                context,
+                groups=groups(context.groups),
+                along=groups(context.along),
+                row_scope="restricted"
+                if any(
+                    isinstance(g, FrameAxisGroup) and g.axis_token == axis.token
+                    for g in context.along
+                )
+                else context.row_scope,
+            )
+        if isinstance(context, FramePairStatisticContext):
+            return replace(
+                context,
+                groups=groups(context.groups),
+                row_scope=context.row_scope
+                if any(
+                    isinstance(g, FrameAxisGroup) and g.axis_token == axis.token
+                    for g in context.groups
+                )
+                else "restricted",
+            )
+        return (
+            replace(context, groups=groups(context.groups))
+            if isinstance(context, FrameStatisticContext)
+            else context
+        )
+
+    contexts = {n: c for n, value in contexts.items() if (c := fixed_context(value)) is not None}
+    comparisons = tuple(
+        replace(
+            f, contexts=tuple((p, fixed_context(a), fixed_context(b)) for p, a, b in f.contexts)
+        )
+        for f in comparisons
+    )
+    decompositions = tuple(
+        replace(
+            d,
+            groups=groups(d.groups),
+            row_scope=d.row_scope
+            if any(isinstance(g, FrameAxisGroup) and g.axis_token == axis.token for g in d.groups)
+            else "restricted",
+        )
+        for d in decompositions
+    )
+    return contexts, fixed, alignments, comparisons, decompositions
+
+
 def unary_facts(
     schema: LogicalSchema, output: LogicalSchema, operation: FrameUnaryOperationKind
 ) -> LogicalSchema:
     """Propagate current facts with the exact expression/axis correspondence."""
-    from dataclasses import replace
-    from datetime import date
-
-    import pandas as pd
-
-    from marivo._definition.query import (
-        FilterValues,
-        ReduceValues,
-        SelectValues,
-        Statistic,
-        TopValues,
-        ValuePartition,
-        ValueSlot,
-    )
-    from marivo.analysis.core.frame_fix import FixFrameValues, validate_fixed_key
-    from marivo.analysis.core.frozen_calendar import frozen_key_table
-    from marivo.analysis.model.data_schema import DataAxis
-    from marivo.analysis.model.frame_schema import capture_axis, comparison_id
-    from marivo.analysis.model.value_time import unary_time_semantics as unary_time_semantics
 
     contexts = dict(schema.value_contexts)
     fixed = schema.fixed_axes
@@ -251,100 +337,8 @@ def unary_facts(
     alignments = schema.alignments
     comparisons = output.comparisons
     if isinstance(operation, FixFrameValues):
-        axis = schema.axes[operation.position]
-        description = capture_axis(axis)
-        assert isinstance(description, FrameOrdinaryAxisSchema)
-        exact = validate_fixed_key(axis, operation.key)
-        if exact is not None and isinstance(axis, DataAxis):
-            table = frozen_key_table(axis.columns, (exact,))
-            scalars = tuple(pa.array(table[c.slot_id])[0] for c in axis.columns)
-        else:
-            scalars = tuple(
-                pa.array(pd.Series([v]))[0] if isinstance(v, (date, timedelta)) else pa.scalar(v)
-                for v in operation.key
-            )
-        key: tuple[FrameKeyScalar, ...] = tuple(
-            v
-            if isinstance(v, (pa.Date32Scalar, pa.TimestampScalar, pa.DurationScalar))
-            else v.as_py()
-            for v in scalars
-        )
-        selected = FrameFixedAxis(description, key, operation.origins)
-        fixed = (*fixed, selected)
-
-        def fixed_side(side: FrameAlignmentSide) -> FrameAlignmentSide:
-            return replace(
-                side,
-                coordinates=tuple(
-                    FrameFixedGroup(selected)
-                    if isinstance(c, FrameAlignmentAxis) and c.axis_token == axis.token
-                    else c
-                    for c in side.coordinates
-                ),
-            )
-
-        alignments = tuple(
-            replace(a, left=fixed_side(a.left), right=fixed_side(a.right)) for a in alignments
-        )
-
-        def groups(items: tuple[FrameGroup, ...]) -> tuple[FrameGroup, ...]:
-            return tuple(
-                FrameFixedGroup(selected)
-                if isinstance(g, FrameAxisGroup) and g.axis_token == axis.token
-                else g
-                for g in items
-            )
-
-        def fixed_context(context: FrameValueContext | None) -> FrameValueContext | None:
-            if isinstance(context, FrameShareContext):
-                return replace(
-                    context,
-                    groups=groups(context.groups),
-                    along=groups(context.along),
-                    row_scope="restricted"
-                    if any(
-                        isinstance(g, FrameAxisGroup) and g.axis_token == axis.token
-                        for g in context.along
-                    )
-                    else context.row_scope,
-                )
-            if isinstance(context, FramePairStatisticContext):
-                return replace(
-                    context,
-                    groups=groups(context.groups),
-                    row_scope=context.row_scope
-                    if any(
-                        isinstance(g, FrameAxisGroup) and g.axis_token == axis.token
-                        for g in context.groups
-                    )
-                    else "restricted",
-                )
-            return (
-                replace(context, groups=groups(context.groups))
-                if isinstance(context, FrameStatisticContext)
-                else context
-            )
-
-        contexts = {
-            n: c for n, value in contexts.items() if (c := fixed_context(value)) is not None
-        }
-        comparisons = tuple(
-            replace(
-                f, contexts=tuple((p, fixed_context(a), fixed_context(b)) for p, a, b in f.contexts)
-            )
-            for f in comparisons
-        )
-        decompositions = tuple(
-            replace(
-                d,
-                groups=groups(d.groups),
-                row_scope=d.row_scope
-                if any(
-                    isinstance(g, FrameAxisGroup) and g.axis_token == axis.token for g in d.groups
-                )
-                else "restricted",
-            )
-            for d in decompositions
+        contexts, fixed, alignments, comparisons, decompositions = _fix_axis_facts(
+            schema, output, operation
         )
     elif isinstance(operation, (FilterValues, TopValues)):
         contexts = {n: restrict_context(c) for n, c in contexts.items()}
@@ -386,7 +380,6 @@ def unary_facts(
                 )
         contexts = selected_contexts
         if isinstance(operation, SelectValues):
-            from marivo.analysis.model.data_schema import DataAlignment
 
             def selected_side(side: FrameAlignmentSide) -> FrameAlignmentSide:
                 retained_names = {n for old in side.values for n in direct.get(old, ())}
@@ -463,13 +456,12 @@ def unary_facts(
 
 if TYPE_CHECKING:
     from marivo._definition.query import ValueExpression
-    from marivo.analysis.core.frame_expression import (
+    from marivo.analysis.core.frame_operations import (
         AlignFrameValues,
         CompareFrameValues,
         FrameAttributeTarget,
         FrameUnaryOperationKind,
     )
-    from marivo.analysis.model.data_schema import DataAlignment
     from marivo.analysis.model.frame_schema import LogicalSchema
     from marivo.analysis.model.lineage import FrameLineage
 
@@ -478,15 +470,6 @@ def comparison_facts(
     inputs: tuple[LogicalSchema, ...], output: LogicalSchema, operation: CompareFrameValues
 ) -> LogicalSchema:
     """Bind actual comparison endpoints before old relations can obscure their meaning."""
-    from dataclasses import replace
-
-    from marivo.analysis.model.data_schema import (
-        CalendarComparisonBinding,
-        CalendarDataAxis,
-        IntervalComparisonBinding,
-        IntervalDataAxis,
-    )
-    from marivo.analysis.model.frame_schema import comparison_id
 
     current = inputs[0]
     contexts: dict[str, FrameValueContext] = {}
@@ -628,10 +611,6 @@ def align_facts(
     left: LogicalSchema, right: LogicalSchema, output: LogicalSchema, operation: AlignFrameValues
 ) -> LogicalSchema:
     """Transport only local current contexts and common fixed choices through align."""
-    from dataclasses import replace
-
-    from marivo.analysis.model.data_schema import DataAlignment, PairedDataAxis
-    from marivo.analysis.model.frame_schema import capture_comparisons, comparison_id
 
     result: list[tuple[str, FrameValueContext]] = []
     alignments: list[DataAlignment] = []
@@ -721,14 +700,10 @@ def decomposition_facts(
     fields: tuple[FrameDecompositionField, ...],
 ) -> LogicalSchema:
     """Attach roles from actual output construction, never from a historical method record."""
-    from dataclasses import replace
-
-    from marivo.analysis.model.frame_schema import comparison_id
 
     observed = parent.value_paths[target.observed]
     name = ".".join(target.path)
     current_target: FrameLevelTarget | FrameChangeTarget
-    from marivo.analysis.model.data_schema import DataComparison
 
     comparisons: tuple[DataComparison, ...] = ()
     if target.mode == "level":

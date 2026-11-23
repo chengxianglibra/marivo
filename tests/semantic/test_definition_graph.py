@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from dataclasses import fields, is_dataclass
+from datetime import date, timedelta
 from decimal import Decimal, localcontext
 
 import pytest
 from ibis.common.deferred import const, var
 
+from marivo._definition import graph, graph_encoding
 from marivo._definition.deferred import resolver_of
 from marivo._definition.expressions import (
     ContributionFilter,
@@ -28,6 +31,7 @@ from marivo._definition.graph import (
     definition_fingerprint,
     walk,
 )
+from marivo._definition.graph_traversal import _is_node
 from marivo._definition.observation_time import ContributionClockBinding
 from marivo._definition.observations import SampleWindowContext
 from marivo._definition.relations import (
@@ -45,8 +49,11 @@ from marivo._definition.types import (
     Owner,
     SumAll,
     SumAllExcept,
+    invalid,
+    literal_token,
 )
-from marivo._kernel.refs import ref
+from marivo._kernel.refs import Ref, ref
+from marivo._kernel.temporal import Grain
 
 ORDERS = ExactRef(ref.entity("sales.orders"), "v1")
 PAID_AT = ExactRef(ref.time_dimension("sales.orders.paid_at"), "v1")
@@ -372,14 +379,6 @@ def test_definition_layer_imports_no_semantic_analysis_or_engine_modules() -> No
 def test_encoded_fingerprints_match_original_recursive_canonical_encoder(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from dataclasses import fields, is_dataclass
-    from datetime import date, timedelta
-
-    from marivo._definition import graph, graph_encoding
-    from marivo._definition.graph_traversal import _is_node
-    from marivo._definition.types import invalid, literal_token
-    from marivo._kernel.refs import Ref
-    from marivo._kernel.temporal import Grain
 
     original_names: dict[type[object], str] = {
         ContributionClockBinding: "TimeBinding",

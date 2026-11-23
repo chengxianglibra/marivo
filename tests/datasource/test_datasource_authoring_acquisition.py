@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import cast, get_type_hints
@@ -11,12 +12,13 @@ import ibis
 import ibis.expr.types as ir
 import pyarrow as pa
 import pytest
+from ibis.backends.duckdb import Backend
 
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._kernel.render import AgentResult
 from marivo.datasource.errors import DatasourceAuthoringError, DatasourceFieldInvalidError
-from marivo.datasource.inspection.source import SourceInspection
+from marivo.datasource.inspection.source import SourceInspection, _preflight_scope
 from marivo.datasource.metadata_types import ColumnMetadata, PartitionMetadata
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.datasource.runtime.read_types import CompiledRead
@@ -236,7 +238,6 @@ def test_projected_sample_missing_table_capability_is_structured_before_executio
             return None
 
     backend = NoLookupBackend()
-    from marivo.datasource.runtime.adapters import SourceSession
 
     monkeypatch.setattr(
         "marivo.datasource.inspection.snapshot.open_source_session",
@@ -493,7 +494,6 @@ def test_source_resolution_failure_is_structured_and_disconnects(
             self.disconnected = True
 
     backend = Backend()
-    from marivo.datasource.runtime.adapters import SourceSession
 
     monkeypatch.setattr(
         "marivo.datasource.inspection.snapshot.open_source_session",
@@ -523,7 +523,6 @@ def test_execution_failure_is_structured_redacted_and_disconnects(
     inspection: SourceInspection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from ibis.backends.duckdb import Backend
 
     class ExecutionError(RuntimeError):
         code = 107
@@ -598,7 +597,6 @@ def test_compilation_failure_does_not_claim_a_sampling_query(
     ],
 )
 def test_scope_input_errors_have_current_typed_repairs(call: object, target: str) -> None:
-    from collections.abc import Callable
 
     with pytest.raises(DatasourceFieldInvalidError) as captured:
         cast("Callable[[], object]", call)()
@@ -757,7 +755,6 @@ def test_time_range_accepts_raw_clickhouse_temporal_type_spellings(
     inspection: SourceInspection,
     clickhouse_type: str,
 ) -> None:
-    from marivo.datasource.inspection.source import _preflight_scope
 
     transformed = replace(
         inspection,

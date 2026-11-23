@@ -24,6 +24,7 @@ from marivo.datasource.engines.base import (
     quote_identifier as quote_identifier,
 )
 from marivo.datasource.engines.query import EngineQueryPolicy, QueryDialectProfile
+from marivo.datasource.errors import DatasourceBackendTypeUnsupportedError, repair
 
 DEFAULT_BACKEND_TYPE = "duckdb"
 SUPPORTED_BACKEND_TYPES: tuple[str, ...] = (
@@ -69,7 +70,6 @@ def profile_for_backend_type(backend_type: str) -> EngineProfile | None:
 
 
 def require_profile_for_backend_type(backend_type: str) -> EngineProfile:
-    from marivo.datasource.errors import DatasourceBackendTypeUnsupportedError, repair
 
     profile = profile_for_backend_type(backend_type)
     if profile is None:

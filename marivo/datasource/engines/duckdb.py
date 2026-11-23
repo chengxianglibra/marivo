@@ -6,7 +6,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from typing import Any
 from urllib.parse import urlsplit
 
 import ibis
@@ -203,7 +202,7 @@ def install_credentials(
     if not isinstance(metadata, list):
         raise TypeError("Secret metadata must be a list")
     scopes: list[tuple[str, tuple[tuple[str, str], ...]]] = []
-    from duckdb import TransactionException
+    from duckdb import TransactionException  # noqa: PLC0415  # Optional DuckDB transport.
 
     installed: list[str] = []
     disconnect = backend.disconnect
@@ -382,7 +381,6 @@ def connect_owned(
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
-    import ibis
 
     path = kwargs.get("path", ":memory:")
     connect_kwargs: dict[str, object] = dict(kwargs)
@@ -409,7 +407,7 @@ def connection_conflict(exc: Exception) -> bool:
 
 
 def _duckdb_rows(
-    backend: Any, statement_id: str, values: Mapping[str, object] = {}
+    backend: BaseBackend, statement_id: str, values: Mapping[str, object] = {}
 ) -> tuple[dict[str, object], ...]:
     return execute_provider_statement(
         backend, PROFILE, statement_id, values=values, purpose="datasource.metadata.duckdb"
@@ -456,10 +454,10 @@ def uncollated_original_input(
 def _inspect_duckdb(
     *,
     datasource: str,
-    backend: Any,
+    backend: BaseBackend,
     table: str,
     database: str | tuple[str, ...] | None,
-    table_expr: Any,
+    table_expr: ir.Table,
     include_partitions: bool,
 ) -> TableMetadata:
 

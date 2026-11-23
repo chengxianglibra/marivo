@@ -38,7 +38,8 @@ from marivo.datasource.spi import (
     aggregate_repair_action,
     native_aggregate,
 )
-from marivo.semantic._deferred_semantics import MetricFacts, consume_metric
+from marivo.semantic._deferred_facts import MetricFacts
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._numeric_duration import recipe_duration
 from marivo.semantic._numeric_lowering import (
     lower_metric_formula,

@@ -14,7 +14,7 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     SourceMetric,
 )
-from marivo.analysis.core.frame_expression import NamedFrameComparison
+from marivo.analysis.core.frame_operations import NamedFrameComparison
 
 
 @dataclass(frozen=True, slots=True)

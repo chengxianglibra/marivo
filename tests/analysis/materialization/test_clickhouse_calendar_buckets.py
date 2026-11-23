@@ -13,7 +13,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.grouping import grouping_binding
 from marivo._definition.types import IntervalCoordinate
-from marivo.analysis.materialization.graph_source_execution import _bind_attribute_calendar
+from marivo.analysis.materialization.attribute_source_preparation import _bind_attribute_calendar
 from marivo.analysis.model.time_facts import FrameCalendarAxisSchema
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject

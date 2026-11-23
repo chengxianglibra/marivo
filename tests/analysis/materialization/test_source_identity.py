@@ -7,10 +7,10 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.compiler.graph_plan import plan_query
 from marivo.analysis.compiler.optimization import optimize_query
+from marivo.analysis.compiler.query_planning import plan_query
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
-from marivo.analysis.materialization.graph_source_execution import open_query_sources
+from marivo.analysis.materialization.query_sources import open_query_sources
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model

@@ -21,6 +21,8 @@ from marivo._kernel.temporal import CalendarAxis, TimeScope
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import QualifiedSource
+from marivo.semantic.errors import SourceTimezoneMissing
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, frozen_coordinates, terminal_runs
 from tests.support.paths import PROJECT_ROOT
@@ -301,7 +303,6 @@ def test_exact_mean_qualification_missing_still_rejects_before_run(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from marivo.datasource.runtime.read_types import QualifiedSource
 
     _project(tmp_path, monkeypatch, semantic_project_factory)
     session = mv.session.get_or_create("no-fallback", timezone="Asia/Shanghai")
@@ -345,8 +346,6 @@ def test_missing_source_timezone_rejects_before_business_read(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    import marivo.semantic as ms
-    from marivo.semantic.errors import SourceTimezoneMissing
 
     _project(tmp_path, monkeypatch, semantic_project_factory, read_zone=None)
     datasource_path = tmp_path / "models/datasources/warehouse.py"

@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
@@ -141,7 +142,6 @@ def test_native_top_drill_returns_only_selected_group_values(
 def test_source_original_preserves_parent_numeric_contract_after_empty_selection(
     original_session: Session, failure: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
 
     session = original_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
@@ -366,7 +366,6 @@ def test_source_share_finishes_exact_integer_division_on_host(
 def test_source_original_does_not_deduplicate_or_admit_invalid_identity(
     original_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
 
     session = original_session
     with duckdb.connect(str(session.project_root / "original.duckdb")) as connection:

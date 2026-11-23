@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -15,8 +16,36 @@ from types import SimpleNamespace
 
 import pytest
 
+import marivo
 import marivo.analysis as mv
+import marivo.datasource as md
+import marivo.ontology as mo
+import marivo.semantic as ms
+from marivo._help import render
+from marivo._help import render as help_render
+from marivo._help.model import MarivoHelpSurfaceError, MarivoHelpTargetError
+from marivo._kernel import execution_log as _execution_log
+from marivo._kernel import execution_log as log
 from marivo._kernel.compat import UTC
+from marivo._kernel.symbolic import native_symbol_ref
+from marivo.analysis import coordinates
+from marivo.analysis._help_specs.manifest import REGISTRY
+from marivo.analysis._help_specs.manifest import REGISTRY as ANALYSIS_REGISTRY
+from marivo.analysis.materialization.layout import MaterializationLayout
+from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.model.disclosure import CallableInput, NavigationInput
+from marivo.cli import init_project, main
+from marivo.cli.doctor import DoctorReport
+from marivo.datasource._help_specs.manifest import REGISTRY as DATASOURCE_REGISTRY
+from marivo.datasource.errors import DatasourceConnectionError, DatasourceMissingError
+from marivo.introspection.live.reflect import import_registered_callable
+from marivo.ontology._help_specs.manifest import REGISTRY as ONTOLOGY_REGISTRY
+from marivo.semantic._help_specs.manifest import REGISTRY as SEMANTIC_REGISTRY
+from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
+from marivo.telemetry import sink, traced, track_operation
+from marivo.telemetry.config import _LOAD_POLICY
+from marivo.telemetry.context import _CURRENT_OPERATION, _Operation
+from marivo.telemetry.sanitizer import _session_creation_attributes
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 from tests.support.execution_logs import execution_records
 from tests.support.paths import PROJECT_ROOT
@@ -91,7 +120,6 @@ def telemetry_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterat
 
 
 def test_track_operation_writes_correlated_v3_pair(telemetry_project: Path) -> None:
-    from marivo.telemetry import track_operation
 
     session = SimpleNamespace(
         id="sess_test",
@@ -127,7 +155,6 @@ def test_track_operation_writes_correlated_v3_pair(telemetry_project: Path) -> N
 def test_default_mode_omits_successful_lightweight_calls_and_keeps_failures(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import traced
 
     monkeypatch.setenv("MARIVO_TELEMETRY", "on")
 
@@ -166,7 +193,6 @@ def test_default_mode_omits_successful_lightweight_calls_and_keeps_failures(
 def test_default_mode_short_and_long_operations_keep_only_actionable_events(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import traced
 
     monkeypatch.setenv("MARIVO_TELEMETRY", "on")
 
@@ -203,7 +229,6 @@ def test_default_mode_short_and_long_operations_keep_only_actionable_events(
 def test_default_mode_records_datasource_connections_as_pairs(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import traced
 
     monkeypatch.setenv("MARIVO_TELEMETRY", "on")
 
@@ -227,7 +252,6 @@ def test_default_mode_records_datasource_connections_as_pairs(
 def test_track_operation_records_structured_error_without_message(
     telemetry_project: Path,
 ) -> None:
-    from marivo.telemetry import track_operation
 
     with (
         pytest.raises(ValueError),
@@ -250,7 +274,6 @@ def test_track_operation_records_structured_error_without_message(
 def test_nested_operations_link_parent_and_suppress_same_capability_delegate(
     telemetry_project: Path,
 ) -> None:
-    from marivo.telemetry import traced
 
     @traced(surface="analysis", operation="child", kind="read")
     def child(*, project_root: Path, fail: bool = False) -> str:
@@ -290,14 +313,10 @@ def test_nested_operations_link_parent_and_suppress_same_capability_delegate(
 def test_load_tracks_project_root_without_internal_ref_events(
     telemetry_project: Path,
 ) -> None:
-    import marivo.semantic as ms
-    from marivo.telemetry import traced
 
     @traced(surface="semantic", operation="load", kind="callable")
     def load(*, workspace_dir: Path) -> object:
         return ms.ref.entity("sales.orders")
-
-    from marivo._kernel.symbolic import native_symbol_ref
 
     loaded = load(workspace_dir=telemetry_project)
     expected = ms.ref.entity("sales.orders")
@@ -309,7 +328,6 @@ def test_load_tracks_project_root_without_internal_ref_events(
 def test_explicitly_disabled_telemetry_skips_wrapped_capabilities(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import traced
 
     @traced(surface="semantic", operation="load", kind="callable")
     def load(*, workspace_dir: Path) -> Path:
@@ -322,8 +340,6 @@ def test_explicitly_disabled_telemetry_skips_wrapped_capabilities(
 def test_restored_session_suppresses_successful_internal_load_declarations(
     telemetry_project: Path,
 ) -> None:
-    from marivo.analysis.materialization.store import SessionStore
-    from marivo.telemetry import traced
 
     SessionStore(telemetry_project).create_session(
         "demo",
@@ -435,11 +451,6 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
 def test_session_creation_attributes_reads_only_current_generation(
     tmp_path: Path, generation: str
 ) -> None:
-    import sqlite3
-
-    from marivo.analysis.materialization.layout import MaterializationLayout
-    from marivo.analysis.materialization.store import SessionStore
-    from marivo.telemetry.sanitizer import _session_creation_attributes
 
     if generation == "current":
         SessionStore(tmp_path).create_session(
@@ -484,7 +495,6 @@ def test_session_creation_attributes_reads_only_current_generation(
 def test_sensitive_inputs_are_excluded_but_goal_and_identifiers_are_kept(
     telemetry_project: Path,
 ) -> None:
-    from marivo.telemetry import traced
 
     @traced(
         surface="datasource",
@@ -532,7 +542,6 @@ def test_sensitive_inputs_are_excluded_but_goal_and_identifiers_are_kept(
 def test_free_text_collections_are_shape_only_and_closed_options_are_kept(
     telemetry_project: Path,
 ) -> None:
-    from marivo.telemetry import traced
 
     @traced(
         surface="semantic",
@@ -619,7 +628,6 @@ def test_named_session_recovery_does_not_report_question_rewrite(
 def test_failed_session_resume_does_not_disclose_identity(
     telemetry_project: Path,
 ) -> None:
-    from marivo.analysis.materialization.store import SessionStore
 
     SessionStore(telemetry_project)
     identity = "private-session-name"
@@ -689,9 +697,6 @@ def test_failed_session_question_update_reports_not_applied(
 def test_datasource_raw_sql_failure_keeps_reason_and_structured_repair(
     telemetry_project: Path,
 ) -> None:
-    import marivo.datasource as md
-    import marivo.semantic as ms
-    from marivo.datasource.errors import DatasourceMissingError
 
     with pytest.raises(DatasourceMissingError):
         md.raw_sql(
@@ -713,8 +718,6 @@ def test_datasource_raw_sql_failure_keeps_reason_and_structured_repair(
 def test_unified_help_failure_is_tracked_as_one_global_operation(
     telemetry_project: Path,
 ) -> None:
-    import marivo
-    from marivo._help.model import MarivoHelpTargetError
 
     with pytest.raises(MarivoHelpTargetError):
         help_call = marivo.help
@@ -731,7 +734,6 @@ def test_unified_help_failure_is_tracked_as_one_global_operation(
 
 
 def test_ontology_load_failure_records_the_owned_repair(telemetry_project: Path) -> None:
-    import marivo.ontology as mo
 
     with pytest.raises(mo.errors.InvalidOntologyRefError):
         mo.load(semantic=None)  # type: ignore[arg-type]  # Exercise untyped caller validation.
@@ -749,9 +751,6 @@ def test_unified_help_surface_failure_is_tracked_separately(
     telemetry_project: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import marivo
-    from marivo._help import render as help_render
-    from marivo._help.model import MarivoHelpSurfaceError
 
     def fail(_target: object = None) -> tuple[str, str, str | None]:
         raise RuntimeError("synthetic renderer failure")
@@ -773,7 +772,6 @@ def test_unified_help_surface_failure_is_tracked_separately(
 
 
 def test_result_summary_links_artifact_and_consumption(telemetry_project: Path) -> None:
-    from marivo.telemetry import traced
 
     meta = SimpleNamespace(
         ref="frame_123",
@@ -814,7 +812,6 @@ def test_result_summary_links_artifact_and_consumption(telemetry_project: Path) 
 def test_method_consumption_records_receiver_artifact_identity(
     telemetry_project: Path,
 ) -> None:
-    from marivo.telemetry import traced
 
     meta = SimpleNamespace(
         ref="frame_123",
@@ -852,7 +849,6 @@ def test_method_consumption_records_receiver_artifact_identity(
 def test_failed_default_stage_is_recorded_without_exception_message(
     telemetry_project: Path,
 ) -> None:
-    from marivo.telemetry import traced
 
     @traced(
         surface="semantic",
@@ -873,7 +869,6 @@ def test_failed_default_stage_is_recorded_without_exception_message(
 
 
 def test_cli_init_system_exit_writes_failure_completion(telemetry_project: Path) -> None:
-    from marivo.cli import init_project
 
     (telemetry_project / "marivo.toml").write_text("this is not valid [[toml", encoding="utf-8")
     with pytest.raises(SystemExit) as exc_info:
@@ -894,8 +889,6 @@ def test_cli_help_batch_records_each_failure_and_one_failed_command(
     capsys: pytest.CaptureFixture[str],
     render_failure: bool,
 ) -> None:
-    from marivo._help import render
-    from marivo.cli import main
 
     original = render.render_help_text
 
@@ -930,7 +923,6 @@ def test_cli_help_batch_records_each_failure_and_one_failed_command(
 
 
 def test_concurrent_appends_remain_valid_jsonl(telemetry_project: Path) -> None:
-    from marivo.telemetry import track_operation
 
     def emit(index: int) -> None:
         with track_operation(
@@ -950,7 +942,6 @@ def test_concurrent_appends_remain_valid_jsonl(telemetry_project: Path) -> None:
 
 def _emit_writer_event(event_name: str, *, family: str, intent: str, project_root: Path) -> None:
     """Exercise the writer directly; native operation coverage owns instrumentation."""
-    from marivo.telemetry import sink
 
     sink._write_entry(
         project_root,
@@ -965,7 +956,6 @@ def _emit_writer_event(event_name: str, *, family: str, intent: str, project_roo
 def test_event_files_roll_by_utc_day(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import sink
 
     timestamps = iter(
         [
@@ -998,7 +988,6 @@ def test_event_files_roll_by_utc_day(
 def test_event_files_roll_when_size_limit_would_be_exceeded(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import sink
 
     monkeypatch.setattr(sink, "_MAX_EVENT_FILE_BYTES", 1)
     _emit_writer_event(
@@ -1026,7 +1015,6 @@ def test_event_files_roll_when_size_limit_would_be_exceeded(
 def test_historical_retention_prunes_managed_segments_only(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import sink
 
     directory = telemetry_project / ".marivo" / "telemetry"
     directory.mkdir(parents=True)
@@ -1054,7 +1042,6 @@ def test_historical_retention_prunes_managed_segments_only(
 def test_historical_files_are_pruned_to_size_limit(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import sink
 
     directory = telemetry_project / ".marivo" / "telemetry"
     directory.mkdir(parents=True)
@@ -1079,7 +1066,6 @@ def test_historical_files_are_pruned_to_size_limit(
 def test_cleanup_failure_does_not_mark_written_event_as_dropped(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.telemetry import sink
 
     real_prune = sink._prune_historical_files
 
@@ -1153,7 +1139,6 @@ def test_telemetry_enablement_precedence(
     setting: str,
     cases: tuple[tuple[str | None, bool], ...],
 ) -> None:
-    from marivo.telemetry import track_operation
 
     for index, (environment, enabled) in enumerate(cases):
         project_root = telemetry_project / f"case-{index}"
@@ -1177,12 +1162,6 @@ def test_telemetry_enablement_precedence(
 
 
 def test_registry_callables_are_telemetry_covered() -> None:
-    from marivo.analysis._help_specs.manifest import REGISTRY as ANALYSIS_REGISTRY
-    from marivo.analysis.model.disclosure import CallableInput
-    from marivo.datasource._help_specs.manifest import REGISTRY as DATASOURCE_REGISTRY
-    from marivo.introspection.live.reflect import import_registered_callable
-    from marivo.ontology._help_specs.manifest import REGISTRY as ONTOLOGY_REGISTRY
-    from marivo.semantic._help_specs.manifest import REGISTRY as SEMANTIC_REGISTRY
 
     for registry in (ANALYSIS_REGISTRY, DATASOURCE_REGISTRY, ONTOLOGY_REGISTRY, SEMANTIC_REGISTRY):
         for spec in registry.specs:
@@ -1206,8 +1185,6 @@ def test_registry_callables_are_telemetry_covered() -> None:
 def test_public_dsl_operators_emit_completion_events(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis._help_specs.manifest import REGISTRY
-    from marivo.analysis.model.disclosure import NavigationInput
 
     monkeypatch.setenv("MARIVO_TELEMETRY", "on")
     case = analysis_dsl_case_factory("j1")
@@ -1418,7 +1395,6 @@ def test_invalid_frame_signature_keeps_receiver_context(
 def test_public_frame_execution_emits_one_pair_per_explicit_call(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.errors import DatasourceConnectionError
 
     monkeypatch.setenv("MARIVO_TELEMETRY", "on")
     case = analysis_dsl_case_factory("j1")
@@ -1538,8 +1514,6 @@ assert not any("._help_specs" in name or "._capabilities" in name for name in sy
 def test_execution_logs_share_operation_identity_without_disclosing_sql_to_telemetry(
     telemetry_project: Path,
 ) -> None:
-    from marivo._kernel import execution_log as _execution_log
-    from marivo.telemetry import traced
 
     @traced(
         surface="datasource",
@@ -1563,11 +1537,6 @@ def test_execution_logs_share_operation_identity_without_disclosing_sql_to_telem
 def test_disabled_load_preserves_execution_context_and_resets_after_failure(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch, environment_off: bool
 ) -> None:
-    from marivo._kernel import execution_log as _execution_log
-    from marivo.telemetry import traced
-    from marivo.telemetry.config import _LOAD_POLICY
-    from marivo.telemetry.context import _CURRENT_OPERATION
-    from tests.support.execution_logs import execution_records
 
     if environment_off:
         monkeypatch.setenv("MARIVO_TELEMETRY", "off")
@@ -1607,8 +1576,6 @@ def test_disabled_load_preserves_execution_context_and_resets_after_failure(
 def test_operation_captures_execution_context_once(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo._kernel import execution_log as log
-    from marivo.telemetry.context import _Operation
 
     snapshot = log.snapshot
     captured: list[log.ExecutionContext] = []
@@ -1631,9 +1598,6 @@ def test_operation_captures_execution_context_once(
 def test_operation_scope_preserves_root_parent_annotations_and_exception_cleanup(
     telemetry_project: Path, enabled: bool, same_root: bool
 ) -> None:
-    from marivo._kernel import execution_log as log
-    from marivo.telemetry.context import _CURRENT_OPERATION, _Operation
-    from tests.support.execution_logs import execution_records
 
     root = telemetry_project if same_root else telemetry_project / "other"
     root.mkdir(exist_ok=True)
@@ -1675,7 +1639,6 @@ def test_operation_scope_preserves_root_parent_annotations_and_exception_cleanup
 def test_successful_surface_root_help_does_not_write_events(
     telemetry_project: Path,
 ) -> None:
-    import marivo
 
     help_call = marivo.help
     assert callable(help_call)
@@ -1688,8 +1651,6 @@ def test_dataset_contract_render_does_not_instrument_shared_semantic_show(
     telemetry_project: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.analysis import coordinates
-    from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
 
     report = ReadinessReport(
         _analysis_ready_inputs=(),
@@ -1712,8 +1673,6 @@ def test_successful_cli_help_and_read_only_doctor_do_not_write_events(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.cli import main
-    from marivo.cli.doctor import DoctorReport
 
     report = DoctorReport(
         status="ok",

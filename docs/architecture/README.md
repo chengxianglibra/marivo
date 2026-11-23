@@ -12,7 +12,7 @@
 | Datasource | [连接与凭据](datasource/README.md)、[物理来源与执行](datasource/sources-and-execution.md)、[发现与证据](datasource/discovery.md) |
 | Semantic | [总览](semantic/overview.md)、[对象模型](semantic/semantic-object-model.md)、[表达式](semantic/expressions.md)、[加载与验证](semantic/loading-validation-introspection.md)、[编写工作流](semantic/authoring-workflow.md)、[业务时间数据](semantic/temporal-authority.md) |
 | Analysis | [分析架构](analysis/README.md)：Population、来源观察、Frame 运算、执行与持久化 |
-| 跨模块契约 | [时间语义](temporal-semantics.md)、[Agent 公共界面](agent-friendly-public-surface.md) |
+| 跨模块契约 | [架构边界与静态检查](architecture-boundaries.md)、[时间语义](temporal-semantics.md)、[Agent 公共界面](agent-friendly-public-surface.md) |
 | API 参考 | [Sphinx 源文件](../api/)；具体调用以当前安装版本的 Live Help 为准 |
 
 ```text
@@ -27,26 +27,6 @@ datasource: connection / source / scoped evidence
 `marivo.datasource`、`marivo.semantic` 和 `marivo.analysis` 分别拥有物理访问、业务含义和
 分析求值。固定 Frame 的后续数据操作不重新加载原语义定义或访问原来源。
 项目运行状态位于 `.marivo/`；凭据配置与保存边界见 Datasource 文档。
-
-## 静态导入边界
-
-[导入契约](../../.importlinter) 为所有顶层包声明层位，并检查 `TYPE_CHECKING` 下的导入。
-`marivo._kernel` 持有引用、路径事实、时间和输出等共享原语。`marivo._definition`
-在内核之上定义惰性计算与依赖身份，允许使用 Ibis 表达式。`_kernel`、`_definition`
-和 `_authoring` 的同级模块须保持无环。
-
-`marivo.cli` 协调命令，`marivo.cli.doctor` 归集诊断。`_help` 通过各域的 Help
-接口解析和渲染。Analysis 的 Help 注册表直接通过目标域验证带域名的链接，
-因此无需依赖顶层 Help 路由。
-
-跨域调用使用公开入口和明确的服务提供接口。Datasource SPI 提供来源元数据、会话和方言策略。
-Semantic SPI 提供已编译定义、表达式绑定与只读 Catalog 投影。HTTP v2 通过 Analysis
-的 Session 读取 SPI 枚举和打开已提交结果，沿用现有 Store 校验、分页与游标契约。
-Semantic 内的校验、表达式、目录索引和检索模块都受同级无环契约约束。
-[Datasource SPI](../../marivo/datasource/spi.py) ·
-[Semantic SPI](../../marivo/semantic/spi.py) ·
-[Analysis 读取 SPI](../../marivo/analysis/session/read_spi.py) ·
-[导入契约](../../.importlinter)
 
 ## 文档边界
 

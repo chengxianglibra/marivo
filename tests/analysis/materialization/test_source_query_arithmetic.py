@@ -12,6 +12,19 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition.query import (
+    FilterValues,
+    SelectValues,
+    TopValues,
+    ValueBinary,
+    ValueLiteral,
+    ValueSlot,
+    ValueUnary,
+)
+from marivo.analysis.compiler.query_program import FrameProgram
+from marivo.analysis.methods.query_values import evaluate_frame
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_source_query_numeric import _data
 from tests.analysis.numeric.test_remote_numeric_query import _project
@@ -227,18 +240,6 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
         assert actual["facts"].tolist() == (
             [("t4", 4)] if operation == "filter" else [("t4", 4), ("t5", 5)]
         )
-        from marivo._definition.query import (
-            FilterValues,
-            TopValues,
-            ValueBinary,
-            ValueLiteral,
-            ValueSlot,
-            ValueUnary,
-        )
-        from marivo.analysis.compiler.query_program import FrameProgram
-        from marivo.analysis.methods.frame_values import evaluate_frame
-        from marivo.analysis.model.data_schema import DataAxis, DataSchema
-        from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 
         schema = DataSchema(
             (DataAxis("id", (DataColumn("id", "id", ScalarDataType("int64"), False),), name="id"),),
@@ -290,11 +291,6 @@ def test_local_float_select_preserves_direct_values_and_checks_computed_outputs(
             if top_zero
             else actual["value"].iloc[0] == float("-inf" if negated else "inf")
         )
-        from marivo._definition.query import SelectValues, ValueSlot, ValueUnary
-        from marivo.analysis.compiler.query_program import FrameProgram
-        from marivo.analysis.methods.frame_values import evaluate_frame
-        from marivo.analysis.model.data_schema import DataSchema
-        from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 
         input_schema = DataSchema(
             (),
