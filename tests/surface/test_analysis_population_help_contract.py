@@ -5,8 +5,8 @@ from ibis.common.deferred import Deferred
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._help.render import render_help_text
-from marivo.analysis._capabilities.dataset_model import NavigationInput
 from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis.model.disclosure import NavigationInput
 from marivo.semantic._expression_values import MetricExpression, RowExpression
 from tests.shared_fixtures import DslCaseFactory
 

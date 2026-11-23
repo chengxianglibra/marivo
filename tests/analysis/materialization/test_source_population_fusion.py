@@ -12,7 +12,7 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_population_membership import _session
@@ -388,11 +388,11 @@ def test_source_check_batches_compile_as_one_summary_per_scope(dialect: str) -> 
 
     from marivo.analysis.compiler.graph_lowering import LoweredRead
     from marivo.analysis.compiler.graph_plan import ProjectionRead, QueryPlan, SourceReadStage
-    from marivo.analysis.core.data_types import DataColumn, ScalarDataType
     from marivo.analysis.materialization.query_key_fusion import (
         NativeQueryRelation,
         _attach_relation_checks,
     )
+    from marivo.analysis.model.data_types import DataColumn, ScalarDataType
     from marivo.semantic._numeric_lowering import NumericCheck
 
     table = ibis.table(
@@ -815,11 +815,11 @@ def test_check_witness_preserves_duckdb_collation_with_empty_output(collation_sc
 
     from marivo.analysis.compiler.graph_lowering import LoweredRead
     from marivo.analysis.compiler.graph_plan import NativeRead, QueryPlan, SourceReadStage
-    from marivo.analysis.core.data_types import DataColumn, ScalarDataType
     from marivo.analysis.materialization.query_key_fusion import (
         NativeQueryRelation,
         _attach_relation_checks,
     )
+    from marivo.analysis.model.data_types import DataColumn, ScalarDataType
     from marivo.semantic._numeric_lowering import NumericCheck
 
     connection = ibis.duckdb.connect(threads=1)

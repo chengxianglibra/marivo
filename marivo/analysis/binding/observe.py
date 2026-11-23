@@ -25,6 +25,7 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.graph import DefinitionNode, children, walk
+from marivo._definition.observation_time import ObservationPeriod as ObservationPeriod
 from marivo._definition.observations import (
     CalendarGrouping,
     SampleAxis,
@@ -35,7 +36,6 @@ from marivo._definition.observations import (
 )
 from marivo._definition.observations import ContributionBinding as ContributionBinding
 from marivo._definition.observations import ObservationBinding as ObservationBinding
-from marivo._definition.observations import ObservationPeriod as ObservationPeriod
 from marivo._definition.population_builders import membership_anchor
 from marivo._definition.relations import (
     MembershipBinding,
@@ -68,8 +68,8 @@ from marivo.analysis.binding.coordinates import (
     native_read,
 )
 from marivo.analysis.binding.membership import membership_reads
-from marivo.analysis.core.model import reject
-from marivo.analysis.observation.relationship_binding import RelationshipResolver
+from marivo.analysis.binding.relationship_binding import RelationshipResolver
+from marivo.analysis.model.errors import reject
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.expressions import _Resolver
 

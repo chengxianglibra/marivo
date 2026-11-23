@@ -18,8 +18,8 @@ from marivo.analysis.compiler.source_time import (
     source_time_comparison,
     source_time_predicate,
 )
-from marivo.analysis.core.time_authority import CivilDateSourceTime, WallClockSourceTime
 from marivo.analysis.materialization.temporal_sql import lower_temporal
+from marivo.analysis.model.time_authority import CivilDateSourceTime, WallClockSourceTime
 from marivo.semantic.ir import DateParse, HourPrefixParse, TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.shared_fixtures import declared_test_timezone

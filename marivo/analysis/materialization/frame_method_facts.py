@@ -6,24 +6,25 @@ from hashlib import sha256
 
 import pandas as pd
 
-from marivo.analysis.core.artifact_data import (
-    METHOD_PAYLOAD_SCHEMA,
-    OutputAttachment,
-    SavedAttachment,
-    SavedFrameMethodFacts,
-)
 from marivo.analysis.core.frame_method_facts import (
     FrameMethodCoordinate,
     FrameMethodFacts,
     FrameMethodParent,
 )
-from marivo.analysis.materialization.contracts import canonical_json, parse_json
+from marivo.analysis.materialization.contracts import parse_json
 from marivo.analysis.materialization.terminal_protocol import (
     decode_method_record,
     encode_method_record,
     invalid,
     method_facts_header,
 )
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.model.artifact_data import (
+    METHOD_PAYLOAD_SCHEMA,
+    SavedAttachment,
+    SavedFrameMethodFacts,
+)
+from marivo.analysis.model.receipts import canonical_json
 
 
 def _records(facts: FrameMethodFacts) -> tuple[str, ...]:

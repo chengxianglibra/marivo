@@ -34,6 +34,9 @@ from marivo._definition.query import (
 )
 from marivo._definition.types import RULE_VERSION, AxisBinding, Owner
 from marivo._kernel.refs import SemanticKind
+from marivo.analysis.binding.graph import BoundGraph
+from marivo.analysis.binding.programs import FormulaProgram
+from marivo.analysis.binding.signature import ResultQuantity
 from marivo.analysis.compiler.graph_plan import (
     AttributeRead,
     ComponentRead,
@@ -57,17 +60,13 @@ from marivo.analysis.compiler.graph_plan import (
     require_reduction,
     require_result,
 )
-from marivo.analysis.compiler.observation import FormulaProgram, common_slot
+from marivo.analysis.compiler.observation import common_slot
 from marivo.analysis.compiler.original import component_layout
 from marivo.analysis.compiler.query_program import ResultProgram
-from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.local_laws import (
-    query_selection_fusion_issue,
-)
-from marivo.analysis.core.model import ResultQuantity
 from marivo.analysis.core.value_types import ibis_type
-from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
+from marivo.analysis.model.data_types import DataColumn, DecimalDataType, ScalarDataType
+from marivo.analysis.model.kernels import QUERY_COMBINE_KERNEL
+from marivo.analysis.model.local_laws import query_selection_fusion_issue
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.graph_lowering import LoweredQuery

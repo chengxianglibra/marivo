@@ -7,15 +7,17 @@ from dataclasses import replace
 import pandas as pd
 
 from marivo._definition.graph import computation_fingerprint
-from marivo._definition.observations import CoordinateBinding, ObservationBinding, ObservationPeriod
+from marivo._definition.observation_time import ObservationPeriod
+from marivo._definition.observations import CoordinateBinding, ObservationBinding
 from marivo._definition.relations import ObserveQuery, PopulationDependency
 from marivo._definition.types import IntervalCoordinate
+from marivo.analysis.binding.graph import BoundGraph
+from marivo.analysis.binding.programs import FormulaProgram
+from marivo.analysis.binding.signature import BoundSignature
 from marivo.analysis.binding.windows import bind_windows
 from marivo.analysis.compiler.graph_plan import QueryPlan, checked_output
-from marivo.analysis.compiler.observation import FormulaProgram
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import BoundSignature, reject
-from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.errors import reject
 
 
 def domain_graph(graph: BoundGraph) -> BoundGraph:

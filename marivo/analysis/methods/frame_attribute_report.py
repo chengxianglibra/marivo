@@ -12,22 +12,10 @@ import pyarrow as pa
 
 from marivo.analysis.binding.attribute_rules import rule_effects
 from marivo.analysis.core.attribute import (
-    AttributeClosureWitness,
     AttributeContributionProgram,
-    AttributeFailureContext,
     AttributeInputError,
     AttributeMethodPayload,
-    AttributeParentFiber,
-    AttributeUseContext,
 )
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import (
-    DataColumn,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-)
-from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
@@ -37,10 +25,7 @@ from marivo.analysis.core.frame_method_facts import (
     FrameLevelLinearMethod,
     FrameLevelRatioMethod,
     FrameLinearMethod,
-    FrameMethodOutput,
     FrameMethodParent,
-    FrameMethodTarget,
-    FrameMethodValue,
     FrameRatioMethod,
     FrameShapleyMethod,
     _key_order,
@@ -48,9 +33,25 @@ from marivo.analysis.core.frame_method_facts import (
     _Method,
 )
 from marivo.analysis.core.frozen_calendar import frozen_key_rows
-from marivo.analysis.core.model import reject
-from marivo.analysis.materialization.graph_exchange import StageOutput, source_columns
+from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
+from marivo.analysis.methods.carriers.stages import StageOutput, source_columns
 from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary, _Value
+from marivo.analysis.model.attribute_failures import (
+    AttributeClosureWitness,
+    AttributeFailureContext,
+    AttributeParentFiber,
+    AttributeUseContext,
+)
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+)
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
+from marivo.analysis.model.method_values import FrameMethodValue
 from marivo.semantic._numeric_lowering import numeric_failure
 
 

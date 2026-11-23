@@ -10,27 +10,25 @@ from hashlib import sha256
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.core.artifact_data import DataSchema, OutputAttachment
-from marivo.analysis.core.data_schema import (
-    CalendarComparisonBinding,
-    CalendarDataAxis,
-    IntervalComparisonBinding,
-    IntervalDataAxis,
-    PairedDataAxis,
-)
-from marivo.analysis.core.data_types import (
-    DataColumn,
-    DurationDataType,
-    ScalarDataType,
-    TimestampDataType,
-)
-from marivo.analysis.core.data_validation import normalize_complete_frame
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     MemoryFrameBacking,
     StoredFrameBacking,
 )
-from marivo.analysis.core.frame_page import (
+from marivo.analysis.core.frozen_calendar import (
+    FrozenCalendarBucket,
+    FrozenCalendarDirectory,
+    FrozenComparisonAbsent,
+    FrozenIntervalBucket,
+    FrozenIntervalDirectory,
+    frozen_key_rows,
+    frozen_key_values,
+    read_calendar_records,
+    read_comparison_mapping,
+    read_interval_directory,
+    validate_paired_records,
+)
+from marivo.analysis.materialization.carriers.frame_page import (
     FrameCalendarPeriod,
     FrameComparisonPeriod,
     FrameIntervalPeriod,
@@ -43,31 +41,6 @@ from marivo.analysis.core.frame_page import (
     FrameReadStats,
     detached_rows,
 )
-from marivo.analysis.core.frame_schema import (
-    FrameAxisSchema,
-    FrameComparison,
-    capture_axis,
-    capture_comparisons,
-    comparison_id,
-    export_layout,
-    selected_columns,
-)
-from marivo.analysis.core.frozen_calendar import (
-    FrozenCalendarBucket,
-    FrozenCalendarDirectory,
-    FrozenComparisonAbsent,
-    FrozenIntervalBucket,
-    FrozenIntervalDirectory,
-    FrozenKey,
-    frozen_key_rows,
-    frozen_key_values,
-    read_calendar_records,
-    read_comparison_mapping,
-    read_interval_directory,
-    validate_paired_records,
-)
-from marivo.analysis.core.model import reject
-from marivo.analysis.materialization.contracts import digest
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_reading import (
     FramePreview,
@@ -77,6 +50,34 @@ from marivo.analysis.materialization.graph_reading import (
 from marivo.analysis.materialization.pandas_export import export_frame
 from marivo.analysis.materialization.terminal_protocol import invalid
 from marivo.analysis.materialization.terminal_storage import POLICY
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.methods.carriers.data_validation import normalize_complete_frame
+from marivo.analysis.model.data_schema import (
+    CalendarComparisonBinding,
+    CalendarDataAxis,
+    DataSchema,
+    IntervalComparisonBinding,
+    IntervalDataAxis,
+    PairedDataAxis,
+)
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_schema import (
+    FrameAxisSchema,
+    FrameComparison,
+    capture_axis,
+    capture_comparisons,
+    comparison_id,
+    export_layout,
+    selected_columns,
+)
+from marivo.analysis.model.frozen_keys import FrozenKey
+from marivo.analysis.model.receipts import digest
 
 
 def _cursor(binding: str, position: int) -> str:

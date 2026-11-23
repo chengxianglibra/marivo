@@ -12,9 +12,9 @@ from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.artifact_data import DataSchema
 from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.data_schema import DataSchema
 from tests.analysis.statistics.pandas_workflows import receipt_paths
 from tests.shared_fixtures import (
     DslCase,

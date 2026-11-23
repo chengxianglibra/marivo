@@ -5,6 +5,7 @@ import weakref
 
 import marivo.analysis as mv
 from marivo.analysis.core.frame_data import MemoryFrameBacking
+from marivo.analysis.dsl.frame import AnalysisFrame
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
@@ -75,6 +76,7 @@ def test_frame_key_dependencies_become_coordinate_only_checkpoints(
     assert completed._derivation is not None
     binding = completed._derivation.outputs[0].target.current.binding
     dependency = binding.frame_key_inputs[0].frame
+    assert isinstance(dependency, AnalysisFrame)
     assert dependency is not selected
     assert dependency._derivation is None
     assert isinstance(dependency._backing, MemoryFrameBacking)

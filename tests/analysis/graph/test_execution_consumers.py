@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.model.data_types import ScalarDataType
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.execution_fixtures import source_graph

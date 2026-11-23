@@ -9,8 +9,8 @@ from unittest.mock import patch
 import pytest
 
 from marivo.analysis.materialization import terminal_protocol
-from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.terminal_protocol import InvocationInput, decode, encode
+from marivo.analysis.model.execution_errors import IntegrityError
 
 
 def test_record_type_hints_are_reused_without_caching_payload_validation() -> None:

@@ -6,17 +6,15 @@ import sqlite3
 from contextlib import suppress
 from datetime import datetime
 
-from marivo.analysis._pages import decode_keyset_cursor, encode_keyset_cursor
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
     SessionStateError,
 )
-from marivo.analysis.materialization.contracts import (
-    invalid,
-    parse_timestamp,
-)
+from marivo.analysis.materialization.contracts import parse_timestamp
 from marivo.analysis.materialization.store import _one
+from marivo.analysis.model.pages import decode_keyset_cursor, encode_keyset_cursor
+from marivo.analysis.model.receipts import invalid
 from marivo.introspection.live.model import LiveHelpTarget
 
 

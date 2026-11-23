@@ -10,26 +10,8 @@ import pandas as pd
 import pytest
 
 from marivo._definition.query import LiteralValues, ResultQuery
-from marivo.analysis.core.artifact_data import (
-    ArtifactData,
-    BuiltinCalendarData,
-    CalendarDataAxis,
-    DataAxis,
-    DataColumn,
-    DataSchema,
-    FrozenCalendarData,
-    OutputAttachment,
-    PairedDataAxis,
-    ParquetHandle,
-)
-from marivo.analysis.core.data_schema import (
-    CalendarComparisonBinding,
-    ComparisonValueBinding,
-    DataComparison,
-    EndpointPresence,
-    OrdinaryComparisonBinding,
-)
-from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.binding.graph import BoundGraph
+from marivo.analysis.binding.signature import BoundSignature, ResultQuantity
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -38,24 +20,39 @@ from marivo.analysis.core.frame_data import (
     MemoryFrameBacking,
     required_attachments,
 )
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.core.frame_structure import (
+from marivo.analysis.dsl.column import row_count
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization.terminal_store import describe
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.model.artifact_data import ArtifactData, ParquetHandle
+from marivo.analysis.model.data_schema import (
+    BuiltinCalendarData,
+    CalendarComparisonBinding,
+    CalendarDataAxis,
+    ComparisonValueBinding,
+    DataAxis,
+    DataComparison,
+    DataSchema,
+    EndpointPresence,
+    FrozenCalendarData,
+    OrdinaryComparisonBinding,
+    PairedDataAxis,
+)
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.errors import CoreRuleError
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.frame_structure import (
     PendingDataAxis,
     PendingDataColumn,
     PendingDataSchema,
     require_complete_structure,
-    value_name,
 )
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.lineage import empty as empty_lineage
-from marivo.analysis.core.model import BoundSignature, CoreRuleError, ResultQuantity
-from marivo.analysis.dsl.column import row_count
-from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.materialization.terminal_store import describe
+from marivo.analysis.model.lineage import empty as empty_lineage
+from marivo.analysis.model.receipts import FileEntry, LocalReceipt
+from marivo.analysis.model.value_names import value_name
 
 NOW = datetime(2026, 10, 19, tzinfo=timezone.utc)
 

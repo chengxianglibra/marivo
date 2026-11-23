@@ -14,14 +14,14 @@ from marivo._help.render import render_help_text
 from marivo.analysis.core.frame_method_facts import (
     FrameMethodSupport,
 )
-from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import (
     AnalysisError,
     ArtifactNotFoundError,
     SessionNotFoundError,
 )
-from marivo.analysis.materialization.errors import StorageAccessError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.model.errors import CoreRuleError
+from marivo.analysis.model.execution_errors import StorageAccessError
 from marivo.cli import main
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 

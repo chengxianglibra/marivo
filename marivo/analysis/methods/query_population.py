@@ -22,7 +22,7 @@ from marivo._definition.relations import (
     project_population_row,
 )
 from marivo._definition.types import AxisBinding, IntervalCoordinate
-from marivo.analysis.core.model import reject
+from marivo.analysis.model.errors import reject
 
 _TICK_SCALES = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}
 

@@ -12,9 +12,9 @@ from itertools import pairwise
 import marivo.analysis as mv
 from marivo._help.model import NativeHelpRoute
 from marivo._help.route import route_help_target
-from marivo.analysis._capabilities.dataset_model import CallableInput, NavigationInput
 from marivo.analysis._capabilities.dataset_render import render
 from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis.model.disclosure import CallableInput, NavigationInput
 from tests.shared_fixtures import rendered_help
 
 

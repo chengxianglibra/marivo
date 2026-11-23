@@ -7,7 +7,6 @@ from pathlib import Path
 
 from marivo._kernel.project import resolve_project_root
 from marivo._kernel.timezones import same_timezone
-from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import (
     AnalysisRepair,
     SessionAlreadyExistsError,
@@ -18,6 +17,7 @@ from marivo.analysis.materialization.prior_generations import warn_prior_generat
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.analysis.model.errors import DatasetConstructionError
 from marivo.analysis.session._lazy_read_model import SessionSummary, SessionSummaryPage
 from marivo.analysis.session.core import Session
 from marivo.introspection.live.model import LiveHelpTarget

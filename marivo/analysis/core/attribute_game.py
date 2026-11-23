@@ -7,10 +7,11 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from marivo.analysis.binding.attribute_game import AttributeGame
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DataColumn, DataType, ScalarDataType
-from marivo.analysis.core.frame_structure import PendingDataColumn, PendingDataSchema
-from marivo.analysis.core.frozen_calendar import FrozenKey
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DataColumn, DataType, ScalarDataType
+from marivo.analysis.model.frame_structure import PendingDataColumn, PendingDataSchema
+from marivo.analysis.model.frozen_keys import FrozenKey
+from marivo.analysis.model.layout_facts import FrameDecompositionField, FrameDecompositionRole
 
 if TYPE_CHECKING:
     from marivo.analysis.core.frame_expression import AttributeFrameValues, FrameAttributeTarget
@@ -152,11 +153,7 @@ def game_schema(
         if isinstance(base, PendingDataSchema) and isinstance(value, DataColumn):
             value = _pending_column(value)
         values.append(value)
-    from marivo.analysis.core.frame_interpretation import (
-        FrameDecompositionField,
-        FrameDecompositionRole,
-        decomposition_facts,
-    )
+    from marivo.analysis.core.frame_interpretation import decomposition_facts
 
     roles: tuple[FrameDecompositionRole, ...] = (
         "contribution",

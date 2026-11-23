@@ -12,9 +12,9 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._kernel.temporal import bind_grid
 from marivo._kernel.temporal_grid import BoundTimeGrid
-from marivo.analysis.core.time_grid import instant
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.time_grid import instant
 from tests.shared_fixtures import (
     DSL_NAMES,
     DslCase,
@@ -854,7 +854,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._kernel import timezones as source_timezone
 from marivo.analysis import timezone as analysis_timezone
-from marivo.analysis.core import frame_calendar
+from marivo.analysis.methods.carriers import frame_calendar
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
@@ -1047,7 +1047,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._kernel import timezones as source_timezone
 from marivo.analysis import timezone as analysis_timezone
-from marivo.analysis.core import frame_calendar
+from marivo.analysis.methods.carriers import frame_calendar
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession

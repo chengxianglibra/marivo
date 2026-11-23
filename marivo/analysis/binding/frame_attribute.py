@@ -38,20 +38,16 @@ from marivo.analysis.binding.frame_attribute_sources import (
     endpoint_source_side,
     source_group_key,
 )
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.observe import bind_observation
+from marivo.analysis.binding.signature import BoundQuantity, BoundSignature
 from marivo.analysis.binding.windows import require_finite_attribution_scope
-from marivo.analysis.core.data_schema import (
-    CalendarDataAxis,
-    DataComparison,
-    IntervalDataAxis,
-    PairedDataAxis,
-)
 from marivo.analysis.core.frame_data import (
+    DerivedOutput,
     ExpressionFrameBacking,
     OperationFrameBinding,
     SourceFrameBinding,
 )
-from marivo.analysis.core.frame_derivation import DerivedOutput
 from marivo.analysis.core.frame_expression import (
     AlignFrameValues,
     AttributeContributionValues,
@@ -59,11 +55,20 @@ from marivo.analysis.core.frame_expression import (
     FrameAttributeTarget,
     NamedFrameComparison,
 )
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import BoundQuantity, BoundSignature, reject
-from marivo.analysis.dsl._frame_inputs import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.dsl.frame_sources import _capture
 from marivo.analysis.dsl.population import Population, _axes, product
+from marivo.analysis.model.data_schema import (
+    CalendarDataAxis,
+    ComparisonValueBinding,
+    DataComparison,
+    IntervalDataAxis,
+    OrdinaryComparisonBinding,
+    PairedDataAxis,
+)
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import FrameKeyInput, merge_frame_key_inputs
+from marivo.analysis.model.layout_facts import FrameValueContext
+from marivo.analysis.model.lineage import all_origins
 from marivo.semantic._consumption import bind_field_in_state, validate_context
 from marivo.semantic._expression_values import FieldExpression, RowExpression
 from marivo.semantic.errors import SemanticError
@@ -112,7 +117,6 @@ def source_inputs(
         else (target.target.current, target.target.baseline)
     )
     endpoints = []
-    projections = []
     positions = []
     rules: list[tuple[tuple[str, AttributeRule], ...]] = []
     projection_ids = []
@@ -514,13 +518,11 @@ def source_inputs(
 
         projection_ids.append(computation_fingerprint(projection._definition))
         endpoints.append(fine)
-        projections.append(projection)
         positions.append(parent_positions)
         rules.append(() if selected_rule is None else (("target", selected_rule),))
         all_rules.append(source_rules)
     if len(rules) == 1:
         endpoints.append(endpoints[0])
-        projections.append(projections[0])
         positions.append(positions[0])
         rules.append(rules[0])
         all_rules.append(all_rules[0])
@@ -539,7 +541,6 @@ def source_inputs(
     return AttributeInputRequest(
         parent,
         (endpoints[0], endpoints[1]),
-        (projections[0], projections[1]),
         operation,
         (rules[0], rules[1]),
         (all_rules[0], all_rules[1]) if groups is not None else None,
@@ -565,7 +566,7 @@ def _single(
     from marivo.analysis.dsl.frame import AnalysisFrame
 
     if game_selected and isinstance(by, Population):
-        from marivo.analysis.core.attribute_game_errors import AttributeGameError
+        from marivo.analysis.model.attribute_game_errors import AttributeGameError
 
         raise AttributeGameError(
             reason="unsupported_state",
@@ -812,22 +813,9 @@ def attribute(
 
 def _target_comparison(parent: AnalysisFrame, target: DerivedOutput) -> DataComparison | None:
     """Capture align-derived change endpoints at their actual source binding boundary."""
-    from dataclasses import replace
-
     from marivo.analysis.binding.lineage import source_lineage
-    from marivo.analysis.core.data_schema import (
-        ComparisonValueBinding,
-        DataComparison,
-        OrdinaryComparisonBinding,
-        PairedDataAxis,
-    )
     from marivo.analysis.core.frame_fix import FixFrameValues
-    from marivo.analysis.core.frame_interpretation import (
-        FrameValueContext,
-        remap_context,
-        unary_facts,
-    )
-    from marivo.analysis.core.lineage import all_origins
+    from marivo.analysis.core.frame_interpretation import remap_context, unary_facts
     from marivo.analysis.dsl.frame_sources import pending_schema
 
     if target.target.mode == "level" or any(

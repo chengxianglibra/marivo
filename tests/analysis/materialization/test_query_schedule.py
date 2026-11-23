@@ -16,23 +16,19 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._kernel.grouping import Grouping
 from marivo._kernel.temporal import TimeScope
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     SourceReadStage,
     plan_query,
 )
-from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     LiteralFrameBinding,
     SourceFrameBinding,
 )
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.dsl.temporal import CalendarAxis
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_execution import run_query_plan
 from marivo.analysis.materialization.graph_local_execution import run_local
 from marivo.analysis.materialization.graph_source_execution import (
@@ -41,7 +37,11 @@ from marivo.analysis.materialization.graph_source_execution import (
     open_query_sources,
     read_stage,
 )
-from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_types import DataColumn, DecimalDataType, ScalarDataType
+from marivo.analysis.model.errors import CoreRuleError
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.kernels import QUERY_COMBINE_KERNEL
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic._deferred_semantics import consume_metric

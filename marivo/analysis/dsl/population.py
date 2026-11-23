@@ -56,12 +56,10 @@ from marivo._kernel.grouping import Grouping
 from marivo._kernel.symbolic import EntitySymbol, PathSymbol
 from marivo._kernel.temporal import CalendarAxis, TimeScope
 from marivo.analysis._scope import scope_summary
-from marivo.analysis.core.model import reject
-from marivo.analysis.dsl._frame_inputs import (
-    FrameKeyInput,
-    collect_frame_key_inputs,
-    merge_frame_key_inputs,
-)
+from marivo.analysis.core.frame_data import FrameKeyDependency
+from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import merge_frame_key_inputs
 from marivo.semantic._deferred_semantics import consume_field, consume_predicate
 from marivo.semantic._expression_values import (
     FieldExpression,
@@ -391,7 +389,7 @@ class Population(PopulationParameter):
     supported constructor.
     """
 
-    _frame_inputs: tuple[FrameKeyInput, ...] = field(default=(), compare=False, repr=False)
+    _frame_inputs: tuple[FrameKeyDependency, ...] = field(default=(), compare=False, repr=False)
 
     @property
     def _project_root(self) -> FilesystemPath | None:
@@ -786,7 +784,7 @@ def in_population(population: Population | Deferred) -> Deferred | RowPredicate:
 
 def _interval_coordinate(scope: TimeScope) -> IntervalCoordinate:
     from marivo._kernel.temporal import TimeScope, anchor_from_datetime
-    from marivo.analysis.core.time_grid import instant
+    from marivo.analysis.model.time_grid import instant
 
     if not isinstance(scope, TimeScope):
         reject(

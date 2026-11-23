@@ -21,9 +21,7 @@ from marivo.analysis.compiler.graph_plan import (
     read_reduction,
 )
 from marivo.analysis.core.attribute_game import CoalitionValue, CompletedGame, GameContext
-from marivo.analysis.core.data_types import DataColumn, DataType
 from marivo.analysis.core.frame_method_facts import (
-    FrameMethodValue,
     FrameShapleyLeaf,
     FrameShapleyMethod,
     FrameShapleyNativeQuantile,
@@ -32,8 +30,8 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyReduction,
 )
 from marivo.analysis.core.value_types import data_type, ibis_type
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.methods._ibis_numeric import evaluate_numeric
+from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary
 from marivo.analysis.methods.frame_attribute_shapley import (
     _attribute_numeric_context,
@@ -44,6 +42,8 @@ from marivo.analysis.methods.frame_attribute_shapley import (
     game_contexts,
     sample_game,
 )
+from marivo.analysis.model.data_types import DataColumn, DataType
+from marivo.analysis.model.method_values import FrameMethodValue
 from marivo.semantic._numeric_lowering import NumericValue, lower_metric_formula, lower_row
 
 if TYPE_CHECKING:
@@ -367,7 +367,7 @@ def run_native_game(
                 _number(result.iloc[0], reason="invalid_value"),
             )
 
-        from marivo.analysis.core.attribute_game_errors import AttributeGameError
+        from marivo.analysis.model.attribute_game_errors import AttributeGameError
 
         parent_columns = tuple(c for axis in program.parent_schema.axes for c in axis.columns)
         with _attribute_numeric_context(

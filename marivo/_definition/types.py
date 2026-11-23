@@ -23,7 +23,7 @@ from marivo._kernel.refs import (
 from marivo._kernel.refs import (
     SemanticKind,
 )
-from marivo._kernel.temporal import Grain, InstantAnchor
+from marivo._kernel.time_types import Grain, InstantAnchor
 
 if TYPE_CHECKING:
     from marivo._kernel.temporal_grid import CivilBounds, TimeShiftEntry

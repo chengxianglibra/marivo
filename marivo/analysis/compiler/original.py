@@ -32,9 +32,9 @@ from marivo.analysis.compiler.observation import (
     lower_observation,
 )
 from marivo.analysis.compiler.predicate import lower_condition
-from marivo.analysis.core.data_types import DataColumn
-from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.core.value_types import data_type
+from marivo.analysis.model.data_types import DataColumn
+from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     lower_row,

@@ -84,6 +84,16 @@ Metric aggregation.
 
 ## Construction and data flow
 
+The analysis model owns captured schemas, lineage, temporal facts, retained
+file receipts, and read-only invocation contracts. Its import boundary applies
+to runtime and type-checking dependencies.
+
+Session supplies source authority to the runtime through a factory. The DSL
+constructs and reopens Frame handles. Execution consumes the captured nodes
+and passes checked in-memory stage tables to local methods. The execution
+layers and model dependency limits are enforced by the [import
+contracts](../../../.importlinter).
+
 ```text
 Session + resolved definitions / explicit literal domains
     -> Population / source observation / literal Frame

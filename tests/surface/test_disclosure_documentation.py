@@ -16,10 +16,10 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability
-from marivo.analysis._capabilities.dataset_model import CallableInput
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod, FrameShapleyMethod
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.disclosure import CallableInput
 from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 from marivo.semantic._capabilities.validation import validate_semantic_live_surface

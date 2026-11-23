@@ -1,5 +1,6 @@
 """Pure engine-agnostic expressions landing governed time in one explicit civil boundary zone."""
 
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 
@@ -11,7 +12,7 @@ import ibis.expr.types as ir
 from marivo._kernel.time_formats import ORDERED_TIME_FORMATS
 from marivo._kernel.timezones import normalize_timezone, same_timezone
 from marivo.analysis.compiler.errors import DatasetCompilationError, compilation_error
-from marivo.analysis.core.time_authority import (
+from marivo.analysis.model.time_authority import (
     CivilDateSourceTime,
     InstantSourceTime,
     SourceTimeAuthority,
@@ -636,7 +637,7 @@ def _retain_authority(
 ) -> SourceTimeAuthority:
     if frozen is None:
         return authority
-    if authority.model_copy(update={"physical_type": frozen.physical_type}) != frozen:
+    if replace(authority, physical_type=frozen.physical_type) != frozen:
         raise compilation_error("the exact frozen source time authority", "time authority drift")
     return frozen
 

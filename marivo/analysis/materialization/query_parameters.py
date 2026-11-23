@@ -14,18 +14,18 @@ import pyarrow as pa
 
 from marivo._definition.graph import computation_fingerprint
 from marivo._definition.relations import AttributeKeys, FrameKeys
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.parameters import parameter_domains
 from marivo.analysis.compiler.query_program import (
     FrameParameter,
     PopulationParameterPlan,
 )
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
-from marivo.analysis.core.data_validation import stage_arrow_type
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import reject
 from marivo.analysis.core.value_types import ibis_type
-from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.errors import reject
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo
@@ -128,7 +128,7 @@ def instantiate(
     if provider is not None:
         expression = source_parameter_comparisons(expression, name, provider)
     records = tuple(output.table.loc[:, list(output.keys)].itertuples(index=False, name=None))
-    from marivo.analysis.core.data_types import DecimalDataType, TimestampDataType
+    from marivo.analysis.model.data_types import DecimalDataType, TimestampDataType
 
     if (
         any(isinstance(column.dtype, TimestampDataType) for column in columns)
@@ -266,7 +266,7 @@ def _replace_parameter(expression: ir.Table, name: str, table: ir.Table) -> ir.T
     }
     value: object = expression.op().replace(replacements)
     if not isinstance(value, ops.Relation):
-        from marivo.analysis.core.model import reject
+        from marivo.analysis.model.errors import reject
 
         reject(
             "a typed source relation after parameter substitution",

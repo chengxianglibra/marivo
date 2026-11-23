@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
+from marivo.analysis.model.execution_errors import IntegrityError
 from tests.shared_fixtures import terminal_runs
 
 

@@ -7,8 +7,8 @@ from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from marivo.analysis.materialization.contracts import ResourceRecord
-from marivo.analysis.materialization.errors import IntegrityError, RecoveryPendingError
 from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.model.execution_errors import IntegrityError, RecoveryPendingError
 
 _LOCAL_CAPABILITY = "local_owned_path@v1"
 _READ_CAPABILITY = "read_only_execution@v1"

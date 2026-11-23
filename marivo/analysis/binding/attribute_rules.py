@@ -42,7 +42,7 @@ from marivo._definition.types import (
     literal_token,
 )
 from marivo._definition.windows import ObservationWindow
-from marivo.analysis.core.model import CoreRuleError
+from marivo.analysis.model.errors import CoreRuleError
 
 AttributeComponentRole: TypeAlias = Literal[
     "additive_value",

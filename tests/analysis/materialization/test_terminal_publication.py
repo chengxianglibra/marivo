@@ -23,41 +23,38 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.artifact_data import (
-    ArtifactData,
-    ArtifactManifest,
-    CalendarDataAxis,
-    DataAxis,
-    DataColumn,
-    DataSchema,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-    TimestampDataType,
-)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     MemoryFrameBacking,
     StoredFrameBacking,
 )
-from marivo.analysis.core.frame_interpretation import FrameCalendarAxisSchema
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_publication, terminal_store
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import (
-    IntegrityError,
-    MaterializationError,
-    RecoveryPendingError,
-)
 from marivo.analysis.materialization.graph_reading import open_manifest
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.terminal_protocol import decode, encode
 from marivo.analysis.materialization.terminal_publication import reconcile
 from marivo.analysis.materialization.terminal_storage import POLICY, read_output, write_output
+from marivo.analysis.model.artifact_data import ArtifactData, ArtifactManifest
+from marivo.analysis.model.data_schema import CalendarDataAxis, DataAxis, DataSchema
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.model.execution_errors import (
+    IntegrityError,
+    MaterializationError,
+    RecoveryPendingError,
+)
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.lineage import empty as empty_lineage
+from marivo.analysis.model.time_facts import FrameCalendarAxisSchema
 from marivo.analysis.session.core import Session
 from tests.analysis.materialization.terminal_recovery_worker import method_result
 from tests.shared_fixtures import catalog_value, frozen_coordinates, terminal_run, terminal_runs
@@ -91,7 +88,7 @@ def result_metadata() -> FrameResultMetadata:
 def calendar_constant(session: Session, calendar: mv.CalendarAxis) -> AnalysisFrame:
     from marivo._definition.types import CalendarCoordinate
     from marivo._kernel.temporal import anchor_from_datetime
-    from marivo.analysis.core.frame_calendar import freeze_calendar
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 
     grid = calendar.grid
     coordinate = CalendarCoordinate(
@@ -450,7 +447,7 @@ def test_calendar_timezone_survives_private_cold_read(source_session: Session, z
     script = """from pathlib import Path
 import sys
 import pandas as pd
-from marivo.analysis.core.artifact_data import CalendarDataAxis, TimestampDataType
+from marivo.analysis.model.data_schema import CalendarDataAxis
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization import terminal_store, terminal_publication
 from marivo.analysis.materialization.terminal_storage import read_output
@@ -641,7 +638,7 @@ def test_unknown_commit_keeps_files_and_journal_until_reconciliation(
 
 
 def test_obsolete_output_envelope_is_rejected_without_rewrite() -> None:
-    from marivo.analysis.materialization.contracts import canonical_json
+    from marivo.analysis.model.receipts import canonical_json
 
     text = canonical_json({"format": "marivo.graph/v10", "value": {}})
     with pytest.raises(IntegrityError):
@@ -976,7 +973,7 @@ def test_public_produce_and_cold_read_are_independent_processes(source_session: 
             """
 import os, sys
 import marivo.analysis as mv
-from marivo.analysis._capabilities.dataset_model import CallableInput
+from marivo.analysis.model.disclosure import CallableInput
 from marivo.analysis._capabilities.dataset_registry import prepare
 from tests.shared_fixtures import catalog_value
 

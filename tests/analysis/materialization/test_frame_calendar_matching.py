@@ -23,8 +23,22 @@ from marivo.analysis.compiler.graph_plan import (
     SourceReadStage,
 )
 from marivo.analysis.compiler.query_program import FrameCompareProgram
-from marivo.analysis.core.artifact_data import OutputAttachment
-from marivo.analysis.core.data_schema import (
+from marivo.analysis.core.frame_data import (
+    CompletedFrameData,
+    CompletedFrameResult,
+    ExpressionFrameBacking,
+    MemoryFrameBacking,
+)
+from marivo.analysis.dsl.column import row_count
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.coordinate_schema import calendar_directory_schema
+from marivo.analysis.model.data_schema import (
     BuiltinCalendarData,
     CalendarComparisonBinding,
     CalendarDataAxis,
@@ -33,28 +47,14 @@ from marivo.analysis.core.data_schema import (
     FrozenCalendarData,
     PairedDataAxis,
 )
-from marivo.analysis.core.data_types import (
+from marivo.analysis.model.data_types import (
     DataColumn,
     DurationDataType,
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_data import (
-    CompletedFrameData,
-    CompletedFrameResult,
-    ExpressionFrameBacking,
-    MemoryFrameBacking,
-)
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.core.frame_structure import PendingDataSchema
-from marivo.analysis.core.frozen_calendar import calendar_directory_schema
-from marivo.analysis.dsl.column import row_count
-from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.materialization.graph_exchange import StageOutput
-from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.frame_structure import PendingDataSchema
 from tests.shared_fixtures import DslCaseFactory, catalog_value, time_population
 
 
@@ -633,7 +633,10 @@ def test_source_completion_rejects_unused_corrupt_directory_before_top_zero(
     binding = source._backing.root
     assert isinstance(binding, SourceFrameBinding)
     from marivo._definition.types import CalendarCoordinate
-    from marivo.analysis.core.frame_calendar import FrozenSourceCalendar, freeze_calendar
+    from marivo.analysis.methods.carriers.frame_calendar import (
+        FrozenSourceCalendar,
+        freeze_calendar,
+    )
 
     def corrupt(
         coordinate: CalendarCoordinate,
@@ -651,7 +654,7 @@ def test_source_completion_rejects_unused_corrupt_directory_before_top_zero(
         frozen.directory.rows.loc[30, "ordinal"] = 99
         return frozen
 
-    monkeypatch.setattr("marivo.analysis.core.frame_calendar.freeze_calendar", corrupt)
+    monkeypatch.setattr("marivo.analysis.methods.carriers.frame_calendar.freeze_calendar", corrupt)
     with pytest.raises(AnalysisError):
         source.top(0, by=source["amount"]).compute()
 
@@ -673,13 +676,13 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, fault: str
 ) -> None:
     from marivo._definition.types import CalendarCoordinate
-    from marivo.analysis.core.frame_calendar import FrozenSourceCalendar
     from marivo.analysis.dsl import frame_sources
+    from marivo.analysis.methods.carriers.frame_calendar import FrozenSourceCalendar
 
     session = analysis_dsl_case_factory("j2").session
     metric = catalog_value(session.catalog, "sales.revenue", kind="metric")
     frozen = 0
-    from marivo.analysis.core.frame_calendar import freeze_calendar as original
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar as original
 
     def freeze(
         coordinate: CalendarCoordinate,
@@ -697,7 +700,7 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
             key=key,
         )
 
-    monkeypatch.setattr("marivo.analysis.core.frame_calendar.freeze_calendar", freeze)
+    monkeypatch.setattr("marivo.analysis.methods.carriers.frame_calendar.freeze_calendar", freeze)
 
     def source(grain: Literal["day", "hour", "month"], zone: str) -> AnalysisFrame:
         report_session = mv.session.get_or_create(f"matching-{zone}", timezone=zone)
@@ -803,7 +806,7 @@ def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
 def _captured_calendar_frame(
     local: LocalFrameServices, calendar: mv.CalendarAxis, values: tuple[int, ...]
 ) -> AnalysisFrame:
-    from marivo.analysis.core.frame_calendar import freeze_calendar
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 
     captured = freeze_calendar(
         grouping_binding(calendar),
@@ -954,7 +957,7 @@ def test_explicit_match_uses_saved_endpoints_with_a_different_immediate_origin(
 def test_calendar_comparison_continuations_use_full_completed_domain(
     local: LocalFrameServices,
 ) -> None:
-    from marivo.analysis.core.data_schema import OrdinaryComparisonBinding
+    from marivo.analysis.model.data_schema import OrdinaryComparisonBinding
 
     current = memory(local, ("2026-01-01",), (0,), (8,))
     baseline = memory(local, ("2025-01-01",), (0,), (2,))
@@ -1037,8 +1040,8 @@ def test_calendar_comparison_continuations_use_full_completed_domain(
 def test_pending_source_comparison_continuations_match_completed_authority(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis.core.data_schema import OrdinaryComparisonBinding
     from marivo.analysis.dsl import frame_sources
+    from marivo.analysis.model.data_schema import OrdinaryComparisonBinding
 
     session = analysis_dsl_case_factory("j2").session
     source = frame_sources.observe(
@@ -1083,8 +1086,8 @@ def test_pending_source_comparison_continuations_match_completed_authority(
 def test_completed_align_prunes_comparison_contexts_after_calendar_domain_expands(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis.core.frame_interpretation import FrameComparedTime, FrameObservationContext
     from marivo.analysis.dsl import frame_sources
+    from marivo.analysis.model.time_facts import FrameComparedTime, FrameObservationContext
 
     session = analysis_dsl_case_factory("j2").session
     source = frame_sources.observe(

@@ -1,8 +1,8 @@
 """Public rendering through the single native Dataset descriptor registry."""
 
-from marivo.analysis._capabilities.dataset_model import Descriptor
 from marivo.analysis._capabilities.dataset_render import render
 from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis.model.disclosure import Descriptor
 from marivo.introspection.live.resolve import ResolvedLiveTarget
 
 

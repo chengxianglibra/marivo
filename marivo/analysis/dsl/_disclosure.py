@@ -1,18 +1,6 @@
 """Native disclosure for immutable data Frames and captured metadata."""
 
 from marivo._kernel.temporal import InstantAnchor, TimeScope
-from marivo.analysis._capabilities.dataset_model import (
-    Descriptor,
-    DisclosureProvider,
-    ExampleInput,
-    ExportInput,
-    bind,
-    operation,
-    value_type,
-)
-from marivo.analysis._capabilities.dataset_model import (
-    ParameterInput as P,
-)
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
@@ -27,11 +15,8 @@ from marivo.analysis.core.frame_method_facts import (
     FrameLinearTerm,
     FrameMethodCoordinate,
     FrameMethodFacts,
-    FrameMethodOutput,
     FrameMethodParent,
     FrameMethodSupport,
-    FrameMethodTarget,
-    FrameMethodValue,
     FrameRatioMethod,
     FrameShapleyCapture,
     FrameShapleyGame,
@@ -43,10 +28,24 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyQueryGame,
     FrameShapleyReduction,
 )
-from marivo.analysis.core.lineage import ColumnLineage, FrameLineage, SemanticObjectIdentity
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.temporal import CalendarAxis
+from marivo.analysis.model.disclosure import (
+    Descriptor,
+    DisclosureProvider,
+    ExampleInput,
+    ExportInput,
+    bind,
+    operation,
+    value_type,
+)
+from marivo.analysis.model.disclosure import (
+    ParameterInput as P,
+)
+from marivo.analysis.model.lineage import ColumnLineage, FrameLineage, SemanticObjectIdentity
+from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
+from marivo.analysis.model.method_values import FrameMethodValue
 
 
 def provider() -> DisclosureProvider:

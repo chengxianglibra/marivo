@@ -15,7 +15,33 @@ from marivo._kernel.temporal import (
     builtin_grain,
 )
 from marivo._kernel.temporal_grid import builtin_nominal_ordinal
-from marivo.analysis.core.data_schema import (
+from marivo.analysis.core.frozen_calendar import (
+    FrozenAttachment,
+    FrozenCalendarDirectory,
+    FrozenComparisonAbsent,
+    FrozenComparisonMatch,
+    FrozenIntervalBucket,
+    FrozenIntervalDirectory,
+    build_partial_calendar_map,
+    calendar_directory_rows,
+    frozen_key_values,
+    interval_directory_rows,
+    merge_equal_calendar_directories,
+    read_calendar_directory,
+    read_comparison_mapping,
+    read_interval_directory,
+    require_matchable_calendar_directory,
+    validate_frozen_coordinates,
+    validate_paired_mapping,
+)
+from marivo.analysis.model.coordinate_schema import (
+    calendar_directory_schema,
+    comparison_mapping_schema,
+    coordinate_attachment_schemas,
+    interval_directory_schema,
+    paired_mapping_schema,
+)
+from marivo.analysis.model.data_schema import (
     BuiltinCalendarData,
     CalendarComparisonBinding,
     CalendarDataAxis,
@@ -30,36 +56,12 @@ from marivo.analysis.core.data_schema import (
     IntervalDataAxis,
     PairedDataAxis,
 )
-from marivo.analysis.core.data_types import (
+from marivo.analysis.model.data_types import (
     DurationDataType,
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frozen_calendar import (
-    FrozenAttachment,
-    FrozenCalendarDirectory,
-    FrozenComparisonAbsent,
-    FrozenComparisonMatch,
-    FrozenIntervalBucket,
-    FrozenIntervalDirectory,
-    FrozenKey,
-    build_partial_calendar_map,
-    calendar_directory_rows,
-    calendar_directory_schema,
-    comparison_mapping_schema,
-    coordinate_attachment_schemas,
-    frozen_key_values,
-    interval_directory_rows,
-    interval_directory_schema,
-    merge_equal_calendar_directories,
-    paired_mapping_schema,
-    read_calendar_directory,
-    read_comparison_mapping,
-    read_interval_directory,
-    require_matchable_calendar_directory,
-    validate_frozen_coordinates,
-    validate_paired_mapping,
-)
+from marivo.analysis.model.frozen_keys import FrozenKey
 
 
 def axis(
@@ -329,8 +331,8 @@ def test_sparse_directory_keeps_nominal_distance_separate_from_selection_order()
 
 def test_two_hour_fold_writer_and_reader_preserve_distinct_nominal_starts() -> None:
     from marivo._kernel.temporal import bind_grid
-    from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 
     scope = exact_scope("2026-10-25", "2026-10-26", "Europe/Berlin")
     grid = bind_grid(scope, builtin_grain(unit="hour", count=2))
@@ -360,8 +362,8 @@ def test_two_hour_fold_writer_and_reader_preserve_distinct_nominal_starts() -> N
 def direct_fixture(
     *, absent: bool = False
 ) -> tuple[CalendarDataAxis, tuple[FrozenAttachment, ...]]:
-    from marivo.analysis.core.data_schema import FrozenCalendarOrigin
-    from marivo.analysis.core.frozen_calendar import direct_mapping_schema
+    from marivo.analysis.model.coordinate_schema import direct_mapping_schema
+    from marivo.analysis.model.data_schema import FrozenCalendarOrigin
 
     origin = axis("origin", unit="week")
     target = axis("target", unit="week")
@@ -415,7 +417,7 @@ def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -
         _identity,
         capture_civil_bounds,
     )
-    from marivo.analysis.core.frame_calendar import freeze_calendar
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 
     grain = builtin_grain(unit="week")
 
@@ -653,7 +655,7 @@ def test_interval_comparison_retains_current_coordinate_and_consumed_endpoint_ma
 def test_detached_period_keys_keep_order_null_decimal_and_exact_temporal_ticks() -> None:
     from decimal import Decimal
 
-    from marivo.analysis.core.data_types import DecimalDataType
+    from marivo.analysis.model.data_types import DecimalDataType
 
     key: FrozenKey = (
         (ScalarDataType("string"), None),

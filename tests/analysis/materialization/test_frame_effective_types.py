@@ -11,10 +11,10 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_types import DataColumn, DataType, DecimalDataType, ScalarDataType
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.data_types import DataColumn, DataType, DecimalDataType, ScalarDataType
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.reader import SemanticProject

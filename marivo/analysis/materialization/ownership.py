@@ -1,16 +1,13 @@
 """Pure receipt/resource ownership checks shared by publication and recovery."""
 
-from marivo.analysis.materialization import contracts as codec
-from marivo.analysis.materialization.contracts import (
-    LocalReceipt,
-    ResourceRecord,
-)
+from marivo.analysis.materialization.contracts import ResourceRecord
+from marivo.analysis.model.receipts import LocalReceipt, invalid
 
 
 def validate_receipt_owner(receipt: LocalReceipt, local_prefix: str) -> None:
     path = receipt.project_relative_path
     if path != local_prefix and not path.startswith(local_prefix + "/"):
-        raise codec.invalid("receipt is outside its owning Artifact directory")
+        raise invalid("receipt is outside its owning Artifact directory")
 
 
 def owns_resource(receipt: LocalReceipt, resource: ResourceRecord) -> bool:

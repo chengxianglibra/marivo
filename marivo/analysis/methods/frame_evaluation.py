@@ -9,8 +9,8 @@ import numpy.typing as npt
 import pandas as pd
 
 from marivo._definition.query import ValueExpression
-from marivo.analysis.core.data_types import DataType
 from marivo.analysis.methods.numeric_state import Number
+from marivo.analysis.model.data_types import DataType
 
 
 def expression_key(expression: ValueExpression) -> str:

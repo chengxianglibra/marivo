@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeAlias
 
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.windows import actual_window_axis, require_finite_attribution_scope
 from marivo.analysis.compiler.frame_plan import (
     CompiledSourceFrame,
@@ -23,13 +24,6 @@ from marivo.analysis.compiler.graph_plan import (
 )
 from marivo.analysis.compiler.optimization import InvocationMemo, optimize_query
 from marivo.analysis.compiler.queries import endpoint
-from marivo.analysis.core.artifact_data import (
-    CalendarDataAxis,
-    DataAxis,
-    DataColumn,
-    DataSchema,
-    IntervalDataAxis,
-)
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     LiteralFrameBinding,
@@ -37,21 +31,7 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     StoredFrameBacking,
 )
-from marivo.analysis.core.frame_interpretation import FrameSourceTime, merge_source_times
-from marivo.analysis.core.frame_metadata import (
-    EvaluationInput,
-    FrameOperationName,
-    LiteralInput,
-    MemoryInput,
-    SourceInput,
-    StoredInput,
-)
-from marivo.analysis.core.frame_structure import PendingDataColumn, PendingDataSchema, axis_role
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import reject
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_inputs import CapturedFrameInputs
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
     _query_entities,
@@ -61,10 +41,30 @@ from marivo.analysis.materialization.graph_source_execution import (
     qualify_query_sources,
     qualify_source_inputs,
 )
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_schema import (
+    CalendarDataAxis,
+    DataAxis,
+    DataSchema,
+    IntervalDataAxis,
+)
+from marivo.analysis.model.data_types import DataColumn
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_metadata import (
+    EvaluationInput,
+    FrameOperationName,
+    LiteralInput,
+    MemoryInput,
+    SourceInput,
+    StoredInput,
+)
+from marivo.analysis.model.frame_structure import PendingDataColumn, PendingDataSchema, axis_role
+from marivo.analysis.model.time_facts import FrameSourceTime, merge_source_times
 from marivo.datasource.json_source import JsonResponseCache
 
 if TYPE_CHECKING:
-    from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.analysis.core.frame_data import FrameNode
     from marivo.datasource.runtime import DatasourceConnectionService
 
 
@@ -96,7 +96,7 @@ RunIntervalDomain: TypeAlias = Callable[
 
 
 def _schema(
-    frame: AnalysisFrame,
+    frame: FrameNode,
     plan: QueryPlan,
     source_times: tuple[FrameSourceTime, ...] = (),
     *,
@@ -258,7 +258,7 @@ def prepare_frame_sources(
                             service,
                             domain,
                             binding.state,
-                            consumption_timezone=current._local.record().report_timezone_name,
+                            consumption_timezone=current._local.report_timezone_name,
                             frame_schemas=key_schemas,
                             json_responses=json_responses.setdefault(scope, {}),
                         )
@@ -323,7 +323,7 @@ def prepare_frame_sources(
                         active_graph,
                         binding.state,
                         memo=memo,
-                        consumption_timezone=current._local.record().report_timezone_name,
+                        consumption_timezone=current._local.report_timezone_name,
                         frame_schemas=key_schemas,
                         json_responses=json_responses.setdefault(scope, {}),
                         reuse_sources=domain_sources,
@@ -361,7 +361,7 @@ def prepare_frame_sources(
                 active_graph,
                 prepared,
                 binding.state,
-                current._local.record().report_timezone_name,
+                current._local.report_timezone_name,
                 key_schemas,
                 checked_inputs=checked_inputs,
             )
@@ -373,7 +373,7 @@ def prepare_frame_sources(
                 prepared,
                 binding.state,
                 sparse_window,
-                current._local.record().report_timezone_name,
+                current._local.report_timezone_name,
                 key_schemas,
             )
             prepared_by_input[input_id] = prepared
@@ -522,8 +522,8 @@ def prepare_frame_sources(
                 StoredInput(
                     input_id,
                     backing.metadata.result_id,
-                    current._local.store.store_id,
-                    current._local.session_ref,
+                    current._local.owner.owner_id,
+                    current._local.owner.session_id,
                     backing.artifact_id,
                 )
             )

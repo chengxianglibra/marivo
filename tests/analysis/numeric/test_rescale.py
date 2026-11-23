@@ -9,7 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
 from tests.shared_fixtures import catalog_value
 

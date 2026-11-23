@@ -19,16 +19,9 @@ from marivo._definition.query import (
     ValueSlot,
 )
 from marivo.analysis.compiler.query_program import FrameProgram
-from marivo.analysis.core.data_types import (
-    DataColumn,
-    DataType,
-    DurationDataType,
-    ScalarDataType,
-)
-from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_fix import FixFrameValues, validate_fixed_key
-from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
-from marivo.analysis.core.model import reject
+from marivo.analysis.core.frozen_calendar import frozen_key_rows
+from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
 from marivo.analysis.methods.frame_correlation import correlation
 from marivo.analysis.methods.frame_evaluation import (
     FrameEvaluation,
@@ -44,6 +37,14 @@ from marivo.analysis.methods.numeric_state import (
 )
 from marivo.analysis.methods.physical import DurationType
 from marivo.analysis.methods.query_values import expression_series
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DataType,
+    DurationDataType,
+    ScalarDataType,
+)
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frozen_keys import FrozenKey
 from marivo.semantic._numeric_lowering import numeric_failure
 
 

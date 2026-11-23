@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from marivo.analysis._capabilities.dataset_model import (
+from marivo.analysis.model.disclosure import (
     CallableInput,
     DisclosureProvider,
     ExampleInput,

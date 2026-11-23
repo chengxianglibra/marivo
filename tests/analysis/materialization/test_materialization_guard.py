@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.analysis.model.execution_errors import SessionBusyError
 
 
 @pytest.mark.slow
@@ -36,7 +36,7 @@ def test_guard_reentrant_thread_and_process_contention(tmp_path: Path) -> None:
                 "from pathlib import Path\n"
                 "import sys\n"
                 "from marivo.analysis.materialization.writer_guard import session_writer_guard\n"
-                "from marivo.analysis.materialization.errors import SessionBusyError\n"
+                "from marivo.analysis.model.execution_errors import SessionBusyError\n"
                 "try:\n"
                 "    with session_writer_guard(Path(sys.argv[1])): pass\n"
                 "except SessionBusyError:\n"
@@ -63,7 +63,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from marivo.analysis.materialization.errors import SessionBusyError
+from marivo.analysis.model.execution_errors import SessionBusyError
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 
 with session_writer_guard(Path(sys.argv[1])):

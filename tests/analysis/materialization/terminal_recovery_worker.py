@@ -13,7 +13,7 @@ from marivo.analysis.core.frame_data import CompletedFrameResult
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.materialization import terminal_publication
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import SessionBusyError
+from marivo.analysis.model.execution_errors import SessionBusyError
 from marivo.analysis.session.core import Session
 
 
@@ -21,19 +21,19 @@ def method_result(
     *, empty: bool = False, current: int = 160, baseline: int = 100, unit: str = "CNY"
 ) -> CompletedFrameResult:
     """Small complete downstream fixture shared by publication and worker checks."""
-    from marivo.analysis.core.artifact_data import DataColumn, DataSchema, ScalarDataType
     from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-    from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
     from marivo.analysis.core.frame_method_facts import (
         FrameAdditiveMethod,
         FrameAttributeMetric,
         FrameMethodFacts,
-        FrameMethodOutput,
         FrameMethodParent,
         FrameMethodSupport,
-        FrameMethodTarget,
-        FrameMethodValue,
     )
+    from marivo.analysis.model.data_schema import DataSchema
+    from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+    from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+    from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
+    from marivo.analysis.model.method_values import FrameMethodValue
 
     roles = (
         "contribution",

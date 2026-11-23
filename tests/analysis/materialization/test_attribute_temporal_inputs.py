@@ -226,9 +226,9 @@ def test_fixed_window_lookback_and_repeated_identity_independent_reads(
 ) -> None:
     import marivo.analysis.materialization.graph_source_execution as execution
     from marivo.analysis.compiler.graph_lowering import LoweredRead
-    from marivo.analysis.materialization.graph_exchange import StageOutput
     from marivo.analysis.materialization.graph_source_execution import PreparedSources
-    from marivo.analysis.materialization.query_components import AttributeRootInputs
+    from marivo.analysis.methods.carriers.stage_components import AttributeRootInputs
+    from marivo.analysis.methods.carriers.stages import StageOutput
     from marivo.datasource.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
@@ -330,9 +330,9 @@ def test_window_partition_context_is_scoped_before_classification(
     session: Session,
     missing: bool,
 ) -> None:
-    from marivo.analysis.core.attribute import (
+    from marivo.analysis.core.attribute import AttributeInputError
+    from marivo.analysis.model.attribute_failures import (
         AttributeCoverageWitness,
-        AttributeInputError,
         AttributePartitionWitness,
         AttributeWindowFiber,
     )
@@ -377,12 +377,12 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
     monkeypatch: pytest.MonkeyPatch,
     scope: str,
 ) -> None:
-    from marivo.analysis.core.attribute import (
+    from marivo.analysis.model.attribute_failures import (
         AttributeCheckWitness,
         AttributeFineFiber,
         AttributeParentFiber,
     )
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.model.execution_errors import MaterializationError
     from marivo.datasource.adapters import SourceSession
 
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
@@ -453,7 +453,8 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
 
 def test_structural_outer_missing_is_not_known_empty(session: Session) -> None:
     from marivo._definition.correspondence import CalendarCorrespondence
-    from marivo.analysis.core.attribute import AttributeAggregateWitness, AttributeInputError
+    from marivo.analysis.core.attribute import AttributeInputError
+    from marivo.analysis.model.attribute_failures import AttributeAggregateWitness
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
@@ -518,10 +519,10 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     corruption: str,
 ) -> None:
     from marivo._definition.correspondence import CalendarCorrespondence
-    from marivo.analysis.core.artifact_data import OutputAttachment
-    from marivo.analysis.core.data_schema import PairedDataAxis
     from marivo.analysis.core.frame_data import CompletedFrameData
     from marivo.analysis.errors import AnalysisError
+    from marivo.analysis.methods.carriers.attachments import OutputAttachment
+    from marivo.analysis.model.data_schema import PairedDataAxis
     from marivo.datasource.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
@@ -647,14 +648,14 @@ def test_paired_source_failure_retains_original_full_parent(
     failure: str,
 ) -> None:
     from marivo._definition.correspondence import CalendarCorrespondence
-    from marivo.analysis.core.attribute import (
+    from marivo.analysis.core.attribute import AttributeInputError
+    from marivo.analysis.model.attribute_failures import (
         AttributeCheckWitness,
-        AttributeInputError,
         AttributeParentFiber,
         AttributePartitionWitness,
         AttributeWindowFiber,
     )
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.model.execution_errors import MaterializationError
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
@@ -752,10 +753,10 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
 
     import marivo.analysis.materialization.graph_source_execution as execution
     from marivo.analysis.compiler.graph_lowering import LoweredRead
-    from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
-    from marivo.analysis.materialization.graph_exchange import StageOutput
     from marivo.analysis.materialization.graph_source_execution import PreparedSources
-    from marivo.analysis.materialization.query_components import AttributeRootInputs
+    from marivo.analysis.methods.carriers.stage_components import AttributeRootInputs
+    from marivo.analysis.methods.carriers.stages import StageOutput
+    from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
     from marivo.datasource.adapters import SourceSession
 
     x = 2**62
@@ -899,7 +900,7 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
 def test_weighted_wide_pair_sums_keep_original_row_product_overflow(
     session: Session, tmp_path: Path
 ) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.model.execution_errors import MaterializationError
 
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("DELETE FROM facts")

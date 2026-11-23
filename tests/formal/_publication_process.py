@@ -9,10 +9,10 @@ from unittest.mock import patch
 
 import marivo
 import marivo.analysis as mv
-from marivo.analysis.core.artifact_data import ArtifactManifest
 from marivo.analysis.materialization import terminal_publication, terminal_store
-from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.model.artifact_data import ArtifactManifest
+from marivo.analysis.model.execution_errors import SessionBusyError
 
 
 def _reply(value: object) -> None:

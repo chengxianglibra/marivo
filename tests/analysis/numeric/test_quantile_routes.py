@@ -13,9 +13,9 @@ from marivo._definition.types import ExactRef, SumAll
 from marivo._kernel.refs import ref
 from marivo.analysis.compiler.graph_plan import ReductionRead, SourceReadStage
 from marivo.analysis.compiler.observation import ReductionInput, lower_observation
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.core.value_types import data_type
 from marivo.analysis.materialization.graph_source_execution import _complete_source_frame
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.semantic.errors import SemanticExpressionError
 
 

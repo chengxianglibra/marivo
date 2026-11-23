@@ -3,36 +3,42 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias
 
 import pandas as pd
 
-from marivo.analysis.core.artifact_data import (
-    ArtifactData,
-    DataSchema,
-    OutputAttachment,
-    SavedFrameMethodFacts,
+from marivo._definition.types import LiteralValue
+from marivo._kernel.input_context import Owner
+from marivo.analysis.binding.graph import BoundGraph
+from marivo.analysis.core.frame_expression import (
+    AlignFrameValues,
+    FrameOperationKind,
+    NamedFrameComparison,
 )
-from marivo.analysis.core.data_schema import (
+from marivo.analysis.core.frame_method_facts import FrameMethodFacts
+from marivo.analysis.core.frozen_calendar import FrozenAttachment, validate_frozen_coordinates
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.methods.carriers.data_validation import normalize_complete_frame
+from marivo.analysis.model.artifact_data import ArtifactData, SavedFrameMethodFacts
+from marivo.analysis.model.data_schema import (
     CalendarComparisonBinding,
     CalendarDataAxis,
     DataAxis,
+    DataSchema,
     PairedDataAxis,
 )
-from marivo.analysis.core.data_validation import normalize_complete_frame
-from marivo.analysis.core.frame_expression import FrameOperationKind
-from marivo.analysis.core.frame_metadata import FrameResultMetadata, StoredFrameMetadata
-from marivo.analysis.core.frame_method_facts import FrameMethodFacts
-from marivo.analysis.core.frame_structure import coordinate_attachments, require_complete_structure
-from marivo.analysis.core.frozen_calendar import FrozenAttachment, validate_frozen_coordinates
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.lineage import empty, validate
-from marivo.analysis.core.model import reject
-from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import FrameKeyInput, FrameNodeLike, StoredFrameIdentity
+from marivo.analysis.model.frame_metadata import FrameResultMetadata, StoredFrameMetadata
+from marivo.analysis.model.frame_structure import (
+    PendingDataSchema,
+    coordinate_attachments,
+    require_complete_structure,
+)
+from marivo.analysis.model.lineage import FrameLineage, empty, validate
+from marivo.analysis.model.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 
 if TYPE_CHECKING:
-    from marivo.analysis.dsl._frame_inputs import FrameKeyInput
-    from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.datasource.runtime import DatasourceConnectionConfig
     from marivo.semantic._compiled_state import CompiledSemanticState
 
@@ -196,7 +202,7 @@ class SourceFrameBinding:
     graph: BoundGraph
     state: CompiledSemanticState
     connection: DatasourceConnectionConfig
-    frame_key_inputs: tuple[FrameKeyInput, ...] = ()
+    frame_key_inputs: tuple[FrameKeyDependency, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,7 +213,7 @@ class LiteralFrameBinding:
 @dataclass(frozen=True, slots=True)
 class OperationFrameBinding:
     operation: FrameOperationKind
-    inputs: tuple[AnalysisFrame, ...]
+    inputs: tuple[FrameNode, ...]
 
 
 FrameExpressionRoot: TypeAlias = SourceFrameBinding | LiteralFrameBinding | OperationFrameBinding
@@ -264,7 +270,7 @@ class MemoryFrameBacking:
 
 
 @dataclass(frozen=True, slots=True)
-class StoredFrameBacking:
+class StoredFrameBacking(StoredFrameIdentity):
     """A precise committed input; no decoded rows or producer graph."""
 
     artifact_id: str
@@ -302,3 +308,65 @@ class StoredFrameBacking:
         _attachments(
             self.data.schema, tuple(attachment.name for attachment in self.data.attachments)
         )
+
+
+@dataclass(frozen=True, slots=True)
+class SourceMetric:
+    binding: SourceFrameBinding
+    path: tuple[str, ...]
+    axis_positions: tuple[tuple[int, int], ...]
+    fixed_axes: tuple[tuple[int, tuple[LiteralValue, ...]], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class DerivationTarget:
+    mode: Literal["level", "absolute", "relative"]
+    current: SourceMetric
+    baseline: SourceMetric | None = None
+    pairing: NamedFrameComparison | AlignFrameValues | None = None
+    align_side: Literal["left", "right"] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DerivedOutput:
+    path: tuple[str, ...]
+    target: DerivationTarget
+
+
+@dataclass(frozen=True, slots=True)
+class FrameDerivation:
+    outputs: tuple[DerivedOutput, ...]
+    rejections: tuple[tuple[tuple[str, ...], str], ...] = ()
+
+
+class FrameLocalRead(Protocol):
+    """Local authority used by evaluation to read an exact captured input."""
+
+    @property
+    def owner(self) -> Owner: ...
+    @property
+    def report_timezone_name(self) -> str: ...
+    def read_complete(self, backing: StoredFrameBacking) -> CompletedFrameResult: ...
+
+
+FrameBacking: TypeAlias = ExpressionFrameBacking | MemoryFrameBacking | StoredFrameBacking
+FrameNode: TypeAlias = FrameNodeLike[
+    DataSchema | PendingDataSchema,
+    FrameBacking,
+    FrameLocalRead,
+    FrameLineage,
+    FrameDerivation | None,
+]
+FrameKeyDependency: TypeAlias = FrameKeyInput[FrameNode]
+
+
+def key_checkpoint(data: CompletedFrameData) -> CompletedFrameData:
+    """Copy only complete coordinates and their required frozen directories."""
+    schema = DataSchema(data.schema.axes, ())
+    names = set(required_attachments(schema))
+    return CompletedFrameData(
+        schema,
+        data.copy_rows().loc[:, list(schema.key_fields)],
+        tuple(a for a in data.copy_attachments() if a.name in names),
+        unique_keys=data.unique_keys.project(tuple(c.slot_id for c in schema.columns)),
+    )

@@ -9,7 +9,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import frame_evaluation, terminal_publication
-from marivo.analysis.materialization.errors import (
+from marivo.analysis.model.execution_errors import (
     IntegrityError,
     MaterializationError,
     RecoveryPendingError,

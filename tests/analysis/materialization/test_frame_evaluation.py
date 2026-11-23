@@ -19,9 +19,6 @@ import marivo.analysis as mv
 from marivo._definition.types import CalendarCoordinate
 from marivo._kernel.refs import ref
 from marivo.analysis.compiler.graph_lowering import LoweredQuery
-from marivo.analysis.core.artifact_data import DataColumn
-from marivo.analysis.core.data_types import TimestampDataType
-from marivo.analysis.core.frame_calendar import freeze_calendar
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -32,9 +29,11 @@ from marivo.analysis.materialization import (
     graph_execution,
     graph_source_execution,
 )
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_source_execution import PreparedSources
 from marivo.analysis.materialization.terminal_store import describe
+from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
+from marivo.analysis.model.data_types import DataColumn, TimestampDataType
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.runtime import DatasourceConnectionConfig, DatasourceConnectionService
@@ -538,7 +537,7 @@ def test_source_top_keeps_entire_frozen_calendar_directory(
         by=(calendar_scope.by(mv.grain("day")),),
     )
 
-    from marivo.analysis.core import frame_calendar
+    from marivo.analysis.methods.carriers import frame_calendar
 
     freeze = Mock(wraps=frame_calendar.freeze_calendar)
     monkeypatch.setattr(frame_calendar, "freeze_calendar", freeze)

@@ -10,9 +10,9 @@ from marivo._definition.grouping import grouping_binding
 from marivo._definition.observations import CoordinateBinding, ObservationBinding
 from marivo._definition.query import LiteralValues, ResultQuery
 from marivo._definition.types import Owner
+from marivo.analysis.binding.graph import BoundGraph
+from marivo.analysis.binding.signature import BoundSignature, ResultQuantity
 from marivo.analysis.compiler.optimization import InvocationMemo
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import BoundSignature, ResultQuantity
 from marivo.analysis.dsl.temporal import exact_scope
 
 

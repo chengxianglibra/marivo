@@ -35,11 +35,11 @@ from marivo.analysis.binding.time_guidance import (
     partition_hour_candidates,
     partition_hour_guidance,
 )
-from marivo.analysis.core.model import reject
+from marivo.analysis.model.errors import reject
 
 if TYPE_CHECKING:
+    from marivo.analysis.binding.graph import BoundGraph
     from marivo.analysis.binding.observe import ContributionBinding, ObservationPeriod
-    from marivo.analysis.core.graph import BoundGraph
     from marivo.semantic.validator import Registry
 
 

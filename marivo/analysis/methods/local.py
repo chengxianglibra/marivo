@@ -11,16 +11,29 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo._definition.observations import sample_key_matches
-from marivo.analysis.compiler.graph_plan import LocalCompute
-from marivo.analysis.compiler.observation import FormulaProgram
-from marivo.analysis.core.calendar_keys import (
+from marivo.analysis.binding.calendar_keys import (
     match_time_keys,
     require_window_endpoints,
     time_key_series,
 )
-from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
-from marivo.analysis.core.data_validation import distinct_key_rows
-from marivo.analysis.core.unique_keys import UniqueKeys
+from marivo.analysis.binding.programs import FormulaProgram, MemberInput
+from marivo.analysis.compiler.graph_plan import LocalCompute
+from marivo.analysis.methods.carriers.data_validation import distinct_key_rows
+from marivo.analysis.model.attribute_failures import (
+    AttributeFailureContext,
+    AttributeFineFiber,
+    AttributeNumericWitness,
+    AttributeParentFiber,
+)
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+)
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.programs import FormulaInput
+from marivo.analysis.model.unique_keys import UniqueKeys
 
 if TYPE_CHECKING:
     from marivo.analysis.core.attribute import AttributeFormulaContext
@@ -35,12 +48,6 @@ def _attribute_formula_failure(
     received: str,
 ) -> NoReturn:
     """Annotate the existing numeric failure from its actual check coordinates."""
-    from marivo.analysis.core.attribute import (
-        AttributeFailureContext,
-        AttributeFineFiber,
-        AttributeNumericWitness,
-        AttributeParentFiber,
-    )
     from marivo.analysis.core.frozen_calendar import frozen_key_rows
     from marivo.semantic._numeric_lowering import numeric_failure
     from marivo.semantic.errors import SemanticExpressionError
@@ -143,17 +150,11 @@ def _combine_program(
     )
     from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate
     from marivo._kernel.temporal import Grain
-    from marivo.analysis.compiler.observation import (
-        FormulaInput,
-        MemberInput,
-        duration_type,
-        formula_columns,
-    )
-    from marivo.analysis.core.data_types import DurationDataType
-    from marivo.analysis.core.data_validation import stage_arrow_type
+    from marivo.analysis.compiler.observation import duration_type, formula_columns
     from marivo.analysis.core.value_types import data_type, ibis_type
     from marivo.analysis.methods._ibis_numeric import evaluate_numeric
     from marivo.analysis.methods._sample_numeric import reduce_samples
+    from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
     from marivo.semantic._numeric_lowering import (
         NumericCheck,
         NumericValue,
@@ -239,7 +240,7 @@ def _combine_program(
         )
 
     def population_domain(definition: PopulationDependency, slots: tuple[str, ...]) -> pd.DataFrame:
-        from marivo.analysis.dsl.population import population_keys
+        from marivo._definition.relations import population_keys
 
         if isinstance(definition, PopulationProgram):
             found = next(
@@ -397,8 +398,6 @@ def _combine_program(
             else:
                 missing = domain if not len(complete_domain) else domain.iloc[:0]
             if len(missing):
-                from marivo.analysis.materialization.errors import MaterializationError
-
                 raise MaterializationError(
                     expected="an output Population covering every required complete coordinate",
                     received=f"missing output coordinates={missing.head(6).to_dict(orient='records') if keys else [()]}",

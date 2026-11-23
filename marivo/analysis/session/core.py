@@ -14,8 +14,10 @@ from ibis.common.deferred import Deferred
 from marivo._definition.types import Owner
 from marivo._kernel.grouping import Grouping
 from marivo._kernel.temporal import InstantAnchor, TimeScope
+from marivo.analysis.binding.observation import ObservationOwner
+from marivo.analysis.dsl.frame_reopening import reopen_frame
 from marivo.analysis.materialization.contracts import SessionRecord
-from marivo.analysis.observation.contracts import ObservationOwner
+from marivo.analysis.session._lazy_sources import make_source_owner
 from marivo.semantic._expression_values import (
     DimensionExpression,
     FieldExpression,
@@ -37,7 +39,7 @@ if TYPE_CHECKING:
 def _predicate_input(
     value: RowPredicate | None, catalog: SemanticCatalog, owner: Owner, *, location: str
 ) -> Deferred | None:
-    from marivo.analysis.core.model import reject
+    from marivo.analysis.model.errors import reject
     from marivo.semantic._consumption import bind_predicate
 
     if value is None:
@@ -62,7 +64,7 @@ def _predicate_input(
 def _field_input(
     value: FieldExpression, catalog: SemanticCatalog, owner: Owner, *, location: str
 ) -> Deferred:
-    from marivo.analysis.core.model import reject
+    from marivo.analysis.model.errors import reject
     from marivo.semantic._consumption import bind_field
 
     if not isinstance(value, RowExpression) or value._role not in ("dimension", "time", "numeric"):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
@@ -117,11 +119,7 @@ class Session:
                 with cr.bind_resolver(config.resolver):
                     catalog = load(workspace_dir=self.project_root, domains=self._record().domains)
 
-                sources = self._runtime.sources(
-                    semantic_registry=catalog._state.registry,
-                    sidecar=catalog._state.sidecar,
-                    catalog=catalog,
-                )
+                sources = self._runtime.sources(make_source_owner, catalog)
                 self._catalog_value = catalog
                 self._sources_value = sources
             return self._sources_value
@@ -221,12 +219,12 @@ class Session:
         """
         from marivo._definition.relations import PopulationProgram, SourceIdentities
         from marivo._definition.types import AxisBinding, InputContext, Owner
-        from marivo.analysis.core.model import reject
         from marivo.analysis.dsl.population import (
             Population,
             _owner,
             condition_populations,
         )
+        from marivo.analysis.model.errors import reject
         from marivo.semantic._consumption import bind_entity
         from marivo.semantic._deferred_semantics import consume_predicate
         from marivo.semantic.catalog import Entity
@@ -321,7 +319,7 @@ class Session:
         Example: ``anchor = session.instant('2026-01-01')``.
         Constraints: Rejects naive datetimes and ambiguous/nonexistent local clocks; no source reads.
         """
-        from marivo.analysis.dsl.temporal import exact_instant
+        from marivo.analysis.model.time_grid import exact_instant
 
         return exact_instant(value, self.timezone if timezone is None else timezone)
 
@@ -402,11 +400,11 @@ class Session:
             At existing keys, absent sum/count is zero; mean is NA.
             Adding Metrics can add rows.
         """
-        from marivo.analysis.core.model import reject
         from marivo.analysis.dsl import frame_sources
         from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
         from marivo.analysis.dsl.population import Population
         from marivo.analysis.dsl.source_capture import _metric_inputs
+        from marivo.analysis.model.errors import reject
         from marivo.semantic._consumption import bind_metric
 
         owner = self._runtime.local.owner
@@ -506,9 +504,9 @@ class Session:
         Construction reads no source rows or schema and creates no Run; the Population must be
         unowned or belong to this exact Store and Session.
         """
-        from marivo.analysis.core.model import reject
         from marivo.analysis.dsl import frame_sources
         from marivo.analysis.dsl.population import Population, _owner
+        from marivo.analysis.model.errors import reject
 
         if not isinstance(population, Population):
             reject(
@@ -567,9 +565,9 @@ class Session:
         business rows. Numeric reads preserve NULL, NaN and Infinity; finite local
         operations validate their demanded inputs. Value names follow the Frame name rules.
         """
-        from marivo.analysis.core.model import reject
         from marivo.analysis.dsl import frame_sources
         from marivo.analysis.dsl.population import Population, _validate_population
+        from marivo.analysis.model.errors import reject
 
         if not isinstance(population, Population):
             reject(
@@ -631,8 +629,8 @@ class Session:
         hand-written calendars. Zero-axis capture needs no Catalog or source configuration;
         capture never reads source rows or creates a Run.
         """
-        from marivo.analysis.core.model import reject
         from marivo.analysis.dsl import frame_sources
+        from marivo.analysis.model.errors import reject
 
         if not isinstance(by, tuple):
             reject(
@@ -696,7 +694,7 @@ class Session:
         reads validate consumed files. Old Stores are refused unchanged; missing or foreign
         IDs fail. For audit metadata, use saved.
         """
-        from marivo.analysis.core.model import reject
+        from marivo.analysis.model.errors import reject
 
         if (
             type(artifact_id) is not str
@@ -709,7 +707,7 @@ class Session:
                 "Pass the exact committed output ID, not a Frame object or Ref.",
                 "session.persisted_frame",
             )
-        return self._runtime.local.reopen(artifact_id)
+        return reopen_frame(self._runtime.local, artifact_id)
 
     def population_from(
         self,
@@ -736,9 +734,9 @@ class Session:
             A matching captured direct field can keep an unanchored time
             interpretation. Targets must preserve axis role, key types and units.
         """
-        from marivo.analysis.core.model import reject
         from marivo.analysis.dsl.frame import AnalysisFrame
         from marivo.analysis.dsl.frame_population import population_from
+        from marivo.analysis.model.errors import reject
 
         if type(frame) is not AnalysisFrame:
             reject(

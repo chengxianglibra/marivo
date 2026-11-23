@@ -12,19 +12,7 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.attribute import (
-    AttributeClosureWitness,
-    AttributeInputError,
-    AttributeParentFiber,
-)
-from marivo.analysis.core.data_types import (
-    DataColumn,
-    DataType,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-)
-from marivo.analysis.core.data_validation import stage_arrow_type
+from marivo.analysis.core.attribute import AttributeInputError
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameLevelAdditiveMethod,
@@ -32,15 +20,23 @@ from marivo.analysis.core.frame_method_facts import (
     FrameLevelLinearTerm,
     FrameLevelRatioMethod,
     FrameLevelSupport,
-    FrameMethodOutput,
     FrameMethodSupport,
-    FrameMethodTarget,
-    FrameMethodValue,
 )
-from marivo.analysis.core.model import CoreRuleError
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
 from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary, _Value
 from marivo.analysis.methods.frame_attribute_report import _closure, _report_value
+from marivo.analysis.model.attribute_failures import AttributeClosureWitness, AttributeParentFiber
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DataType,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+)
+from marivo.analysis.model.errors import CoreRuleError
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
+from marivo.analysis.model.method_values import FrameMethodValue
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.errors import SemanticExpressionError

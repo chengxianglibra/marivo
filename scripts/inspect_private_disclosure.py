@@ -12,14 +12,14 @@ import json
 import subprocess
 from pathlib import Path
 
-from marivo.analysis._capabilities.dataset_model import (
+from marivo.analysis._capabilities.dataset_registry import prepare
+from marivo.analysis._capabilities.dataset_render import render
+from marivo.analysis.model.disclosure import (
     CallableInput,
     FamilyInput,
     NavigationInput,
     TypeInput,
 )
-from marivo.analysis._capabilities.dataset_registry import prepare
-from marivo.analysis._capabilities.dataset_render import render
 
 
 def capture(output: Path) -> None:

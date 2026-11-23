@@ -7,8 +7,8 @@ from fractions import Fraction
 
 import pytest
 
-from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.methods.frame_attribute_shapley import _sample_moments, _scaled_sum
+from marivo.analysis.model.data_types import ScalarDataType
 from marivo.semantic.errors import SemanticExpressionError
 
 
@@ -56,8 +56,11 @@ def test_scaled_closure_sum_cancels_before_overflow_and_retains_subnormal() -> N
 
 
 def test_unrepresentable_statistic_retains_metric_and_parent_context() -> None:
-    from marivo.analysis.core.attribute import AttributeFailureContext, AttributeParentFiber
     from marivo.analysis.methods.frame_attribute_shapley import _attribute_numeric_context
+    from marivo.analysis.model.attribute_failures import (
+        AttributeFailureContext,
+        AttributeParentFiber,
+    )
 
     parent = ((ScalarDataType("string"), "West"),)
     with (

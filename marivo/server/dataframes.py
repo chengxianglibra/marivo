@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from marivo.analysis.core.result_reference import DataFrameReference
 from marivo.analysis.materialization.dataframe_store import _corrupt, dtype, open_snapshot
+from marivo.analysis.model.result_reference import DataFrameReference
 from marivo.server.frame_projection import fact, scalar
 from marivo.server.wire import Budget, JsonObject, JsonValue, bad_request
 

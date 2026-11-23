@@ -13,19 +13,19 @@ import pyarrow.compute as pc
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_schema import DataAxis, DataColumn, DataSchema
-from marivo.analysis.core.data_types import (
+from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.model.data_schema import DataAxis, DataColumn, DataSchema
+from marivo.analysis.model.data_types import (
     DataType,
     DecimalDataType,
     DurationDataType,
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value
 
 INT64 = ScalarDataType("int64")
@@ -329,7 +329,7 @@ def test_over_keeps_interval_and_paired_current_axis_facts(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     from marivo._definition.correspondence import CalendarCorrespondence
-    from marivo.analysis.core.data_schema import IntervalDataAxis, PairedDataAxis
+    from marivo.analysis.model.data_schema import IntervalDataAxis, PairedDataAxis
     from tests.shared_fixtures import time_population
 
     case = analysis_dsl_case_factory("j2")

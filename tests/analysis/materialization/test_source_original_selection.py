@@ -10,8 +10,8 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.materialization import query_parameters
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project

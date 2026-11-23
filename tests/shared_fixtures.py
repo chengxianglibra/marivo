@@ -22,14 +22,14 @@ if TYPE_CHECKING:
     from marivo._definition.expressions import MetricExpression, MetricNode
     from marivo._help.render import PublicHelpTarget
     from marivo._kernel.temporal import TimeScope
-    from marivo.analysis.core.artifact_data import OutputAttachment
-    from marivo.analysis.core.time_authority import TemporalExecution
     from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.dsl.population import Population
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.frame_services import LocalFrameServices
     from marivo.analysis.materialization.store import SessionStore
     from marivo.analysis.materialization.terminal_store import TerminalRun
+    from marivo.analysis.methods.carriers.attachments import OutputAttachment
+    from marivo.analysis.model.time_authority import TemporalExecution
     from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
     from marivo.semantic._source_timezone import DeclaredSourceTimezone
@@ -319,7 +319,7 @@ def observation_temporal(
 ) -> TemporalExecution:
     """Bind explicit UTC test inputs to the same closed observation authority."""
     from marivo.analysis.compiler.source_time import source_time
-    from marivo.analysis.core.time_authority import ReportTimeAuthority, TemporalExecution
+    from marivo.analysis.model.time_authority import ReportTimeAuthority, TemporalExecution
 
     value = ibis.table({axis.source_column: physical_type})[axis.source_column]
     _, authority = source_time(
@@ -1083,10 +1083,10 @@ def numeric_program_frame(
     """
     from marivo._definition.relations import ObserveQuery
     from marivo._definition.types import Owner
+    from marivo.analysis.binding.graph import BoundGraph
     from marivo.analysis.binding.observe import bind_observation
+    from marivo.analysis.binding.signature import BoundQuantity, BoundSignature
     from marivo.analysis.core.frame_data import LiteralFrameBinding
-    from marivo.analysis.core.graph import BoundGraph
-    from marivo.analysis.core.model import BoundQuantity, BoundSignature
     from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.dsl.frame_sources import pending_schema
     from marivo.analysis.dsl.population import _interval_coordinate

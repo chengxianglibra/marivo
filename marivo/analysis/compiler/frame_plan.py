@@ -18,6 +18,7 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo._definition.relations import AttributeKeys, FrameKeys
+from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.graph_plan import (
     AttributeFrequencyRead,
@@ -35,7 +36,6 @@ from marivo.analysis.compiler.graph_plan import (
     require_attribute,
     with_unique_keys,
 )
-from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.compiler.optimization import FusionGroup, RuleDecision
 from marivo.analysis.compiler.query_program import (
     DurationBinary,
@@ -48,8 +48,6 @@ from marivo.analysis.core.attribute_game import (
     AttributeGameValues,
     game_schema,
 )
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.frame_expression import (
     AlignFrameValues,
     AttributeContributionValues,
@@ -70,9 +68,11 @@ from marivo.analysis.core.frame_expression import (
     statistic_expressions,
     transport_logical_facts,
 )
-from marivo.analysis.core.frame_structure import PendingDataSchema, require_complete_structure
-from marivo.analysis.core.model import reject
-from marivo.analysis.core.stage_contracts import CheckedStageInputT
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DataType, DurationDataType, ScalarDataType
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import CheckedStageInputT
+from marivo.analysis.model.frame_structure import PendingDataSchema, require_complete_structure
 
 
 @dataclass(frozen=True, slots=True)
@@ -359,7 +359,7 @@ def plan_frame(
         existing = operations.get(id(node))
         if existing is not None:
             return existing
-        from marivo.analysis.core.frame_attribute_merge import (
+        from marivo.analysis.model.frame_attribute_merge import (
             AttributeMergeProgram,
             AttributeMergeValues,
             infer_attribute_merge_schema,
@@ -770,7 +770,7 @@ def frame_expression_schema(
         inputs = tuple(
             frame_expression_schema(item, source_schemas, memo=memo) for item in expression.inputs
         )
-        from marivo.analysis.core.frame_attribute_merge import (
+        from marivo.analysis.model.frame_attribute_merge import (
             AttributeMergeValues,
             infer_attribute_merge_schema,
         )

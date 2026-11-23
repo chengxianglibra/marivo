@@ -8,7 +8,7 @@ from functools import cache
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo.analysis.core.unique_keys import UniqueKeys
+from marivo.analysis.model.unique_keys import UniqueKeys
 
 
 def relation_unique_keys(

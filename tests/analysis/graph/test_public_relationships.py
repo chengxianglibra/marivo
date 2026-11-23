@@ -8,7 +8,7 @@ from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.model import CoreRuleError
+from marivo.analysis.model.errors import CoreRuleError
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 

@@ -12,90 +12,6 @@ from typing import Literal, TypeVar, Union, get_args, get_origin, get_type_hints
 
 import pyarrow as pa
 
-from marivo.analysis.core.artifact_data import (
-    ArtifactData,
-    ArtifactManifest,
-    BuiltinCalendarData,
-    CalendarDataAxis,
-    DataAxis,
-    DataColumn,
-    DataSchema,
-    DecimalDataType,
-    DurationDataType,
-    FrozenCalendarData,
-    FrozenIntervalData,
-    IntervalDataAxis,
-    PairedDataAxis,
-    ParquetHandle,
-    SavedAttachment,
-    SavedFrameMethodFacts,
-    ScalarDataType,
-    TimestampDataType,
-)
-from marivo.analysis.core.data_schema import (
-    CalendarComparisonBinding,
-    ComparisonValueBinding,
-    DataAlignment,
-    DataComparison,
-    EndpointPresence,
-    FrozenCalendarOrigin,
-    IntervalComparisonBinding,
-    OrdinaryComparisonBinding,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameAlignmentAxis,
-    FrameAlignmentSide,
-    FrameAllHistoryWindow,
-    FrameAxisGroup,
-    FrameAxisSchema,
-    FrameAxisTime,
-    FrameBuiltinGrain,
-    FrameCalendarAxisSchema,
-    FrameCalendarEndpoint,
-    FrameChangeTarget,
-    FrameCivilDateSourceTime,
-    FrameClockedContribution,
-    FrameComparedTime,
-    FrameContributionSampleWindowEndpoint,
-    FrameDecomposition,
-    FrameDecompositionField,
-    FrameDerivedTimeSemantics,
-    FrameDerivedValueInput,
-    FrameField,
-    FrameFieldSampleWindowEndpoint,
-    FrameFixedAxis,
-    FrameFixedGroup,
-    FrameFixedTime,
-    FrameIndependentContribution,
-    FrameInstantSourceTime,
-    FrameIntervalAxisSchema,
-    FrameIntervalEndpoint,
-    FrameLevelTarget,
-    FrameNamedValueInput,
-    FrameObservationContext,
-    FrameObservedTimeSemantics,
-    FrameOrdinaryAxisSchema,
-    FramePairedAxisSchema,
-    FramePairStatisticContext,
-    FrameReportWindowEndpoint,
-    FrameRowAttributeTime,
-    FrameShareContext,
-    FrameSinceWindow,
-    FrameStatisticContext,
-    FrameToDateWindow,
-    FrameTrailingDurationWindow,
-    FrameTrailingPeriodsWindow,
-    FrameValueContext,
-    FrameWallClockSourceTime,
-    UnresolvedDataType,
-)
-from marivo.analysis.core.frame_metadata import (
-    LiteralInput,
-    MemoryInput,
-    SourceInput,
-    StoredFrameMetadata,
-    StoredInput,
-)
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
@@ -110,11 +26,8 @@ from marivo.analysis.core.frame_method_facts import (
     FrameLinearTerm,
     FrameMethodCoordinate,
     FrameMethodFacts,
-    FrameMethodOutput,
     FrameMethodParent,
     FrameMethodSupport,
-    FrameMethodTarget,
-    FrameMethodValue,
     FrameRatioMethod,
     FrameShapleyCapture,
     FrameShapleyGame,
@@ -126,23 +39,105 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyQueryGame,
     FrameShapleyReduction,
 )
-from marivo.analysis.core.frame_source_reads import (
+from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.contracts import _array, _obj, _text, parse_json
+from marivo.analysis.model.artifact_data import (
+    ArtifactData,
+    ArtifactManifest,
+    ParquetHandle,
+    SavedAttachment,
+    SavedFrameMethodFacts,
+)
+from marivo.analysis.model.data_schema import (
+    BuiltinCalendarData,
+    CalendarComparisonBinding,
+    CalendarDataAxis,
+    ComparisonValueBinding,
+    DataAlignment,
+    DataAxis,
+    DataComparison,
+    DataSchema,
+    EndpointPresence,
+    FrozenCalendarData,
+    FrozenCalendarOrigin,
+    FrozenIntervalData,
+    IntervalComparisonBinding,
+    IntervalDataAxis,
+    OrdinaryComparisonBinding,
+    PairedDataAxis,
+)
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.model.execution_errors import IntegrityError
+from marivo.analysis.model.frame_facts import FrameField, UnresolvedDataType
+from marivo.analysis.model.frame_metadata import (
+    LiteralInput,
+    MemoryInput,
+    SourceInput,
+    StoredFrameMetadata,
+    StoredInput,
+)
+from marivo.analysis.model.frame_source_reads import (
     FrameSourceRead,
     FrameSourceReadPeriod,
     FrameSourceReadScope,
 )
-from marivo.analysis.core.lineage import ColumnLineage, FrameLineage, SemanticObjectIdentity
-from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.contracts import (
-    FileEntry,
-    LocalReceipt,
-    _array,
-    _obj,
-    _text,
-    canonical_json,
-    parse_json,
+from marivo.analysis.model.layout_facts import (
+    FrameAlignmentAxis,
+    FrameAlignmentSide,
+    FrameAxisGroup,
+    FrameChangeTarget,
+    FrameDecomposition,
+    FrameDecompositionField,
+    FrameDerivedValueInput,
+    FrameFixedGroup,
+    FrameLevelTarget,
+    FrameNamedValueInput,
+    FramePairStatisticContext,
+    FrameShareContext,
+    FrameStatisticContext,
+    FrameValueContext,
 )
-from marivo.analysis.materialization.errors import IntegrityError
+from marivo.analysis.model.lineage import ColumnLineage, FrameLineage, SemanticObjectIdentity
+from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
+from marivo.analysis.model.method_values import FrameMethodValue
+from marivo.analysis.model.receipts import FileEntry, LocalReceipt, canonical_json
+from marivo.analysis.model.time_facts import (
+    FrameAllHistoryWindow,
+    FrameAxisSchema,
+    FrameAxisTime,
+    FrameBuiltinGrain,
+    FrameCalendarAxisSchema,
+    FrameCalendarEndpoint,
+    FrameCivilDateSourceTime,
+    FrameClockedContribution,
+    FrameComparedTime,
+    FrameContributionSampleWindowEndpoint,
+    FrameDerivedTimeSemantics,
+    FrameFieldSampleWindowEndpoint,
+    FrameFixedAxis,
+    FrameFixedTime,
+    FrameIndependentContribution,
+    FrameInstantSourceTime,
+    FrameIntervalAxisSchema,
+    FrameIntervalEndpoint,
+    FrameObservationContext,
+    FrameObservedTimeSemantics,
+    FrameOrdinaryAxisSchema,
+    FramePairedAxisSchema,
+    FrameReportWindowEndpoint,
+    FrameRowAttributeTime,
+    FrameSinceWindow,
+    FrameToDateWindow,
+    FrameTrailingDurationWindow,
+    FrameTrailingPeriodsWindow,
+    FrameWallClockSourceTime,
+)
 
 
 def invalid(received: str) -> IntegrityError:

@@ -17,20 +17,20 @@ import pytest
 
 from marivo._definition.query import SelectValues, ValueSlot, ValueUnary
 from marivo.analysis.compiler.query_program import FrameProgram
-from marivo.analysis.core.data_schema import DataAxis, DataSchema
-from marivo.analysis.core.data_types import (
+from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.methods.query_values import _temporal_comparison_values, expression_series
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_types import (
     DataColumn,
     DataType,
     DurationDataType,
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.methods.query_values import _temporal_comparison_values, expression_series
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.session.core import Session
 from marivo.semantic.errors import SemanticExpressionError
 from tests.shared_fixtures import terminal_runs

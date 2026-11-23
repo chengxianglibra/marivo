@@ -6,13 +6,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from marivo._definition.query import FilterValues, SelectValues, TopValues
-from marivo.analysis.core.artifact_data import (
-    DataSchema,
-)
 from marivo.analysis.core.attribute_game import AttributeGameValues
-from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
+    FrameKeyDependency,
     OperationFrameBinding,
     SourceFrameBinding,
 )
@@ -28,16 +25,18 @@ from marivo.analysis.core.frame_expression import (
     SourceFrameInput,
 )
 from marivo.analysis.core.frame_fix import FixFrameValues
-from marivo.analysis.core.frame_metadata import (
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_attribute_merge import AttributeMergeValues
+from marivo.analysis.model.frame_contracts import FrameKeyInput, merge_frame_key_inputs
+from marivo.analysis.model.frame_metadata import (
     FrameOperationName,
 )
-from marivo.analysis.core.model import reject
-from marivo.analysis.dsl._frame_inputs import FrameKeyInput, merge_frame_key_inputs
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.attribute_rules import AttributeRule
     from marivo.analysis.binding.frame_attribute_inputs import AttributeInputRequest
-    from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.analysis.core.frame_data import FrameNode
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,10 +44,10 @@ class CapturedFrameInputs:
     """One invocation's exact inputs, expressions and ordered fact associations."""
 
     root: FrameExpression
-    source_frames: dict[str, AnalysisFrame]
-    fixed_frames: dict[str, AnalysisFrame]
+    source_frames: dict[str, FrameNode]
+    fixed_frames: dict[str, FrameNode]
     expressions: dict[str, FrameExpression]
-    collected: dict[str, FrameKeyInput]
+    collected: dict[str, FrameKeyDependency]
     dependencies: dict[str, tuple[str, ...]]
     requested: dict[str, tuple[int, tuple[tuple[str, AttributeRule], ...], AttributeFrameValues]]
     operations: tuple[FrameOperationName, ...]
@@ -56,13 +55,13 @@ class CapturedFrameInputs:
 
 
 def capture_frame_inputs(
-    frame: AnalysisFrame, request: AttributeInputRequest | None = None
+    frame: FrameNode, request: AttributeInputRequest | None = None
 ) -> CapturedFrameInputs:
     """Capture explicit operands and sidecars without opening or reading sources."""
-    source_frames: dict[str, AnalysisFrame] = {}
-    fixed_frames: dict[str, AnalysisFrame] = {}
+    source_frames: dict[str, FrameNode] = {}
+    fixed_frames: dict[str, FrameNode] = {}
     expressions: dict[str, FrameExpression] = {}
-    collected: dict[str, FrameKeyInput] = {}
+    collected: dict[str, FrameKeyDependency] = {}
     dependencies: dict[str, tuple[str, ...]] = {}
     operations: list[FrameOperationName] = []
     game_inputs: list[str] = []
@@ -70,7 +69,7 @@ def capture_frame_inputs(
         str, tuple[int, tuple[tuple[str, AttributeRule], ...], AttributeFrameValues]
     ] = {}
 
-    def collect(current: AnalysisFrame) -> FrameExpression:
+    def collect(current: FrameNode) -> FrameExpression:
         if current._local.owner != frame._local.owner:
             reject(
                 "explicit inputs from one Store and Session",

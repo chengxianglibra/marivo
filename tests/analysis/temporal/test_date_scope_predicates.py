@@ -9,7 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.model.data_types import ScalarDataType
 from marivo.semantic.reader import SemanticProject
 from tests.support.source_trace import SourceTrace
 

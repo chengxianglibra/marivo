@@ -16,7 +16,7 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.datasource.ir import TableSourceIR
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.datasource.source_cases import SourceData, source_case

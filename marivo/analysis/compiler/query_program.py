@@ -9,15 +9,15 @@ from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.query import QueryOperation, ValueBinary
 from marivo._definition.relations import PopulationDependency, PopulationProgram
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
-from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
+from marivo.analysis.model.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 
 if TYPE_CHECKING:
-    from marivo.analysis.core.data_schema import DataSchema
     from marivo.analysis.core.frame_expression import (
         AlignFrameValues,
         CompareFrameValues,
         FrameUnaryOperationKind,
     )
+    from marivo.analysis.model.data_schema import DataSchema
 
 
 @dataclass(frozen=True, slots=True)

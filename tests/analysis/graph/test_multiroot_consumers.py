@@ -17,7 +17,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject

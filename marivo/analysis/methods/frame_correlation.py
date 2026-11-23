@@ -9,8 +9,8 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from marivo.analysis.core.data_types import DataType
 from marivo.analysis.methods.numeric_state import Number
+from marivo.analysis.model.data_types import DataType
 
 
 def _scale_overflowing(values: Sequence[Number]) -> Sequence[Number]:

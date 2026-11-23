@@ -11,8 +11,8 @@ import pyarrow.parquet as pq
 import pytest
 
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.storage import _open_payload
+from marivo.analysis.model.receipts import LocalReceipt
 from tests.analysis.statistics.pandas_workflows import assert_clean, deviation, orders, plain
 from tests.shared_fixtures import DslCaseFactory, run_ids, terminal_runs
 

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis._capabilities.dataset_model import NavigationInput
 from marivo.analysis._capabilities.dataset_registry import prepare
+from marivo.analysis.model.disclosure import NavigationInput
 from tests.support.paths import PROJECT_ROOT
 
 ROOT = PROJECT_ROOT

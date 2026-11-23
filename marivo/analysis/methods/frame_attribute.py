@@ -6,44 +6,46 @@ from typing import Literal
 
 import pandas as pd
 
-from marivo.analysis.core.artifact_data import OutputAttachment
+from marivo.analysis.binding.calendar_keys import time_key_type
 from marivo.analysis.core.attribute import (
     AttributeDomainProgram,
     AttributeInputProgram,
     AttributeMatrixSource,
     AttributeProjectProgram,
 )
-from marivo.analysis.core.calendar_keys import time_key_type
-from marivo.analysis.core.data_schema import (
+from marivo.analysis.core.frame_expression import AttributeProjectValues
+from marivo.analysis.core.frozen_calendar import (
+    FrozenAttachment,
+    FrozenCalendarBucket,
+    frozen_key_rows,
+    frozen_key_table,
+    read_calendar_directory,
+    require_matchable_calendar_directory,
+    validate_frozen_coordinates,
+)
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
+from marivo.analysis.methods.carriers.stage_components import (
+    AttributeRootInputs,
+    select_attribute_root,
+)
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.methods.frame_comparison import _take
+from marivo.analysis.model.data_schema import (
     CalendarDataAxis,
     DataSchema,
     IntervalDataAxis,
     PairedDataAxis,
+    require_compatible_calendar_axes,
 )
-from marivo.analysis.core.data_types import (
+from marivo.analysis.model.data_types import (
     DataColumn,
     ScalarDataType,
 )
-from marivo.analysis.core.frame_calendar import freeze_calendar
-from marivo.analysis.core.frame_expression import AttributeProjectValues
-from marivo.analysis.core.frame_structure import coordinate_attachments
-from marivo.analysis.core.frozen_calendar import (
-    FrozenAttachment,
-    FrozenCalendarBucket,
-    FrozenKey,
-    FrozenScalar,
-    frozen_key_rows,
-    frozen_key_table,
-    read_calendar_directory,
-    require_compatible_calendar_axes,
-    require_matchable_calendar_directory,
-    validate_frozen_coordinates,
-)
-from marivo.analysis.core.model import reject
-from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
-from marivo.analysis.materialization.graph_exchange import StageOutput
-from marivo.analysis.materialization.query_components import AttributeRootInputs
-from marivo.analysis.methods.frame_comparison import _take
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_structure import coordinate_attachments
+from marivo.analysis.model.frozen_keys import FrozenKey, FrozenScalar
+from marivo.analysis.model.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 
 
 def _validated(
@@ -67,12 +69,12 @@ def _calendar_keys(
 ) -> dict[FrozenKey, FrozenKey | None]:
     """Project through the complete consumed endpoint correspondence, never rematch."""
     from marivo._definition.types import IntervalCoordinate
-    from marivo.analysis.core.data_schema import (
+    from marivo.analysis.core.frozen_calendar import read_interval_directory
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_interval
+    from marivo.analysis.model.data_schema import (
         CalendarComparisonBinding,
         IntervalComparisonBinding,
     )
-    from marivo.analysis.core.frame_calendar import freeze_interval
-    from marivo.analysis.core.frozen_calendar import read_interval_directory
 
     assert operation.calendar is not None and operation.target_calendar is not None
     axis = schema.axes[operation.calendar]
@@ -540,10 +542,10 @@ def attribute_input_frame_data(
 
     parent, left, right, left_projection, right_projection = inputs
     sources = {"left": left, "right": right}
-    from marivo.analysis.core.attribute import (
+    from marivo.analysis.core.attribute import AttributeInputError
+    from marivo.analysis.model.attribute_failures import (
         AttributeAggregateWitness,
         AttributeFailureContext,
-        AttributeInputError,
         AttributeParentFiber,
     )
 
@@ -668,8 +670,6 @@ def attribute_input_frame_data(
         mapped: list[pd.DataFrame] = []
         mapped_proofs: list[UniqueKeys] = []
         for entry in item.sources:
-            from marivo.analysis.materialization.query_components import select_attribute_root
-
             root = select_attribute_root(sources[item.side].attribute_inputs, item.scope, entry)
             active = attribute_source_values(program, root, projection, entry, item.scope)
             mapped.append(active.table.rename(columns={entry.source: item.target.slot_id}))

@@ -20,8 +20,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from marivo.analysis.core.data_types import DataType, DurationDataType, ScalarDataType
 from marivo.analysis.methods.physical import DecimalType, DurationType, ValueType
+from marivo.analysis.model.data_types import DataType, DurationDataType, ScalarDataType
 
 Number: TypeAlias = int | float | Decimal
 

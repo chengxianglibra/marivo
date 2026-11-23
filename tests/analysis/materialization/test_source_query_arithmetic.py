@@ -236,9 +236,9 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
             ValueUnary,
         )
         from marivo.analysis.compiler.query_program import FrameProgram
-        from marivo.analysis.core.data_schema import DataAxis, DataSchema
-        from marivo.analysis.core.data_types import DataColumn, ScalarDataType
         from marivo.analysis.methods.frame_values import evaluate_frame
+        from marivo.analysis.model.data_schema import DataAxis, DataSchema
+        from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 
         schema = DataSchema(
             (DataAxis("id", (DataColumn("id", "id", ScalarDataType("int64"), False),), name="id"),),
@@ -292,9 +292,9 @@ def test_local_float_select_preserves_direct_values_and_checks_computed_outputs(
         )
         from marivo._definition.query import SelectValues, ValueSlot, ValueUnary
         from marivo.analysis.compiler.query_program import FrameProgram
-        from marivo.analysis.core.data_schema import DataSchema
-        from marivo.analysis.core.data_types import DataColumn, ScalarDataType
         from marivo.analysis.methods.frame_values import evaluate_frame
+        from marivo.analysis.model.data_schema import DataSchema
+        from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 
         input_schema = DataSchema(
             (),

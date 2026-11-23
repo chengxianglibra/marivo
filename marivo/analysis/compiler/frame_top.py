@@ -18,10 +18,10 @@ from marivo.analysis.compiler.native_query import NativeFrameTopFinish, NativeQu
 from marivo.analysis.compiler.optimization import RuleDecision
 from marivo.analysis.compiler.query_program import FrameProgram
 from marivo.analysis.compiler.source_predicates import string_bytes
-from marivo.analysis.core.data_schema import DataAxis, DataSchema
-from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_expression import SourceFrameInput
-from marivo.analysis.core.stage_contracts import CheckedStageInputT
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_types import ScalarDataType
+from marivo.analysis.model.frame_contracts import CheckedStageInputT
 from marivo.semantic._numeric_lowering import NumericCheck
 
 

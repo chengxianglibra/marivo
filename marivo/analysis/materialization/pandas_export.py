@@ -5,20 +5,22 @@ from __future__ import annotations
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.core.artifact_data import DataSchema, OutputAttachment
-from marivo.analysis.core.data_schema import (
+from marivo.analysis.core.frozen_calendar import frozen_key_rows
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.model.data_schema import (
     CalendarDataAxis,
     DataAxis,
+    DataSchema,
     IntervalDataAxis,
     PairedDataAxis,
 )
-from marivo.analysis.core.data_types import DataColumn, DurationDataType, TimestampDataType
-from marivo.analysis.core.frame_schema import (
+from marivo.analysis.model.data_types import DataColumn, DurationDataType, TimestampDataType
+from marivo.analysis.model.frame_schema import (
     LogicalSchema,
     export_layout,
     selected_columns,
 )
-from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
+from marivo.analysis.model.frozen_keys import FrozenKey
 
 
 def _coordinate_scalar(array: pa.Array, index: int, column: DataColumn) -> object:

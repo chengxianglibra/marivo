@@ -9,15 +9,15 @@ from marivo._definition.relations import FrameKeyAxis, FrameKeys, PopulationProg
 from marivo._definition.types import AxisBinding, InputContext, field_axis
 from marivo._kernel.refs import SemanticKind
 from marivo.analysis.binding.coordinates import bind_read, native_read
-from marivo.analysis.core.frame_structure import axis_role, column_kind
-from marivo.analysis.core.lineage import ColumnLineage
-from marivo.analysis.core.model import reject
-from marivo.analysis.dsl._frame_inputs import FrameKeyInput, merge_frame_key_inputs
+from marivo.analysis.binding.relationship_binding import RelationshipResolver
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.population import Population, _read
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.observation.relationship_binding import RelationshipResolver
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import FrameKeyInput, merge_frame_key_inputs
+from marivo.analysis.model.frame_structure import axis_role, column_kind
+from marivo.analysis.model.lineage import ColumnLineage
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._consumption import bind_field_in_state, validate_context
 from marivo.semantic._expression_values import FieldExpression, RowExpression

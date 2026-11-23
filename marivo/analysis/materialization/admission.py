@@ -4,22 +4,35 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 from uuid import uuid4
 
-from marivo.analysis.core.time_authority import ReportTimeAuthority
+from marivo._kernel.timezones import normalize_timezone
+from marivo.analysis.binding.observation import ObservationOwner
 from marivo.analysis.materialization.errors import (
     _execution_error as _error,
 )
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
-from marivo.analysis.observation.contracts import ObservationOwner
-from marivo.analysis.session._lazy_sources import make_source_owner
+from marivo.analysis.model.time_authority import ReportTimeAuthority
 from marivo.datasource import credentials as cr
 from marivo.datasource.runtime import DatasourceConnectionConfig, DatasourceConnectionService
-from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.validator import Registry
+
+
+class SourceOwnerFactory(Protocol):
+    """Bind captured source authority using the Session's semantic inputs."""
+
+    def __call__(
+        self,
+        catalog: SemanticCatalog,
+        /,
+        *,
+        session_id: str,
+        store_id: str,
+        report_time: ReportTimeAuthority,
+    ) -> ObservationOwner: ...
 
 
 class DatasetRuntime:
@@ -37,7 +50,7 @@ class DatasetRuntime:
             raise _error("authority_resolution")
         self.local = LocalFrameServices(store, session_ref)
         self.report_time = ReportTimeAuthority(
-            timezone=session_record.report_timezone_name,
+            timezone=normalize_timezone(session_record.report_timezone_name).name,
             resolution=session_record.report_timezone_resolution,
         )
         self._hook = event
@@ -105,19 +118,11 @@ class DatasetRuntime:
             event=event,
         )
 
-    def sources(
-        self,
-        *,
-        semantic_registry: Registry,
-        sidecar: CompiledExpressionSidecar,
-        catalog: SemanticCatalog | None = None,
-    ) -> ObservationOwner:
-        return make_source_owner(
-            semantic_registry=semantic_registry,
-            sidecar=sidecar,
+    def sources(self, factory: SourceOwnerFactory, catalog: SemanticCatalog) -> ObservationOwner:
+        return factory(
+            catalog,
             session_id=self.session_ref,
             store_id=self.store.store_id,
-            catalog=catalog,
             report_time=self.report_time,
         )
 

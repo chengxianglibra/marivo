@@ -8,12 +8,12 @@ import pytest
 from ibis.common.deferred import BinaryOperator, Just, Variable
 
 from marivo._definition.expressions import (
-    ContributionClockBinding,
     DeclaredMetricRef,
     MetricExpression,
     RowField,
     SourceAggregate,
 )
+from marivo._definition.observation_time import ContributionClockBinding
 from marivo._definition.types import AxisBinding, ExactRef, SumAll
 from marivo._kernel.refs import ref
 from marivo.analysis.binding.attribute_game import (
@@ -23,7 +23,7 @@ from marivo.analysis.binding.attribute_game import (
     formula_id,
     require_games_match,
 )
-from marivo.analysis.core.attribute_game_errors import AttributeGameError
+from marivo.analysis.model.attribute_game_errors import AttributeGameError
 
 ROOT = ExactRef(ref.entity("sales.facts"), "v1")
 FIELD = RowField(ExactRef(ref.measure("sales.facts.value"), "v1"), ROOT, "1", SumAll())

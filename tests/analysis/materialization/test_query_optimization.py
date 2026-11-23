@@ -18,6 +18,7 @@ from ibis.common.deferred import Deferred
 import marivo.analysis as mv
 from marivo._definition.query import FilterValues, LiteralValues
 from marivo._definition.types import AxisBinding
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler import optimization
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
 from marivo.analysis.compiler.graph_lowering import LoweredRead, lower_query
@@ -44,15 +45,14 @@ from marivo.analysis.core.frame_data import (
     MemoryFrameBacking,
     SourceFrameBinding,
 )
-from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
     execute_numeric_query,
     open_query_sources,
 )
+from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.errors import SemanticExpressionError
@@ -397,8 +397,8 @@ def test_source_carrier_change_uses_original_filter_stages(
 ) -> None:
     import pyarrow as pa
 
-    from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
     from marivo.analysis.materialization import graph_source_execution
+    from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
 
     session = optimization_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
@@ -549,6 +549,7 @@ def test_filter_used_as_frame_key_checkpoint_keeps_its_complete_domain(
             if output.path == ("right", "sales")
         ]
         (checkpoint,) = binding.frame_key_inputs
+        assert isinstance(checkpoint.frame, AnalysisFrame)
         assert checkpoint.frame.to_pandas().to_dict("list") == {"region": ["A", "B"]}
 
 

@@ -30,17 +30,18 @@ from marivo._definition.relations import PopulationDependency, sample_population
 from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._kernel.source_aggregates import aggregate_operation, native_aggregate
 from marivo._kernel.temporal import Grain
+from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.native_formula import normalized_returned_key
-from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
 from marivo.analysis.compiler.source_predicates import (
     aggregate_returned_keys,
     distinct_returned_keys,
     same_returned_key,
     string_bytes,
 )
-from marivo.analysis.core.data_types import DurationDataType
-from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.errors import AnalysisStageUnavailableError
+from marivo.analysis.model.data_types import DurationDataType
+from marivo.analysis.model.programs import FormulaInput
+from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,

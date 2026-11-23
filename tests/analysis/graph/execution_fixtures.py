@@ -10,8 +10,8 @@ from typing import Literal
 import duckdb
 
 import marivo.analysis as mv
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
-from marivo.analysis.core.graph import BoundGraph
 
 # IDs, amounts, weights and relationships deliberately have unequal multiplicity.
 ORDER_VALUES = (

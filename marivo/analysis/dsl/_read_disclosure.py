@@ -3,75 +3,9 @@
 from inspect import cleandoc, signature
 
 from marivo._kernel.render import RenderableResult
-from marivo.analysis._capabilities.dataset_model import (
-    Descriptor,
-    DisclosureProvider,
-    ExampleInput,
-    ExportInput,
-    bind,
-    operation,
-    value_type,
-)
-from marivo.analysis._capabilities.dataset_model import ParameterInput as P
-from marivo.analysis._result_disclosure import provider as result_provider
-from marivo.analysis.core.data_types import (
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-    TimestampDataType,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameAlignment,
-    FrameAlignmentAxis,
-    FrameAlignmentSide,
-    FrameAllHistoryWindow,
-    FrameAxisGroup,
-    FrameAxisTime,
-    FrameBuiltinGrain,
-    FrameCalendarAxisSchema,
-    FrameCalendarComparisonBinding,
-    FrameCalendarEndpoint,
-    FrameChangeTarget,
-    FrameCivilDateSourceTime,
-    FrameClockedContribution,
-    FrameComparedTime,
-    FrameComparison,
-    FrameComparisonGroup,
-    FrameComparisonPresence,
-    FrameComparisonValue,
-    FrameContributionSampleWindowEndpoint,
-    FrameDecomposition,
-    FrameDecompositionField,
-    FrameDerivedTimeSemantics,
-    FrameDerivedValueInput,
-    FrameFieldSampleWindowEndpoint,
-    FrameFixedAxis,
-    FrameFixedGroup,
-    FrameFixedTime,
-    FrameIndependentContribution,
-    FrameInstantSourceTime,
-    FrameIntervalAxisSchema,
-    FrameIntervalComparisonBinding,
-    FrameIntervalEndpoint,
-    FrameLevelTarget,
-    FrameNamedValueInput,
-    FrameObservationContext,
-    FrameObservedTimeSemantics,
-    FrameOrdinaryAxisSchema,
-    FrameOrdinaryComparisonBinding,
-    FramePairedAxisSchema,
-    FramePairStatisticContext,
-    FrameReportWindowEndpoint,
-    FrameRowAttributeTime,
-    FrameShareContext,
-    FrameSinceWindow,
-    FrameStatisticContext,
-    FrameToDateWindow,
-    FrameTrailingDurationWindow,
-    FrameTrailingPeriodsWindow,
-    FrameWallClockSourceTime,
-)
-from marivo.analysis.core.frame_page import (
+from marivo.analysis.dsl._dataframe_disclosure import provider as result_provider
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.materialization.carriers.frame_page import (
     FrameCalendarPeriod,
     FrameComparisonPeriod,
     FrameIntervalPeriod,
@@ -80,7 +14,24 @@ from marivo.analysis.core.frame_page import (
     FramePeriodPage,
     FrameReadStats,
 )
-from marivo.analysis.core.frame_schema import (
+from marivo.analysis.model import time_facts
+from marivo.analysis.model.data_types import (
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.model.disclosure import (
+    Descriptor,
+    DisclosureProvider,
+    ExampleInput,
+    ExportInput,
+    bind,
+    operation,
+    value_type,
+)
+from marivo.analysis.model.disclosure import ParameterInput as P
+from marivo.analysis.model.frame_schema import (
     CoordinateExportColumn,
     FieldExportColumn,
     FrameAxisSchema,
@@ -88,26 +39,118 @@ from marivo.analysis.core.frame_schema import (
     FrameSchema,
     UnresolvedDataType,
 )
-from marivo.analysis.core.frame_source_reads import (
+from marivo.analysis.model.frame_source_reads import (
     FrameSourceRead,
     FrameSourceReadPeriod,
     FrameSourceReadScope,
 )
-from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.model.layout_facts import (
+    FrameAlignment,
+    FrameAlignmentAxis,
+    FrameAlignmentSide,
+    FrameAxisGroup,
+    FrameCalendarComparisonBinding,
+    FrameChangeTarget,
+    FrameComparison,
+    FrameComparisonGroup,
+    FrameComparisonPresence,
+    FrameComparisonValue,
+    FrameDecomposition,
+    FrameDecompositionField,
+    FrameDerivedValueInput,
+    FrameFixedGroup,
+    FrameIntervalComparisonBinding,
+    FrameLevelTarget,
+    FrameNamedValueInput,
+    FrameOrdinaryComparisonBinding,
+    FramePairStatisticContext,
+    FrameShareContext,
+    FrameStatisticContext,
+)
+
+_EXPORTED_TYPES = {
+    time_facts.FrameInstantSourceTime,
+    time_facts.FrameWallClockSourceTime,
+    time_facts.FrameCivilDateSourceTime,
+    FrameSourceRead,
+    FrameSourceReadScope,
+    FrameSourceReadPeriod,
+    FrameSchema,
+    FrameField,
+    FrameAxisSchema,
+    time_facts.FrameOrdinaryAxisSchema,
+    time_facts.FrameRowAttributeTime,
+    time_facts.FrameCalendarAxisSchema,
+    time_facts.FrameIntervalAxisSchema,
+    time_facts.FramePairedAxisSchema,
+    time_facts.FrameBuiltinGrain,
+    time_facts.FrameCalendarEndpoint,
+    time_facts.FrameIntervalEndpoint,
+    time_facts.FrameFixedAxis,
+    time_facts.FrameAxisTime,
+    time_facts.FrameComparedTime,
+    time_facts.FrameFixedTime,
+    time_facts.FrameAllHistoryWindow,
+    time_facts.FrameSinceWindow,
+    time_facts.FrameToDateWindow,
+    time_facts.FrameTrailingDurationWindow,
+    time_facts.FrameTrailingPeriodsWindow,
+    time_facts.FrameObservationContext,
+    time_facts.FrameReportWindowEndpoint,
+    time_facts.FrameContributionSampleWindowEndpoint,
+    time_facts.FrameFieldSampleWindowEndpoint,
+    time_facts.FrameClockedContribution,
+    time_facts.FrameIndependentContribution,
+    time_facts.FrameObservedTimeSemantics,
+    time_facts.FrameDerivedTimeSemantics,
+    FrameAxisGroup,
+    FrameFixedGroup,
+    FrameStatisticContext,
+    FrameNamedValueInput,
+    FrameDerivedValueInput,
+    FrameShareContext,
+    FramePairStatisticContext,
+    FrameAlignment,
+    FrameAlignmentAxis,
+    FrameAlignmentSide,
+    FrameComparisonValue,
+    FrameComparisonGroup,
+    FrameComparisonPresence,
+    FrameOrdinaryComparisonBinding,
+    FrameCalendarComparisonBinding,
+    FrameIntervalComparisonBinding,
+    FrameComparison,
+    FrameLevelTarget,
+    FrameChangeTarget,
+    FrameDecompositionField,
+    FrameDecomposition,
+    FramePage,
+    FrameReadStats,
+    FramePeriodPage,
+    FrameCalendarPeriod,
+    FrameIntervalPeriod,
+    FramePairedPeriod,
+    FrameComparisonPeriod,
+}
 
 
 def provider() -> DisclosureProvider:
     descriptors: list[Descriptor] = []
     types: tuple[tuple[type[object], str, tuple[str, ...], tuple[str, ...]], ...] = (
-        (FrameInstantSourceTime, "frame_instant_source_time", ("frame_schema.source_times",), ()),
         (
-            FrameWallClockSourceTime,
+            time_facts.FrameInstantSourceTime,
+            "frame_instant_source_time",
+            ("frame_schema.source_times",),
+            (),
+        ),
+        (
+            time_facts.FrameWallClockSourceTime,
             "frame_wall_clock_source_time",
             ("frame_schema.source_times",),
             (),
         ),
         (
-            FrameCivilDateSourceTime,
+            time_facts.FrameCivilDateSourceTime,
             "frame_civil_date_source_time",
             ("frame_schema.source_times",),
             (),
@@ -131,7 +174,7 @@ def provider() -> DisclosureProvider:
             (),
         ),
         (
-            FrameReportWindowEndpoint,
+            time_facts.FrameReportWindowEndpoint,
             "frame_report_window_endpoint",
             (
                 "frame_clocked_contribution.window_endpoint",
@@ -140,7 +183,7 @@ def provider() -> DisclosureProvider:
             (),
         ),
         (
-            FrameContributionSampleWindowEndpoint,
+            time_facts.FrameContributionSampleWindowEndpoint,
             "frame_contribution_sample_window_endpoint",
             (
                 "frame_clocked_contribution.window_endpoint",
@@ -149,7 +192,7 @@ def provider() -> DisclosureProvider:
             (),
         ),
         (
-            FrameFieldSampleWindowEndpoint,
+            time_facts.FrameFieldSampleWindowEndpoint,
             "frame_field_sample_window_endpoint",
             (
                 "frame_clocked_contribution.window_endpoint",
@@ -158,25 +201,25 @@ def provider() -> DisclosureProvider:
             (),
         ),
         (
-            FrameClockedContribution,
+            time_facts.FrameClockedContribution,
             "frame_clocked_contribution",
             ("frame_schema.value_time_semantics",),
             (),
         ),
         (
-            FrameIndependentContribution,
+            time_facts.FrameIndependentContribution,
             "frame_independent_contribution",
             ("frame_schema.value_time_semantics",),
             (),
         ),
         (
-            FrameObservedTimeSemantics,
+            time_facts.FrameObservedTimeSemantics,
             "frame_observed_time_semantics",
             ("frame_schema.value_time_semantics",),
             (),
         ),
         (
-            FrameDerivedTimeSemantics,
+            time_facts.FrameDerivedTimeSemantics,
             "frame_derived_time_semantics",
             ("frame_schema.value_time_semantics",),
             (),
@@ -228,14 +271,19 @@ def provider() -> DisclosureProvider:
             ),
         ),
         (
-            FrameOrdinaryAxisSchema,
+            time_facts.FrameOrdinaryAxisSchema,
             "frame_ordinary_axis_schema",
             ("frame_schema.axes",),
             ("frame_fixed_axis", "frame_row_attribute_time"),
         ),
-        (FrameRowAttributeTime, "frame_row_attribute_time", ("frame_axis_schema.at",), ()),
         (
-            FrameCalendarAxisSchema,
+            time_facts.FrameRowAttributeTime,
+            "frame_row_attribute_time",
+            ("frame_axis_schema.at",),
+            (),
+        ),
+        (
+            time_facts.FrameCalendarAxisSchema,
             "frame_calendar_axis_schema",
             ("frame_schema.axes",),
             (
@@ -244,19 +292,19 @@ def provider() -> DisclosureProvider:
             ),
         ),
         (
-            FrameIntervalAxisSchema,
+            time_facts.FrameIntervalAxisSchema,
             "frame_interval_axis_schema",
             ("frame_schema.axes",),
             ("frame_period_page",),
         ),
         (
-            FramePairedAxisSchema,
+            time_facts.FramePairedAxisSchema,
             "frame_paired_axis_schema",
             ("frame_schema.axes",),
             ("frame_period_page",),
         ),
         (
-            FrameBuiltinGrain,
+            time_facts.FrameBuiltinGrain,
             "frame_builtin_grain",
             (
                 "frame_calendar_axis_schema.grain",
@@ -266,7 +314,7 @@ def provider() -> DisclosureProvider:
             (),
         ),
         (
-            FrameCalendarEndpoint,
+            time_facts.FrameCalendarEndpoint,
             "frame_calendar_endpoint",
             (
                 "frame_paired_axis_schema.left",
@@ -279,7 +327,7 @@ def provider() -> DisclosureProvider:
             ),
         ),
         (
-            FrameIntervalEndpoint,
+            time_facts.FrameIntervalEndpoint,
             "frame_interval_endpoint",
             (
                 "frame_paired_axis_schema.left",
@@ -288,42 +336,52 @@ def provider() -> DisclosureProvider:
             ),
             ("frame_period_page",),
         ),
-        (FrameFixedAxis, "frame_fixed_axis", ("frame_schema.fixed_axes",), ("frame_fixed_group",)),
-        (FrameAxisTime, "frame_axis_time", ("frame_observation_context.time",), ()),
         (
-            FrameComparedTime,
+            time_facts.FrameFixedAxis,
+            "frame_fixed_axis",
+            ("frame_schema.fixed_axes",),
+            ("frame_fixed_group",),
+        ),
+        (time_facts.FrameAxisTime, "frame_axis_time", ("frame_observation_context.time",), ()),
+        (
+            time_facts.FrameComparedTime,
             "frame_compared_time",
             ("frame_observation_context.time",),
             ("frame_comparison",),
         ),
-        (FrameFixedTime, "frame_fixed_time", ("frame_observation_context.time",), ()),
+        (time_facts.FrameFixedTime, "frame_fixed_time", ("frame_observation_context.time",), ()),
         (
-            FrameAllHistoryWindow,
+            time_facts.FrameAllHistoryWindow,
             "frame_all_history_window",
             ("frame_observation_context.window",),
             (),
         ),
-        (FrameSinceWindow, "frame_since_window", ("frame_observation_context.window",), ()),
         (
-            FrameToDateWindow,
+            time_facts.FrameSinceWindow,
+            "frame_since_window",
+            ("frame_observation_context.window",),
+            (),
+        ),
+        (
+            time_facts.FrameToDateWindow,
             "frame_to_date_window",
             ("frame_observation_context.window",),
             ("frame_builtin_grain",),
         ),
         (
-            FrameTrailingDurationWindow,
+            time_facts.FrameTrailingDurationWindow,
             "frame_trailing_duration_window",
             ("frame_observation_context.window",),
             (),
         ),
         (
-            FrameTrailingPeriodsWindow,
+            time_facts.FrameTrailingPeriodsWindow,
             "frame_trailing_periods_window",
             ("frame_observation_context.window",),
             (),
         ),
         (
-            FrameObservationContext,
+            time_facts.FrameObservationContext,
             "frame_observation_context",
             ("frame_schema.value_contexts",),
             (
@@ -615,9 +673,9 @@ def provider() -> DisclosureProvider:
         FramePeriodPage: "One bounded immutable period page.",
     }
     page_constraints = {
-        FrameInstantSourceTime: "Captured source instants and consumption timezone only. Fixed-data operations retain these input facts; no new field interpretation is implied. Example: frame.schema.source_times[0].",
-        FrameWallClockSourceTime: "timezone and origin identify the effective source declaration; inherited_from records an hour-prefix declaration chain. consumption_timezone records the actual consumer boundary. Example: frame.schema.source_times[0].",
-        FrameCivilDateSourceTime: "Business dates are assigned by their day start when source and consumption timezones differ. This cannot reconstruct event-day totals from business-day totals. Example: frame.schema.source_times[0].",
+        time_facts.FrameInstantSourceTime: "Captured source instants and consumption timezone only. Fixed-data operations retain these input facts; no new field interpretation is implied. Example: frame.schema.source_times[0].",
+        time_facts.FrameWallClockSourceTime: "timezone and origin identify the effective source declaration; inherited_from records an hour-prefix declaration chain. consumption_timezone records the actual consumer boundary. Example: frame.schema.source_times[0].",
+        time_facts.FrameCivilDateSourceTime: "Business dates are assigned by their day start when source and consumption timezones differ. This cannot reconstruct event-day totals from business-day totals. Example: frame.schema.source_times[0].",
         FrameReadStats: "Counts include scanned records and repeated scans, not all disk I/O, elapsed time or peak memory. Example: page.read_stats.show().",
         FramePage: "Retains only this page, with no Frame, reader or complete audit. Coordinates belong to input_id; RangeIndex is not a business key. Example: fixed.read_page(limit=100).to_pandas().",
         FrameCalendarPeriod: "Contains complete actual keys, original ordinals, timezone, civil labels and saved selection progress; current timezone rules and shift history are not reconstructed. Example: page.items[0].show().",
@@ -809,70 +867,6 @@ def provider() -> DisclosureProvider:
             ),
         )
     )
-    exported = {
-        FrameInstantSourceTime,
-        FrameWallClockSourceTime,
-        FrameCivilDateSourceTime,
-        FrameSourceRead,
-        FrameSourceReadScope,
-        FrameSourceReadPeriod,
-        FrameSchema,
-        FrameField,
-        FrameAxisSchema,
-        FrameOrdinaryAxisSchema,
-        FrameRowAttributeTime,
-        FrameCalendarAxisSchema,
-        FrameIntervalAxisSchema,
-        FramePairedAxisSchema,
-        FrameBuiltinGrain,
-        FrameCalendarEndpoint,
-        FrameIntervalEndpoint,
-        FrameFixedAxis,
-        FrameAxisTime,
-        FrameComparedTime,
-        FrameFixedTime,
-        FrameAllHistoryWindow,
-        FrameSinceWindow,
-        FrameToDateWindow,
-        FrameTrailingDurationWindow,
-        FrameTrailingPeriodsWindow,
-        FrameObservationContext,
-        FrameReportWindowEndpoint,
-        FrameContributionSampleWindowEndpoint,
-        FrameFieldSampleWindowEndpoint,
-        FrameClockedContribution,
-        FrameIndependentContribution,
-        FrameObservedTimeSemantics,
-        FrameDerivedTimeSemantics,
-        FrameAxisGroup,
-        FrameFixedGroup,
-        FrameStatisticContext,
-        FrameNamedValueInput,
-        FrameDerivedValueInput,
-        FrameShareContext,
-        FramePairStatisticContext,
-        FrameAlignment,
-        FrameAlignmentAxis,
-        FrameAlignmentSide,
-        FrameComparisonValue,
-        FrameComparisonGroup,
-        FrameComparisonPresence,
-        FrameOrdinaryComparisonBinding,
-        FrameCalendarComparisonBinding,
-        FrameIntervalComparisonBinding,
-        FrameComparison,
-        FrameLevelTarget,
-        FrameChangeTarget,
-        FrameDecompositionField,
-        FrameDecomposition,
-        FramePage,
-        FrameReadStats,
-        FramePeriodPage,
-        FrameCalendarPeriod,
-        FrameIntervalPeriod,
-        FramePairedPeriod,
-        FrameComparisonPeriod,
-    }
     results = result_provider()
     return DisclosureProvider(
         "analysis.dsl.reads",
@@ -880,7 +874,7 @@ def provider() -> DisclosureProvider:
         tuple(
             ExportInput(owner.__name__, owner, target)
             for owner, target, _, _ in types
-            if owner in exported
+            if owner in _EXPORTED_TYPES
         )
         + results.exports,
     )

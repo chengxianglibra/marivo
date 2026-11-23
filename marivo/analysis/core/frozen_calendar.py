@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Literal, NoReturn, TypeAlias
+from typing import Literal, TypeAlias
 
 import pandas as pd
 import pyarrow as pa
@@ -18,17 +18,28 @@ from marivo._kernel.temporal_grid import (
     builtin_nominal_ordinal,
     civil_shift,
 )
-from marivo.analysis.core.data_schema import (
+from marivo.analysis.core.frame_interpretation import FrameKeyScalar
+from marivo.analysis.model.coordinate_schema import (
+    calendar_directory_schema,
+    comparison_mapping_schema,
+    coordinate_attachment_schemas,
+    direct_mapping_schema,
+    interval_directory_schema,
+    paired_mapping_schema,
+)
+from marivo.analysis.model.data_schema import (
     BuiltinCalendarData,
     CalendarComparisonBinding,
     CalendarDataAxis,
-    DataAxis,
     DataSchema,
     IntervalComparisonBinding,
     IntervalDataAxis,
     PairedDataAxis,
+    require_compatible_calendar_axes,
+    require_frozen_calendar,
 )
-from marivo.analysis.core.data_types import (
+from marivo.analysis.model.data_schema import calendar_failure as _fail
+from marivo.analysis.model.data_types import (
     DataColumn,
     DataType,
     DecimalDataType,
@@ -36,24 +47,8 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_interpretation import FrameKeyScalar
-from marivo.analysis.core.frame_structure import coordinate_attachments
-from marivo.analysis.core.model import reject
-from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
-
-FrozenScalar: TypeAlias = bool | str | int | float | date | Decimal
-FrozenKey: TypeAlias = tuple[tuple[DataType, FrozenScalar | None], ...]
-
-
-def _fail(expected: str, received: str, *, match: bool = False) -> NoReturn:
-    reject(
-        expected,
-        received,
-        "Construct compatible complete time coordinates before matching."
-        if match
-        else "Retain the exact frozen coordinate descriptors and complete typed attachments.",
-        "frame.coordinates.match" if match else "frame.coordinates.data",
-    )
+from marivo.analysis.model.frozen_keys import FrozenKey, FrozenScalar
+from marivo.analysis.model.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,25 +95,6 @@ class FrozenDirectAbsent:
 
 
 FrozenDirectEntry: TypeAlias = FrozenDirectMatch | FrozenDirectAbsent
-
-
-def direct_mapping_schema(axis: CalendarDataAxis) -> DataSchema:
-    """Build one origin-key row with a target group or a closed no-match reason."""
-    _calendar(axis)
-    assert axis.frozen is not None and axis.frozen.direct is not None
-    origin = axis.frozen.direct.axis
-    values = (
-        *(
-            DataColumn(f"target.{i}", f"target.{i}", column.dtype, True, column.unit)
-            for i, column in enumerate(axis.columns)
-        ),
-        DataColumn("reason", "reason", ScalarDataType("string"), True),
-    )
-    return DataSchema(
-        (DataAxis(origin.token, origin.columns, name=origin.name, at=origin.at),),
-        values,
-        value_paths=(*(("target", str(i)) for i in range(len(axis.columns))), ("reason",)),
-    )
 
 
 def read_direct_mapping(
@@ -168,30 +144,6 @@ def read_direct_mapping(
     return tuple(result)
 
 
-def _calendar(axis: CalendarDataAxis) -> None:
-    if type(axis) is not CalendarDataAxis or axis.frozen is None:
-        _fail("a complete frozen calendar descriptor", repr(axis))
-    if any(column.nullable for column in axis.columns):
-        _fail("nonnullable complete calendar bucket keys", repr(axis.columns))
-
-
-def calendar_directory_schema(axis: CalendarDataAxis) -> DataSchema:
-    """Build the calendar.v3 directory layout used by writers and readers."""
-    _calendar(axis)
-    values = (
-        DataColumn("nominal_label", "nominal_label", ScalarDataType("string"), False),
-        DataColumn("ordinal", "ordinal", ScalarDataType("int64"), False),
-        DataColumn("nominal_ordinal", "nominal_ordinal", ScalarDataType("int64"), False),
-        DataColumn("selection", "selection", ScalarDataType("string"), False),
-        DataColumn("cutoff", "cutoff", ScalarDataType("string"), True),
-    )
-    return DataSchema(
-        (DataAxis(axis.token, axis.columns, name=axis.name, at=axis.at),),
-        values,
-        value_paths=tuple((column.name,) for column in values),
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class FrozenIntervalBucket:
     key: FrozenKey
@@ -219,32 +171,6 @@ class FrozenComparisonAbsent:
 
 
 FrozenComparisonEntry: TypeAlias = FrozenComparisonMatch | FrozenComparisonAbsent
-
-
-def comparison_mapping_schema(
-    current: CalendarDataAxis | IntervalDataAxis,
-    binding: CalendarComparisonBinding | IntervalComparisonBinding,
-) -> DataSchema:
-    """Build one current-key row with a nullable complete baseline group or reason."""
-    if current.token != binding.current_axis_token or type(current) is not type(binding.baseline):
-        _fail(
-            "the exact authoritative current time axis for a consumed comparison map", repr(binding)
-        )
-    values = (
-        *(
-            DataColumn(f"baseline.{i}", f"baseline.{i}", column.dtype, True, column.unit)
-            for i, column in enumerate(binding.baseline.columns)
-        ),
-        DataColumn("reason", "reason", ScalarDataType("string"), True),
-    )
-    return DataSchema(
-        (DataAxis(current.token, current.columns, name=current.name, at=current.at),),
-        values,
-        value_paths=(
-            *(("baseline", str(i)) for i in range(len(binding.baseline.columns))),
-            ("reason",),
-        ),
-    )
 
 
 def read_comparison_mapping(
@@ -290,26 +216,6 @@ def read_comparison_mapping(
             seen.add(target)
             result.append(FrozenComparisonMatch(key, target))
     return tuple(result)
-
-
-def interval_directory_schema(axis: IntervalDataAxis) -> DataSchema:
-    """Build the exact interval.v1 finite directory layout."""
-    if (
-        len(axis.columns) != 1
-        or axis.columns[0].dtype != ScalarDataType("int64")
-        or axis.columns[0].nullable
-    ):
-        _fail("one nonnullable int64 interval key", repr(axis.columns))
-    values = (
-        DataColumn("start", "start", TimestampDataType("us", "UTC"), False),
-        DataColumn("end", "end", TimestampDataType("us", "UTC"), False),
-        DataColumn("timezone", "timezone", ScalarDataType("string"), False),
-    )
-    return DataSchema(
-        (DataAxis(axis.token, axis.columns, name=axis.name, at=axis.at),),
-        values,
-        value_paths=tuple((column.name,) for column in values),
-    )
 
 
 def interval_directory_rows(directory: FrozenIntervalDirectory) -> pd.DataFrame:
@@ -391,72 +297,6 @@ def merge_equal_interval_directories(
             key = ((output_axis.columns[0].dtype, len(buckets)),)
             buckets.append(replace(bucket, key=key))
     return FrozenIntervalDirectory(output_axis, tuple(buckets))
-
-
-def paired_mapping_schema(axis: PairedDataAxis) -> DataSchema:
-    """Build the complete pair key and nullable all-or-none endpoint key groups."""
-    for endpoint in (axis.left, axis.right):
-        if isinstance(endpoint, CalendarDataAxis):
-            _calendar(endpoint)
-        else:
-            interval_directory_schema(endpoint)
-    if any(column.nullable for column in axis.columns):
-        _fail("nonnullable complete paired keys", repr(axis.columns))
-    values = tuple(
-        DataColumn(f"{side}.{i}", f"{side}.{i}", column.dtype, True, column.unit)
-        for side, endpoint in (("left", axis.left), ("right", axis.right))
-        for i, column in enumerate(endpoint.columns)
-    )
-    return DataSchema(
-        (DataAxis(axis.token, axis.columns, name=axis.name, at=axis.at),),
-        values,
-        value_paths=tuple(
-            (side, str(i))
-            for side, endpoint in (("left", axis.left), ("right", axis.right))
-            for i in range(len(endpoint.columns))
-        ),
-    )
-
-
-def coordinate_attachment_schemas(schema: DataSchema) -> tuple[tuple[str, DataSchema], ...]:
-    """Validate closed references and return exact required attachment layouts."""
-    result: list[tuple[str, DataSchema]] = []
-    required = coordinate_attachments(schema)
-    tokens: set[str] = set()
-
-    def visit(axis: DataAxis) -> None:
-        if axis.token in tokens:
-            return  # Exact calendar reuse was validated by coordinate_attachments.
-        tokens.add(axis.token)
-        if isinstance(axis, PairedDataAxis):
-            visit(axis.left)
-            visit(axis.right)
-            result.append((axis.mapping_name, paired_mapping_schema(axis)))
-        elif isinstance(axis, IntervalDataAxis):
-            result.append((axis.frozen.directory_name, interval_directory_schema(axis)))
-        elif isinstance(axis, CalendarDataAxis):
-            _calendar(axis)
-            assert axis.frozen is not None
-            if axis.frozen.direct is not None:
-                visit(axis.frozen.direct.axis)
-            result.append((axis.frozen.directory_name, calendar_directory_schema(axis)))
-            if axis.frozen.direct is not None:
-                result.append((axis.frozen.direct.mapping_name, direct_mapping_schema(axis)))
-        elif axis.kind == "correspondence":
-            _fail("a closed paired coordinate descriptor", repr(axis))
-
-    for axis in schema.axes:
-        visit(axis)
-    for fact in schema.comparisons:
-        binding = fact.binding
-        if isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
-            visit(binding.baseline)
-            current = next(axis for axis in schema.axes if axis.token == binding.current_axis_token)
-            assert isinstance(current, (CalendarDataAxis, IntervalDataAxis))
-            if binding.mapping_name not in {name for name, _ in result}:
-                result.append((binding.mapping_name, comparison_mapping_schema(current, binding)))
-    assert tuple(name for name, _ in result) == required
-    return tuple(result)
 
 
 def _arrow_type(dtype: DataType) -> pa.DataType:
@@ -929,27 +769,9 @@ def require_matchable_calendar_directory(directory: FrozenCalendarDirectory) -> 
             _fail("captured complete logical periods", bucket.nominal_label, match=True)
 
 
-def require_compatible_calendar_axes(left: CalendarDataAxis, right: CalendarDataAxis) -> None:
-    """Validate captured interpretation without reading rows or reconstructing rules."""
-    _calendar(left)
-    _calendar(right)
-    assert left.frozen is not None and right.frozen is not None
-    if (left.frozen.definition, left.frozen.rule_version, left.timezone, left.at) != (
-        right.frozen.definition,
-        right.frozen.rule_version,
-        right.timezone,
-        right.at,
-    ) or tuple(c.dtype for c in left.columns) != tuple(c.dtype for c in right.columns):
-        _fail(
-            "compatible frozen calendar interpretations and complete key types",
-            repr((left, right)),
-            match=True,
-        )
-
-
 def require_calendar_match_rule(axis: CalendarDataAxis, rule: CalendarCorrespondence) -> None:
     """Check static rule applicability using only the frozen descriptor."""
-    _calendar(axis)
+    require_frozen_calendar(axis)
     assert axis.frozen is not None
     definition = axis.frozen.definition
     if type(rule) is not CalendarCorrespondence:

@@ -57,6 +57,7 @@ from marivo._definition.relations import (
     sample_population,
 )
 from marivo._definition.types import AxisBinding
+from marivo.analysis.binding.programs import FormulaProgram, PopulationInput
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, PopulationCheck
 from marivo.analysis.compiler.graph_plan import (
     FrameKeysInput,
@@ -78,12 +79,7 @@ from marivo.analysis.compiler.graph_plan import (
     require_reduction,
 )
 from marivo.analysis.compiler.native_query import NativeQueryFinish
-from marivo.analysis.compiler.observation import (
-    FormulaInput,
-    FormulaProgram,
-    PopulationInput,
-    ReductionInput,
-)
+from marivo.analysis.compiler.observation import ReductionInput
 from marivo.analysis.compiler.optimization import RuleDecision, required_slots
 from marivo.analysis.compiler.query_program import ResultProgram, SourceParameter
 from marivo.analysis.compiler.source_predicates import (
@@ -91,14 +87,6 @@ from marivo.analysis.compiler.source_predicates import (
     string_without_collation,
 )
 from marivo.analysis.compiler.source_predicates import string_bytes as _string_bytes
-from marivo.analysis.core.data_types import (
-    DataColumn,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-    TimestampDataType,
-)
-from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.core.value_types import expression_value, ibis_type
 from marivo.analysis.materialization.query_parameters import _replace_parameter
 from marivo.analysis.materialization.source_query_policy import (
@@ -106,6 +94,16 @@ from marivo.analysis.materialization.source_query_policy import (
     qualify_query_source,
     qualify_query_top,
 )
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.programs import FormulaInput
+from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.semantic._numeric_lowering import NumericCheck, NumericValue, numeric_binary
 
 if TYPE_CHECKING:
@@ -1564,8 +1562,6 @@ def _attach_relation_checks(
 def finish_native_query(finish: NativeQueryFinish, frame: pd.DataFrame) -> pd.DataFrame:
     """Restore deterministic union order after the qualified source read."""
     if finish.frame_top is not None:
-        from marivo.analysis.materialization.errors import MaterializationError
-
         for name, expected, received in finish.frame_top.integrity_checks:
             if frame[name].astype("boolean").fillna(False).any():
                 raise MaterializationError(
@@ -1797,7 +1793,7 @@ def _qualified_parameter_consumer(
 
 def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
     """Keep shared keys inside one statement for qualified compatible consumer grids."""
-    from marivo.analysis.compiler.observation import FormulaProgram, common_slot
+    from marivo.analysis.compiler.observation import common_slot
 
     producers = tuple(
         dict.fromkeys(

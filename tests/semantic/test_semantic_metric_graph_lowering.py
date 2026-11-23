@@ -12,8 +12,8 @@ from marivo._definition.expressions import PerReduce, SourceAggregate
 from marivo._definition.graph import walk
 from marivo._definition.relations import ObserveQuery
 from marivo._kernel.refs import ref as ref_factory
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
-from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._definition_identity import scoped_definition_fingerprint

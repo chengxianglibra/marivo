@@ -18,9 +18,9 @@ from sqlglot import expressions as sge
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import source_time, source_time_predicate
-from marivo.analysis.core.model import CoreRuleError
-from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.materialization.temporal_sql import lower_temporal
+from marivo.analysis.model.errors import CoreRuleError
+from marivo.analysis.model.time_authority import SourceTimeAuthority
 from marivo.semantic._source_timezone import DeclaredSourceTimezone
 from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse, TargetDimensionContract
 from marivo.semantic.reader import SemanticProject

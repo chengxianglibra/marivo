@@ -12,17 +12,21 @@ from typing import Literal, Union, get_args, get_origin, get_type_hints
 from marivo import __version__
 from marivo._kernel.refs import SemanticKind
 from marivo._kernel.temporal import InstantAnchor
-from marivo.analysis.core import frame_interpretation as frame
-from marivo.analysis.core.data_types import (
+from marivo.analysis.model import frame_facts, time_facts
+from marivo.analysis.model.data_types import (
     DataType,
     DecimalDataType,
     DurationDataType,
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_schema import CoordinateExportColumn, FieldExportColumn, FrameSchema
-from marivo.analysis.core.frame_source_reads import FrameSourceRead
-from marivo.analysis.core.lineage import FrameLineage
+from marivo.analysis.model.frame_schema import (
+    CoordinateExportColumn,
+    FieldExportColumn,
+    FrameSchema,
+)
+from marivo.analysis.model.frame_source_reads import FrameSourceRead
+from marivo.analysis.model.lineage import FrameLineage
 from marivo.analysis.session._lazy_read_model import SessionSummary
 from marivo.datasource.ir import AiContextIR
 from marivo.semantic import catalog_entries as entries
@@ -165,7 +169,7 @@ def record(**fields: JsonObject) -> JsonObject:
 _NESTED: dict[type[object], str] = {
     **_FIELDS,
     **DEFINITION_FIELDS,
-    frame.FrameFixedAxis: "axis key origins",
+    time_facts.FrameFixedAxis: "axis key origins",
     AiContextIR: "business_definition guardrails aliases",
     entries.DependencyContext: "id business_definition guardrails",
     entries.MetricContributionClockBinding: "branch source field path anchor",
@@ -191,15 +195,15 @@ def _annotation(owner: type[object], name: str) -> object:
 def _type(annotation: object) -> JsonObject:
     if isinstance(annotation, type) and annotation in _NESTED:
         return ref(annotation.__name__)
-    if annotation is frame.FrameAxisSchema:
+    if annotation is time_facts.FrameAxisSchema:
         return either(
             *(
                 ref(variant.__name__)
                 for variant in (
-                    frame.FrameOrdinaryAxisSchema,
-                    frame.FrameCalendarAxisSchema,
-                    frame.FrameIntervalAxisSchema,
-                    frame.FramePairedAxisSchema,
+                    time_facts.FrameOrdinaryAxisSchema,
+                    time_facts.FrameCalendarAxisSchema,
+                    time_facts.FrameIntervalAxisSchema,
+                    time_facts.FramePairedAxisSchema,
                 )
             )
         )
@@ -243,17 +247,17 @@ def _type(annotation: object) -> JsonObject:
 def _nested() -> dict[str, JsonObject]:
     result = {}
     roles: dict[type[object], JsonObject] = {
-        frame.FrameOrdinaryAxisSchema: {"enum": ["field", "identity"]},
-        frame.FrameCalendarAxisSchema: literal("calendar"),
-        frame.FrameIntervalAxisSchema: literal("interval"),
-        frame.FramePairedAxisSchema: literal("paired"),
+        time_facts.FrameOrdinaryAxisSchema: {"enum": ["field", "identity"]},
+        time_facts.FrameCalendarAxisSchema: literal("calendar"),
+        time_facts.FrameIntervalAxisSchema: literal("interval"),
+        time_facts.FramePairedAxisSchema: literal("paired"),
     }
     for owner, names in _NESTED.items():
         fields: dict[str, JsonObject] = {}
         for name in names.split():
-            if owner is frame.FrameField and name == "dtype":
+            if owner is frame_facts.FrameField and name == "dtype":
                 fields[name] = _type(DataType)
-            elif owner is frame.FrameFixedAxis and name == "key":
+            elif owner is time_facts.FrameFixedAxis and name == "key":
                 fields[name] = arr(ref("ScalarValue"))
             elif name == "role" and owner in roles:
                 fields[name] = roles[owner]

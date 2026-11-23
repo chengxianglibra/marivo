@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
 from marivo._definition.expressions import SourceAggregate
+from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.graph_plan import (
     AttributeFrequencyRead,
     LocalCompute,
@@ -14,16 +15,15 @@ from marivo.analysis.compiler.graph_plan import (
     SourceReadStage,
     require_reduction,
 )
-from marivo.analysis.compiler.observation import FormulaProgram
-from marivo.analysis.core.data_types import DataColumn, DataType
 from marivo.analysis.errors import AnalysisStageUnavailableError
+from marivo.analysis.model.data_types import DataColumn, DataType
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     import ibis.expr.types as ir
 
-    from marivo.analysis.methods.attribute_quantiles import FrequencyState
+    from marivo.analysis.model.kernels import FrequencyState
 
 
 @dataclass(frozen=True, slots=True)

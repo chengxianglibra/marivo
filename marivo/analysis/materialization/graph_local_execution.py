@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, TypeAlias
 
 import pandas as pd
 
+from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     LocalCompute,
@@ -14,21 +15,18 @@ from marivo.analysis.compiler.graph_plan import (
     read_reduction,
     require_reduction,
 )
-from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.compiler.query_program import (
     FrameCombineProgram,
     FrameCompareProgram,
     ResultProgram,
 )
-from marivo.analysis.core.artifact_data import OutputAttachment
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import (
-    CheckReceipt,
-    StageOutput,
-)
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_contracts import CheckReceipt
 
 if TYPE_CHECKING:
-    from marivo.analysis.materialization.query_components import AttributeRootInputs
+    from marivo.analysis.methods.carriers.stage_components import AttributeRootInputs
 
 LocalKernel: TypeAlias = Callable[[LocalCompute, tuple[pd.DataFrame, ...]], pd.DataFrame]
 
@@ -91,7 +89,7 @@ def run_local(
         attribute_methods: tuple[AttributeMethodPayload, ...] = ()
         attachments: tuple[OutputAttachment, ...]
         from marivo.analysis.core.attribute_game import AttributeGameProgram
-        from marivo.analysis.core.frame_attribute_merge import AttributeMergeProgram
+        from marivo.analysis.model.frame_attribute_merge import AttributeMergeProgram
 
         if isinstance(stage.program, AttributeGameProgram):
             from marivo.analysis.methods.frame_attribute_shapley import attribute_game_data

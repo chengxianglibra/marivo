@@ -9,12 +9,12 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition.relations import population_keys
 from marivo._definition.types import CoordinateValue
-from marivo.analysis.dsl.population import population_keys
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import sample_fusion
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods import _sample_numeric
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory, catalog_value

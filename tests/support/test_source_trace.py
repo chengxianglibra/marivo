@@ -5,8 +5,8 @@ from pathlib import Path
 import ibis
 import pytest
 
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.materialization import query_parameters
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.datasource.adapters import PhysicalRequirement
 from tests.datasource.source_cases import SourceData, source_case
 from tests.support.query_keys import integer_string_keys as _keys

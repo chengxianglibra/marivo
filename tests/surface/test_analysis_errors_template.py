@@ -2,8 +2,8 @@
 
 import pytest
 
-from marivo.analysis.core.model import CoreRuleError, reject
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.errors import CoreRuleError, reject
+from marivo.analysis.model.execution_errors import MaterializationError
 
 
 @pytest.mark.parametrize("location", ("frame.attribute", "frame.method_facts", "frame.show"))

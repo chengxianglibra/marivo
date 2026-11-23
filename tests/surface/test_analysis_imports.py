@@ -17,7 +17,7 @@ names = ('Population', 'AnalysisFrame', 'FrameAxis', 'Column',
 bindings = tuple(getattr(mv, name) for name in names)
 exports = tuple(mv.__all__)
 help_targets = REGISTRY.canonical_ids()
-for module in ('core.data_types', 'core.artifact_data', 'datasets.errors'):
+for module in ('model.data_types', 'model.artifact_data', 'model.errors'):
     importlib.import_module('marivo.analysis.' + module)
 assert bindings == tuple(getattr(mv, name) for name in names)
 assert all(name in mv.__all__ for name in names)
@@ -29,8 +29,8 @@ from marivo.analysis.session.core import Session
 exports = tuple(mv.__all__)
 help_targets = REGISTRY.canonical_ids()
 members = Session.members
-for module in ('source_bindings', 'relationship_binding', 'contracts', 'errors'):
-    importlib.import_module('marivo.analysis.observation.' + module)
+for module in ('source_bindings', 'relationship_binding', 'observation'):
+    importlib.import_module('marivo.analysis.binding.' + module)
 importlib.import_module('marivo.analysis.session._lazy_sources')
 assert Session.members is members
 assert tuple(mv.__all__) == exports
@@ -53,11 +53,21 @@ assert REGISTRY.canonical_ids() == help_targets
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_dataset_backend_import_boundary_rejects_new_indirect_paths() -> None:
+def test_model_import_boundary_rejects_new_heavy_dependencies() -> None:
     """Exercise the checked-in contract against real and injected import graphs."""
     script = """
 from configparser import ConfigParser
 from copy import deepcopy
+from importlib import import_module
+from pkgutil import walk_packages
+import sys
+
+from marivo.analysis import model
+
+for info in walk_packages(model.__path__, model.__name__ + '.'):
+    import_module(info.name)
+for dependency in ('pandas', 'ibis', 'pyarrow', 'duckdb', 'pydantic'):
+    assert dependency not in sys.modules, dependency
 
 import grimp
 from importlinter.configuration import configure
@@ -66,7 +76,7 @@ from importlinter.contracts.forbidden import ForbiddenContract
 configure()
 config = ConfigParser()
 assert config.read('.importlinter')
-section = config['importlinter:contract:dataset-core-has-no-backend-imports']
+section = config['importlinter:contract:analysis-model-no-heavy-runtime']
 options = {
     key: [line.strip() for line in value.splitlines() if line.strip()]
     if '\\n' in value else value
@@ -85,9 +95,9 @@ graph = grimp.build_graph(
 baseline = contract.check(deepcopy(graph), verbose=False)
 assert baseline.kept and not baseline.warnings, baseline.metadata
 
-source = 'marivo.analysis.datasets.errors'
+source = 'marivo.analysis.model.errors'
 helper = 'marivo.dataset_import_probe'
-for backend in ('pandas', 'ibis', 'pyarrow', 'duckdb'):
+for backend in ('pandas', 'ibis', 'pyarrow', 'duckdb', 'pydantic'):
     for indirect in (False, True):
         candidate = deepcopy(graph)
         if backend not in candidate.modules:
@@ -101,7 +111,7 @@ for backend in ('pandas', 'ibis', 'pyarrow', 'duckdb'):
         result = contract.check(candidate, verbose=False)
         assert not result.kept, (backend, indirect, result.metadata)
 
-# An allowed edge does not authorize the same dependency from another owner.
+# A dependency on the semantic runtime also reaches the backend.
 candidate = deepcopy(graph)
 candidate.add_import(importer=source, imported='marivo.semantic.catalog')
 result = contract.check(candidate, verbose=False)

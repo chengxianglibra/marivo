@@ -14,8 +14,15 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_schema import DataAxis, DataSchema
-from marivo.analysis.core.data_types import (
+from marivo.analysis.core.frame_data import (
+    CompletedFrameData,
+    CompletedFrameResult,
+    MemoryFrameBacking,
+)
+from marivo.analysis.methods.carriers.data_validation import normalize_stage_frame
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_types import (
     DataColumn,
     DataType,
     DecimalDataType,
@@ -23,16 +30,9 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.data_validation import normalize_stage_frame
-from marivo.analysis.core.frame_data import (
-    CompletedFrameData,
-    CompletedFrameResult,
-    MemoryFrameBacking,
-)
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.core.model import CoreRuleError
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.model.errors import CoreRuleError
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from tests.shared_fixtures import terminal_runs
 
 _UNITS: tuple[Literal["s", "ms", "us", "ns"], ...] = ("s", "ms", "us", "ns")

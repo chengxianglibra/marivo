@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from marivo.analysis.materialization.errors import MaterializationError, SessionBusyError
+from marivo.analysis.model.execution_errors import MaterializationError, SessionBusyError
 
 _MUTEX = threading.Lock()
 _LOCKS: dict[tuple[int, str], threading.Lock] = {}

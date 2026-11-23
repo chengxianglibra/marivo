@@ -9,7 +9,6 @@ import pytest
 from ibis.common.deferred import BinaryOperator, Just, Resolver, UnaryOperator, Variable
 
 from marivo._definition.expressions import (
-    ContributionClockBinding,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
@@ -27,7 +26,8 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.graph import children
-from marivo._definition.observations import ContributionBinding, ObservationPeriod
+from marivo._definition.observation_time import ContributionClockBinding, ObservationPeriod
+from marivo._definition.observations import ContributionBinding
 from marivo._definition.relations import LiteralPopulation
 from marivo._definition.types import (
     Authorization,

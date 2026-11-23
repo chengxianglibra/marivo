@@ -32,29 +32,19 @@ from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.observation import formula_columns
 from marivo.analysis.core.attribute import (
     AttributeContributionProgram,
-    AttributeFailureContext,
-    AttributeFineFiber,
     AttributeFormulaContext,
     AttributeInputError,
     AttributeMatrixColumn,
     AttributeMethodPayload,
-    AttributeNumericWitness,
-    AttributeParentFiber,
     _coefficient_column,
     _logical,
     _rule_column,
     _type,
 )
-from marivo.analysis.core.data_schema import DataColumn
-from marivo.analysis.core.data_types import (
-    DataType,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-)
-from marivo.analysis.core.data_validation import stage_arrow_type
-from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows, frozen_key_table
-from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.core.frozen_calendar import frozen_key_rows, frozen_key_table
+from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
+from marivo.analysis.methods.carriers.stage_components import select_attribute_root
+from marivo.analysis.methods.carriers.stages import StageOutput, source_columns
 from marivo.analysis.methods.local import query_combine
 from marivo.analysis.methods.numeric_state import (
     duration_arithmetic,
@@ -64,6 +54,20 @@ from marivo.analysis.methods.numeric_state import (
     nullable_arithmetic,
 )
 from marivo.analysis.methods.physical import DecimalType, DurationType
+from marivo.analysis.model.attribute_failures import (
+    AttributeFailureContext,
+    AttributeFineFiber,
+    AttributeNumericWitness,
+    AttributeParentFiber,
+)
+from marivo.analysis.model.data_schema import DataColumn
+from marivo.analysis.model.data_types import (
+    DataType,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+)
+from marivo.analysis.model.frozen_keys import FrozenKey
 from marivo.semantic._numeric_lowering import numeric_failure
 
 
@@ -285,8 +289,6 @@ def _mapped_source(
     projection = left_projection if item.side == "left" else right_projection
     frames: list[pd.DataFrame] = []
     for source in item.sources:
-        from marivo.analysis.materialization.query_components import select_attribute_root
-
         root = select_attribute_root(prepared.attribute_inputs, item.scope, source)
         frames.append(
             attribute_source_values(
@@ -427,9 +429,9 @@ def attribute_contribution_data(
         FrameLinearTerm,
         FrameMethodCoordinate,
         FrameMethodSupport,
-        FrameMethodValue,
         FrameRatioMethod,
     )
+    from marivo.analysis.model.method_values import FrameMethodValue
 
     report_operation = program.operation
     assert report_operation.target is not None
@@ -551,7 +553,7 @@ def attribute_contribution_data(
         *,
         output: DataType | None = None,
     ) -> _Value:
-        from marivo.analysis.core.model import CoreRuleError
+        from marivo.analysis.model.errors import CoreRuleError
         from marivo.semantic.errors import SemanticExpressionError
 
         captured_contexts: list[AttributeFailureContext] = []
@@ -1335,8 +1337,6 @@ def attribute_contribution_data(
                         received=f"{name}: undefined required original parent total",
                         context=context(name, rule, side, scope, index, "original"),
                     )
-                from marivo.analysis.materialization.graph_exchange import source_columns
-
                 actual = source_columns(
                     frame,
                     (replace(column, slot_id=f"value.{source_index}"),),

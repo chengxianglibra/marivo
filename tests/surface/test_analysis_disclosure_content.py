@@ -10,9 +10,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._help.render import render_help_text
-from marivo.analysis._capabilities.dataset_model import CallableInput, TypeInput
 from marivo.analysis._capabilities.dataset_registry import assemble, prepare
-from marivo.analysis._capabilities.model import ANALYSIS_HELP_RENDER_BUDGETS
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
@@ -26,11 +24,8 @@ from marivo.analysis.core.frame_method_facts import (
     FrameLinearMethod,
     FrameLinearTerm,
     FrameMethodCoordinate,
-    FrameMethodOutput,
     FrameMethodParent,
     FrameMethodSupport,
-    FrameMethodTarget,
-    FrameMethodValue,
     FrameRatioMethod,
     FrameShapleyCapture,
     FrameShapleyGame,
@@ -42,8 +37,12 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyQueryGame,
     FrameShapleyReduction,
 )
-from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.disclosure import CallableInput, TypeInput
+from marivo.analysis.model.errors import DatasetRegistrationError
+from marivo.analysis.model.help_contracts import ANALYSIS_HELP_RENDER_BUDGETS
+from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
+from marivo.analysis.model.method_values import FrameMethodValue
 from marivo.cli import main
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 from tests.support.documentation import _example as documentation_example

@@ -21,8 +21,8 @@ from uvicorn._types import ASGIReceiveCallable, ASGISendCallable, Scope
 from marivo import __version__
 from marivo._kernel.refs import SemanticKind
 from marivo.analysis.errors import AnalysisError, ArtifactNotFoundError
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.result_files import ResultStorageError
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.semantic.catalog import _make_ref
 from marivo.server import dataframes
 from marivo.server.catalog_reads import CatalogReads

@@ -4,12 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.materialization import contracts as c
+from marivo.analysis.materialization.contracts import decode_receipt, parse_json
+from marivo.analysis.model.receipts import FileEntry, LocalReceipt, canonical_json, receipt_payload
 
 
-def _local() -> c.LocalReceipt:
-    entries = (c.FileEntry("data.parquet", 4096),)
-    return c.LocalReceipt(
+def _local() -> LocalReceipt:
+    entries = (FileEntry("data.parquet", 4096),)
+    return LocalReceipt(
         "sessions/s/artifacts/a/primary",
         entries,
         2,
@@ -24,7 +25,7 @@ def test_closed_receipt_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
         raise AssertionError("metadata-only receipt accessed storage")
 
     monkeypatch.setattr(Path, "open", forbidden)
-    payload = c.receipt_payload(receipt)
-    recovered = c.decode_receipt(c.parse_json(c.canonical_json(payload)))
+    payload = receipt_payload(receipt)
+    recovered = decode_receipt(parse_json(canonical_json(payload)))
     assert recovered == receipt
     assert recovered.identity_digest == receipt.identity_digest

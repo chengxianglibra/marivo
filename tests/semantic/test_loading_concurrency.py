@@ -21,15 +21,13 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.observation.contracts import ObservationOwner
+from marivo.analysis.binding.observation import ObservationOwner
+from marivo.analysis.materialization.admission import DatasetRuntime, SourceOwnerFactory
 from marivo.datasource.errors import DatasourceLoadError
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
 
 if TYPE_CHECKING:
-    from marivo.semantic._expression_binding import CompiledExpressionSidecar
-    from marivo.semantic.validator import Registry
     from tests.conftest import _SemanticProjectFactory
 
 T = TypeVar("T")
@@ -244,19 +242,13 @@ def test_session_first_initialization_publishes_one_complete_authority(
     monkeypatch.setattr(session, "_sources_lock", ObservedLock())
 
     def sources(
-        runtime: DatasetRuntime,
-        *,
-        semantic_registry: Registry,
-        sidecar: CompiledExpressionSidecar,
-        catalog: SemanticCatalog | None = None,
+        runtime: DatasetRuntime, factory: SourceOwnerFactory, catalog: SemanticCatalog
     ) -> ObservationOwner:
         nonlocal initialization_count
         with count_lock:
             initialization_count += 1
         assert second_attempt.wait(10)
-        return original(
-            runtime, semantic_registry=semantic_registry, sidecar=sidecar, catalog=catalog
-        )
+        return original(runtime, factory, catalog)
 
     monkeypatch.setattr(DatasetRuntime, "sources", sources)
 
@@ -293,11 +285,7 @@ def test_session_initialization_failure_can_be_retried(
         original = DatasetRuntime.sources
 
         def fail(
-            runtime: DatasetRuntime,
-            *,
-            semantic_registry: Registry,
-            sidecar: CompiledExpressionSidecar,
-            catalog: SemanticCatalog | None = None,
+            runtime: DatasetRuntime, factory: SourceOwnerFactory, catalog: SemanticCatalog
         ) -> ObservationOwner:
             raise ValueError("injected source owner failure")
 

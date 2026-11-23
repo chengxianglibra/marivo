@@ -31,7 +31,7 @@ from marivo.analysis.compiler.graph_plan import (
     require_reduction,
 )
 from marivo.analysis.compiler.unique_keys import relation_unique_keys
-from marivo.analysis.core.unique_keys import UniqueKeys
+from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.semantic._numeric_lowering import NumericCheck
 
 
@@ -215,8 +215,8 @@ def lower_query(
                 relations[attribute_preparation_key(stage.stage_id)],
                 stage.preparation_checks,
             )
-            from marivo.analysis.core.data_types import DurationDataType
             from marivo.analysis.core.value_types import data_type
+            from marivo.analysis.model.data_types import DurationDataType
 
             effective = {
                 column.slot_id: replace(

@@ -26,7 +26,7 @@ from marivo.analysis.binding.attribute_rules import (
     RuleRescale,
     RuleSubtract,
 )
-from marivo.analysis.core.model import CoreRuleError
+from marivo.analysis.model.errors import CoreRuleError
 
 
 def row_unit(node: RowNode) -> str | None:

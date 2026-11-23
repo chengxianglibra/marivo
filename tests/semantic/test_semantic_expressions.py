@@ -23,7 +23,6 @@ from marivo._definition.deferred import (
     semantic_input,
 )
 from marivo._definition.expressions import (
-    ContributionClockBinding,
     ContributionFilter,
     EntityCount,
     MeasureAssertion,
@@ -37,6 +36,7 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.graph import children, computation_fingerprint
+from marivo._definition.observation_time import ContributionClockBinding
 from marivo._definition.types import AxisBinding, ExactRef, SumAll, SumAllExcept, SumAxes, SumNone
 from marivo._kernel.refs import (
     Ref,

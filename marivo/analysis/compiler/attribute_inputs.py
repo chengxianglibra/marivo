@@ -22,6 +22,7 @@ from marivo._definition.expressions import (
 )
 from marivo.analysis.binding.attribute_rules import AttributeComponentRole, AttributeSourceRequest
 from marivo.analysis.binding.attribute_units import component_unit
+from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.graph_plan import (
     AttributeRead,
     read_components,
@@ -30,15 +31,11 @@ from marivo.analysis.compiler.graph_plan import (
     require_components,
     require_reduction,
 )
-from marivo.analysis.compiler.observation import FormulaProgram
-from marivo.analysis.core.attribute import (
-    AttributeInputError,
-    AttributeInputReason,
-    AttributeUseContext,
-)
-from marivo.analysis.core.data_types import DataColumn, DurationDataType, ScalarDataType
-from marivo.analysis.core.unique_keys import UniqueKeys
+from marivo.analysis.core.attribute import AttributeInputError, AttributeInputReason
 from marivo.analysis.core.value_types import data_type, ibis_type
+from marivo.analysis.model.attribute_failures import AttributeUseContext, AttributeWindowInput
+from marivo.analysis.model.data_types import DataColumn, DurationDataType, ScalarDataType
+from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
@@ -52,16 +49,13 @@ if TYPE_CHECKING:
     from marivo.analysis.binding.attribute_rules import AttributeRule
     from marivo.analysis.compiler.graph_plan import QueryPlan, QueryStage, SourceReadStage
     from marivo.analysis.compiler.query_program import SourceParameter
-    from marivo.analysis.core.attribute import (
-        AttributeFailureContext,
-        AttributeInputProgram,
-        AttributeParentContext,
-    )
-    from marivo.analysis.core.data_schema import DataSchema
+    from marivo.analysis.core.attribute import AttributeInputProgram, AttributeParentContext
     from marivo.analysis.core.frame_expression import (
         AttributeContributionValues,
         AttributeInputsValues,
     )
+    from marivo.analysis.model.attribute_failures import AttributeFailureContext
+    from marivo.analysis.model.data_schema import DataSchema
 
 
 @dataclass(frozen=True, slots=True)
@@ -472,7 +466,7 @@ def bundle_attribute_plan(
                 stages.append(bundles[stage.stage_id])
             continue
         if isinstance(stage, LocalCompute) and isinstance(stage.program, FormulaProgram):
-            from marivo.analysis.compiler.observation import FormulaInput
+            from marivo.analysis.model.programs import FormulaInput
 
             original_values = stage.program.values
             selected_native = native_bindings if stage.program is formula else {}
@@ -929,10 +923,10 @@ def attribute_input_program(
         AttributeMatrixColumn,
         attribute_schema,
     )
-    from marivo.analysis.core.data_schema import DataSchema
+    from marivo.analysis.model.data_schema import DataSchema
 
     base = attribute_schema(left, right, parent, operation.mapping)
-    from marivo.analysis.core.attribute import AttributeMatrixSource, AttributeWindowInput
+    from marivo.analysis.core.attribute import AttributeMatrixSource
 
     matrix: list[AttributeMatrixColumn] = []
     paths: list[tuple[str, ...]] = []

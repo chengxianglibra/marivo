@@ -9,8 +9,8 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.query_key_fusion import _outer_join_value
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params

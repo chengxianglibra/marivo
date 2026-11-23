@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from marivo._definition.graph import DefinitionNode, children, computation_fingerprint
 from marivo._definition.query import KeyImage, PopulationValues
 from marivo._definition.relations import AttributeKeys, FrameKeys, PopulationProgram
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.graph_plan import (
     FrameKeysInput,
     LocalCompute,
@@ -20,7 +21,6 @@ from marivo.analysis.compiler.query_program import (
     ResultProgram,
     SourceParameter,
 )
-from marivo.analysis.core.graph import BoundGraph
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo

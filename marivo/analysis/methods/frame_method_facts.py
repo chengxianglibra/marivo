@@ -9,8 +9,6 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.core.attribute import _coefficient_column
-from marivo.analysis.core.data_types import DurationDataType, ScalarDataType
-from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
@@ -21,12 +19,14 @@ from marivo.analysis.core.frame_method_facts import (
     FrameLevelRatioMethod,
     FrameLinearMethod,
     FrameMethodFacts,
-    FrameMethodValue,
     FrameRatioMethod,
     FrameShapleyMethod,
 )
-from marivo.analysis.core.model import reject
+from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
 from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary, _Value
+from marivo.analysis.model.data_types import DurationDataType, ScalarDataType
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.method_values import FrameMethodValue
 from marivo.semantic.errors import SemanticExpressionError
 
 

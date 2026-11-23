@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from marivo.analysis.materialization.errors import IntegrityError
+from marivo.analysis.model.execution_errors import IntegrityError
 from tests.analysis.materialization.state_fixtures import _values
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
 

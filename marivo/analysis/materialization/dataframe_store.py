@@ -14,13 +14,13 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from marivo.analysis.core.dataframe_result import DataFrameResult
-from marivo.analysis.core.result_reference import DataFrameReference
+from marivo.analysis.materialization.carriers.dataframe_result import DataFrameResult
 from marivo.analysis.materialization.result_files import (
     ResultStorageError,
     publication_file,
     state_path,
 )
+from marivo.analysis.model.result_reference import DataFrameReference
 
 JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 _METADATA = b"marivo.dataframe"

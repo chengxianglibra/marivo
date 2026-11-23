@@ -23,21 +23,6 @@ from marivo._kernel.temporal import (
     CalendarAxis,
     builtin_grain,
 )
-from marivo.analysis.core.artifact_data import (
-    ArtifactManifest,
-    BuiltinCalendarData,
-    CalendarDataAxis,
-    DataAxis,
-    DataColumn,
-    DataSchema,
-    DurationDataType,
-    FrozenCalendarData,
-    OutputAttachment,
-    PairedDataAxis,
-    SavedFrameMethodFacts,
-    ScalarDataType,
-    TimestampDataType,
-)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -46,19 +31,7 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     StoredFrameBacking,
 )
-from marivo.analysis.core.frame_interpretation import (
-    FrameCalendarAxisSchema,
-    FrameIntervalAxisSchema,
-)
-from marivo.analysis.core.frame_metadata import (
-    EvaluationRecord,
-    FrameResultMetadata,
-    StoredFrameMetadata,
-)
-from marivo.analysis.core.frame_page import FramePeriodPage
 from marivo.analysis.core.frozen_calendar import (
-    FrozenKey,
-    calendar_directory_schema,
     frozen_key_rows,
     read_calendar_directory,
     read_calendar_records,
@@ -69,12 +42,7 @@ from marivo.analysis.dsl.population import Population
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_publication, terminal_store
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import (
-    IntegrityError,
-    MaterializationError,
-    RecoveryPendingError,
-    StorageAccessError,
-)
+from marivo.analysis.materialization.carriers.frame_page import FramePeriodPage
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_reading import (
     ExportRead,
@@ -92,6 +60,36 @@ from marivo.analysis.materialization.terminal_protocol import (
     encode,
 )
 from marivo.analysis.materialization.terminal_storage import POLICY
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.model.artifact_data import ArtifactManifest, SavedFrameMethodFacts
+from marivo.analysis.model.coordinate_schema import calendar_directory_schema
+from marivo.analysis.model.data_schema import (
+    BuiltinCalendarData,
+    CalendarDataAxis,
+    DataAxis,
+    DataSchema,
+    FrozenCalendarData,
+    PairedDataAxis,
+)
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.model.execution_errors import (
+    IntegrityError,
+    MaterializationError,
+    RecoveryPendingError,
+    StorageAccessError,
+)
+from marivo.analysis.model.frame_metadata import (
+    EvaluationRecord,
+    FrameResultMetadata,
+    StoredFrameMetadata,
+)
+from marivo.analysis.model.frozen_keys import FrozenKey
+from marivo.analysis.model.time_facts import FrameCalendarAxisSchema, FrameIntervalAxisSchema
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import (
@@ -222,8 +220,8 @@ def manifest(frame: AnalysisFrame) -> ArtifactManifest:
 
 def period_endpoints(local: LocalFrameServices) -> tuple[AnalysisFrame, AnalysisFrame]:
     from marivo._kernel.temporal import builtin_grain
-    from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 
     current = exact_scope("2027-01-01", "2027-03-01", "UTC").by(builtin_grain("month"))
     baseline = current.shift(CalendarCorrespondence("years", -1))
@@ -261,7 +259,7 @@ def period_endpoints(local: LocalFrameServices) -> tuple[AnalysisFrame, Analysis
 def test_comparison_preview_closes_direct_and_fact_references(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.core.frame_structure import coordinate_attachments
+    from marivo.analysis.model.frame_structure import coordinate_attachments
 
     current, baseline = period_endpoints(local)
     report = current.compare({"base": mv.baseline(baseline)}).compute()
@@ -292,11 +290,11 @@ def test_comparison_preview_closes_direct_and_fact_references(
 
 
 def test_required_comparison_map_rejects_corrupt_payload(local: LocalFrameServices) -> None:
-    from marivo.analysis.core.artifact_data import ParquetHandle
-    from marivo.analysis.core.data_schema import CalendarComparisonBinding
-    from marivo.analysis.materialization.contracts import FileEntry
     from marivo.analysis.materialization.storage import _manifest_bytes, payload_digest
     from marivo.analysis.materialization.terminal_storage import physical_schema
+    from marivo.analysis.model.artifact_data import ParquetHandle
+    from marivo.analysis.model.data_schema import CalendarComparisonBinding
+    from marivo.analysis.model.receipts import FileEntry
 
     current, baseline = period_endpoints(local)
     saved = current.compare({"base": mv.baseline(baseline)}).persist()
@@ -988,7 +986,7 @@ from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
-from marivo.analysis.core import frame_calendar
+from marivo.analysis.methods.carriers import frame_calendar
 
 def forbidden(*args, **kwargs):
     raise AssertionError("cold data read attempted model/source/calendar reconstruction")
@@ -1039,10 +1037,10 @@ print("cold-temporal-exact")
 
 
 def rewrite_primary(saved: AnalysisFrame, rows: pd.DataFrame) -> StoredFrameBacking:
-    from marivo.analysis.core.artifact_data import ParquetHandle
-    from marivo.analysis.materialization.contracts import FileEntry
     from marivo.analysis.materialization.storage import _manifest_bytes, payload_digest
     from marivo.analysis.materialization.terminal_storage import physical_schema
+    from marivo.analysis.model.artifact_data import ParquetHandle
+    from marivo.analysis.model.receipts import FileEntry
 
     local = saved._local
     value = manifest(saved)
@@ -1202,8 +1200,8 @@ def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -
 
 def test_storage_error_help_targets_resolve(capsys: pytest.CaptureFixture[str]) -> None:
     import marivo
-    from marivo.analysis.materialization.errors import SessionBusyError, StorageAccessError
     from marivo.analysis.materialization.store import _generation_error
+    from marivo.analysis.model.execution_errors import SessionBusyError, StorageAccessError
 
     errors = (
         MaterializationError(
@@ -1541,8 +1539,8 @@ for artifact_id, keys, others, scores in json.loads(sys.argv[3]):
 def test_stored_two_selects_keep_data_and_remove_duplicate_fixed_adaptation(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.core.frame_metadata import StoredInput
-    from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
+    from marivo.analysis.model.frame_metadata import StoredInput
+    from marivo.analysis.model.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 
     saved = ordinary(local).persist()
     first = saved.select({"twice": saved["amount"] * 2})
@@ -1617,12 +1615,12 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     from marivo._definition.query import TopValues
     from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
     from marivo.analysis.compiler.query_program import FrameProgram
-    from marivo.analysis.core import frame_calendar
-    from marivo.analysis.core.frame_metadata import StoredInput
     from marivo.analysis.materialization import frame_source_preparation, graph_local_execution
-    from marivo.analysis.materialization.graph_exchange import StageOutput
     from marivo.analysis.materialization.graph_local_execution import LocalKernel
     from marivo.analysis.methods import frame_attribute
+    from marivo.analysis.methods.carriers import frame_calendar
+    from marivo.analysis.methods.carriers.stages import StageOutput
+    from marivo.analysis.model.frame_metadata import StoredInput
     from marivo.analysis.session.core import Session
     from marivo.datasource.adapters import SourceSession
 
@@ -1738,7 +1736,7 @@ from dataclasses import replace
 from unittest.mock import patch
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
-from marivo.analysis.core import frame_calendar
+from marivo.analysis.methods.carriers import frame_calendar
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import frame_source_preparation
@@ -1947,7 +1945,7 @@ def test_attachment_preview_filters_arrow_before_python_key_materialization(
     decoded: list[int] = []
     original_open = OutputRead._open
     original_keys = frozen_key_rows
-    from marivo.analysis.core.data_validation import normalize_complete_frame
+    from marivo.analysis.methods.carriers.data_validation import normalize_complete_frame
 
     original_normalize = normalize_complete_frame
 
@@ -2078,7 +2076,7 @@ def interval(
 ) -> AnalysisFrame:
     from marivo._definition.types import IntervalCoordinate
     from marivo._kernel.temporal import anchor_from_datetime
-    from marivo.analysis.core.frame_calendar import freeze_interval
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_interval
 
     frozen = freeze_interval(
         IntervalCoordinate(
@@ -2126,7 +2124,7 @@ import os, sys
 from unittest.mock import patch
 import marivo.analysis as mv
 from tests.shared_fixtures import frozen_coordinates, terminal_runs
-from marivo.analysis.core import frame_calendar
+from marivo.analysis.methods.carriers import frame_calendar
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
@@ -2482,8 +2480,8 @@ def explained_calendar(
         FrameMethodCoordinate,
         FrameMethodFacts,
         FrameMethodParent,
-        FrameMethodValue,
     )
+    from marivo.analysis.model.method_values import FrameMethodValue
     from tests.analysis.materialization.terminal_recovery_worker import method_result
 
     current = interval(local, 1, 4) if interval_axis else calendar(local, count)
@@ -2601,7 +2599,7 @@ from pathlib import Path
 from unittest.mock import patch
 import marivo
 import marivo.analysis as mv
-from marivo.analysis.core import frame_calendar
+from marivo.analysis.methods.carriers import frame_calendar
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
@@ -2758,7 +2756,7 @@ def test_readable_paired_calendar_keeps_endpoint_mapping_separate_from_row_prese
 
 
 def test_readable_partial_calendar_retains_keys_and_selection(local: LocalFrameServices) -> None:
-    from marivo.analysis.core.frame_page import FrameCalendarPeriod
+    from marivo.analysis.materialization.carriers.frame_page import FrameCalendarPeriod
 
     root = calendar(local, 1)
     backing = _memory_backing(root)
@@ -2878,8 +2876,8 @@ def test_small_page_detaches_large_primary_and_scans_coordinates_in_fixed_batche
     local: LocalFrameServices,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.core.frame_page import detached_rows
     from marivo.analysis.materialization import graph_reading
+    from marivo.analysis.materialization.carriers.frame_page import detached_rows
 
     key = DataColumn("key", "key", ScalarDataType("int64"), False)
     text = DataColumn("text", "text", ScalarDataType("string"), False)
@@ -2974,7 +2972,7 @@ def test_small_page_detaches_large_primary_and_scans_coordinates_in_fixed_batche
 def test_data_pages_preserve_decimal_and_extreme_date_keys(local: LocalFrameServices) -> None:
     from decimal import Decimal
 
-    from marivo.analysis.core.data_types import DecimalDataType
+    from marivo.analysis.model.data_types import DecimalDataType
 
     date_key = DataColumn("day", "day", ScalarDataType("date"), True)
     other_key = DataColumn("part", "part", ScalarDataType("string"), False)
@@ -3054,9 +3052,9 @@ print(json.dumps({"keys": page.coordinates["key"], "values": page.to_pandas()["a
 
 def test_calendar_export_unifies_grains_and_preserves_clipped_timezone_bounds() -> None:
     from marivo._kernel.temporal import bind_grid
-    from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
     from marivo.analysis.materialization.pandas_export import export_frame
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 
     for unit, count in (("day", 1), ("minute", 5)):
         scope = exact_scope("2026-10-25T00:02:00", "2026-10-25T04:00:00", "Europe/Berlin")
@@ -3081,7 +3079,7 @@ def test_calendar_export_unifies_grains_and_preserves_clipped_timezone_bounds() 
 
 
 def test_calendar_page_details_match_export_and_bind_cursor(local: LocalFrameServices) -> None:
-    from marivo.analysis.core.model import CoreRuleError
+    from marivo.analysis.model.errors import CoreRuleError
 
     frame = calendar(local, 3)
     for fixed in (frame, frame.persist()):
@@ -3152,8 +3150,8 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
     calendar_zone: str,
 ) -> None:
     from marivo._kernel.temporal import bind_grid
-    from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 
     scope = exact_scope("2024-01-01T00:02:00", "2024-01-03T00:00:00", zone)
     grid = bind_grid(scope, builtin_grain(unit="day", count=1))
@@ -3250,7 +3248,7 @@ def _period_page(
 def test_period_pages_keep_sparse_partial_directory_and_original_order(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.core.frame_page import FrameCalendarPeriod
+    from marivo.analysis.materialization.carriers.frame_page import FrameCalendarPeriod
 
     original = calendar(local, 4)
     backing = _memory_backing(original)
@@ -3300,7 +3298,7 @@ def test_period_pages_keep_sparse_partial_directory_and_original_order(
 def test_period_pages_preserve_complete_typed_keys(local: LocalFrameServices) -> None:
     from decimal import Decimal
 
-    from marivo.analysis.core.data_types import DecimalDataType
+    from marivo.analysis.model.data_types import DecimalDataType
 
     original = calendar(local, 2)
     source = _memory_backing(original).data
@@ -3371,7 +3369,10 @@ def test_period_pages_preserve_complete_typed_keys(local: LocalFrameServices) ->
 def test_period_pages_return_paired_endpoints_and_saved_comparison_absence(
     local: LocalFrameServices,
 ) -> None:
-    from marivo.analysis.core.frame_page import FrameComparisonPeriod, FramePairedPeriod
+    from marivo.analysis.materialization.carriers.frame_page import (
+        FrameComparisonPeriod,
+        FramePairedPeriod,
+    )
 
     current, baseline = calendar(local, 4), calendar(local, 3)
     paired = current.align(baseline, match=CalendarCorrespondence("ordinal")).compute()
@@ -3402,7 +3403,10 @@ def test_period_pages_keep_endpoint_timezones_without_reconstruction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from marivo._kernel import timezones as _timezones
-    from marivo.analysis.core.frame_page import FrameIntervalPeriod, FramePairedPeriod
+    from marivo.analysis.materialization.carriers.frame_page import (
+        FrameIntervalPeriod,
+        FramePairedPeriod,
+    )
 
     left = interval(local, 1, 2, zone="Asia/Shanghai")
     right = interval(local, 3, 4, zone="America/New_York")
@@ -3430,7 +3434,7 @@ def test_period_pages_keep_endpoint_timezones_without_reconstruction(
 def test_interval_period_pages_keep_saved_pairs_and_comparison_endpoints(
     local: LocalFrameServices,
 ) -> None:
-    from marivo.analysis.core.frame_page import (
+    from marivo.analysis.materialization.carriers.frame_page import (
         FrameComparisonPeriod,
         FrameIntervalPeriod,
         FramePairedPeriod,

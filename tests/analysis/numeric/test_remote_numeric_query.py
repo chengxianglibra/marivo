@@ -17,7 +17,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
+from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.environment import clickhouse_analysis as ch

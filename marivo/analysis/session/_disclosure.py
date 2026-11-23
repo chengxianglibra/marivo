@@ -5,19 +5,7 @@ from __future__ import annotations
 from inspect import signature
 
 from marivo.analysis import session as session_namespace
-from marivo.analysis._capabilities.dataset_model import (
-    Descriptor,
-    DisclosureProvider,
-    ExampleInput,
-    ExportInput,
-    bind,
-    operation,
-    value_type,
-)
-from marivo.analysis._capabilities.dataset_model import (
-    ParameterInput as P,
-)
-from marivo.analysis.core.frame_page import (
+from marivo.analysis.materialization.carriers.frame_page import (
     FrameCalendarPeriod,
     FrameComparisonPeriod,
     FrameIntervalPeriod,
@@ -26,7 +14,19 @@ from marivo.analysis.core.frame_page import (
     FramePeriodPage,
     FrameReadStats,
 )
-from marivo.analysis.core.frame_source_reads import (
+from marivo.analysis.model.disclosure import (
+    Descriptor,
+    DisclosureProvider,
+    ExampleInput,
+    ExportInput,
+    bind,
+    operation,
+    value_type,
+)
+from marivo.analysis.model.disclosure import (
+    ParameterInput as P,
+)
+from marivo.analysis.model.frame_source_reads import (
     FrameSourceRead,
     FrameSourceReadPeriod,
     FrameSourceReadScope,
@@ -436,7 +436,7 @@ def provider() -> DisclosureProvider:
                 ),
             )
         )
-    from marivo.analysis._capabilities.dataset_model import NavigationInput
+    from marivo.analysis.model.disclosure import NavigationInput
 
     descriptors.append(
         NavigationInput(

@@ -31,11 +31,12 @@ ancestors =
     marivo._authoring
 
 [importlinter:contract:pure-layers-no-heavy-runtime]
-name = Kernel and definition primitives do not import execution dependencies
+name = Pure analysis and shared primitives exclude execution dependencies
 type = forbidden
 source_modules =
     marivo._kernel
     marivo._definition
+    marivo.analysis.model
 forbidden_modules =
     pandas
     pyarrow
@@ -97,42 +98,29 @@ forbidden_modules =
     pyarrow
     duckdb
 
-[importlinter:contract:dataset-core-is-foundational]
-name = Dataset Core must not depend on executing analysis implementations
-type = forbidden
-source_modules =
-    marivo.analysis.datasets
-forbidden_modules =
-    marivo.analysis.session
-    marivo.analysis.observation
-    marivo.analysis.compiler
-    marivo.analysis.materialization
-    marivo.analysis.operators
+[importlinter:contract:analysis-execution-layers]
+name = Session and DSL control invocation, execution and local methods
+type = layers
+containers = marivo.analysis
+layers =
+    session
+    dsl
+    materialization
+    methods
+    compiler
+    model
 
-[importlinter:contract:dataset-core-has-no-backend-imports]
-name = Dataset Core must not import dataframe or backend implementations
+[importlinter:contract:analysis-model-no-heavy-runtime]
+name = Analysis model must not import dataframe, backend or validation implementations
 type = forbidden
 source_modules =
-    marivo.analysis.datasets
+    marivo.analysis.model
 forbidden_modules =
     pandas
     ibis
     pyarrow
     duckdb
-# The shared typed error edge reaches semantic descriptor backend dependencies. All other direct and indirect Core backend paths remain forbidden.
-# The separate foundational contract keeps its full transitive enforcement.
-ignore_imports =
-    marivo.analysis.datasets.errors -> marivo.analysis.errors
-
-[importlinter:contract:observation-definition-isolation]
-name = Observation definitions must not depend on executing analysis
-type = forbidden
-source_modules =
-    marivo.analysis.observation
-forbidden_modules =
-    marivo.analysis.session
-    marivo.analysis.compiler
-    marivo.analysis.materialization
+    pydantic
 
 [importlinter:contract:dataset-compiler-isolation]
 name = Dataset compilation must not depend on runtime publication

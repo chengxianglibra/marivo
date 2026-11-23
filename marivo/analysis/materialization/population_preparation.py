@@ -40,10 +40,10 @@ from marivo._kernel.numeric_types import exact_unsigned
 from marivo._kernel.refs import ref
 from marivo.analysis.compiler.graph_lowering import PopulationCheck
 from marivo.analysis.compiler.member_version import prepare_version_filter
-from marivo.analysis.core.frame_interpretation import FrameSourceTime
-from marivo.analysis.core.model import reject
-from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.core.value_types import data_type
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.time_facts import FrameSourceTime
+from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import evaluate_expression_body
 from marivo.semantic.validator import normalize_target_entity, normalize_target_version_selection

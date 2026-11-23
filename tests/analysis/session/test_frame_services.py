@@ -13,14 +13,12 @@ import pytest
 import marivo.analysis as mv
 from marivo._definition.types import Owner
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import (
-    SessionBusyError,
-)
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_reading import OutputRead
 from marivo.analysis.materialization.pandas_export import export_frame
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.analysis.model.execution_errors import SessionBusyError
 from marivo.analysis.session.core import Session
 from marivo.datasource import credentials as cr
 from marivo.semantic import catalog

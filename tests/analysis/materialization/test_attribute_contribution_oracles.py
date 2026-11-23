@@ -12,12 +12,12 @@ import pytest
 import marivo.analysis as mv
 from marivo._kernel.grouping import Grouping
 from marivo.analysis.core.attribute import AttributeMethodPayload, AttributeMethodProduction
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.core.frame_method_facts import FrameRatioMethod
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import Population
 from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.session.core import Session
 from marivo.semantic._expression_values import FieldExpression
 from marivo.semantic.reader import SemanticProject

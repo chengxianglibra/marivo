@@ -5,7 +5,7 @@ from dataclasses import replace
 from marivo._definition.population_builders import membership_anchor
 from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import ExactRef, FieldRead, PathParameter
-from marivo.analysis.core.model import reject
+from marivo.analysis.model.errors import reject
 
 
 def membership_path(binding: MembershipBinding, root: ExactRef) -> PathParameter | None:

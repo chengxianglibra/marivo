@@ -9,7 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.errors import SemanticExpressionError

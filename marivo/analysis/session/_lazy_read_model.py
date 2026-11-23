@@ -7,9 +7,9 @@ from datetime import datetime
 from typing import Literal
 
 from marivo._kernel.render import Card, RenderableResult
-from marivo.analysis._pages import _BoundedPage
-from marivo.analysis.core.frame_schema import FrameSchema
-from marivo.analysis.materialization.contracts import invalid
+from marivo.analysis.model.frame_schema import FrameSchema
+from marivo.analysis.model.pages import _BoundedPage
+from marivo.analysis.model.receipts import invalid
 
 
 def _identity(value: str) -> None:

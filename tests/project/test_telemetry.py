@@ -1220,8 +1220,8 @@ def test_registry_callables_are_telemetry_covered() -> None:
 def test_public_dsl_operators_emit_completion_events(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis._capabilities.dataset_model import NavigationInput
     from marivo.analysis._capabilities.registry import REGISTRY
+    from marivo.analysis.model.disclosure import NavigationInput
 
     monkeypatch.setenv("MARIVO_TELEMETRY", "on")
     case = analysis_dsl_case_factory("j1")

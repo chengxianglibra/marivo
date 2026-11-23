@@ -21,9 +21,9 @@ from marivo._definition.expressions import (
     PerWeightedMean,
 )
 from marivo._definition.graph import children
+from marivo._definition.observation_time import ObservationPeriod
 from marivo._definition.observations import (
     ContributionBinding,
-    ObservationPeriod,
     SampleAxisMatches,
     SampleWindowContext,
     sample_key_matches,
@@ -42,6 +42,8 @@ from marivo._definition.types import (
     field_read_key,
 )
 from marivo._kernel.temporal import Grain, anchor_from_datetime
+from marivo.analysis.binding.calendar_keys import match_time_keys, time_key_type
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.windows import bind_windows
 from marivo.analysis.compiler.calendar import bind_calendar
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, lower_query
@@ -54,14 +56,7 @@ from marivo.analysis.compiler.graph_plan import (
     read_reduction,
 )
 from marivo.analysis.compiler.observation import reduction_input
-from marivo.analysis.core.calendar_keys import match_time_keys, time_key_type
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DataColumn
-from marivo.analysis.core.data_validation import distinct_key_rows
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import reject
 from marivo.analysis.core.value_types import ibis_type
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
     execute_numeric_query,
@@ -70,6 +65,11 @@ from marivo.analysis.materialization.graph_source_execution import (
 )
 from marivo.analysis.materialization.native_calendar import _actual_positions, _point
 from marivo.analysis.materialization.query_parameters import instantiate, parameter_data
+from marivo.analysis.methods.carriers.data_validation import distinct_key_rows
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DataColumn
+from marivo.analysis.model.errors import reject
 from marivo.semantic._compiled_state import CompiledSemanticState
 
 
@@ -174,8 +174,8 @@ def prepare_sample_window_plan(
     keys = tuple(keys_by_id.values())
     assert plan.original is not None
     endpoint_formula = next(stage for stage in plan.stages if stage.stage_id == plan.publish)
+    from marivo.analysis.binding.programs import FormulaProgram
     from marivo.analysis.compiler.graph_plan import LocalCompute
-    from marivo.analysis.compiler.observation import FormulaProgram
 
     assert isinstance(endpoint_formula, LocalCompute) and isinstance(
         endpoint_formula.program, FormulaProgram

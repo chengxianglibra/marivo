@@ -9,7 +9,16 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from marivo.analysis.core.data_schema import (
+from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame_sources import values
+from marivo.analysis.materialization import frame_evaluation, terminal_store
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization.graph_reading import FrameReader, OutputRead
+from marivo.analysis.materialization.pandas_export import export_frame
+from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.model.data_schema import (
     BuiltinCalendarData,
     CalendarDataAxis,
     DataAxis,
@@ -19,37 +28,28 @@ from marivo.analysis.core.data_schema import (
     IntervalDataAxis,
     PairedDataAxis,
 )
-from marivo.analysis.core.data_types import (
+from marivo.analysis.model.data_types import (
     DataColumn,
     DecimalDataType,
     DurationDataType,
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-from marivo.analysis.core.frame_interpretation import FramePairedAxisSchema
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.core.frame_schema import (
+from marivo.analysis.model.errors import CoreRuleError
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.frame_schema import (
     CoordinateExportColumn,
     FieldExportColumn,
     UnresolvedDataType,
     capture_schema,
     export_layout,
 )
-from marivo.analysis.core.frame_structure import (
+from marivo.analysis.model.frame_structure import (
     PendingDataAxis,
     PendingDataColumn,
     PendingDataSchema,
 )
-from marivo.analysis.core.model import CoreRuleError
-from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.dsl.frame_sources import values
-from marivo.analysis.materialization import frame_evaluation, terminal_store
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.materialization.graph_reading import FrameReader, OutputRead
-from marivo.analysis.materialization.pandas_export import export_frame
-from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.model.time_facts import FramePairedAxisSchema
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 
@@ -365,12 +365,12 @@ def test_public_zero_axis_zero_value_page_retains_empty_or_unit_row(
 def test_interpretation_records_validate_closed_fields_and_bound_display(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.analysis.core.frame_interpretation import (
+    from marivo.analysis.model.lineage import SemanticObjectIdentity
+    from marivo.analysis.model.time_facts import (
         FrameAxisTime,
         FrameObservationContext,
         FrameTrailingPeriodsWindow,
     )
-    from marivo.analysis.core.lineage import SemanticObjectIdentity
 
     subject = SemanticObjectIdentity("metric", "sales.revenue", "definition")
     context = FrameObservationContext(subject, FrameAxisTime("day"), FrameTrailingPeriodsWindow(7))

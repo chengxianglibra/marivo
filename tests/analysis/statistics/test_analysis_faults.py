@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.contracts import canonical_json
+from marivo.analysis.model.receipts import canonical_json
 from tests.analysis.statistics.pandas_workflows import (
     assert_clean,
     daily,

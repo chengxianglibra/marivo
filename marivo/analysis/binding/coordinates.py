@@ -17,9 +17,9 @@ from marivo._kernel.refs import (
     SemanticKind,
     ref,
 )
-from marivo.analysis.core.model import reject
+from marivo.analysis.binding.relationship_binding import RelationshipResolver
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
-from marivo.analysis.observation.relationship_binding import RelationshipResolver
+from marivo.analysis.model.errors import reject
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.expressions import _Resolver
 from marivo.semantic.ir import SnapshotVersioningIR

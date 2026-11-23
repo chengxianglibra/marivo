@@ -11,7 +11,7 @@ import ibis.expr.types as ir
 import pandas as pd
 
 from marivo.analysis.compiler.source_predicates import string_bytes
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 
 if TYPE_CHECKING:
     from marivo.datasource.adapters import SourceSession

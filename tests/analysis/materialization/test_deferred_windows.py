@@ -11,11 +11,11 @@ import pytest
 import marivo.analysis as mv
 from marivo._definition.windows import TrailingDuration
 from marivo.analysis.binding.windows import _reset
-from marivo.analysis.core.data_schema import CalendarDataAxis
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.core.frozen_calendar import read_calendar_directory
-from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.data_schema import CalendarDataAxis
+from marivo.analysis.model.errors import CoreRuleError
 from marivo.analysis.session.core import Session
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.reader import SemanticProject

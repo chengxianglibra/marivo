@@ -22,7 +22,10 @@ from marivo._definition.types import (
 )
 from marivo._kernel.refs import Ref
 from marivo._kernel.temporal import Grain
-from marivo.analysis.core.lineage import (
+from marivo.analysis.binding.signature import BoundQuantity
+from marivo.analysis.model.calendar_schema import calendar_grain
+from marivo.analysis.model.frame_schema import capture_grain
+from marivo.analysis.model.lineage import (
     ColumnLineage,
     FrameLineage,
     Origins,
@@ -32,16 +35,15 @@ from marivo.analysis.core.lineage import (
     merge,
     union,
 )
-from marivo.analysis.core.model import BoundQuantity
 from marivo.semantic._compiled_state import PublishedDeclaration
 from marivo.semantic.expressions import _Resolver
 
 if TYPE_CHECKING:
-    from marivo.analysis.core.data_schema import DataSchema
+    from marivo.analysis.binding.graph import BoundGraph
     from marivo.analysis.core.frame_data import LiteralFrameBinding, SourceFrameBinding
-    from marivo.analysis.core.frame_interpretation import FrameValueContext
-    from marivo.analysis.core.frame_structure import PendingDataSchema, PendingFrameAxis
-    from marivo.analysis.core.graph import BoundGraph
+    from marivo.analysis.model.data_schema import DataSchema
+    from marivo.analysis.model.frame_structure import PendingDataSchema, PendingFrameAxis
+    from marivo.analysis.model.layout_facts import FrameValueContext
     from marivo.semantic._compiled_state import CompiledSemanticState
 
 
@@ -282,11 +284,10 @@ def observation_contexts(
         TrailingDuration,
         TrailingPeriods,
     )
-    from marivo.analysis.core.data_schema import CalendarDataAxis, IntervalDataAxis
-    from marivo.analysis.core.frame_interpretation import (
+    from marivo.analysis.model.data_schema import CalendarDataAxis, IntervalDataAxis
+    from marivo.analysis.model.time_facts import (
         FrameAllHistoryWindow,
         FrameAxisTime,
-        FrameBuiltinGrain,
         FrameFixedTime,
         FrameObservationContext,
         FrameObservationWindow,
@@ -341,10 +342,9 @@ def observation_contexts(
                 window = FrameTrailingPeriodsWindow(rule.count)
             elif isinstance(rule, ToDate):
                 grain = rule.grain
-                from marivo.analysis.core.frame_calendar import _UNITS
 
                 assert grain.unit is not None
                 assert grain.count is not None
-                window = FrameToDateWindow(FrameBuiltinGrain(_UNITS[grain.unit], grain.count))
+                window = FrameToDateWindow(capture_grain(calendar_grain(grain)))
         result.append((quantity.name, FrameObservationContext(subject, time, window)))
     return tuple(result)

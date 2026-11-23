@@ -7,9 +7,6 @@ import pytest
 import marivo.analysis as mv
 from marivo._definition.grouping import grouping_binding
 from marivo._kernel.temporal_grid import CivilShiftAbsent, CivilShiftTarget, TimeShiftAbsent
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DataColumn, TimestampDataType
-from marivo.analysis.core.frame_calendar import FrozenSourceCalendar, freeze_calendar
 from marivo.analysis.core.frozen_calendar import (
     FrozenAttachment,
     FrozenCalendarDirectory,
@@ -19,6 +16,9 @@ from marivo.analysis.core.frozen_calendar import (
     validate_frozen_coordinates,
 )
 from marivo.analysis.dsl.temporal import exact_scope
+from marivo.analysis.methods.carriers.frame_calendar import FrozenSourceCalendar, freeze_calendar
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DataColumn, TimestampDataType
 
 
 def calendar(start: str, end: str, unit: str = "week", zone: str = "UTC") -> mv.CalendarAxis:

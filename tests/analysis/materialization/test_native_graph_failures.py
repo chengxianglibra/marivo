@@ -9,8 +9,8 @@ import pandas as pd
 import pytest
 
 from marivo.analysis.materialization import terminal_publication
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 from tests.support.paths import PROJECT_ROOT

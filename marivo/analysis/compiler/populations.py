@@ -18,13 +18,13 @@ from marivo._definition.relations import (
     condition_populations,
 )
 from marivo._kernel.refs import SemanticKind
+from marivo.analysis.binding.calendar_keys import time_key_type
 from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
 from marivo.analysis.compiler.query_program import FrameParameter, ResultProgram
-from marivo.analysis.core.calendar_keys import time_key_type
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DataColumn
-from marivo.analysis.core.frame_structure import axis_role, column_kind
-from marivo.analysis.core.model import reject
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DataColumn
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_structure import axis_role, column_kind
 
 
 def population_atoms(definition: PopulationDependency) -> tuple[PopulationDependency, ...]:
@@ -128,8 +128,8 @@ def plan_frame_keys(
         )
     if isinstance(keys, AttributeKeys):
         from marivo.analysis.core.attribute import AttributeProjectProgram
-        from marivo.analysis.core.data_schema import DataAxis
         from marivo.analysis.core.frame_expression import AttributeProjectValues
+        from marivo.analysis.model.data_schema import DataAxis
 
         indices = tuple(
             next(i for i, axis in enumerate(schema.axes) if axis.token == binding.token)

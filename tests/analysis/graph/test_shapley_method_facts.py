@@ -8,15 +8,10 @@ from typing import Literal
 
 import pytest
 
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DataColumn, DataType, DecimalDataType, ScalarDataType
 from marivo.analysis.core.frame_method_facts import (
     FrameAttributeMetric,
     FrameMethodFacts,
-    FrameMethodOutput,
     FrameMethodParent,
-    FrameMethodTarget,
-    FrameMethodValue,
     FrameShapleyCapture,
     FrameShapleyGame,
     FrameShapleyLeaf,
@@ -28,14 +23,18 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyReduction,
     state_metric_approximation,
 )
-from marivo.analysis.core.model import CoreRuleError
-from marivo.analysis.materialization.contracts import canonical_json
-from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.terminal_protocol import (
     decode_method_record,
     encode_method_record,
 )
 from marivo.analysis.methods.frame_method_facts import validate_method_facts
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DataColumn, DataType, DecimalDataType, ScalarDataType
+from marivo.analysis.model.errors import CoreRuleError
+from marivo.analysis.model.execution_errors import IntegrityError
+from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
+from marivo.analysis.model.method_values import FrameMethodValue
+from marivo.analysis.model.receipts import canonical_json
 
 _INT = ScalarDataType("int64")
 _FLOAT = ScalarDataType("float64")
@@ -431,12 +430,12 @@ def test_sampled_facts_store_roundtrip_is_source_offline_and_checks_logical_dige
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    from marivo.analysis.core.data_schema import DataAxis
     from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-    from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.frame_method_facts import decode_method_payload
     from marivo.analysis.materialization.graph_reading import open_manifest
+    from marivo.analysis.model.data_schema import DataAxis
+    from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 
     native = route == "native"
     facts = (

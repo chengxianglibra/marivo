@@ -31,39 +31,34 @@ from marivo._definition.graph_encoding import DefinitionEncoder
 from marivo._definition.relations import FrameKeyAxis, FrameKeys, PopulationProgram
 from marivo._definition.types import AxisBinding, ExactRef
 from marivo._kernel.refs import ref
-from marivo.analysis.core.artifact_data import (
-    ArtifactData,
-    BuiltinCalendarData,
-    CalendarDataAxis,
-    DataAxis,
-    DataColumn,
-    DataSchema,
-    FrozenCalendarData,
-    PairedDataAxis,
-    ParquetHandle,
-)
-from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     ExpressionFrameBacking,
     SourceFrameBinding,
 )
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.core.frame_structure import PendingDataSchema
-from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.dsl import frame_sources
-from marivo.analysis.dsl._frame_inputs import (
-    FrameKeyInput,
-    collect_frame_key_inputs,
-    merge_frame_key_inputs,
-)
+from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_population import population_from
 from marivo.analysis.dsl.population import Population, in_population, product
-from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.terminal_store import describe
+from marivo.analysis.model.artifact_data import ArtifactData, ParquetHandle
+from marivo.analysis.model.data_schema import (
+    BuiltinCalendarData,
+    CalendarDataAxis,
+    DataAxis,
+    DataSchema,
+    FrozenCalendarData,
+    PairedDataAxis,
+)
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.frame_contracts import FrameKeyInput, merge_frame_key_inputs
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.frame_structure import PendingDataSchema
+from marivo.analysis.model.lineage import empty as empty_lineage
+from marivo.analysis.model.receipts import FileEntry, LocalReceipt
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_predicate

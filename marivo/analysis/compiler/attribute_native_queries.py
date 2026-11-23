@@ -18,8 +18,8 @@ from marivo.analysis.compiler.graph_plan import (
     read_reduction,
 )
 from marivo.analysis.compiler.observation import _reduction_axes, lower_observation, temporal_bound
-from marivo.analysis.core.stage_contracts import CheckedStageInput
 from marivo.analysis.errors import AnalysisStageUnavailableError
+from marivo.analysis.model.frame_contracts import CheckedStageInput
 from marivo.semantic._numeric_lowering import NumericCheck
 
 if TYPE_CHECKING:

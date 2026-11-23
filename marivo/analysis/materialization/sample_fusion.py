@@ -32,6 +32,7 @@ from marivo._definition.relations import (
 )
 from marivo._definition.types import AxisBinding, IntervalCoordinate
 from marivo._kernel.temporal import Grain
+from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
@@ -42,18 +43,18 @@ from marivo.analysis.compiler.graph_plan import (
     read_members,
     read_reduction,
 )
-from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
 from marivo.analysis.compiler.optimization import RuleDecision, required_slots
 from marivo.analysis.compiler.query_program import ResultProgram, SourceParameter
 from marivo.analysis.compiler.sample_reductions import (
     SampleLowerer,
     SampleReductionUnavailableError,
 )
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.core.value_types import data_type, ibis_type
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import PreparedSources
 from marivo.analysis.materialization.query_parameters import instantiate
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.programs import FormulaInput
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic._numeric_lowering import NumericCheck
 

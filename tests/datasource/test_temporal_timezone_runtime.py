@@ -230,8 +230,8 @@ def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
                         engine="clickhouse",
                     )
                     assert authority.kind == precise_authority.kind == "instant"
-                    assert set(authority.model_dump()) == {"kind", "axis", "physical_type"}
-                    assert set(precise_authority.model_dump()) == {"kind", "axis", "physical_type"}
+                    assert set(asdict(authority)) == {"kind", "axis", "physical_type"}
+                    assert set(asdict(precise_authority)) == {"kind", "axis", "physical_type"}
                     assert precise_authority.physical_type == str(table.precise.type())
                     parsed, parsed_authority = source_time(
                         table.text,
@@ -304,10 +304,10 @@ def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
                             "environment": case.environment,
                             "session_timezone": session_zone[0],
                             "schema": str(table.schema()),
-                            "authority": authority.model_dump(),
-                            "precise_authority": precise_authority.model_dump(),
-                            "parsed_authority": parsed_authority.model_dump(),
-                            "composite_authority": composite_authority.model_dump(),
+                            "authority": asdict(authority),
+                            "precise_authority": asdict(precise_authority),
+                            "parsed_authority": asdict(parsed_authority),
+                            "composite_authority": asdict(composite_authority),
                             "values": {name: str(frame[name].iloc[0]) for name in frame.columns},
                             "sql": sql,
                         },
@@ -379,8 +379,8 @@ def test_mysql_utc_timestamp_transport_and_source_timezones(
             {
                 "environment": case.environment,
                 "schema": str(table.schema()),
-                "authority": authority.model_dump(),
-                "clock_authority": clock_authority.model_dump(),
+                "authority": asdict(authority),
+                "clock_authority": asdict(clock_authority),
                 "values": {name: str(frame[name].iloc[0]) for name in frame.columns},
                 "sql": owner.submissions[-1].sql,
                 "unavailable_zone": failure.value.received,

@@ -15,8 +15,8 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError, SessionStateError
 from marivo.analysis.materialization import terminal_publication, terminal_store
-from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.model.execution_errors import IntegrityError, MaterializationError
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 

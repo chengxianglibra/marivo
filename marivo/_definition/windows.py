@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TypeAlias
 
 from marivo._kernel.errors import invalid
-from marivo._kernel.temporal import Grain
+from marivo._kernel.time_types import Grain
 
 
 class _Window:

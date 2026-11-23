@@ -5,17 +5,17 @@ from decimal import Decimal
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.core.data_schema import DataAxis, DataColumn, DataSchema
-from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
-from marivo.analysis.core.frame_attribute_merge import (
+from marivo.analysis.core.frame_data import MemoryFrameBacking
+from marivo.analysis.dsl.frame_attribute_merge import merge_attribute_reports
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.methods.frame_attribute_merge import merge_attribute_data
+from marivo.analysis.model.data_schema import DataAxis, DataColumn, DataSchema
+from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
+from marivo.analysis.model.frame_attribute_merge import (
     AttributeMergeProgram,
     AttributeMergeValues,
     infer_attribute_merge_schema,
 )
-from marivo.analysis.core.frame_data import MemoryFrameBacking
-from marivo.analysis.dsl.frame_attribute_merge import merge_attribute_reports
-from marivo.analysis.materialization.graph_exchange import StageOutput
-from marivo.analysis.methods.frame_attribute_merge import merge_attribute_data
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 

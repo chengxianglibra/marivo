@@ -15,12 +15,12 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.artifact_data import CalendarDataAxis
-from marivo.analysis.core.frame_interpretation import FrameCalendarAxisSchema
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.pandas_export import export_frame
 from marivo.analysis.materialization.terminal_protocol import decode, encode
 from marivo.analysis.materialization.terminal_storage import read_output
+from marivo.analysis.model.data_schema import CalendarDataAxis
+from marivo.analysis.model.time_facts import FrameCalendarAxisSchema
 from marivo.datasource.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value, run_ids

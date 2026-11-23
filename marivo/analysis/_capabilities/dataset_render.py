@@ -6,14 +6,14 @@ import inspect
 
 from typing_extensions import get_overloads
 
-from marivo.analysis._capabilities.dataset_model import (
+from marivo.analysis._capabilities.dataset_registry import DatasetDisclosureRegistry
+from marivo.analysis.model.disclosure import (
     CallableInput,
     NavigationInput,
     TypeInput,
     invalid,
 )
-from marivo.analysis._capabilities.dataset_registry import DatasetDisclosureRegistry
-from marivo.analysis._capabilities.model import (
+from marivo.analysis.model.help_contracts import (
     ANALYSIS_HELP_RENDER_BUDGETS,
     AnalysisHelpRenderClass,
     ReadCapability,

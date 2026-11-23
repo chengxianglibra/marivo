@@ -23,15 +23,15 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo._definition.types import LiteralValue
-from marivo.analysis.core.data_types import (
+from marivo.analysis.model.data_types import (
     DataType,
     DecimalDataType,
     DurationDataType,
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_structure import ValueKind
-from marivo.analysis.core.model import reject
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_structure import ValueKind
 from marivo.semantic._numeric_lowering import numeric_failure
 
 

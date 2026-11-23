@@ -10,7 +10,7 @@ from tests.shared_fixtures import DslCaseFactory
 def test_unconfirmed_source_disconnect_prevents_publication(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.model.execution_errors import MaterializationError
     from marivo.datasource._lifetime import BackendLease
 
     case = analysis_dsl_case_factory("j2")

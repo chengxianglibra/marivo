@@ -16,8 +16,8 @@ from marivo._definition.types import CalendarCoordinate
 from marivo._kernel.timezones import normalize_timezone
 from marivo.analysis.compiler.calendar import KEY_TYPE, reusable_date_day
 from marivo.analysis.compiler.source_time import _raw_lineage, source_time
-from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.materialization.time_filter import _raw_for, _resolved
+from marivo.analysis.model.time_authority import SourceTimeAuthority
 from marivo.datasource._temporal_expressions import localize, timestamp
 from marivo.semantic.ir import StrptimeParse, TargetDimensionContract
 

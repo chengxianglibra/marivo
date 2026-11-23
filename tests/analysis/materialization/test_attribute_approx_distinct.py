@@ -27,14 +27,14 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyReduction,
 )
 from marivo.analysis.errors import AnalysisStageUnavailableError
-from marivo.analysis.materialization.contracts import canonical_json
-from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.frame_method_facts import decode_method_payload
 from marivo.analysis.materialization.graph_reading import open_manifest
 from marivo.analysis.materialization.terminal_protocol import (
     decode_method_record,
     encode_method_record,
 )
+from marivo.analysis.model.execution_errors import IntegrityError
+from marivo.analysis.model.receipts import canonical_json
 from marivo.analysis.session.core import Session
 from tests.analysis.materialization.test_attribute_frequencies import _stage
 from tests.analysis.materialization.test_frame_attribute_shapley import game_session as game_session

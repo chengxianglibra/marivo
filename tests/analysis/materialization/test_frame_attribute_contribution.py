@@ -10,13 +10,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._kernel.grouping import Grouping
-from marivo.analysis.core.attribute import (
-    AttributeFineFiber,
-    AttributeInputError,
-    AttributeNumericWitness,
-    AttributeParentFiber,
-)
-from marivo.analysis.core.data_schema import DataSchema
+from marivo.analysis.core.attribute import AttributeInputError
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     MemoryFrameBacking,
@@ -26,6 +20,12 @@ from marivo.analysis.core.frame_expression import AttributeContributionValues
 from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import Population
+from marivo.analysis.model.attribute_failures import (
+    AttributeFineFiber,
+    AttributeNumericWitness,
+    AttributeParentFiber,
+)
+from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
 from marivo.semantic._expression_values import FieldExpression
@@ -409,8 +409,8 @@ def test_additive_exact_values_and_independent_role_reads(
         AttributeMatrixColumn,
         AttributeMethodPayload,
     )
-    from marivo.analysis.materialization.graph_exchange import StageOutput
     from marivo.analysis.methods import frame_attribute_contribution
+    from marivo.analysis.methods.carriers.stages import StageOutput
 
     contribute = frame_attribute_contribution.attribute_contribution_data
 
@@ -517,9 +517,9 @@ def test_zero_change_keeps_signed_contributions(session: Session, tmp_path: Path
 def test_original_formula_error_keeps_owner_context_and_atomicity(
     session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.core.attribute import AttributeFineFiber
-    from marivo.analysis.core.data_types import ScalarDataType
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.model.attribute_failures import AttributeFineFiber
+    from marivo.analysis.model.data_types import ScalarDataType
+    from marivo.analysis.model.execution_errors import MaterializationError
     from marivo.datasource.adapters import SourceSession
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
@@ -704,7 +704,7 @@ def test_duration_preserves_exact_ticks_and_half_even(session: Session, tmp_path
 def test_parent_difference_overflow_has_exact_context_even_under_top0(
     session: Session, tmp_path: Path
 ) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.model.execution_errors import MaterializationError
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute("DELETE FROM facts WHERE id IN (2,4)")
@@ -976,8 +976,9 @@ def test_new_attribute_uses_only_its_own_live_components(
         AttributeProjectProgram,
     )
     from marivo.analysis.materialization import frame_evaluation, graph_local_execution
-    from marivo.analysis.materialization.graph_exchange import CheckReceipt, StageOutput
     from marivo.analysis.materialization.graph_local_execution import LocalKernel
+    from marivo.analysis.methods.carriers.stages import StageOutput
+    from marivo.analysis.model.frame_contracts import CheckReceipt
     from marivo.datasource.adapters import SourceSession
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
@@ -1021,7 +1022,7 @@ def test_new_attribute_uses_only_its_own_live_components(
         & ((channel == "A") if shape != "scalar" else (phase == "base")),
     )
     final = _contribution(left, right, by=(channel,))
-    from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
+    from marivo.analysis.model.frame_attribute_merge import AttributeMergeValues
 
     def producer_ids(frame: AnalysisFrame) -> set[str]:
         backing = frame._backing
@@ -1154,8 +1155,8 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
 
     import marivo
     from marivo.analysis.binding.attribute_rules import RuleScale
-    from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
     from marivo.analysis.core.frame_method_facts import FrameLinearMethod
+    from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
     from marivo.datasource.adapters import SourceSession
 
     if not mean:
@@ -1264,7 +1265,7 @@ import marivo
 import marivo.analysis as mv
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
-from marivo.analysis.core.data_types import DecimalDataType
+from marivo.analysis.model.data_types import DecimalDataType
 assert Path(marivo.__file__).resolve().parents[1] == Path(sys.argv[3])
 def forbidden(*args, **kwargs):
     raise AssertionError('cold native facts attempted source/model rebuild')
@@ -1343,8 +1344,8 @@ def test_captured_rule_families(session: Session, monkeypatch: pytest.MonkeyPatc
     from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
     from marivo.analysis.core.attribute import AttributeInputProgram
     from marivo.analysis.materialization import graph_local_execution
-    from marivo.analysis.materialization.graph_exchange import StageOutput
     from marivo.analysis.materialization.graph_local_execution import LocalKernel
+    from marivo.analysis.methods.carriers.stages import StageOutput
 
     prepared: list[tuple[tuple[str, ...], AttributeInputProgram]] = []
     run_local = graph_local_execution.run_local
@@ -1421,7 +1422,7 @@ def test_captured_rule_families(session: Session, monkeypatch: pytest.MonkeyPatc
 
 
 def test_captured_original_fine_formula_checks_survive_pruning(session: Session) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.model.execution_errors import MaterializationError
 
     with duckdb.connect(str(Path.cwd() / "contribution.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER amount TYPE DOUBLE")
@@ -1509,7 +1510,8 @@ def test_unsupported_output_records_exact_node_after_compute_and_rename(session:
 def test_independent_endpoint_drift_checks_only_requested_final_target(
     session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
 ) -> None:
-    from marivo.analysis.core.attribute import AttributeClosureWitness, AttributeInputError
+    from marivo.analysis.core.attribute import AttributeInputError
+    from marivo.analysis.model.attribute_failures import AttributeClosureWitness
     from marivo.datasource.adapters import SourceSession
 
     database = tmp_path / "contribution.duckdb"
@@ -1584,7 +1586,8 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
 def test_integer_sum_decimal_carrier_rejects_one_unit_independent_drift(
     session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.core.attribute import AttributeClosureWitness, AttributeInputError
+    from marivo.analysis.core.attribute import AttributeInputError
+    from marivo.analysis.model.attribute_failures import AttributeClosureWitness
     from marivo.datasource.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
@@ -2129,7 +2132,7 @@ def test_rate_effect_identity_retains_operand_rounding(
 def test_component_budget_overflow_keeps_numeric_owner_and_fiber(
     session: Session, tmp_path: Path
 ) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.model.execution_errors import MaterializationError
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER COLUMN amount TYPE DOUBLE")
@@ -2157,7 +2160,7 @@ def test_component_budget_overflow_keeps_numeric_owner_and_fiber(
 def test_current_decomposition_roles_keep_restricted_denominator_and_fixed_groups(
     session: Session,
 ) -> None:
-    from marivo.analysis.core.frame_interpretation import FrameChangeTarget, FrameFixedGroup
+    from marivo.analysis.model.layout_facts import FrameChangeTarget, FrameFixedGroup
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")

@@ -8,18 +8,16 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from marivo.analysis.binding.attribute_game import AttributeGame
     from marivo.analysis.binding.attribute_rules import AttributeRule
+    from marivo.analysis.core.frame_data import FrameNode
     from marivo.analysis.core.frame_expression import AttributeFrameValues
-    from marivo.analysis.dsl.frame import AnalysisFrame
-    from marivo.analysis.dsl.population import Population
 
 
 @dataclass(frozen=True, slots=True)
 class AttributeInputRequest:
     """Private explicit preparation request; this is not an Attribute result."""
 
-    parent: AnalysisFrame
-    endpoints: tuple[AnalysisFrame, AnalysisFrame]
-    projections: tuple[Population, Population]
+    parent: FrameNode
+    endpoints: tuple[FrameNode, FrameNode]
     operation: AttributeFrameValues
     rules: tuple[tuple[tuple[str, AttributeRule], ...], tuple[tuple[str, AttributeRule], ...]]
     source_rules: (

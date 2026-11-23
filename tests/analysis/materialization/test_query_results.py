@@ -110,7 +110,7 @@ def _assert_compute_repair(error: AnalysisError) -> None:
 def test_actual_source_failure_compute_help_resolves_without_run(
     result_session: Session, monkeypatch: pytest.MonkeyPatch, failure_kind: str
 ) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.model.execution_errors import MaterializationError
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     session = result_session
@@ -554,7 +554,7 @@ def test_population_count_counts_full_tuples_and_empty_cells(result_session: Ses
 
 
 def test_population_count_does_not_expand_fact_coverage(result_session: Session) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.model.execution_errors import MaterializationError
 
     session = result_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")

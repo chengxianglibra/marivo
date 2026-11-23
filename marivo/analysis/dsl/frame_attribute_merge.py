@@ -1,11 +1,11 @@
 """Capture a checked multi-target report union on the existing Frame schedule."""
 
-from marivo.analysis.core.frame_attribute_merge import (
+from marivo.analysis.core.frame_data import OperationFrameBinding
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.model.frame_attribute_merge import (
     AttributeMergeValues,
     infer_attribute_merge_schema,
 )
-from marivo.analysis.core.frame_data import OperationFrameBinding
-from marivo.analysis.dsl.frame import AnalysisFrame
 
 
 def merge_attribute_reports(frames: tuple[AnalysisFrame, ...]) -> AnalysisFrame:

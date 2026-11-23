@@ -10,27 +10,27 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_schema import DataAxis, DataColumn, DataSchema
-from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-from marivo.analysis.core.frame_interpretation import (
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.model.data_schema import DataAxis, DataColumn, DataSchema
+from marivo.analysis.model.data_types import ScalarDataType
+from marivo.analysis.model.frame_integrity import validate_current_facts
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.layout_facts import (
     FrameAlignmentAxis,
     FrameAxisGroup,
     FrameDerivedValueInput,
     FrameFixedGroup,
     FrameNamedValueInput,
-    FrameObservationContext,
     FramePairStatisticContext,
     FrameShareContext,
     FrameStatisticContext,
-    validate_current_facts,
 )
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.core.lineage import ColumnLineage, SemanticObjectIdentity, directory
-from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.model.lineage import ColumnLineage, SemanticObjectIdentity, directory
+from marivo.analysis.model.time_facts import FrameObservationContext
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
@@ -477,7 +477,7 @@ def test_pending_statistic_fixed_groups_rebind_without_replacing_operand_snapsho
 def test_nested_target_context_keeps_parent_axes_without_claiming_fine_axes(
     local: LocalFrameServices,
 ) -> None:
-    from marivo.analysis.core.frame_interpretation import (
+    from marivo.analysis.model.layout_facts import (
         FrameDecomposition,
         FrameDecompositionField,
         FrameLevelTarget,

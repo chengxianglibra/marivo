@@ -4,67 +4,15 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
-from dataclasses import dataclass
-from decimal import Decimal
 from fractions import Fraction
 from typing import Literal, TypeAlias
 
-from marivo.analysis.core.data_types import DataType, DecimalDataType, ScalarDataType
 from marivo.analysis.methods.numeric_state import finish_division
 from marivo.analysis.methods.physical import DecimalType
+from marivo.analysis.model.data_types import DataType, DecimalDataType
+from marivo.analysis.model.kernels import FrequencyState, FrequencyValue, frequency_value_key
 
-FrequencyValue: TypeAlias = int | float | Decimal
 QuantileFinisher: TypeAlias = Literal["rank_bounds", "duckdb_native", "postgres_native"]
-
-
-def _value_key(value: FrequencyValue) -> tuple[int, FrequencyValue]:
-    # Native exact numeric ordering places valid NaN after every finite value
-    # and infinity. A single token also preserves native GROUP BY NaN equality.
-    return (1, 0) if isinstance(value, float) and math.isnan(value) else (0, value)
-
-
-@dataclass(frozen=True, slots=True)
-class FrequencyState:
-    """One group's exact non-NULL values and its original input support."""
-
-    dtype: DataType
-    values: tuple[FrequencyValue, ...]
-    frequencies: tuple[int, ...]
-    support_count: int
-    null_count: int
-
-    def __post_init__(self) -> None:
-        if not (
-            isinstance(self.dtype, DecimalDataType)
-            or self.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
-        ):
-            raise ValueError("frequency inputs require a numeric DataType")
-        if len(self.values) != len(self.frequencies):
-            raise ValueError("frequency values and counts must have the same length")
-        if any(type(count) is not int or count <= 0 for count in self.frequencies):
-            raise ValueError("frequency counts must be positive integers")
-        if (
-            type(self.support_count) is not int
-            or type(self.null_count) is not int
-            or self.null_count < 0
-            or self.support_count != sum(self.frequencies) + self.null_count
-        ):
-            raise ValueError("frequency support must equal valid and NULL counts")
-        if any(
-            type(value) not in (int, float, Decimal)
-            or (isinstance(value, Decimal) and not value.is_finite())
-            for value in self.values
-        ):
-            raise ValueError("frequency states require native numeric values")
-        if any(
-            _value_key(left) >= _value_key(right)
-            for left, right in zip(self.values, self.values[1:], strict=False)
-        ):
-            raise ValueError("frequency values must be distinct and ordered in their native type")
-
-    @property
-    def valid_count(self) -> int:
-        return self.support_count - self.null_count
 
 
 def frequency_state(
@@ -80,7 +28,7 @@ def frequency_state(
         if value is None:
             null_count += count
         else:
-            key = _value_key(value)
+            key = frequency_value_key(value)
             previous = counts.get(key)
             counts[key] = (value, count + (previous[1] if previous is not None else 0))
     ordered = tuple(counts[key] for key in sorted(counts))
@@ -126,9 +74,11 @@ class FrequencyRankIndex:
         self.dtype = states[0].dtype
         if any(state.dtype != self.dtype for state in states):
             raise ValueError("all rank-index states must retain one native input type")
-        catalog = {_value_key(value): value for state in states for value in state.values}
+        catalog = {frequency_value_key(value): value for state in states for value in state.values}
         self.values = tuple(catalog[key] for key in sorted(catalog))
-        self._positions = {_value_key(value): index for index, value in enumerate(self.values)}
+        self._positions = {
+            frequency_value_key(value): index for index, value in enumerate(self.values)
+        }
         self._tree = [0] * (len(self.values) + 1)
         self._counts = [0] * len(self.values)
         self.count = 0
@@ -141,7 +91,7 @@ class FrequencyRankIndex:
         if state.dtype != self.dtype or multiplier not in (-1, 1):
             raise ValueError("rank updates require the original input type and a sign of -1 or 1")
         updates = tuple(
-            (self._positions[_value_key(value)], multiplier * count)
+            (self._positions[frequency_value_key(value)], multiplier * count)
             for value, count in zip(state.values, state.frequencies, strict=True)
         )
         if (

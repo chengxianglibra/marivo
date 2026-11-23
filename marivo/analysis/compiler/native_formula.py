@@ -10,14 +10,14 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._definition.relations import AttributeKeys, PopulationProgram
-from marivo.analysis.compiler.observation import FormulaProgram
+from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.source_predicates import (
     distinct_returned_keys,
     postgres_returned_text,
     same_returned_key,
 )
-from marivo.analysis.core.data_types import DurationDataType
 from marivo.analysis.core.value_types import data_type, ibis_type
+from marivo.analysis.model.data_types import DurationDataType
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,

@@ -31,8 +31,8 @@ from marivo.analysis.binding.membership import membership_reads
 from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.compiler.predicate import population_key
 from marivo.analysis.compiler.source_predicates import string_bytes
-from marivo.analysis.core.frame_interpretation import FrameSourceTime
 from marivo.analysis.materialization.population_preparation import _domain_table, prepare_population
+from marivo.analysis.model.time_facts import FrameSourceTime
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.validator import (
     normalize_target_entity,
@@ -172,7 +172,7 @@ def prepare_condition_memberships(
             ):
                 if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
                     from marivo.analysis.compiler.observation import calendar_field
-                    from marivo.analysis.core.model import reject
+                    from marivo.analysis.model.errors import reject
 
                     if contribution.time is None:
                         reject(

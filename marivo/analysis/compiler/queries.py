@@ -12,6 +12,7 @@ from marivo._definition.query import (
 )
 from marivo._definition.relations import ReadQuery
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
+from marivo.analysis.binding.graph import BoundGraph, read_input_graph
 from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     QueryPlan,
@@ -20,7 +21,8 @@ from marivo.analysis.compiler.graph_plan import (
     plan_query,
 )
 from marivo.analysis.compiler.query_program import ResultProgram
-from marivo.analysis.core.data_types import (
+from marivo.analysis.core.value_types import data_type
+from marivo.analysis.model.data_types import (
     DataColumn,
     DataType,
     DecimalDataType,
@@ -28,13 +30,11 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.graph import BoundGraph, read_input_graph
-from marivo.analysis.core.model import reject
-from marivo.analysis.core.unique_keys import UniqueKeys
-from marivo.analysis.core.value_types import data_type
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.unique_keys import UniqueKeys
 
 if TYPE_CHECKING:
-    from marivo.analysis.compiler.observation import MemberInput
+    from marivo.analysis.binding.programs import MemberInput
     from marivo.analysis.compiler.optimization import InvocationMemo
 
 

@@ -9,10 +9,10 @@ import ibis.expr.operations as ops
 import pandas as pd
 import pytest
 
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.mysql_key_parameters import membership
 from marivo.analysis.materialization.query_parameters import instantiate
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.datasource.adapters import PhysicalRequirement
 from marivo.datasource.errors import DatasourceSourceCapabilityError
 from tests.datasource.source_cases import SourceData, source_case, source_params

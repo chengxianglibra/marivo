@@ -25,9 +25,12 @@ from marivo._definition.windows import (
     TrailingPeriods,
 )
 from marivo._kernel.temporal import Grain
-from marivo.analysis.core.frame_interpretation import (
+from marivo.analysis.binding.graph import BoundGraph
+from marivo.analysis.model.calendar_schema import calendar_grain
+from marivo.analysis.model.frame_schema import capture_grain
+from marivo.analysis.model.lineage import SemanticObjectIdentity
+from marivo.analysis.model.time_facts import (
     FrameAllHistoryWindow,
-    FrameBuiltinGrain,
     FrameCalendarEndpoint,
     FrameClockedContribution,
     FrameContributionSampleWindowEndpoint,
@@ -47,8 +50,6 @@ from marivo.analysis.core.frame_interpretation import (
     FrameValueTimeSemantics,
     FrameWindowEndpoint,
 )
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.lineage import SemanticObjectIdentity
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._metric_time import metric_time_occurrences
 
@@ -78,11 +79,10 @@ def _window(
         return FrameTrailingPeriodsWindow(rule.count)
     if isinstance(rule, ToDate):
         grain = rule.grain
-        from marivo.analysis.core.frame_calendar import _UNITS
 
         assert grain.unit is not None
         assert grain.count is not None
-        return FrameToDateWindow(FrameBuiltinGrain(_UNITS[grain.unit], grain.count))
+        return FrameToDateWindow(capture_grain(calendar_grain(grain)))
     return None
 
 
@@ -177,11 +177,10 @@ def observation_time_semantics(
                 samples = (*samples, role)
                 if isinstance(sample, (Grain, FieldCalendarSample)):
                     grain = sample.grain if isinstance(sample, FieldCalendarSample) else sample
-                    from marivo.analysis.core.frame_calendar import _UNITS
 
                     assert grain.unit is not None
                     assert grain.count is not None
-                    captured = FrameBuiltinGrain(_UNITS[grain.unit], grain.count)
+                    captured = capture_grain(calendar_grain(grain))
                     # Builtin sample bindings own the Session's frozen timezone.
                     binding = (
                         next(

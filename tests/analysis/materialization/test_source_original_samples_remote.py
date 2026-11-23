@@ -9,9 +9,9 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_schema import CalendarDataAxis
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.data_schema import CalendarDataAxis
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError

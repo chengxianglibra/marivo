@@ -12,12 +12,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from marivo._kernel.compat import Never
-from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
-from marivo.analysis.materialization.errors import (
+from marivo.analysis.model.execution_errors import (
     IntegrityError,
     MaterializationError,
     StorageAccessError,
 )
+from marivo.analysis.model.receipts import FileEntry, LocalReceipt
 
 
 def _integrity(expected: str, received: str) -> Never:

@@ -14,8 +14,8 @@ from marivo._definition.deferred import resolver_of, semantic_input
 from marivo._definition.observations import ObservationBinding
 from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._kernel.temporal import InstantAnchor
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
-from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
@@ -517,7 +517,7 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
 def test_observation_context_captures_direct_subject_and_only_explicit_window(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
-    from marivo.analysis.core.frame_interpretation import (
+    from marivo.analysis.model.time_facts import (
         FrameAxisTime,
         FrameObservationContext,
         FrameTrailingPeriodsWindow,
@@ -577,7 +577,7 @@ def test_explicit_window_fact_variants_are_closed(
     frame = session.observe(
         {"value": metric.window(rules[variant])}, by=(axis_scope.by(mv.grain("day")),)
     )
-    from marivo.analysis.core.frame_interpretation import FrameObservationContext
+    from marivo.analysis.model.time_facts import FrameObservationContext
 
     context = frame.schema.value_contexts["value"]
     assert isinstance(context, FrameObservationContext)
@@ -588,7 +588,7 @@ def test_explicit_window_fact_variants_are_closed(
 def test_comparison_contexts_keep_distinct_endpoint_windows_and_fixed_choices(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
-    from marivo.analysis.core.frame_interpretation import (
+    from marivo.analysis.model.time_facts import (
         FrameComparedTime,
         FrameObservationContext,
         FrameTrailingPeriodsWindow,
@@ -641,7 +641,7 @@ def test_comparison_contexts_keep_distinct_endpoint_windows_and_fixed_choices(
 def test_ordinal_align_drops_context_references_to_unpublished_comparisons(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
-    from marivo.analysis.core.frame_interpretation import FrameComparedTime, FrameObservationContext
+    from marivo.analysis.model.time_facts import FrameComparedTime, FrameObservationContext
 
     session = bound_catalog()
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
@@ -669,7 +669,7 @@ def test_ordinal_align_drops_context_references_to_unpublished_comparisons(
 def test_nested_comparison_rebinds_existing_endpoint_contexts_without_changing_time(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
-    from marivo.analysis.core.frame_interpretation import (
+    from marivo.analysis.model.time_facts import (
         FrameComparedTime,
         FrameObservationContext,
         FrameTrailingPeriodsWindow,

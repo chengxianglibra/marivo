@@ -18,10 +18,10 @@ from marivo.analysis.compiler.graph_plan import (
 )
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.materialization import graph_local_execution, graph_source_execution
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_local_execution import LocalKernel
 from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs

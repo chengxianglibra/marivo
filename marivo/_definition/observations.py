@@ -7,12 +7,9 @@ from datetime import datetime
 from typing import Literal, TypeAlias
 
 from marivo._definition.correspondence import ComparisonAxis
-from marivo._definition.expressions import (
-    BuiltinSampleCoordinate,
-    ContributionClockBinding,
-    MetricNode,
-)
+from marivo._definition.expressions import BuiltinSampleCoordinate, MetricNode
 from marivo._definition.graph import definition_fingerprint
+from marivo._definition.observation_time import ContributionClockBinding, ObservationPeriod
 from marivo._definition.population_types import (
     MembershipBinding,
     PopulationDependency,
@@ -89,13 +86,6 @@ class CoordinateBinding:
     population: PopulationDependency | None = None
     memberships: tuple[MembershipBinding, ...] = ()
     parent_scope: PopulationDependency | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ObservationPeriod:
-    start: InstantAnchor | None
-    end: InstantAnchor
-    timezone: str
 
 
 @dataclass(frozen=True, slots=True)

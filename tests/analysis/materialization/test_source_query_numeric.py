@@ -14,8 +14,8 @@ from trino.exceptions import TrinoUserError
 import marivo.analysis as mv
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import ProjectionRead, QueryPlan, SourceReadStage
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params

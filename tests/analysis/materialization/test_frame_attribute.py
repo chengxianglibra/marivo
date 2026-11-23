@@ -9,11 +9,11 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DecimalDataType
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DecimalDataType
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value

@@ -8,9 +8,9 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.artifact_data import DataSchema
-from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import ScalarDataType
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.numeric.test_period_alignment import paired_tables, temporal_keys

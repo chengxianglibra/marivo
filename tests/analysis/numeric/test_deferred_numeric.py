@@ -22,11 +22,13 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.types import ExactRef, SumAll
 from marivo._kernel.refs import ref
+from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.graph_plan import LocalCompute
-from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram, formula_columns
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+from marivo.analysis.compiler.observation import formula_columns
 from marivo.analysis.methods._ibis_numeric import evaluate_numeric
 from marivo.analysis.methods.local import query_combine
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.programs import FormulaInput
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
@@ -139,7 +141,7 @@ def test_combine_checks_only_demanded_completed_slots() -> None:
 def test_local_alignment_consumes_only_facts_for_its_actual_merge_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.core.unique_keys import UniqueKeys
+    from marivo.analysis.model.unique_keys import UniqueKeys
 
     metric = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
     value = FormulaInput(
@@ -485,8 +487,8 @@ def test_native_function_chain_and_rounding_match_source_route() -> None:
 def test_local_sample_accumulation_uses_native_sum_and_declared_decimal_finish() -> None:
     from marivo._definition.expressions import PerReduce, PerWeightedMean
     from marivo._definition.types import AxisBinding
-    from marivo.analysis.core.data_types import DecimalDataType
     from marivo.analysis.methods._sample_numeric import reduce_samples
+    from marivo.analysis.model.data_types import DecimalDataType
 
     placeholder = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
     axis = AxisBinding(

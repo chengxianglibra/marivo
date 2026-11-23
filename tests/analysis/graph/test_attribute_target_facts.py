@@ -5,23 +5,22 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.core.frame_method_facts import (
     FrameAttributeMetric,
     FrameLevelAdditiveMethod,
     FrameLevelSupport,
     FrameMethodFacts,
-    FrameMethodOutput,
     FrameMethodParent,
-    FrameMethodTarget,
-    FrameMethodValue,
 )
 from marivo.analysis.materialization.terminal_protocol import (
     decode_method_record,
     encode_method_record,
 )
 from marivo.analysis.methods.frame_method_facts import validate_method_facts
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
+from marivo.analysis.model.method_values import FrameMethodValue
 
 
 def level_facts() -> FrameMethodFacts:
@@ -105,9 +104,9 @@ def test_level_facts_survive_independent_store_read_and_reject_changed_payload(
     import pyarrow.parquet as pq
 
     from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-    from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.graph_reading import open_manifest
+    from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 
     facts = level_facts()
     local = DatasetRuntime.create(tmp_path, "one-endpoint-facts", timezone="UTC").local

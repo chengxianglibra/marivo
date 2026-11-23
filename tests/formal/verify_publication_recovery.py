@@ -16,10 +16,10 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.artifact_data import ArtifactManifest
 from marivo.analysis.materialization import terminal_publication, terminal_store
-from marivo.analysis.materialization.errors import MaterializationError, RecoveryPendingError
 from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.model.artifact_data import ArtifactManifest
+from marivo.analysis.model.execution_errors import MaterializationError, RecoveryPendingError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from tests.analysis.materialization.terminal_recovery_worker import method_result

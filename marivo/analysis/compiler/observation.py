@@ -11,9 +11,7 @@ import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import (
-    BuiltinSampleCoordinate,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
@@ -31,8 +29,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
-from marivo._definition.observations import CalendarGrouping, SampleAxis, SampleAxisMatches
-from marivo._definition.relations import PopulationDependency
+from marivo._definition.observations import CalendarGrouping
 from marivo._definition.types import (
     CalendarCoordinate,
     ExactRef,
@@ -43,13 +40,14 @@ from marivo._definition.types import (
 )
 from marivo._kernel.timezones import normalize_timezone
 from marivo.analysis.binding.observe import ContributionBinding
+from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.predicate import lower_condition
-from marivo.analysis.core.data_types import (
+from marivo.analysis.core.value_types import data_type, ibis_type
+from marivo.analysis.model.data_types import (
     DataColumn,
     DataType,
     DurationDataType,
 )
-from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.semantic._numeric_duration import recipe_duration
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
@@ -79,58 +77,6 @@ class ReductionInput:
     sampled: bool = False
     provider: str = "duckdb"
     sample_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class FormulaInput:
-    """One completed reduction slot, including its missing-coordinate value."""
-
-    occurrence: tuple[int, ...]
-    stage_id: str
-    column: DataColumn
-    zero_when_absent: bool
-    checks: tuple[tuple[str, str, str], ...] = ()
-    keys: tuple[str, ...] = ()
-    key_groups: tuple[tuple[str, ...], ...] = ()
-    presence: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PopulationInput:
-    """One independently selected source-backed internal sample domain."""
-
-    definition: PopulationDependency
-    stage_id: str
-    keys: tuple[str, ...]
-    key_groups: tuple[tuple[str, ...], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class MemberInput:
-    definition: PopulationDependency
-    population: PopulationDependency
-    keys: tuple[str, ...]
-    axis_mapping: tuple[tuple[ComparisonAxis, tuple[str, ...]], ...]
-
-
-@dataclass(frozen=True, slots=True)
-class FormulaProgram:
-    outputs: tuple[tuple[str, MetricNode], ...]
-    declared: tuple[tuple[ExactRef, MetricNode], ...]
-    values: tuple[FormulaInput, ...]
-    calendar: CalendarCoordinate | IntervalCoordinate | None = None
-    populations: tuple[PopulationInput, ...] = ()
-    output_population: PopulationDependency | None = None
-    calendar_key: str = "key.0"
-    counts: tuple[MemberInput, ...] = ()
-    axes: tuple[SampleAxis, ...] = ()
-    parent_scope: PopulationDependency | None = None
-    parent_slots: tuple[str, ...] = ()
-    population_checked: bool = False
-    calendar_samples: tuple[tuple[tuple[int, ...], BuiltinSampleCoordinate], ...] = ()
-    window_endpoints: tuple[tuple[tuple[int, ...], tuple[datetime, ...]], ...] = ()
-    sample_matches: tuple[tuple[tuple[int, ...], SampleAxisMatches], ...] = ()
-    key_groups: tuple[tuple[str, ...], ...] = ()
 
 
 def calendar_field(slot: str) -> str:

@@ -15,8 +15,8 @@ import marivo.analysis as mv
 from marivo.analysis.errors import SessionAlreadyExistsError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import SessionRecord
-from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.model.execution_errors import SessionBusyError
 from marivo.analysis.session.core import Session
 from tests.shared_fixtures import catalog_value
 

@@ -20,6 +20,7 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
+from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.frame_plan import frame_program
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
@@ -28,29 +29,29 @@ from marivo.analysis.compiler.graph_plan import (
     SourceReadStage,
     local_result,
 )
-from marivo.analysis.compiler.observation import FormulaProgram, formula_columns
+from marivo.analysis.compiler.observation import formula_columns
 from marivo.analysis.compiler.query_program import (
     FrameCombineProgram,
     FrameCompareProgram,
     ResultProgram,
 )
 from marivo.analysis.core.attribute_game import AttributeGameProgram
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import (
-    DataColumn,
-    DataType,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-)
 from marivo.analysis.core.frame_expression import (
     infer_frame_combine_schema,
     infer_frame_compare_schema,
     transport_logical_facts,
 )
 from marivo.analysis.core.value_types import data_type, expression_value, ibis_type
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DataType,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+)
+from marivo.analysis.model.execution_errors import MaterializationError
 
 
 def effective_frame_schema(schema: DataSchema, columns: tuple[DataColumn, ...]) -> DataSchema:
@@ -105,7 +106,7 @@ def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> Fra
 
     if isinstance(program, AttributeGameProgram):
         return replace(stage, program=effective_game_program(program, inputs))
-    from marivo.analysis.core.frame_attribute_merge import (
+    from marivo.analysis.model.frame_attribute_merge import (
         AttributeMergeProgram,
         infer_attribute_merge_schema,
     )
@@ -192,7 +193,7 @@ def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> Fra
             ),
         )
     if isinstance(program, AttributeInputProgram):
-        from marivo.analysis.materialization.query_components import select_attribute_root
+        from marivo.analysis.methods.carriers.stage_components import select_attribute_root
 
         roots = tuple(
             root

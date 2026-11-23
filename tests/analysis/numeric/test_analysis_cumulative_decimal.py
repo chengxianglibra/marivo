@@ -8,8 +8,8 @@ import pytest
 from ibis.backends.duckdb import Backend
 
 import marivo.analysis as mv
-from marivo.analysis.core.artifact_data import DataSchema
-from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
 from tests.shared_fixtures import catalog_value
 
 

@@ -33,16 +33,9 @@ from marivo._definition.types import (
 from marivo._kernel.grouping import Grouping
 from marivo._kernel.temporal import TimeScope
 from marivo._kernel.timezones import same_timezone
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.observe import ObservationPeriod, bind_observation
-from marivo.analysis.core.frame_structure import value_name
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import (
-    BoundQuantity,
-    BoundSignature,
-    CoreRuleError,
-    ResultQuantity,
-    reject,
-)
+from marivo.analysis.binding.signature import BoundQuantity, BoundSignature, ResultQuantity
 from marivo.analysis.core.value_types import literal_kind
 from marivo.analysis.dsl.population import (
     Population,
@@ -53,6 +46,8 @@ from marivo.analysis.dsl.population import (
     _read,
     _subject,
 )
+from marivo.analysis.model.errors import CoreRuleError, reject
+from marivo.analysis.model.value_names import value_name
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._deferred_semantics import (
     consume_metric,

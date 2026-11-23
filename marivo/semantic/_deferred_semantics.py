@@ -40,7 +40,6 @@ from marivo._definition.deferred import (
     relationship_carrier,
 )
 from marivo._definition.expressions import (
-    ContributionClockBinding,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
@@ -62,6 +61,7 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.grouping import grouping_binding, normalize_groupings
+from marivo._definition.observation_time import ContributionClockBinding
 from marivo._definition.population_builders import validate_path_read
 from marivo._definition.relations import (
     LiteralPopulation,

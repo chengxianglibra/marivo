@@ -7,22 +7,6 @@ from typing import Literal
 
 import pytest
 
-from marivo.analysis.core.data_schema import (
-    BuiltinCalendarData,
-    CalendarDataAxis,
-    DataAxis,
-    DataSchema,
-    FrozenCalendarData,
-    PairedDataAxis,
-)
-from marivo.analysis.core.data_types import (
-    DataColumn,
-    DataType,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-    TimestampDataType,
-)
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
@@ -31,14 +15,29 @@ from marivo.analysis.core.frame_method_facts import (
     FrameLinearTerm,
     FrameMethodCoordinate,
     FrameMethodFacts,
-    FrameMethodOutput,
     FrameMethodParent,
     FrameMethodSupport,
-    FrameMethodTarget,
-    FrameMethodValue,
     FrameRatioMethod,
 )
-from marivo.analysis.core.frozen_calendar import calendar_directory_schema
+from marivo.analysis.model.coordinate_schema import calendar_directory_schema
+from marivo.analysis.model.data_schema import (
+    BuiltinCalendarData,
+    CalendarDataAxis,
+    DataAxis,
+    DataSchema,
+    FrozenCalendarData,
+    PairedDataAxis,
+)
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DataType,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
+from marivo.analysis.model.method_values import FrameMethodValue
 
 _INT64 = ScalarDataType("int64")
 

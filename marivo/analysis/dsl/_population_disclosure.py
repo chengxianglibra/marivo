@@ -12,17 +12,6 @@ from marivo._definition.windows import (
     _Window,
 )
 from marivo._kernel.grouping import Grouping
-from marivo.analysis._capabilities.dataset_model import (
-    Descriptor,
-    DisclosureProvider,
-    ExampleInput,
-    ExportInput,
-    ParameterInput,
-    bind,
-    operation,
-    value_type,
-    with_sealed_variants,
-)
 from marivo.analysis.dsl.population import (
     Population,
     coordinates,
@@ -37,6 +26,17 @@ from marivo.analysis.dsl.windows import (
     to_date,
     trailing_duration,
     trailing_periods,
+)
+from marivo.analysis.model.disclosure import (
+    Descriptor,
+    DisclosureProvider,
+    ExampleInput,
+    ExportInput,
+    ParameterInput,
+    bind,
+    operation,
+    value_type,
+    with_sealed_variants,
 )
 from marivo.semantic.paths import Path, RelationshipStep, path
 

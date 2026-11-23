@@ -9,7 +9,7 @@ import sqlglot
 from sqlglot import expressions as sge
 
 from marivo.analysis.compiler.source_time import source_time, source_time_predicate
-from marivo.analysis.core.time_authority import CivilDateSourceTime
+from marivo.analysis.model.time_authority import CivilDateSourceTime
 from marivo.semantic.ir import StrptimeParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.shared_fixtures import declared_test_timezone

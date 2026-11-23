@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from marivo._definition.correspondence import CalendarCorrespondence
-from marivo.analysis.core.model import reject
 from marivo.analysis.dsl.frame_axis import FrameAxis
+from marivo.analysis.model.errors import reject
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame

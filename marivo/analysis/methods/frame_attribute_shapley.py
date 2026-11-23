@@ -14,17 +14,13 @@ from fractions import Fraction
 from typing import Literal, NoReturn, TypeAlias
 
 import ibis
+import ibis.expr.datatypes as dt
 import pandas as pd
 import pyarrow as pa
 
 from marivo._definition.expressions import ContributionFilter, EntityCount, SourceAggregate
 from marivo.analysis.binding.attribute_game import AttributeGame, GameLeaf, formula_id, state_unit
-from marivo.analysis.core.attribute import (
-    AttributeFailureContext,
-    AttributeMethodPayload,
-    AttributeNumericWitness,
-    AttributeParentFiber,
-)
+from marivo.analysis.core.attribute import AttributeMethodPayload
 from marivo.analysis.core.attribute_game import (
     AttributeGameProgram,
     CoalitionValue,
@@ -32,16 +28,10 @@ from marivo.analysis.core.attribute_game import (
     GameContext,
     GameSample,
 )
-from marivo.analysis.core.attribute_game_errors import AttributeGameError
-from marivo.analysis.core.data_types import DataColumn, DataType, DecimalDataType, ScalarDataType
-from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_method_facts import (
     FrameAttributeMetric,
     FrameMethodCoordinate,
-    FrameMethodOutput,
     FrameMethodParent,
-    FrameMethodTarget,
-    FrameMethodValue,
     FrameShapleyCapture,
     FrameShapleyGame,
     FrameShapleyLeaf,
@@ -51,14 +41,26 @@ from marivo.analysis.core.frame_method_facts import (
     _key_order,
     state_metric_approximation,
 )
-from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows, frozen_key_table
+from marivo.analysis.core.frozen_calendar import frozen_key_rows, frozen_key_table
 from marivo.analysis.core.value_types import data_type, ibis_type
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.methods._ibis_numeric import evaluate_numeric
 from marivo.analysis.methods.attribute_game_domain import Domain, DomainProofError, prove_domain
-from marivo.analysis.methods.attribute_quantiles import FrequencyGame, FrequencyState
+from marivo.analysis.methods.attribute_quantiles import FrequencyGame
+from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
+from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary, _Value
 from marivo.analysis.methods.frame_attribute_report import _report_value
+from marivo.analysis.model.attribute_failures import (
+    AttributeFailureContext,
+    AttributeNumericWitness,
+    AttributeParentFiber,
+)
+from marivo.analysis.model.attribute_game_errors import AttributeGameError
+from marivo.analysis.model.data_types import DataColumn, DataType, DecimalDataType, ScalarDataType
+from marivo.analysis.model.frozen_keys import FrozenKey
+from marivo.analysis.model.kernels import FrequencyState
+from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
+from marivo.analysis.model.method_values import FrameMethodValue
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
@@ -66,6 +68,7 @@ from marivo.semantic._numeric_lowering import (
     numeric_binary,
     numeric_failure,
 )
+from marivo.semantic.errors import SemanticExpressionError
 
 _Number: TypeAlias = int | float | Decimal
 
@@ -95,8 +98,6 @@ def _attribute_numeric_context(
     columns: tuple[DataColumn, ...],
 ) -> Iterator[None]:
     """Keep the numeric owner's failure attached to its actual attribute parent."""
-    from marivo.semantic.errors import SemanticExpressionError
-
     try:
         yield
     except SemanticExpressionError as error:
@@ -525,8 +526,6 @@ def _sample(
     seed: int,
     paired_game: AttributeGame | None = None,
 ) -> tuple[GameSample, tuple[str, ...]]:
-    import ibis.expr.datatypes as dt
-
     types: dict[str, dt.DataType] = {}
     fields: dict[str, Domain] = {}
     source_aliases: dict[tuple[object, ...], int] = {}

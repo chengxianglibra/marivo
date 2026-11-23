@@ -113,8 +113,8 @@ def test_baseline_help_routes_fields_and_example_without_execution(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.analysis._capabilities.dataset_model import CallableInput
     from marivo.analysis._capabilities.dataset_registry import prepare
+    from marivo.analysis.model.disclosure import CallableInput
     from marivo.cli import main
 
     session = analysis_dsl_case_factory("j2").session

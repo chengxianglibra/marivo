@@ -208,10 +208,10 @@ def test_multi_axis_offset_inference_uses_the_consuming_grain(
         assert long_alias in long_error.value.received
         assert "key=" in long_error.value.received and "bounds=" in long_error.value.received
         assert len(long_error.value.received) <= 2048
-        from marivo.analysis.core.data_schema import CalendarDataAxis
         from marivo.analysis.core.frame_data import MemoryFrameBacking
         from marivo.analysis.core.frozen_calendar import read_calendar_directory
         from marivo.analysis.methods.frame_comparison import _unmapped_time_details
+        from marivo.analysis.model.data_schema import CalendarDataAxis
 
         shifted = session.observe(
             {"value": metric}, by=mv.product(current_axis.shift(mv.offset(periods=-1)), members)

@@ -13,8 +13,8 @@ def _capture_role_inventory(
     from marivo.analysis.compiler.graph_lowering import LoweredRead
     from marivo.analysis.compiler.graph_plan import SourceReadStage, read_attribute
     from marivo.analysis.materialization import graph_source_execution
-    from marivo.analysis.materialization.graph_exchange import StageOutput
     from marivo.analysis.materialization.graph_source_execution import PreparedSources
+    from marivo.analysis.methods.carriers.stages import StageOutput
 
     roles: list[tuple[str, str, tuple[str, ...]]] = []
     original = graph_source_execution.read_stage

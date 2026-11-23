@@ -8,7 +8,7 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.frame_interpretation import (
+from marivo.analysis.model.time_facts import (
     FrameCivilDateSourceTime,
     FrameInstantSourceTime,
     FrameWallClockSourceTime,

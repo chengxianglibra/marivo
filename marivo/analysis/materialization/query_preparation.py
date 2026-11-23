@@ -15,17 +15,12 @@ from ibis.common.deferred import BinaryOperator, Just, Resolver, Variable
 
 from marivo._definition.expressions import (
     BuiltinSampleCoordinate,
-    ContributionClockBinding,
     PredicateExpression,
     RowExpression,
     RowField,
 )
-from marivo._definition.observations import (
-    CalendarGrouping,
-    ObservationPeriod,
-    SampleAxis,
-    SampleIntervalRanges,
-)
+from marivo._definition.observation_time import ContributionClockBinding, ObservationPeriod
+from marivo._definition.observations import CalendarGrouping, SampleAxis, SampleIntervalRanges
 from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import (
     AttributeTime,
@@ -48,12 +43,12 @@ from marivo.analysis.compiler.source_time import (
     source_time,
     source_time_predicate,
 )
-from marivo.analysis.core.frame_interpretation import (
+from marivo.analysis.model.time_authority import SourceTimeAuthority
+from marivo.analysis.model.time_facts import (
     FrameSourceTime,
     capture_source_times,
     merge_source_times,
 )
-from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.datasource._temporal_expressions import localize, timestamp
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import evaluate_expression_body
@@ -244,7 +239,7 @@ def prepare_fields(
     """Prepare expressions and declared many-to-one joins without reading values."""
     registry = state.registry
     from marivo.analysis.compiler.source_time import entity_engine
-    from marivo.analysis.core.domain_captures import DomainPreparationError
+    from marivo.analysis.model.domain_captures import DomainPreparationError
 
     root_datasource = registry.entities[contribution.root.ref.path].datasource
     scalar_reads = (

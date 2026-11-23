@@ -18,37 +18,22 @@ from marivo._definition.types import (
 )
 from marivo._kernel.grouping import Grouping
 from marivo._kernel.temporal import TimeScope
+from marivo.analysis.binding.calendar_keys import time_key_type
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.lineage import observation_contexts
+from marivo.analysis.binding.signature import ResultQuantity
 from marivo.analysis.binding.time_guidance import (
     REPORT_CLOCK_GUIDANCE,
     partition_hour_candidates,
     partition_hour_guidance,
 )
 from marivo.analysis.binding.value_time import observation_time_semantics
-from marivo.analysis.core.artifact_data import DataColumn
-from marivo.analysis.core.calendar_keys import time_key_type
-from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.core.frame_calendar import (
-    calendar_descriptor,
-    freeze_interval,
+from marivo.analysis.core.frame_data import (
+    FrameKeyDependency,
+    LiteralFrameBinding,
+    SourceFrameBinding,
 )
-from marivo.analysis.core.frame_data import LiteralFrameBinding, SourceFrameBinding
-from marivo.analysis.core.frame_interpretation import FrameRowAttributeTime
-from marivo.analysis.core.frame_structure import (
-    PendingDataAxis,
-    PendingDataColumn,
-    PendingDataSchema,
-    PendingFrameAxis,
-    value_name,
-)
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.lineage import SemanticObjectIdentity
-from marivo.analysis.core.model import ResultQuantity, reject
-from marivo.analysis.dsl._frame_inputs import (
-    FrameKeyInput,
-    collect_frame_key_inputs,
-    merge_frame_key_inputs,
-)
+from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import (
     Population,
@@ -62,6 +47,20 @@ from marivo.analysis.dsl.source_capture import (
     capture_values,
 )
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.methods.carriers.frame_calendar import freeze_interval
+from marivo.analysis.model.calendar_schema import calendar_descriptor
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import merge_frame_key_inputs
+from marivo.analysis.model.frame_structure import (
+    PendingDataAxis,
+    PendingDataColumn,
+    PendingDataSchema,
+    PendingFrameAxis,
+)
+from marivo.analysis.model.lineage import SemanticObjectIdentity
+from marivo.analysis.model.time_facts import FrameRowAttributeTime
+from marivo.analysis.model.value_names import value_name
 from marivo.datasource.runtime import DatasourceConnectionConfig
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._consumption import (
@@ -184,7 +183,7 @@ def _capture(
     graph: BoundGraph,
     state: CompiledSemanticState,
     connection: DatasourceConnectionConfig,
-    frame_key_inputs: tuple[FrameKeyInput, ...] = (),
+    frame_key_inputs: tuple[FrameKeyDependency, ...] = (),
 ) -> AnalysisFrame:
     schema = pending_schema(graph, state)
     return AnalysisFrame._from_expression(
@@ -279,7 +278,7 @@ def observe(
     where: Deferred | RowPredicate | None = None,
     scope: TimeScope | None = None,
     timezone: str = "UTC",
-    _captured_frame_inputs: tuple[FrameKeyInput, ...] = (),
+    _captured_frame_inputs: tuple[FrameKeyDependency, ...] = (),
 ) -> AnalysisFrame:
     selected = tuple(metrics.items()) if isinstance(metrics, Mapping) else metrics
     original_frame_inputs = collect_frame_key_inputs(

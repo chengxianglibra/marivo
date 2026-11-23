@@ -7,15 +7,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
-from marivo.analysis.core.artifact_data import (
-    ArtifactManifest,
-    DataSchema,
-)
-from marivo.analysis.core.frame_metadata import (
-    EvaluationRecord,
-    FrameResultMetadata,
-    StoredFrameMetadata,
-)
 from marivo.analysis.materialization.contracts import (
     ResourceRecord,
     RunFailure,
@@ -29,6 +20,13 @@ from marivo.analysis.materialization.terminal_protocol import (
     decode,
     encode,
     invalid,
+)
+from marivo.analysis.model.artifact_data import ArtifactManifest
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.frame_metadata import (
+    EvaluationRecord,
+    FrameResultMetadata,
+    StoredFrameMetadata,
 )
 
 
@@ -166,7 +164,7 @@ def describe(value: FrameResultMetadata) -> StoredFrameMetadata:
 
 
 def validate_result_metadata(schema: DataSchema, metadata: FrameResultMetadata) -> None:
-    from marivo.analysis.core.lineage import validate
+    from marivo.analysis.model.lineage import validate
 
     if metadata.lineage is None:
         raise invalid("missing saved column lineage")

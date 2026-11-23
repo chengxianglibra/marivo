@@ -15,8 +15,8 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.errors import CoreRuleError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.errors import SemanticExpressionError

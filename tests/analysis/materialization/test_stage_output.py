@@ -9,15 +9,15 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from marivo.analysis.core.data_types import (
+from marivo.analysis.methods.carriers.data_validation import normalize_stage_frame
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_types import (
     DataColumn,
     DecimalDataType,
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.data_validation import normalize_stage_frame
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.model.execution_errors import MaterializationError
 
 INT = ScalarDataType("int64")
 KEY = DataColumn("k.0", "id", INT, False)
@@ -174,7 +174,7 @@ def test_native_date_representation_is_normalized_without_truncating_time() -> N
 def test_exact_stage_carriers_copy_without_rebuilding_columns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.core import data_validation
+    from marivo.analysis.methods.carriers import data_validation
 
     frame = pd.DataFrame(
         {

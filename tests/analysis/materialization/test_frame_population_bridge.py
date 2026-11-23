@@ -23,8 +23,6 @@ from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     SourceReadStage,
 )
-from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema
-from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -32,14 +30,16 @@ from marivo.analysis.core.frame_data import (
     MemoryFrameBacking,
     SourceFrameBinding,
 )
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_population import population_from
 from marivo.analysis.dsl.population import Population, in_population, product
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject

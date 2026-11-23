@@ -11,15 +11,15 @@ import marivo.analysis as mv
 from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.graph_plan import SourceReadStage
 from marivo.analysis.core.frame_data import MemoryFrameBacking
-from marivo.analysis.core.frame_source_reads import (
+from marivo.analysis.materialization import graph_source_execution
+from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.frame_source_reads import (
     FrameSourceRead,
     FrameSourceReadPeriod,
     FrameSourceReadScope,
     merge_source_reads,
 )
-from marivo.analysis.materialization import graph_source_execution
-from marivo.analysis.materialization.graph_exchange import StageOutput
-from marivo.analysis.materialization.graph_source_execution import PreparedSources
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, catalog_get
 from tests.support.source_trace import capture_source

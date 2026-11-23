@@ -67,8 +67,8 @@ def period_produce(root: Path, name: str) -> None:
 
 
 def period_read(name: str, identities: list[str]) -> None:
-    from marivo.analysis.core import frame_calendar
     from marivo.analysis.materialization import frame_source_preparation
+    from marivo.analysis.methods.carriers import frame_calendar
 
     with ExitStack() as patches:
         for owner, attribute, replacement in (

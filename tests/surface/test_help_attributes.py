@@ -20,11 +20,8 @@ from marivo.analysis.core.frame_method_facts import (
     FrameLinearMethod,
     FrameLinearTerm,
     FrameMethodCoordinate,
-    FrameMethodOutput,
     FrameMethodParent,
     FrameMethodSupport,
-    FrameMethodTarget,
-    FrameMethodValue,
     FrameRatioMethod,
     FrameShapleyCapture,
     FrameShapleyGame,
@@ -36,6 +33,8 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyQueryGame,
     FrameShapleyReduction,
 )
+from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
+from marivo.analysis.model.method_values import FrameMethodValue
 
 
 def test_window_attribute_identifies_its_public_constructor() -> None:

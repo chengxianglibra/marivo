@@ -17,9 +17,9 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
-from marivo.analysis.core.frame_structure import ValueKind as ValueKind
-from marivo.analysis.core.model import reject
 from marivo.analysis.core.value_types import literal_kind
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_structure import ValueKind as ValueKind
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -483,7 +483,7 @@ class Column:
 
         expression = ValueShare(self._expression, tuple(sorted(positions)))
         from marivo.analysis.core.frame_expression import infer_frame_schema
-        from marivo.analysis.core.frame_structure import column_kind
+        from marivo.analysis.model.frame_structure import column_kind
 
         schema = infer_frame_schema(frame._schema, SelectValues((("share", expression),)))
         column = schema.values[0]
@@ -595,8 +595,8 @@ class Column:
             )
         for side, column in (("left", self), ("right", other)):
             if column._kind not in ("numeric", "unresolved"):
-                from marivo.analysis.core.data_schema import DataSchema
                 from marivo.analysis.core.frame_expression import expression_type
+                from marivo.analysis.model.data_schema import DataSchema
 
                 assert column._frame is not None
                 received = (

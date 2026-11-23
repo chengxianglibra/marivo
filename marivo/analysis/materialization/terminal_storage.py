@@ -10,9 +10,6 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from marivo.analysis.core.artifact_data import DataSchema, ParquetHandle
-from marivo.analysis.core.data_validation import normalize_complete_frame, stage_arrow_type
-from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.storage import (
     _checked_path,
     _fsync_directory,
@@ -20,6 +17,13 @@ from marivo.analysis.materialization.storage import (
     payload_digest,
 )
 from marivo.analysis.materialization.terminal_protocol import invalid
+from marivo.analysis.methods.carriers.data_validation import (
+    normalize_complete_frame,
+    stage_arrow_type,
+)
+from marivo.analysis.model.artifact_data import ParquetHandle
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.receipts import FileEntry, LocalReceipt
 
 
 @dataclass(frozen=True, slots=True)

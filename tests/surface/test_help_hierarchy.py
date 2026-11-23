@@ -14,9 +14,9 @@ import marivo.analysis as mv
 from marivo._help.model import MarivoHelpTargetError, NativeHelpRoute
 from marivo._help.render import render_help_text
 from marivo._help.route import route_help_target
-from marivo.analysis._capabilities.dataset_model import CallableInput, NavigationInput
-from marivo.analysis._capabilities.model import ANALYSIS_HELP_RENDER_BUDGETS
 from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis.model.disclosure import CallableInput, NavigationInput
+from marivo.analysis.model.help_contracts import ANALYSIS_HELP_RENDER_BUDGETS
 from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 from marivo.datasource.adapters import SourceSession
 from marivo.introspection.live.reflect import import_registered_callable, return_annotation_text

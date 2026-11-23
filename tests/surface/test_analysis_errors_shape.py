@@ -2,12 +2,10 @@
 
 import pytest
 
-from marivo.analysis.datasets.errors import (
+from marivo.analysis.errors import AnalysisError, AnalysisRepair
+from marivo.analysis.model.errors import (
     DatasetConstructionError,
     DatasetRegistrationError,
-)
-from marivo.analysis.errors import AnalysisError, AnalysisRepair
-from marivo.analysis.observation.errors import (
     ObservationBindingError,
     ObservationConstructionError,
 )

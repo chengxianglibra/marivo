@@ -21,7 +21,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._kernel import timezones as _timezones
-from marivo.analysis.core.data_schema import (
+from marivo.analysis.model.data_schema import (
     CalendarComparisonBinding,
     CalendarDataAxis,
     DataSchema,

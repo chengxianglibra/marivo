@@ -18,7 +18,7 @@ from marivo._definition.relations import (
     population_keys,
 )
 from marivo._definition.types import AxisBinding, DefinitionGraphError
-from marivo.analysis.core.model import CoreRuleError
+from marivo.analysis.model.errors import CoreRuleError
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticExpressionError

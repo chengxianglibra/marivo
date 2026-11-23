@@ -10,15 +10,7 @@ from decimal import Decimal
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.core import frame_interpretation as facts
-from marivo.analysis.core.data_types import (
-    DataType,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-    TimestampDataType,
-)
-from marivo.analysis.core.frame_page import (
+from marivo.analysis.materialization.carriers.frame_page import (
     FrameCalendarPeriod,
     FrameComparisonPeriod,
     FrameIntervalPeriod,
@@ -27,67 +19,79 @@ from marivo.analysis.core.frame_page import (
     FramePeriod,
     FramePeriodItem,
 )
-from marivo.analysis.core.frame_schema import CoordinateExportColumn, FieldExportColumn, FrameSchema
-from marivo.analysis.core.frame_source_reads import (
+from marivo.analysis.model import frame_facts, layout_facts, time_facts
+from marivo.analysis.model.data_types import (
+    DataType,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.model.frame_schema import (
+    CoordinateExportColumn,
+    FieldExportColumn,
+    FrameSchema,
+)
+from marivo.analysis.model.frame_source_reads import (
     FrameSourceRead,
     FrameSourceReadPeriod,
     FrameSourceReadScope,
 )
-from marivo.analysis.core.lineage import ColumnLineage, FrameLineage, SemanticObjectIdentity
+from marivo.analysis.model.lineage import ColumnLineage, FrameLineage, SemanticObjectIdentity
 from marivo.server.wire import JsonObject, JsonValue, ServiceError
 
 _AXIS = "token name role keys at"
 # This is a wire allowlist. Adding a member to a Python type cannot expose it over HTTP.
 _FIELDS: dict[type[object], str] = {
-    facts.FrameField: "slot_id name dtype nullable unit",
-    facts.FrameInstantSourceTime: "kind axis physical_type consumption_timezone",
-    facts.FrameWallClockSourceTime: "kind axis physical_type consumption_timezone timezone origin inherited_from",
-    facts.FrameCivilDateSourceTime: "kind axis physical_type consumption_timezone timezone origin",
-    facts.FrameBuiltinGrain: "kind unit step",
-    facts.FrameCalendarEndpoint: "kind name at timezone grain",
-    facts.FrameIntervalEndpoint: "kind name at timezone",
-    facts.FrameRowAttributeTime: "kind field",
-    facts.FrameOrdinaryAxisSchema: _AXIS,
-    facts.FrameCalendarAxisSchema: _AXIS + " timezone grain",
-    facts.FrameIntervalAxisSchema: _AXIS + " timezone",
-    facts.FramePairedAxisSchema: _AXIS + " left right",
-    facts.FrameAxisTime: "kind axis_token endpoint",
-    facts.FrameComparedTime: "kind comparison_id endpoint",
-    facts.FrameFixedTime: "kind start end timezone",
-    facts.FrameAllHistoryWindow: "kind",
-    facts.FrameSinceWindow: "kind start",
-    facts.FrameToDateWindow: "kind grain",
-    facts.FrameTrailingDurationWindow: "kind duration",
-    facts.FrameTrailingPeriodsWindow: "kind count",
-    facts.FrameReportWindowEndpoint: "kind",
-    facts.FrameContributionSampleWindowEndpoint: "layer grain timezone kind",
-    facts.FrameFieldSampleWindowEndpoint: "layer field grain timezone kind",
-    facts.FrameClockedContribution: "output occurrence metric root field path anchor source report report_effect window samples report_axis report_cells window_endpoint kind",
-    facts.FrameIndependentContribution: "output occurrence metric root source report report_effect window samples report_axis report_cells window_endpoint kind",
-    facts.FrameObservedTimeSemantics: "contributions kind",
-    facts.FrameDerivedTimeSemantics: "contributions kind",
-    facts.FrameObservationContext: "kind subject time window",
-    facts.FrameAxisGroup: "kind axis_token",
-    facts.FrameFixedGroup: "kind fixed",
-    facts.FrameStatisticContext: "kind statistic groups row_scope",
-    facts.FrameNamedValueInput: "kind name subject",
-    facts.FrameDerivedValueInput: "kind origins",
-    facts.FrameShareContext: "kind numerator groups along row_scope",
-    facts.FramePairStatisticContext: "kind statistic x y groups row_scope",
-    facts.FrameAlignmentAxis: "axis_token endpoint",
-    facts.FrameAlignmentSide: "values presence coordinates",
-    facts.FrameAlignment: "input_id alignment_id left right",
-    facts.FrameComparisonValue: "role name",
-    facts.FrameComparisonGroup: "group_id name values current_context baseline_context",
-    facts.FrameComparisonPresence: "current baseline enclosing",
-    facts.FrameOrdinaryComparisonBinding: "kind",
-    facts.FrameCalendarComparisonBinding: "kind current_axis_token current_endpoint baseline",
-    facts.FrameIntervalComparisonBinding: "kind current_axis_token current_endpoint baseline",
-    facts.FrameComparison: "input_id comparison_id alias groups binding presence current_fixed_axes baseline_fixed_axes",
-    facts.FrameLevelTarget: "kind name context",
-    facts.FrameChangeTarget: "kind comparison_id group_id",
-    facts.FrameDecompositionField: "field_kind role name",
-    facts.FrameDecomposition: "decomposition_id target groups row_scope outputs",
+    frame_facts.FrameField: "slot_id name dtype nullable unit",
+    time_facts.FrameInstantSourceTime: "kind axis physical_type consumption_timezone",
+    time_facts.FrameWallClockSourceTime: "kind axis physical_type consumption_timezone timezone origin inherited_from",
+    time_facts.FrameCivilDateSourceTime: "kind axis physical_type consumption_timezone timezone origin",
+    time_facts.FrameBuiltinGrain: "kind unit step",
+    time_facts.FrameCalendarEndpoint: "kind name at timezone grain",
+    time_facts.FrameIntervalEndpoint: "kind name at timezone",
+    time_facts.FrameRowAttributeTime: "kind field",
+    time_facts.FrameOrdinaryAxisSchema: _AXIS,
+    time_facts.FrameCalendarAxisSchema: _AXIS + " timezone grain",
+    time_facts.FrameIntervalAxisSchema: _AXIS + " timezone",
+    time_facts.FramePairedAxisSchema: _AXIS + " left right",
+    time_facts.FrameAxisTime: "kind axis_token endpoint",
+    time_facts.FrameComparedTime: "kind comparison_id endpoint",
+    time_facts.FrameFixedTime: "kind start end timezone",
+    time_facts.FrameAllHistoryWindow: "kind",
+    time_facts.FrameSinceWindow: "kind start",
+    time_facts.FrameToDateWindow: "kind grain",
+    time_facts.FrameTrailingDurationWindow: "kind duration",
+    time_facts.FrameTrailingPeriodsWindow: "kind count",
+    time_facts.FrameReportWindowEndpoint: "kind",
+    time_facts.FrameContributionSampleWindowEndpoint: "layer grain timezone kind",
+    time_facts.FrameFieldSampleWindowEndpoint: "layer field grain timezone kind",
+    time_facts.FrameClockedContribution: "output occurrence metric root field path anchor source report report_effect window samples report_axis report_cells window_endpoint kind",
+    time_facts.FrameIndependentContribution: "output occurrence metric root source report report_effect window samples report_axis report_cells window_endpoint kind",
+    time_facts.FrameObservedTimeSemantics: "contributions kind",
+    time_facts.FrameDerivedTimeSemantics: "contributions kind",
+    time_facts.FrameObservationContext: "kind subject time window",
+    layout_facts.FrameAxisGroup: "kind axis_token",
+    layout_facts.FrameFixedGroup: "kind fixed",
+    layout_facts.FrameStatisticContext: "kind statistic groups row_scope",
+    layout_facts.FrameNamedValueInput: "kind name subject",
+    layout_facts.FrameDerivedValueInput: "kind origins",
+    layout_facts.FrameShareContext: "kind numerator groups along row_scope",
+    layout_facts.FramePairStatisticContext: "kind statistic x y groups row_scope",
+    layout_facts.FrameAlignmentAxis: "axis_token endpoint",
+    layout_facts.FrameAlignmentSide: "values presence coordinates",
+    layout_facts.FrameAlignment: "input_id alignment_id left right",
+    layout_facts.FrameComparisonValue: "role name",
+    layout_facts.FrameComparisonGroup: "group_id name values current_context baseline_context",
+    layout_facts.FrameComparisonPresence: "current baseline enclosing",
+    layout_facts.FrameOrdinaryComparisonBinding: "kind",
+    layout_facts.FrameCalendarComparisonBinding: "kind current_axis_token current_endpoint baseline",
+    layout_facts.FrameIntervalComparisonBinding: "kind current_axis_token current_endpoint baseline",
+    layout_facts.FrameComparison: "input_id comparison_id alias groups binding presence current_fixed_axes baseline_fixed_axes",
+    layout_facts.FrameLevelTarget: "kind name context",
+    layout_facts.FrameChangeTarget: "kind comparison_id group_id",
+    layout_facts.FrameDecompositionField: "field_kind role name",
+    layout_facts.FrameDecomposition: "decomposition_id target groups row_scope outputs",
     ColumnLineage: "value_origins context_origins",
     FrameLineage: "input_id values axes presence",
     SemanticObjectIdentity: "kind path definition_id",
@@ -166,7 +170,7 @@ def fact(value: object, location: str = "frame") -> JsonValue:
         return {"kind": "timestamp", "unit": value.unit, "timezone": value.timezone}
     if isinstance(value, DurationDataType):
         return {"kind": "duration", "unit": value.unit}
-    if isinstance(value, facts.FrameFixedAxis):
+    if isinstance(value, time_facts.FrameFixedAxis):
         return {
             "axis": fact(value.axis, location),
             "origins": fact(value.origins, location),

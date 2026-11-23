@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.model.data_types import ScalarDataType
 from marivo.datasource.adapters import PhysicalRequirement
 from marivo.datasource.ir import TableSourceIR
 from tests.analysis.graph.physical_workloads import _data, _rows, _tables, workload

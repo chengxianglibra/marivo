@@ -19,14 +19,14 @@ from marivo._definition.types import AxisBinding, FieldRead, PathParameter
 from marivo._kernel.temporal import InstantAnchor
 from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.compiler.source_predicates import string_bytes
-from marivo.analysis.core.frame_interpretation import FrameSourceTime
-from marivo.analysis.core.model import reject
-from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.materialization.population_preparation import (
     PreparedPopulation,
     prepare_population,
     scoped_checks,
 )
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.time_facts import FrameSourceTime
+from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.validator import (
     normalize_target_entity,

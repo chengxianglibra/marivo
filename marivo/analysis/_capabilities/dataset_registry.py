@@ -11,7 +11,9 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Literal, NoReturn
 
-from marivo.analysis._capabilities.dataset_model import (
+from marivo.analysis._capabilities.dataset_navigation import navigation
+from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.disclosure import (
     CallableInput,
     Descriptor,
     DisclosureProvider,
@@ -22,9 +24,7 @@ from marivo.analysis._capabilities.dataset_model import (
     public_methods,
     variant_fields,
 )
-from marivo.analysis._capabilities.dataset_navigation import navigation
-from marivo.analysis._capabilities.model import ReadCapability
-from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.help_contracts import ReadCapability
 from marivo.introspection.live.resolve import (
     LiveSuggestionIndex,
     LiveSurface,
@@ -485,8 +485,8 @@ def assemble(providers: tuple[DisclosureProvider, ...]) -> DatasetDisclosureRegi
 def prepare() -> DatasetDisclosureRegistry:
     """Assemble the three current native disclosure owners without I/O."""
     from marivo.analysis import grain
-    from marivo.analysis.observation import _disclosure as observation
-    from marivo.analysis.operators import _disclosure as operators
+    from marivo.analysis.dsl import _correspondence_disclosure as operators
+    from marivo.analysis.dsl import _observation_disclosure as observation
     from marivo.analysis.session import _disclosure as runtime
 
     return assemble(

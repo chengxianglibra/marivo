@@ -6,7 +6,7 @@ from decimal import Decimal, localcontext
 import pyarrow as pa
 import pytest
 
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.execution_errors import MaterializationError
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 

@@ -9,22 +9,14 @@ from hashlib import sha256
 from json import dumps
 from uuid import uuid4
 
-from marivo.analysis.core.artifact_data import (
-    ArtifactData,
-    ArtifactManifest,
-    SavedAttachment,
-    SavedFrameMethodFacts,
-)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     StoredFrameBacking,
 )
-from marivo.analysis.core.model import reject
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.contracts import RunFailure, RunFailurePhase
-from marivo.analysis.materialization.errors import MaterializationError, RecoveryPendingError
 from marivo.analysis.materialization.frame_method_facts import method_payload, saved_method_facts
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.resources import discharge_resources, reserve_output
@@ -34,6 +26,14 @@ from marivo.analysis.materialization.terminal_protocol import invalid
 from marivo.analysis.materialization.terminal_storage import write_output
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.methods.frame_method_facts import validate_method_facts
+from marivo.analysis.model.artifact_data import (
+    ArtifactData,
+    ArtifactManifest,
+    SavedAttachment,
+    SavedFrameMethodFacts,
+)
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.execution_errors import MaterializationError, RecoveryPendingError
 from marivo.introspection.live.model import LiveHelpTarget
 
 

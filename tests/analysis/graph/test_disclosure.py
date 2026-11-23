@@ -3,12 +3,12 @@
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis._capabilities.dataset_model import (
+from marivo.analysis._capabilities.dataset_registry import prepare
+from marivo.analysis.errors import HelpTargetError
+from marivo.analysis.model.disclosure import (
     CallableInput,
     TypeInput,
 )
-from marivo.analysis._capabilities.dataset_registry import prepare
-from marivo.analysis.errors import HelpTargetError
 from tests.surface.exports import ANALYSIS_PUBLIC
 
 REQUIRED_TARGETS = {

@@ -13,6 +13,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._kernel.grouping import Grouping
 from marivo._kernel.temporal import TimeScope
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import plan_query
 from marivo.analysis.core.frame_data import (
@@ -20,14 +21,13 @@ from marivo.analysis.core.frame_data import (
     LiteralFrameBinding,
     SourceFrameBinding,
 )
-from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (
     execute_numeric_query,
     open_query_sources,
 )
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic._expression_values import DimensionExpression, NumericMetric, RowPredicate
 from marivo.semantic.errors import SemanticExpressionError
@@ -739,7 +739,7 @@ def test_open_start_native_period_keeps_only_upper_bound(prepared_session: Sessi
 
     import ibis
 
-    from marivo._definition.observations import ObservationPeriod
+    from marivo._definition.observation_time import ObservationPeriod
     from marivo.analysis.materialization.query_preparation import prepare_fields
 
     session = prepared_session

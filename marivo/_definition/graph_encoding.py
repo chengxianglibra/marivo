@@ -14,11 +14,9 @@ from typing import TypeAlias, TypeGuard
 
 from ibis.common.deferred import Resolver
 
-from marivo._definition.expressions import (
-    ContributionClockBinding,
-    MetricExpression,
-)
+from marivo._definition.expressions import MetricExpression
 from marivo._definition.graph_traversal import DefinitionNode, _is_node
+from marivo._definition.observation_time import ContributionClockBinding
 from marivo._definition.population_types import PredicateExpression
 from marivo._definition.rows import RowExpression
 from marivo._definition.types import (

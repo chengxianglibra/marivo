@@ -1,6 +1,6 @@
 """Structured, input-redacted private compilation failures."""
 
-from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.model.errors import DatasetConstructionError
 
 
 class DatasetCompilationError(DatasetConstructionError):

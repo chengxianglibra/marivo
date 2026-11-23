@@ -17,26 +17,26 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_schema import DataAxis, DataSchema
-from marivo.analysis.core.data_types import (
-    DataColumn,
-    DataType,
-    DurationDataType,
-    ScalarDataType,
-    TimestampDataType,
-)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     MemoryFrameBacking,
     StoredFrameBacking,
 )
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.population import Population
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.methods.query_population import _token, evaluate_population
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.catalog import Dimension, Entity

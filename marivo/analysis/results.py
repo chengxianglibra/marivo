@@ -6,10 +6,10 @@ from pathlib import Path
 import pandas as pd
 
 from marivo._kernel.project import resolve_project_root
-from marivo.analysis.core.dataframe_result import DataFrameResult
-from marivo.analysis.core.result_reference import DataFrameReference, DataFrameReferenceWire
+from marivo.analysis.materialization.carriers.dataframe_result import DataFrameResult
 from marivo.analysis.materialization.dataframe_store import publish, read
 from marivo.analysis.materialization.result_files import ResultStorageError
+from marivo.analysis.model.result_reference import DataFrameReference, DataFrameReferenceWire
 
 
 def persist_dataframe(

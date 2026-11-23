@@ -14,21 +14,22 @@ import pytest
 import marivo.analysis as mv
 from marivo._definition.types import CalendarCoordinate
 from marivo._kernel.temporal import anchor_from_datetime, builtin_grain
-from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema, OutputAttachment
-from marivo.analysis.core.data_schema import PairedDataAxis
-from marivo.analysis.core.data_types import (
+from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.dsl.temporal import exact_scope
+from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
+from marivo.analysis.model.data_schema import DataAxis, DataSchema, PairedDataAxis
+from marivo.analysis.model.data_types import (
+    DataColumn,
     DataType,
     DecimalDataType,
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_calendar import freeze_calendar
-from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.dsl.temporal import exact_scope
-from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_get, catalog_value
 

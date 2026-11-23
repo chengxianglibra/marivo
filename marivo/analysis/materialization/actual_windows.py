@@ -9,9 +9,11 @@ import ibis
 import pandas as pd
 
 from marivo._definition.expressions import EntityCount
-from marivo._definition.observations import ObservationPeriod
+from marivo._definition.observation_time import ObservationPeriod
 from marivo._definition.relations import ObserveQuery
 from marivo._definition.types import CalendarCoordinate
+from marivo.analysis.binding.graph import BoundGraph
+from marivo.analysis.binding.signature import BoundQuantity
 from marivo.analysis.binding.windows import actual_window_axis, bind_windows
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, lower_query
 from marivo.analysis.compiler.graph_plan import (
@@ -22,11 +24,7 @@ from marivo.analysis.compiler.graph_plan import (
 )
 from marivo.analysis.compiler.observation import calendar_field, reduction_input
 from marivo.analysis.compiler.optimization import optimize_query
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import BoundQuantity
 from marivo.analysis.core.value_types import ibis_type
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
     execute_numeric_query,
@@ -39,6 +37,8 @@ from marivo.analysis.materialization.native_calendar import (
     _replace_calendar,
 )
 from marivo.analysis.materialization.query_parameters import instantiate, parameter_data
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_schema import DataSchema
 from marivo.semantic._compiled_state import CompiledSemanticState
 
 

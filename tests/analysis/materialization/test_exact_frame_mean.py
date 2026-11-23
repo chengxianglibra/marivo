@@ -11,10 +11,10 @@ import pyarrow.compute as pc
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
 from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_get, catalog_value, terminal_runs
 from tests.support.source_trace import capture_source
 

@@ -10,6 +10,9 @@ from marivo._definition.correspondence import coordinate_position
 from marivo._definition.expressions import PredicateExpression
 from marivo._definition.observations import ContributionBinding
 from marivo._definition.relations import PopulationDependency
+from marivo.analysis.binding.calendar_keys import time_key_type, window_endpoint_keys
+from marivo.analysis.binding.graph import BoundGraph
+from marivo.analysis.binding.programs import FormulaProgram, MemberInput, PopulationInput
 from marivo.analysis.compiler.query_program import (
     FrameCombineProgram,
     FrameCompareProgram,
@@ -27,25 +30,19 @@ from marivo.analysis.core.attribute import (
     AttributeSourceParentBinding,
 )
 from marivo.analysis.core.attribute_game import AttributeGameProgram
-from marivo.analysis.core.calendar_keys import time_key_type, window_endpoint_keys
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
-from marivo.analysis.core.frame_attribute_merge import AttributeMergeProgram
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import reject
-from marivo.analysis.core.time_authority import SourceTimeAuthority
-from marivo.analysis.core.unique_keys import UniqueKeys
-from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_attribute_merge import AttributeMergeProgram
+from marivo.analysis.model.kernels import QUERY_COMBINE_KERNEL
+from marivo.analysis.model.programs import FormulaInput
+from marivo.analysis.model.time_authority import SourceTimeAuthority
+from marivo.analysis.model.unique_keys import UniqueKeys
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.attribute_inputs import AttributeRootLayout
     from marivo.analysis.compiler.native_query import NativeQueryFinish
-    from marivo.analysis.compiler.observation import (
-        FormulaProgram,
-        MemberInput,
-        PopulationInput,
-        ReductionInput,
-    )
+    from marivo.analysis.compiler.observation import ReductionInput
     from marivo.analysis.compiler.optimization import (
         FusionGroup,
         InvocationMemo,
@@ -746,9 +743,6 @@ def _plan_query(
         coordinate_read_keys,
     )
     from marivo.analysis.compiler.observation import (
-        FormulaInput,
-        FormulaProgram,
-        PopulationInput,
         duration_type,
         formula_columns,
         lower_observation,
@@ -1073,8 +1067,6 @@ def _plan_query(
     for definition, member_population in (
         () if observation is None else observation.count_populations
     ):
-        from marivo.analysis.compiler.observation import MemberInput
-
         member_schema = next(
             item
             for item in schemas
@@ -1211,7 +1203,6 @@ def with_unique_keys(plan: QueryPlan) -> QueryPlan:
         TopValues,
         ValueSlot,
     )
-    from marivo.analysis.compiler.observation import FormulaProgram
     from marivo.analysis.core.frame_fix import FixFrameValues
 
     stages: list[QueryStage] = []

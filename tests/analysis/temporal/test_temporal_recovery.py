@@ -13,8 +13,8 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_data import StoredFrameBacking
+from marivo.analysis.model.data_types import ScalarDataType
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project

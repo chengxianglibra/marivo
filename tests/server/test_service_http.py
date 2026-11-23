@@ -1135,14 +1135,14 @@ import sys
 from pathlib import Path
 from marivo.analysis.materialization import terminal_publication
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame_reopening import reopen_frame
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.store import SessionStore
 
 root, session_id, artifact_id = sys.argv[1:]
 local = LocalFrameServices(SessionStore.open_existing(Path(root)), session_id)
-source = local.reopen(artifact_id)
+source = reopen_frame(local, artifact_id)
 def hold(event):
     if event == "terminal_files_published":
         print("staged", flush=True)

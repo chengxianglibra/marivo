@@ -29,19 +29,19 @@ from marivo.analysis.compiler.graph_plan import (
 )
 from marivo.analysis.compiler.optimization import optimize_query
 from marivo.analysis.compiler.query_program import ResultProgram
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.materialization import (
     frame_source_preparation,
     query_key_fusion,
     sample_fusion,
 )
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_source_execution import (
     execute_numeric_query,
     open_query_sources,
 )
 from marivo.analysis.methods.query_values import evaluate_result
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.formal._smt import prove_unsat

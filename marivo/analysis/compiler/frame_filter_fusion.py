@@ -9,12 +9,12 @@ from marivo.analysis.compiler.frame_plan import CompiledFramePlan, frame_program
 from marivo.analysis.compiler.graph_plan import FrameCompute, FrameFilterFusion, QueryStage
 from marivo.analysis.compiler.optimization import FusionGroup, RuleDecision, _consumers
 from marivo.analysis.compiler.query_program import FrameProgram
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.local_laws import (
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.frame_contracts import CheckedStageInputT
+from marivo.analysis.model.local_laws import (
     query_selection_fusion_issue,
     selection_predicate_columns,
 )
-from marivo.analysis.core.stage_contracts import CheckedStageInputT
 
 
 def fuse_frame_filters(

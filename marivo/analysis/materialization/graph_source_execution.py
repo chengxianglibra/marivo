@@ -40,18 +40,24 @@ from marivo.analysis.compiler.graph_plan import (
 )
 
 if TYPE_CHECKING:
-    from marivo._definition.observations import ObservationPeriod
+    from marivo._definition.observation_time import ObservationPeriod
     from marivo._definition.types import CalendarCoordinate
     from marivo.analysis.binding.attribute_rules import AttributeRule
     from marivo.analysis.compiler.attribute_inputs import AttributeRootLayout
     from marivo.analysis.compiler.frame_plan import CompiledFramePlan
     from marivo.analysis.compiler.graph_plan import QueryPlan
     from marivo.analysis.compiler.optimization import InvocationMemo
-    from marivo.analysis.core.attribute import AttributeFailureContext
     from marivo.analysis.core.frame_expression import AttributeFrameValues
     from marivo.analysis.materialization.attribute_native_execution import PreparedNativeGame
+    from marivo.analysis.model.attribute_failures import AttributeFailureContext
 
-from marivo._definition.relations import LiteralPopulation, PopulationDependency, PopulationProgram
+from marivo._definition.relations import (
+    LiteralPopulation,
+    PopulationDependency,
+    PopulationProgram,
+    population_keys,
+)
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.graph_lowering import (
     LoweredQuery,
     LoweredRead,
@@ -67,8 +73,11 @@ from marivo.analysis.compiler.graph_plan import (
     SourceSchema,
     read_native_reductions,
 )
-from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import (
+from marivo.analysis.core.frame_data import CompletedFrameData
+from marivo.analysis.materialization.graph_preflight import bind_entity_output, relation_operations
+from marivo.analysis.methods.carriers.stages import StageOutput, source_columns
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import (
     DataColumn,
     DataType,
     DecimalDataType,
@@ -76,14 +85,11 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_data import CompletedFrameData
-from marivo.analysis.core.frame_interpretation import FrameSourceTime, merge_source_times
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import reject
-from marivo.analysis.core.unique_keys import UniqueKeys
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import StageOutput, source_columns
-from marivo.analysis.materialization.graph_preflight import bind_entity_output, relation_operations
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.kernels import FrequencyState, FrequencyValue
+from marivo.analysis.model.time_facts import FrameSourceTime, merge_source_times
+from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.datasource.adapters import (
     DURATION_UNIT_METADATA_KEY,
     TIMESTAMP_UNIT_METADATA_KEY,
@@ -646,7 +652,7 @@ def _query_entities(graph: BoundGraph, state: CompiledSemanticState) -> tuple[st
     from marivo._definition.query import ResultQuery
     from marivo._definition.relations import ReadQuery
     from marivo._definition.types import AxisBinding
-    from marivo.analysis.core.graph import read_input_graph
+    from marivo.analysis.binding.graph import read_input_graph
 
     if isinstance(graph.root, ReadQuery):
         return _query_entities(read_input_graph(graph), state)
@@ -712,7 +718,7 @@ def prepare_query_sources(
 ) -> PreparedSources:
     """Prepare fields and relationships, acquiring HTTP JSON to infer its types."""
     from marivo._definition.relations import ReadQuery
-    from marivo.analysis.core.graph import read_input_graph
+    from marivo.analysis.binding.graph import read_input_graph
 
     if isinstance(graph.root, ReadQuery):
         return prepare_query_sources(
@@ -958,7 +964,6 @@ def prepare_query_sources(
         stage_id = "read:" + ".".join(str(i) for i in contribution.occurrence)
         relations[stage_id] = table
     from marivo._definition.graph import computation_fingerprint
-    from marivo.analysis.dsl.population import population_keys
     from marivo.analysis.materialization.population_preparation import (
         PreparedPopulation,
         population_entities,
@@ -1656,7 +1661,7 @@ def read_stage(
         # any conservative compiler metadata.
         layout = _actual_attribute_layout(layout, frame)
         fine, inputs = complete_attribute_inputs(layout, stage.stage_id, frame, originals)
-        from marivo.analysis.materialization.graph_exchange import CheckReceipt
+        from marivo.analysis.model.frame_contracts import CheckReceipt
 
         inputs = replace(
             inputs,
@@ -1749,12 +1754,7 @@ def complete_attribute_frequencies(
 
     from marivo._definition.expressions import SourceAggregate
     from marivo.analysis.compiler.attribute_frequencies import AttributeFrequencyCapture
-    from marivo.analysis.methods.attribute_quantiles import (
-        FrequencyRankIndex,
-        FrequencyState,
-        FrequencyValue,
-        frequency_state,
-    )
+    from marivo.analysis.methods.attribute_quantiles import FrequencyRankIndex, frequency_state
     from marivo.analysis.methods.numeric_state import typed_null_mask
 
     assert isinstance(stage.program, AttributeFrequencyRead)
@@ -1924,13 +1924,13 @@ def _validate_source_checks(
             continue
         layout = read_attribute(stage)
         if layout is not None:
-            from marivo.analysis.core.attribute import AttributeCheckWitness
-            from marivo.analysis.core.data_validation import normalize_stage_columns
             from marivo.analysis.core.frozen_calendar import frozen_key_rows
             from marivo.analysis.materialization.query_components import (
                 attribute_failure_context,
                 attribute_witness_order,
             )
+            from marivo.analysis.methods.carriers.data_validation import normalize_stage_columns
+            from marivo.analysis.model.attribute_failures import AttributeCheckWitness
 
             for descriptor in (item for item in layout.checks if item.name == name):
                 kind = (
@@ -2075,7 +2075,7 @@ def _complete_source_frame(
 ) -> StageOutput:
     """Complete one logical source occurrence and its original fine checks."""
     source_rows = len(frame)
-    from marivo.analysis.materialization.query_components import ComponentFrame
+    from marivo.analysis.methods.carriers.stage_components import ComponentFrame
 
     components: tuple[ComponentFrame, ...] = ()
     if read_components(stage) is not None:
@@ -2164,7 +2164,7 @@ def _complete_common_read(
 ) -> StageOutput:
     """Complete logical occurrences while retaining an unchanged joint row layout."""
     from marivo.analysis.compiler.observation import common_slot
-    from marivo.analysis.materialization.query_components import ComponentFrame
+    from marivo.analysis.methods.carriers.stage_components import ComponentFrame
 
     members = read_members(stage)
     same_rows = all(
@@ -2298,9 +2298,9 @@ def execute_numeric_query(
 ) -> StageOutput:
     """Execute the fixed numeric schedule and return invocation-local pandas data."""
     from marivo.analysis.compiler.frame_filter_fusion import frame_filter_steps
-    from marivo.analysis.core.model import reject
     from marivo.analysis.materialization.graph_execution import run_query_plan
     from marivo.analysis.materialization.graph_local_execution import run_local
+    from marivo.analysis.model.errors import reject
 
     required_by_stage = {required.stage_id: required for required in lowered.plan.required_slots}
     from marivo.analysis.materialization.query_runtime_types import source_value_keys
@@ -2371,8 +2371,8 @@ def execute_numeric_query(
             if observe_frame is not None:
                 observe_frame(stage, output)
             return output
-        from marivo.analysis.core.domain_captures import DomainPreparationError
         from marivo.analysis.materialization.query_parameters import instantiate, parameter_data
+        from marivo.analysis.model.domain_captures import DomainPreparationError
 
         selected = (
             prepared_by_stage.get(stage.stage_id) if prepared_by_stage is not None else prepared
@@ -2529,7 +2529,7 @@ def execute_numeric_query(
         else None,
         available=checked_inputs,
     )
-    from marivo.analysis.materialization.graph_exchange import source_columns
+    from marivo.analysis.methods.carriers.stages import source_columns
 
     planned_output = next(
         stage for stage in lowered.plan.stages if stage.stage_id == lowered.plan.publish

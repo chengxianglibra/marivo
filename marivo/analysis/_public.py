@@ -7,179 +7,7 @@ from marivo._kernel.temporal import Grain as Grain
 from marivo._kernel.temporal import InstantAnchor as InstantAnchor
 from marivo._kernel.temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
-from marivo.analysis.core.dataframe_result import DataFrameResult as DataFrameResult
-from marivo.analysis.core.frame_interpretation import (
-    FrameAlignment as FrameAlignment,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameAlignmentAxis as FrameAlignmentAxis,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameAlignmentSide as FrameAlignmentSide,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameAllHistoryWindow as FrameAllHistoryWindow,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameAxisGroup as FrameAxisGroup,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameAxisTime as FrameAxisTime,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameBuiltinGrain as FrameBuiltinGrain,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameCalendarAxisSchema as FrameCalendarAxisSchema,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameCalendarComparisonBinding as FrameCalendarComparisonBinding,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameCalendarEndpoint as FrameCalendarEndpoint,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameChangeTarget as FrameChangeTarget,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameCivilDateSourceTime as FrameCivilDateSourceTime,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameClockedContribution as FrameClockedContribution,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameComparedTime as FrameComparedTime,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameComparison as FrameComparison,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameComparisonGroup as FrameComparisonGroup,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameComparisonPresence as FrameComparisonPresence,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameComparisonValue as FrameComparisonValue,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameContributionSampleWindowEndpoint as FrameContributionSampleWindowEndpoint,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameDecomposition as FrameDecomposition,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameDecompositionField as FrameDecompositionField,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameDerivedTimeSemantics as FrameDerivedTimeSemantics,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameDerivedValueInput as FrameDerivedValueInput,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameFieldSampleWindowEndpoint as FrameFieldSampleWindowEndpoint,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameFixedAxis as FrameFixedAxis,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameFixedGroup as FrameFixedGroup,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameFixedTime as FrameFixedTime,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameIndependentContribution as FrameIndependentContribution,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameInstantSourceTime as FrameInstantSourceTime,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameIntervalAxisSchema as FrameIntervalAxisSchema,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameIntervalComparisonBinding as FrameIntervalComparisonBinding,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameIntervalEndpoint as FrameIntervalEndpoint,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameLevelTarget as FrameLevelTarget,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameNamedValueInput as FrameNamedValueInput,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameObservationContext as FrameObservationContext,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameObservedTimeSemantics as FrameObservedTimeSemantics,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameOrdinaryAxisSchema as FrameOrdinaryAxisSchema,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameOrdinaryComparisonBinding as FrameOrdinaryComparisonBinding,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FramePairedAxisSchema as FramePairedAxisSchema,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FramePairStatisticContext as FramePairStatisticContext,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameReportWindowEndpoint as FrameReportWindowEndpoint,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameRowAttributeTime as FrameRowAttributeTime,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameShareContext as FrameShareContext,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameSinceWindow as FrameSinceWindow,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameStatisticContext as FrameStatisticContext,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameToDateWindow as FrameToDateWindow,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameTrailingDurationWindow as FrameTrailingDurationWindow,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameTrailingPeriodsWindow as FrameTrailingPeriodsWindow,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameWallClockSourceTime as FrameWallClockSourceTime,
-)
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
-from marivo.analysis.core.frame_page import FrameCalendarPeriod as FrameCalendarPeriod
-from marivo.analysis.core.frame_page import FrameComparisonPeriod as FrameComparisonPeriod
-from marivo.analysis.core.frame_page import FrameIntervalPeriod as FrameIntervalPeriod
-from marivo.analysis.core.frame_page import FramePage as FramePage
-from marivo.analysis.core.frame_page import FramePairedPeriod as FramePairedPeriod
-from marivo.analysis.core.frame_page import FramePeriodPage as FramePeriodPage
-from marivo.analysis.core.frame_page import FrameReadStats as FrameReadStats
-from marivo.analysis.core.frame_schema import FrameAxisSchema as FrameAxisSchema
-from marivo.analysis.core.frame_schema import FrameField as FrameField
-from marivo.analysis.core.frame_schema import FrameSchema as FrameSchema
-from marivo.analysis.core.frame_source_reads import (
-    FrameSourceRead as FrameSourceRead,
-)
-from marivo.analysis.core.frame_source_reads import (
-    FrameSourceReadPeriod as FrameSourceReadPeriod,
-)
-from marivo.analysis.core.frame_source_reads import (
-    FrameSourceReadScope as FrameSourceReadScope,
-)
-from marivo.analysis.core.lineage import ColumnLineage as ColumnLineage
-from marivo.analysis.core.lineage import FrameLineage as FrameLineage
-from marivo.analysis.core.lineage import SemanticObjectIdentity as SemanticObjectIdentity
-from marivo.analysis.core.result_reference import DataFrameReference as DataFrameReference
-from marivo.analysis.core.result_reference import FrameReference as FrameReference
 from marivo.analysis.dsl.baseline import ComparisonBaseline as ComparisonBaseline
 from marivo.analysis.dsl.baseline import baseline as baseline
 from marivo.analysis.dsl.column import Column as Column
@@ -200,6 +28,110 @@ from marivo.analysis.dsl.windows import since as since
 from marivo.analysis.dsl.windows import to_date as to_date
 from marivo.analysis.dsl.windows import trailing_duration as trailing_duration
 from marivo.analysis.dsl.windows import trailing_periods as trailing_periods
+from marivo.analysis.materialization.carriers.dataframe_result import (
+    DataFrameResult as DataFrameResult,
+)
+from marivo.analysis.materialization.carriers.frame_page import (
+    FrameCalendarPeriod as FrameCalendarPeriod,
+)
+from marivo.analysis.materialization.carriers.frame_page import (
+    FrameComparisonPeriod as FrameComparisonPeriod,
+)
+from marivo.analysis.materialization.carriers.frame_page import (
+    FrameIntervalPeriod as FrameIntervalPeriod,
+)
+from marivo.analysis.materialization.carriers.frame_page import FramePage as FramePage
+from marivo.analysis.materialization.carriers.frame_page import (
+    FramePairedPeriod as FramePairedPeriod,
+)
+from marivo.analysis.materialization.carriers.frame_page import FramePeriodPage as FramePeriodPage
+from marivo.analysis.materialization.carriers.frame_page import FrameReadStats as FrameReadStats
+from marivo.analysis.model.frame_schema import FrameAxisSchema as FrameAxisSchema
+from marivo.analysis.model.frame_schema import FrameField as FrameField
+from marivo.analysis.model.frame_schema import FrameSchema as FrameSchema
+from marivo.analysis.model.frame_source_reads import (
+    FrameSourceRead as FrameSourceRead,
+)
+from marivo.analysis.model.frame_source_reads import (
+    FrameSourceReadPeriod as FrameSourceReadPeriod,
+)
+from marivo.analysis.model.frame_source_reads import (
+    FrameSourceReadScope as FrameSourceReadScope,
+)
+from marivo.analysis.model.layout_facts import FrameAlignment as FrameAlignment
+from marivo.analysis.model.layout_facts import FrameAlignmentAxis as FrameAlignmentAxis
+from marivo.analysis.model.layout_facts import FrameAlignmentSide as FrameAlignmentSide
+from marivo.analysis.model.layout_facts import FrameAxisGroup as FrameAxisGroup
+from marivo.analysis.model.layout_facts import (
+    FrameCalendarComparisonBinding as FrameCalendarComparisonBinding,
+)
+from marivo.analysis.model.layout_facts import FrameChangeTarget as FrameChangeTarget
+from marivo.analysis.model.layout_facts import FrameComparison as FrameComparison
+from marivo.analysis.model.layout_facts import FrameComparisonGroup as FrameComparisonGroup
+from marivo.analysis.model.layout_facts import FrameComparisonPresence as FrameComparisonPresence
+from marivo.analysis.model.layout_facts import FrameComparisonValue as FrameComparisonValue
+from marivo.analysis.model.layout_facts import FrameDecomposition as FrameDecomposition
+from marivo.analysis.model.layout_facts import FrameDecompositionField as FrameDecompositionField
+from marivo.analysis.model.layout_facts import FrameDerivedValueInput as FrameDerivedValueInput
+from marivo.analysis.model.layout_facts import FrameFixedGroup as FrameFixedGroup
+from marivo.analysis.model.layout_facts import (
+    FrameIntervalComparisonBinding as FrameIntervalComparisonBinding,
+)
+from marivo.analysis.model.layout_facts import FrameLevelTarget as FrameLevelTarget
+from marivo.analysis.model.layout_facts import FrameNamedValueInput as FrameNamedValueInput
+from marivo.analysis.model.layout_facts import (
+    FrameOrdinaryComparisonBinding as FrameOrdinaryComparisonBinding,
+)
+from marivo.analysis.model.layout_facts import (
+    FramePairStatisticContext as FramePairStatisticContext,
+)
+from marivo.analysis.model.layout_facts import FrameShareContext as FrameShareContext
+from marivo.analysis.model.layout_facts import FrameStatisticContext as FrameStatisticContext
+from marivo.analysis.model.lineage import ColumnLineage as ColumnLineage
+from marivo.analysis.model.lineage import FrameLineage as FrameLineage
+from marivo.analysis.model.lineage import SemanticObjectIdentity as SemanticObjectIdentity
+from marivo.analysis.model.result_reference import DataFrameReference as DataFrameReference
+from marivo.analysis.model.result_reference import FrameReference as FrameReference
+from marivo.analysis.model.time_facts import FrameAllHistoryWindow as FrameAllHistoryWindow
+from marivo.analysis.model.time_facts import FrameAxisTime as FrameAxisTime
+from marivo.analysis.model.time_facts import FrameBuiltinGrain as FrameBuiltinGrain
+from marivo.analysis.model.time_facts import FrameCalendarAxisSchema as FrameCalendarAxisSchema
+from marivo.analysis.model.time_facts import FrameCalendarEndpoint as FrameCalendarEndpoint
+from marivo.analysis.model.time_facts import FrameCivilDateSourceTime as FrameCivilDateSourceTime
+from marivo.analysis.model.time_facts import FrameClockedContribution as FrameClockedContribution
+from marivo.analysis.model.time_facts import FrameComparedTime as FrameComparedTime
+from marivo.analysis.model.time_facts import (
+    FrameContributionSampleWindowEndpoint as FrameContributionSampleWindowEndpoint,
+)
+from marivo.analysis.model.time_facts import FrameDerivedTimeSemantics as FrameDerivedTimeSemantics
+from marivo.analysis.model.time_facts import (
+    FrameFieldSampleWindowEndpoint as FrameFieldSampleWindowEndpoint,
+)
+from marivo.analysis.model.time_facts import FrameFixedAxis as FrameFixedAxis
+from marivo.analysis.model.time_facts import FrameFixedTime as FrameFixedTime
+from marivo.analysis.model.time_facts import (
+    FrameIndependentContribution as FrameIndependentContribution,
+)
+from marivo.analysis.model.time_facts import FrameInstantSourceTime as FrameInstantSourceTime
+from marivo.analysis.model.time_facts import FrameIntervalAxisSchema as FrameIntervalAxisSchema
+from marivo.analysis.model.time_facts import FrameIntervalEndpoint as FrameIntervalEndpoint
+from marivo.analysis.model.time_facts import FrameObservationContext as FrameObservationContext
+from marivo.analysis.model.time_facts import (
+    FrameObservedTimeSemantics as FrameObservedTimeSemantics,
+)
+from marivo.analysis.model.time_facts import FrameOrdinaryAxisSchema as FrameOrdinaryAxisSchema
+from marivo.analysis.model.time_facts import FramePairedAxisSchema as FramePairedAxisSchema
+from marivo.analysis.model.time_facts import FrameReportWindowEndpoint as FrameReportWindowEndpoint
+from marivo.analysis.model.time_facts import FrameRowAttributeTime as FrameRowAttributeTime
+from marivo.analysis.model.time_facts import FrameSinceWindow as FrameSinceWindow
+from marivo.analysis.model.time_facts import FrameToDateWindow as FrameToDateWindow
+from marivo.analysis.model.time_facts import (
+    FrameTrailingDurationWindow as FrameTrailingDurationWindow,
+)
+from marivo.analysis.model.time_facts import (
+    FrameTrailingPeriodsWindow as FrameTrailingPeriodsWindow,
+)
+from marivo.analysis.model.time_facts import FrameWallClockSourceTime as FrameWallClockSourceTime
 from marivo.analysis.results import persist_dataframe as persist_dataframe
 from marivo.analysis.results import read_dataframe as read_dataframe
 from marivo.analysis.session.core import Session as Session
@@ -317,8 +249,8 @@ def _install_telemetry() -> None:
     import sys
     from dataclasses import replace
 
-    from marivo.analysis._capabilities.dataset_model import CallableInput
     from marivo.analysis._capabilities.registry import REGISTRY
+    from marivo.analysis.model.disclosure import CallableInput
     from marivo.telemetry import install_surface_instrumentation
 
     # Each native binding owns its exact implementation, including inherited methods.

@@ -12,24 +12,7 @@ import pyarrow.compute as pc
 from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._kernel.temporal_grid import CivilShiftAbsent
 from marivo.analysis.compiler.query_program import FrameCombineProgram, FrameCompareProgram
-from marivo.analysis.core.artifact_data import OutputAttachment
-from marivo.analysis.core.data_schema import (
-    BuiltinCalendarData,
-    CalendarComparisonBinding,
-    CalendarDataAxis,
-    DataAxis,
-    DataSchema,
-    IntervalComparisonBinding,
-    IntervalDataAxis,
-    PairedDataAxis,
-)
-from marivo.analysis.core.data_types import (
-    DataColumn,
-    DataType,
-    DurationDataType,
-    ScalarDataType,
-    TimestampDataType,
-)
+from marivo.analysis.core.frame_interpretation import remap_context
 from marivo.analysis.core.frozen_calendar import (
     FrozenAttachment,
     FrozenCalendarDirectory,
@@ -38,33 +21,56 @@ from marivo.analysis.core.frozen_calendar import (
     FrozenComparisonMatch,
     FrozenDirectMatch,
     FrozenIntervalDirectory,
-    FrozenKey,
     build_partial_calendar_map,
     build_partial_interval_map,
     calendar_directory_rows,
-    calendar_directory_schema,
     calendar_match_intents,
-    comparison_mapping_schema,
     frozen_key_rows,
     frozen_key_table,
     interval_directory_rows,
-    interval_directory_schema,
     merge_equal_calendar_directories,
     merge_equal_interval_directories,
-    paired_mapping_schema,
     read_calendar_directory,
     read_direct_mapping,
     read_interval_directory,
-    require_compatible_calendar_axes,
     validate_frozen_coordinates,
 )
-from marivo.analysis.core.unique_keys import UniqueKeys
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
 from marivo.analysis.methods.numeric_state import (
     duration_arithmetic,
     finish_float64,
     nullable_arithmetic,
 )
+from marivo.analysis.model.coordinate_schema import (
+    calendar_directory_schema,
+    comparison_mapping_schema,
+    interval_directory_schema,
+    paired_mapping_schema,
+)
+from marivo.analysis.model.data_schema import (
+    BuiltinCalendarData,
+    CalendarComparisonBinding,
+    CalendarDataAxis,
+    DataAxis,
+    DataSchema,
+    IntervalComparisonBinding,
+    IntervalDataAxis,
+    PairedDataAxis,
+    require_compatible_calendar_axes,
+)
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_schema import comparison_id
+from marivo.analysis.model.frame_structure import coordinate_attachments
+from marivo.analysis.model.frozen_keys import FrozenKey
+from marivo.analysis.model.layout_facts import FrameValueContext
+from marivo.analysis.model.unique_keys import UniqueKeys
 
 Key: TypeAlias = tuple[tuple[DataType, object], ...]
 
@@ -576,8 +582,6 @@ def compare_frame_data(
     indices = [current_index]
     frames = [inputs[0]]
     key_columns = [current_columns]
-    from marivo.analysis.core.frame_structure import coordinate_attachments
-
     current_only = replace(
         current,
         values=(),
@@ -780,7 +784,6 @@ def _resolve_comparison_facts(
 ) -> tuple[DataSchema, tuple[OutputAttachment, ...]]:
     """Resolve retained certification from exact finite input/output domains."""
     from marivo.analysis.core.frame_expression import transport_comparisons
-    from marivo.analysis.core.frame_structure import coordinate_attachments
 
     output = program.output_schema
     specs: tuple[
@@ -931,9 +934,6 @@ def _resolve_comparison_facts(
                 )
             additions.append(OutputAttachment(new.mapping_name, map_schema, mapping))
     resolved = replace(output, comparisons=tuple(retained))
-    from marivo.analysis.core.frame_interpretation import FrameValueContext, remap_context
-    from marivo.analysis.core.frame_schema import comparison_id
-
     # Compare/combine outputs have no decompositions; only value-bearing relations
     # produce a public comparison group in this completed schema.
     public_comparisons = {comparison_id(fact) for fact in resolved.comparisons if fact.values}

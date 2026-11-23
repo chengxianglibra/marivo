@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
-from marivo.analysis.core.data_types import DataColumn
+from marivo.analysis.model.data_types import DataColumn
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import NoReturn
 
 from marivo._definition.correspondence import ComparisonAxis
-from marivo.analysis.core.data_types import DataColumn
-from marivo.analysis.core.model import reject
+from marivo.analysis.model.data_types import DataColumn
+from marivo.analysis.model.errors import reject
 
 
 def fail(expected: str, received: str) -> NoReturn:

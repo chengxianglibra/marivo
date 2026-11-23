@@ -2,8 +2,8 @@
 
 import pandas as pd
 
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
-from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 
 
 def integer_string_keys(rows: tuple[tuple[int, str | None], ...]) -> StageOutput:

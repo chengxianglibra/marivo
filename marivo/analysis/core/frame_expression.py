@@ -27,8 +27,11 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.core.attribute_game import AttributeGameValues
-from marivo.analysis.core.data_schema import (
+from marivo.analysis.core.frame_fix import FixFrameValues, validate_fixed_key
+from marivo.analysis.core.frozen_calendar import require_calendar_match_rule
+from marivo.analysis.model.data_schema import (
     CalendarComparisonBinding,
     CalendarDataAxis,
     ComparisonValueBinding,
@@ -41,16 +44,18 @@ from marivo.analysis.core.data_schema import (
     IntervalDataAxis,
     OrdinaryComparisonBinding,
     PairedDataAxis,
+    require_compatible_calendar_axes,
 )
-from marivo.analysis.core.data_types import (
+from marivo.analysis.model.data_types import (
     DataType,
     DecimalDataType,
     DurationDataType,
     ScalarDataType,
 )
-from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
-from marivo.analysis.core.frame_fix import FixFrameValues, validate_fixed_key
-from marivo.analysis.core.frame_structure import (
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_attribute_merge import AttributeMergeValues
+from marivo.analysis.model.frame_schema import comparison_id
+from marivo.analysis.model.frame_structure import (
     AxisRole,
     PendingDataAxis,
     PendingDataColumn,
@@ -59,14 +64,15 @@ from marivo.analysis.core.frame_structure import (
     ValueKind,
     axis_role,
     column_kind,
-    value_name,
 )
-from marivo.analysis.core.frozen_calendar import (
-    require_calendar_match_rule,
-    require_compatible_calendar_axes,
+from marivo.analysis.model.layout_facts import (
+    FrameFixedGroup,
+    FrameGroup,
+    FramePairStatisticContext,
+    FrameShareContext,
 )
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import reject
+from marivo.analysis.model.time_facts import merge_source_times
+from marivo.analysis.model.value_names import validate_paths, value_name
 
 FrameUnaryOperationKind: TypeAlias = (
     SelectValues | FilterValues | TopValues | ReduceValues | FixFrameValues
@@ -252,13 +258,6 @@ def transport_logical_facts(
 
     if logical is None:
         return physical
-    from marivo.analysis.core.frame_interpretation import (
-        FrameFixedGroup,
-        FrameGroup,
-        FramePairStatisticContext,
-        FrameShareContext,
-        merge_source_times,
-    )
 
     def fixed_group(group: FrameGroup) -> FrameGroup:
         if not isinstance(group, FrameFixedGroup):
@@ -1143,8 +1142,6 @@ def _infer_frame_compare_schema(
     inputs: tuple[DataSchema | PendingDataSchema, ...], operation: CompareFrameValues
 ) -> DataSchema | PendingDataSchema:
     """Infer one current layout and all named baseline value groups together."""
-    from marivo.analysis.core.frame_structure import validate_paths
-
     if (
         type(operation.baselines) is not tuple
         or not operation.baselines
@@ -1480,7 +1477,6 @@ def transport_comparisons(
         )
 
     from marivo.analysis.core.frame_interpretation import remap_context
-    from marivo.analysis.core.frame_schema import comparison_id
 
     context_tokens: dict[str, tuple[str, Literal["self", "left", "right"]]] = {
         schema.axes[a].token: (output_axes[b].token, "self") for a, b in axis_pairs

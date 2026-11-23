@@ -8,8 +8,8 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.artifact_data import DataSchema
-from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
 
 
 def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:

@@ -14,6 +14,7 @@ from marivo._definition.query import (
     Statistic,
     ValueSlot,
 )
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.frame_plan import CompiledSourceFrame, plan_frame
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import (
@@ -22,8 +23,6 @@ from marivo.analysis.compiler.graph_plan import (
     plan_query,
 )
 from marivo.analysis.compiler.optimization import optimize_query
-from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema
-from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     ExpressionFrameBacking,
@@ -36,20 +35,21 @@ from marivo.analysis.core.frame_expression import (
     SourceFrameInput,
     infer_frame_schema,
 )
-from marivo.analysis.core.frame_structure import (
-    PendingDataAxis,
-    PendingDataColumn,
-    PendingDataSchema,
-)
-from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (
     open_query_sources,
     qualify_query_sources,
     run_frame_plan,
 )
 from marivo.analysis.materialization.query_key_fusion import fuse_query_keys, fuse_query_terminal
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.frame_structure import (
+    PendingDataAxis,
+    PendingDataColumn,
+    PendingDataSchema,
+)
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
@@ -87,13 +87,13 @@ def test_concrete_and_pending_inference_share_directories_and_units() -> None:
 def test_calendar_binary_pending_and_concrete_share_one_closed_program() -> None:
     from marivo._definition.correspondence import CalendarCorrespondence
     from marivo.analysis.compiler.query_program import FrameCombineProgram
-    from marivo.analysis.core.data_schema import (
+    from marivo.analysis.core.frame_expression import AlignFrameValues, infer_frame_combine_schema
+    from marivo.analysis.model.data_schema import (
         BuiltinCalendarData,
         CalendarDataAxis,
         FrozenCalendarData,
         PairedDataAxis,
     )
-    from marivo.analysis.core.frame_expression import AlignFrameValues, infer_frame_combine_schema
 
     ordinary = _schema()
     axis = CalendarDataAxis(

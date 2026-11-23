@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
 from ibis.common.deferred import (
     Attr,
     BinaryOperator,
@@ -24,78 +21,12 @@ from marivo._definition.deferred import (
 )
 from marivo._definition.relations import PopulationParameter
 from marivo._definition.types import Owner
-from marivo.analysis.core.model import reject
+from marivo.analysis.core.frame_data import FrameKeyDependency
+from marivo.analysis.model.frame_contracts import merge_frame_key_inputs
 from marivo.semantic._expression_values import _ExpressionCarrier
 
-if TYPE_CHECKING:
-    from marivo.analysis.dsl.frame import AnalysisFrame
 
-
-@dataclass(frozen=True, slots=True)
-class FrameKeyInput:
-    """The exact selected Frame, retained until the consuming source is evaluated."""
-
-    input_id: str
-    frame: AnalysisFrame
-
-    def __post_init__(self) -> None:
-        from marivo.analysis.dsl.frame import AnalysisFrame
-
-        if not isinstance(self.frame, AnalysisFrame) or self.input_id != self.frame._input_id:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            reject(
-                "a Frame key input with its exact input identity",
-                repr(self.input_id),
-                "Retain the selected Frame with its own input ID.",
-                "frame.population",
-            )
-
-
-def _compatible(left: AnalysisFrame, right: AnalysisFrame) -> bool:
-    from marivo.analysis.core.frame_data import StoredFrameBacking
-
-    if left._local.owner != right._local.owner or left._schema != right._schema:
-        return False
-    if left is right:
-        return True
-    if isinstance(left._backing, StoredFrameBacking) and isinstance(
-        right._backing, StoredFrameBacking
-    ):
-        # Stored binding IDs are stable across metadata-only opens. Their full
-        # committed descriptors, not Python handle identity, authorize sharing.
-        return left._backing == right._backing
-    return False
-
-
-def merge_frame_key_inputs(
-    *groups: tuple[FrameKeyInput, ...], owner: Owner | None = None
-) -> tuple[FrameKeyInput, ...]:
-    """Retain compatible exact inputs once, without reading stored payloads."""
-    result: dict[str, FrameKeyInput] = {}
-    expected = owner
-    for group in groups:
-        for item in group:
-            if expected is None:
-                expected = item.frame._local.owner
-            if item.frame._local.owner != expected:
-                reject(
-                    "Frame key inputs owned by one Store and Session",
-                    item.input_id,
-                    "Build the Population and its consumer in the Frame's owning Session.",
-                    "frame.population",
-                )
-            previous = result.get(item.input_id)
-            if previous is not None and not _compatible(previous.frame, item.frame):
-                reject(
-                    "one compatible exact descriptor per Frame input identity",
-                    item.input_id,
-                    "Reopen the same committed Artifact descriptor or use distinct input bindings.",
-                    "frame.population",
-                )
-            result.setdefault(item.input_id, item)
-    return tuple(result.values())
-
-
-def _recipe_inputs(recipe: Resolver) -> tuple[FrameKeyInput, ...]:
+def _recipe_inputs(recipe: Resolver) -> tuple[FrameKeyDependency, ...]:
     from marivo._definition.deferred import PopulationCountResolver, RescaleResolver
     from marivo.analysis.dsl.population import Population
 
@@ -127,11 +58,11 @@ def _recipe_inputs(recipe: Resolver) -> tuple[FrameKeyInput, ...]:
 def collect_frame_key_inputs(
     *values: Deferred | _ExpressionCarrier | PopulationParameter | None,
     owner: Owner | None = None,
-) -> tuple[FrameKeyInput, ...]:
+) -> tuple[FrameKeyDependency, ...]:
     """Extract original special literals before semantic consumption drops wrappers."""
     from marivo.analysis.dsl.population import Population
 
-    groups: list[tuple[FrameKeyInput, ...]] = []
+    groups: list[tuple[FrameKeyDependency, ...]] = []
     for value in values:
         if isinstance(value, Population):
             groups.append(value._frame_inputs)

@@ -12,20 +12,20 @@ import pyarrow as pa
 import marivo.analysis as mv
 from marivo._definition.grouping import grouping_binding
 from marivo._kernel.temporal import builtin_grain
-from marivo.analysis.core.data_schema import DataAxis, DataSchema
-from marivo.analysis.core.data_types import (
+from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.temporal import exact_scope
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_types import (
     DataColumn,
     DecimalDataType,
     DurationDataType,
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_calendar import freeze_calendar
-from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.dsl.temporal import exact_scope
-from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 
 
 def produce(root: Path, *, extended: bool = False) -> dict[str, str]:

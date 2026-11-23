@@ -21,7 +21,6 @@ from marivo.analysis.compiler.graph_plan import (
     SourceReadStage,
 )
 from marivo.analysis.compiler.observation import ReductionInput
-from marivo.analysis.core.data_types import DataColumn
 from marivo.analysis.core.value_types import data_type
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.materialization.graph_source_execution import (
@@ -29,6 +28,7 @@ from marivo.analysis.materialization.graph_source_execution import (
     qualify_attribute_game_sources,
     read_stage,
 )
+from marivo.analysis.model.data_types import DataColumn
 from tests.datasource.source_cases import SourceData, source_case, source_params
 
 
@@ -224,7 +224,7 @@ def test_distinct_frequency_rejects_unqualified_equality_before_reads(dtype: str
 def test_native_frequency_capture_keeps_full_uint64_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.core.data_types import DecimalDataType
+    from marivo.analysis.model.data_types import DecimalDataType
 
     maximum = 2**64 - 1
     data = SourceData(

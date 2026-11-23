@@ -13,8 +13,8 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.lineage import ColumnLineage, SemanticObjectIdentity, union
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.lineage import ColumnLineage, SemanticObjectIdentity, union
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 from tests.support.paths import PROJECT_ROOT
 

@@ -15,7 +15,7 @@ import pyarrow as pa
 
 import marivo.analysis as mv
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
-from marivo.analysis.core.frame_metadata import FrameResultMetadata
+from marivo.analysis.model.frame_metadata import FrameResultMetadata
 from tests.support.json import Json
 
 

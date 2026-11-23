@@ -24,18 +24,14 @@ from marivo._kernel.errors import MarivoError
 from marivo._kernel.temporal import Grain, anchor_from_datetime
 from marivo._kernel.temporal_grid import TimeShiftAbsent, TimeShiftMatch
 from marivo._kernel.timezones import normalize_timezone
+from marivo.analysis.binding.calendar_keys import require_window_endpoints, window_endpoint_keys
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.windows import bind_windows
 from marivo.analysis.compiler.calendar import builtin_key, builtin_wall_key
-from marivo.analysis.core.artifact_data import (
-    CalendarDataAxis,
-    DataAxis,
-    DataSchema,
-    OutputAttachment,
-)
-from marivo.analysis.core.calendar_keys import require_window_endpoints, window_endpoint_keys
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.temporal_sql import lower_temporal
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.model.data_schema import CalendarDataAxis, DataAxis, DataSchema
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.datasource._calendar_relations import calendar_data, calendar_range
 from marivo.datasource._temporal_expressions import localize, render, timestamp
 from marivo.datasource.adapters import SourceSession
@@ -243,7 +239,7 @@ def _source_output_calendar(
             key_mapping[old_key] = point
         if point in seen:
             if windows and seen[point] != (finish_point, low, high):
-                from marivo.analysis.core.model import reject
+                from marivo.analysis.model.errors import reject
 
                 reject(
                     "unique native output keys and window parameters",
@@ -651,7 +647,7 @@ def freeze_output_calendars(
     key_owners: Mapping[str, Mapping[datetime, SourceSession]],
 ) -> tuple[DataSchema, tuple[OutputAttachment, ...]]:
     """Freeze S∪O after values finish; extra native keys retain their identity."""
-    from marivo.analysis.core.frame_calendar import freeze_calendar, freeze_interval
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar, freeze_interval
 
     axes: list[DataAxis] = []
     attachments: list[OutputAttachment] = []

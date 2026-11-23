@@ -23,9 +23,9 @@ import marivo.semantic as ms
 from marivo.analysis.materialization import admission, terminal_publication
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import SessionRecord
-from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.analysis.model.execution_errors import SessionBusyError
 from marivo.datasource import backends
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.backends import (

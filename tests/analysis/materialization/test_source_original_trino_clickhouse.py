@@ -15,7 +15,7 @@ import pytest
 from trino.exceptions import TrinoUserError
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.analysis.materialization.test_source_original_postgres import _native_scalar

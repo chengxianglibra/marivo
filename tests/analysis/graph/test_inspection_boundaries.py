@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from marivo.analysis.materialization.errors import StorageAccessError
 from marivo.analysis.materialization.storage import _open_payload
+from marivo.analysis.model.execution_errors import StorageAccessError
 from tests.shared_fixtures import DslCaseFactory, catalog_get
 
 

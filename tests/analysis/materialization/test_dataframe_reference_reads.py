@@ -18,8 +18,8 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.result_reference import DataFrameReference
 from marivo.analysis.materialization.result_files import ResultStorageError
+from marivo.analysis.model.result_reference import DataFrameReference
 
 
 def snapshot_path(root: Path, reference: DataFrameReference) -> Path:

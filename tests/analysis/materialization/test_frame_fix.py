@@ -9,8 +9,13 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_schema import DataAxis, DataSchema
-from marivo.analysis.core.data_types import (
+from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_types import (
     DataColumn,
     DataType,
     DecimalDataType,
@@ -18,12 +23,7 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value
 
 
@@ -64,7 +64,7 @@ def axis(name: str, dtype: DataType | None = None, *, nullable: bool = True) -> 
 def test_pending_fixed_axes_close_before_and_inside_comparison(
     analysis_dsl_case_factory: DslCaseFactory, key: str | None
 ) -> None:
-    from marivo.analysis.core.frame_interpretation import UnresolvedDataType
+    from marivo.analysis.model.frame_facts import UnresolvedDataType
 
     case = analysis_dsl_case_factory("j2")
     region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
@@ -120,7 +120,7 @@ def test_pending_composite_fixed_key_retains_exact_physical_types(
     from marivo.analysis.compiler.frame_plan import frame_program
     from marivo.analysis.core.frame_expression import infer_frame_schema
     from marivo.analysis.core.frame_fix import FixFrameValues
-    from marivo.analysis.core.frame_structure import (
+    from marivo.analysis.model.frame_structure import (
         PendingDataAxis,
         PendingDataColumn,
         PendingDataSchema,

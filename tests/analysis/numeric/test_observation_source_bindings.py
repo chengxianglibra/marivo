@@ -10,11 +10,11 @@ from typing import TypeAlias
 import pytest
 
 from marivo._kernel.refs import ref
-from marivo.analysis.observation.errors import ObservationBindingError
-from marivo.analysis.observation.source_bindings import (
+from marivo.analysis.binding.source_bindings import (
     SourceParameterScopes,
     SourceParameterValue,
 )
+from marivo.analysis.model.errors import ObservationBindingError
 from marivo.datasource.ir import (
     AiContextIR,
     CsvSourceIR,

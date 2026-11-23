@@ -8,14 +8,15 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
-from marivo.analysis.core.data_schema import DataAxis
-from marivo.analysis.core.data_types import DataColumn
-from marivo.analysis.core.frame_structure import PendingDataAxis, PendingDataColumn, axis_role
-from marivo.analysis.core.frozen_calendar import FrozenKey, _arrow_type, frozen_key_rows
-from marivo.analysis.core.lineage import Origins
-from marivo.analysis.core.model import reject
+from marivo.analysis.core.frozen_calendar import _arrow_type, frozen_key_rows
 from marivo.analysis.core.value_types import literal_kind
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.model.data_schema import DataAxis
+from marivo.analysis.model.data_types import DataColumn
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_structure import PendingDataAxis, PendingDataColumn, axis_role
+from marivo.analysis.model.frozen_keys import FrozenKey
+from marivo.analysis.model.lineage import Origins
 
 
 @dataclass(frozen=True, slots=True)

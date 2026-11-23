@@ -67,7 +67,9 @@ from marivo.semantic.ir import (
 )
 
 if TYPE_CHECKING:
-    from marivo.semantic._expression_binding import CompiledExpressionSidecar
+    from marivo.semantic._expression_binding import (
+        CompiledExpressionSidecar as CompiledExpressionSidecar,
+    )
 
 __all__ = [
     "Registry",
@@ -138,7 +140,7 @@ def _target_columns(entity: EntityIR) -> tuple[tuple[str, str], ...]:
     return tuple((name, "unknown") for name in names)
 
 
-def _snapshot_target_source(source: EntitySourceIR) -> EntitySourceIR:
+def snapshot_target_source(source: EntitySourceIR) -> EntitySourceIR:
     """Detach nested authoring sequences from the captured source declaration."""
     if isinstance(source, JsonSourceIR):
         query: list[tuple[str, JsonQueryParamValue]] = []
@@ -155,8 +157,6 @@ def _snapshot_target_source(source: EntitySourceIR) -> EntitySourceIR:
             query_params=tuple(query),
             body_params=tuple((tuple(path), parameter) for path, parameter in source.body_params),
         )
-    if isinstance(source, CsvSourceIR):
-        return replace(source, columns=tuple(source.columns))
     if isinstance(source, ParquetSourceIR):
         return replace(
             source, columns=tuple(source.columns) if source.columns is not None else None
@@ -397,7 +397,7 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
             _create_ref(SemanticKind.DATASOURCE, entity.datasource)
         ),
         dependency_fingerprint=dependency_fingerprint,
-        source=_snapshot_target_source(entity.source),
+        source=snapshot_target_source(entity.source),
         primary_key=key,
         identity_signature=signature,
         version_row_key=row_key,

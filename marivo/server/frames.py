@@ -5,23 +5,25 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from marivo.analysis._pages import decode_keyset_cursor, encode_keyset_cursor
-from marivo.analysis.core.data_schema import (
+from marivo.analysis.dsl.frame_reopening import reopen_frame
+from marivo.analysis.errors import SessionStateError
+from marivo.analysis.materialization.frame_paging import read_frame_page, read_frame_periods
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.model.data_schema import (
     CalendarComparisonBinding,
     CalendarDataAxis,
     IntervalComparisonBinding,
     IntervalDataAxis,
     PairedDataAxis,
 )
-from marivo.analysis.core.data_types import DataType
-from marivo.analysis.core.frame_interpretation import FrameAxisSchema, FrameComparison
-from marivo.analysis.core.frame_schema import axis_export_layout, comparison_id, export_layout
-from marivo.analysis.core.result_reference import FrameReference
-from marivo.analysis.errors import SessionStateError
-from marivo.analysis.materialization.contracts import digest
-from marivo.analysis.materialization.frame_paging import read_frame_page, read_frame_periods
-from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.model.data_types import DataType
+from marivo.analysis.model.frame_schema import axis_export_layout, comparison_id, export_layout
+from marivo.analysis.model.layout_facts import FrameComparison
+from marivo.analysis.model.pages import decode_keyset_cursor, encode_keyset_cursor
+from marivo.analysis.model.receipts import digest
+from marivo.analysis.model.result_reference import FrameReference
+from marivo.analysis.model.time_facts import FrameAxisSchema
 from marivo.analysis.session import _lazy_history
 from marivo.analysis.session._lazy_frames import persisted_frames
 from marivo.analysis.session._lazy_runtime_reads import page_after
@@ -140,7 +142,7 @@ class FrameReads:
         self, session_id: str, artifact_id: str, budget: Budget, *, store_id: str | None = None
     ) -> bytes:
         local = self.local(session_id, store_id=store_id)
-        frame = local.reopen(artifact_id)
+        frame = reopen_frame(local, artifact_id)
         backing = frame._require_stored("detail")
         schema = backing.data.schema
         public = frame.schema

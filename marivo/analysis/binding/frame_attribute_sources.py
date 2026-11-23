@@ -7,10 +7,14 @@ from typing import Literal
 
 from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._definition.types import literal_token
-from marivo.analysis.core.frame_data import SourceFrameBinding
-from marivo.analysis.core.frame_derivation import DerivationTarget, FrameDerivation, SourceMetric
+from marivo.analysis.binding.signature import BoundQuantity
+from marivo.analysis.core.frame_data import (
+    DerivationTarget,
+    FrameDerivation,
+    SourceFrameBinding,
+    SourceMetric,
+)
 from marivo.analysis.core.frame_expression import NamedFrameComparison
-from marivo.analysis.core.model import BoundQuantity
 
 
 @dataclass(frozen=True, slots=True)

@@ -19,14 +19,13 @@ from marivo.analysis.materialization.contracts import (
     ResourceRecord,
     RunFailure,
     SessionRecord,
-    canonical_json,
     decode_failure,
     failure_payload,
-    invalid,
     parse_timestamp,
 )
-from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
+from marivo.analysis.model.execution_errors import IntegrityError
+from marivo.analysis.model.receipts import canonical_json, invalid
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.terminal_store import TerminalRun
@@ -202,7 +201,7 @@ class SessionStore:
 
     @property
     def store_id(self) -> str:
-        from marivo.analysis.materialization.contracts import digest
+        from marivo.analysis.model.receipts import digest
 
         return "store_" + digest(str(self.db_path))
 

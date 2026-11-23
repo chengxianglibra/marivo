@@ -15,9 +15,9 @@ import ibis
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.source_time import source_time_comparison, source_time_predicate
-from marivo.analysis.core.frame_interpretation import FrameSourceTime, capture_source_times
-from marivo.analysis.core.time_authority import SourceTimeAuthority
-from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.model.errors import DatasetConstructionError
+from marivo.analysis.model.time_authority import SourceTimeAuthority
+from marivo.analysis.model.time_facts import FrameSourceTime, capture_source_times
 from marivo.semantic.ir import (
     TargetDimensionContract,
     TargetSnapshotSelection,

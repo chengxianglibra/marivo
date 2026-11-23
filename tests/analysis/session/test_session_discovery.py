@@ -11,9 +11,9 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.errors import SessionNotFoundError
-from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.model.execution_errors import IntegrityError
 
 
 def _project_state(root: Path) -> dict[str, bytes | str | None]:

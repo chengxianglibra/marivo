@@ -13,8 +13,8 @@ from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import ExactRef, field_read_key
 from marivo.analysis.binding.membership import membership_path, membership_reads
 from marivo.analysis.compiler.member_version import prepare_version_filter
-from marivo.analysis.core.frame_interpretation import FrameSourceTime
-from marivo.analysis.core.model import reject
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.time_facts import FrameSourceTime
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.validator import (
     normalize_target_entity,

@@ -7,12 +7,12 @@ from fractions import Fraction
 
 import pytest
 
-from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 from marivo.analysis.methods.attribute_quantiles import (
     FrequencyGame,
     FrequencyRankIndex,
     frequency_state,
 )
+from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
 
 
 def test_frequency_rank_index_retains_decimal_and_uint64_order() -> None:

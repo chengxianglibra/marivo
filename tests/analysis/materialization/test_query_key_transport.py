@@ -6,8 +6,8 @@ import ibis
 import ibis.expr.operations as ops
 import pytest
 
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.materialization.query_parameters import instantiate
+from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.datasource.adapters import PhysicalRequirement
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.query_keys import integer_string_keys as _keys
@@ -102,8 +102,8 @@ def test_timestamp_keys_preserve_char_padding_and_native_infinity(
 
     import pandas as pd
 
-    from marivo.analysis.core.data_types import TimestampDataType
-    from marivo.analysis.materialization.graph_exchange import StageOutput
+    from marivo.analysis.methods.carriers.stages import StageOutput
+    from marivo.analysis.model.data_types import TimestampDataType
 
     data = SourceData(
         "id BIGINT, point TIMESTAMPTZ, tenant CHAR(4), weight DOUBLE PRECISION",

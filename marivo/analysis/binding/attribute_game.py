@@ -25,7 +25,7 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.graph import dataclass_identity_name
 from marivo._definition.types import ExactRef
-from marivo.analysis.core.attribute_game_errors import AttributeGameError
+from marivo.analysis.model.attribute_game_errors import AttributeGameError
 
 
 @dataclass(frozen=True, slots=True)

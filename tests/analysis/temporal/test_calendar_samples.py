@@ -13,11 +13,11 @@ import pytest
 import marivo.analysis as mv
 from marivo._authoring.model import AuthoringCapability
 from marivo._definition.windows import ObservationWindow
-from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.materialization import sample_fusion
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods import _sample_numeric
+from marivo.analysis.model.data_types import ScalarDataType
+from marivo.analysis.model.errors import CoreRuleError
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._deferred_semantics import consume_metric

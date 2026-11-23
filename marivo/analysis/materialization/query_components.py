@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
@@ -16,60 +16,24 @@ from marivo.analysis.compiler.graph_plan import read_reduction, require_reductio
 from marivo.analysis.compiler.original import (
     ComponentLayout,
 )
-from marivo.analysis.core.data_types import DataColumn, DurationDataType, ScalarDataType
-from marivo.analysis.core.data_validation import normalize_stage_columns, normalize_stage_frame
-from marivo.analysis.core.unique_keys import UniqueKeys
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import source_columns
+from marivo.analysis.methods.carriers.data_validation import (
+    normalize_stage_columns,
+    normalize_stage_frame,
+)
+from marivo.analysis.methods.carriers.stage_components import (
+    AttributeRootInputs,
+    ComponentFrame,
+    _invalid,
+)
+from marivo.analysis.methods.carriers.stages import source_columns
+from marivo.analysis.model.attribute_failures import AttributeAggregateWitness
+from marivo.analysis.model.data_types import DataColumn, DurationDataType, ScalarDataType
+from marivo.analysis.model.frame_contracts import CheckReceipt
+from marivo.analysis.model.unique_keys import UniqueKeys
 
 if TYPE_CHECKING:
-    from marivo.analysis.core.attribute import (
-        AttributeFailureContext,
-        AttributeMatrixSource,
-        AttributeWitness,
-    )
-    from marivo.analysis.materialization.graph_exchange import CheckReceipt, StageOutput
-
-
-@dataclass(frozen=True, slots=True, eq=False)
-class ComponentFrame:
-    """One source occurrence's complete actual inputs, confined to an invocation."""
-
-    layout: ComponentLayout
-    table: pd.DataFrame
-    domain: pd.DataFrame | None = None
-    table_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
-    domain_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
-
-    def __post_init__(self) -> None:
-        expected = tuple(column.slot_id for column in self.layout.raw_columns)
-        if tuple(self.table.columns) != expected:
-            raise _invalid(f"original columns {tuple(self.table.columns)!r}; expected {expected!r}")
-        # complete_components owns carrier, nullability and complete-key validation.
-        if self.domain is not None and tuple(self.domain.columns) != self.layout.keys:
-            raise _invalid("original coordinate support differs from the complete fine keys")
-        object.__setattr__(self, "table_unique_keys", self.table_unique_keys.project(expected))
-        object.__setattr__(
-            self, "domain_unique_keys", self.domain_unique_keys.project(self.layout.keys)
-        )
-
-    @property
-    def coordinates(self) -> pd.DataFrame:
-        return (
-            self.domain
-            if self.domain is not None
-            else self.table.loc[:, list(self.layout.keys)].drop_duplicates()
-        )
-
-
-def _invalid(received: str) -> MaterializationError:
-    return MaterializationError(
-        expected="complete invocation-local original inputs from one checked source statement",
-        received=received,
-        repair="Retain the original complete contribution identities and fine coordinate mapping.",
-        stage="query_components",
-        help_target="analysis_frame.compute",
-    )
+    from marivo.analysis.methods.carriers.stages import StageOutput
+    from marivo.analysis.model.attribute_failures import AttributeFailureContext, AttributeWitness
 
 
 def complete_components(
@@ -152,32 +116,6 @@ def complete_components(
     )
 
 
-@dataclass(frozen=True, slots=True, eq=False)
-class AttributeRootInputs:
-    """One independently checked parent or fine role and its own source receipt."""
-
-    layout: AttributeRootLayout
-    stage_id: str
-    parent: pd.DataFrame
-    fine: pd.DataFrame
-    receipts: tuple[CheckReceipt, ...]
-    parent_state: tuple[Literal["present", "known_empty"], ...] = ()
-    parent_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
-    fine_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "parent_unique_keys",
-            self.parent_unique_keys.project(tuple(str(c) for c in self.parent.columns)),
-        )
-        object.__setattr__(
-            self,
-            "fine_unique_keys",
-            self.fine_unique_keys.project(tuple(str(c) for c in self.fine.columns)),
-        )
-
-
 def attribute_witness_order(rows: pd.DataFrame, columns: tuple[DataColumn, ...]) -> tuple[int, ...]:
     """Order only failed aggregate candidates by their native typed coordinates."""
     if not columns:
@@ -198,13 +136,13 @@ def attribute_failure_context(
     fine: bool = False,
 ) -> AttributeFailureContext:
     """Retain a real failing source row's typed use, full parent and window."""
-    from marivo.analysis.core.attribute import (
+    from marivo.analysis.core.frozen_calendar import frozen_key_rows
+    from marivo.analysis.model.attribute_failures import (
         AttributeFailureContext,
         AttributeFineFiber,
         AttributeParentFiber,
         AttributeWindowFiber,
     )
-    from marivo.analysis.core.frozen_calendar import frozen_key_rows
 
     available = {column.slot_id: column for column in columns}
     parents = tuple(available[name] for name in layout.parent_keys)
@@ -262,20 +200,20 @@ def complete_attribute_inputs(
     """Finish aggregate inputs and consume bounded backend failure witnesses."""
     from marivo.analysis.compiler.attribute_inputs import input_failure
     from marivo.analysis.core.frozen_calendar import frozen_key_rows
-    from marivo.analysis.materialization.graph_exchange import CheckReceipt
 
     columns = {column.slot_id: column for column in layout.columns}
     identity = tuple(column for column, _ in layout.identity)
     parent_columns = tuple(columns[name] for name in layout.parent_keys)
     full_columns = tuple(columns[name] for name in layout.keys)
-    from marivo.analysis.core.attribute import AttributeCoverageWitness, AttributePartitionWitness
+    from marivo.analysis.model.attribute_failures import (
+        AttributeCoverageWitness,
+        AttributePartitionWitness,
+    )
 
     uncovered = (
         frame.loc[frame[layout.kind] == 6] if layout.population is not None else frame.iloc[:0]
     )
     if not uncovered.empty:
-        from marivo.analysis.core.attribute import AttributeAggregateWitness
-
         actual = normalize_stage_columns(
             uncovered.loc[:, [c.slot_id for c in full_columns]], full_columns
         )
@@ -578,32 +516,3 @@ def _empty_native_value(
         if evaluate_numeric(check.violation.op(), {}, index).astype("boolean").fillna(False).any():
             numeric_failure(check.expected, check.received)
     return evaluate_numeric(lowered.value.op(), {}, index).iloc[0]
-
-
-def select_attribute_root(
-    roots: tuple[AttributeRootInputs, ...],
-    scope: Literal["parent", "fine"],
-    source: AttributeMatrixSource,
-) -> AttributeRootInputs:
-    """Resolve one role, full use, slot and captured window without first-match lookup."""
-    matched = tuple(
-        root
-        for root in {root.stage_id: root for root in roots}.values()
-        if root.layout.scope == scope
-        and any(
-            leaf.use == source.use
-            and (
-                source.window is None or leaf.request.binding.window_key == source.window.window_key
-            )
-            for leaf in root.layout.leaves
-        )
-        and any(column.slot_id == source.source for column in root.layout.columns)
-    )
-    if len(matched) != 1:
-        from marivo.analysis.compiler.attribute_inputs import input_failure
-
-        input_failure(
-            "missing_component_proof",
-            f"{scope}: expected one exact use/slot/window role, received {len(matched)}",
-        )
-    return matched[0]

@@ -14,7 +14,7 @@ from marivo.analysis.compiler.graph_plan import (
     QueryStage,
     SourceReadStage,
 )
-from marivo.analysis.core.model import reject
+from marivo.analysis.model.errors import reject
 
 StageValue = TypeVar("StageValue")
 

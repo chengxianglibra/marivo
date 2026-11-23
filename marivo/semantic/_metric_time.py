@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Literal
 
 from marivo._definition.expressions import (
-    ContributionClockBinding,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
@@ -23,6 +22,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
+from marivo._definition.observation_time import ContributionClockBinding
 from marivo._definition.relations import LiteralPopulation, PopulationProgram, SampleDomain
 from marivo._definition.types import CalendarCoordinate, ExactRef, IntervalCoordinate
 from marivo._kernel.temporal import Grain

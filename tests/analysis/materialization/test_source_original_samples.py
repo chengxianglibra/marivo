@@ -211,7 +211,7 @@ def test_empty_actual_read_retains_zero_or_unknown_original_count(
     from marivo.analysis.compiler.graph_lowering import LoweredRead
     from marivo.analysis.compiler.graph_plan import SourceReadStage
     from marivo.analysis.materialization import graph_source_execution
-    from marivo.analysis.materialization.graph_exchange import StageOutput
+    from marivo.analysis.methods.carriers.stages import StageOutput
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:

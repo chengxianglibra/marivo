@@ -6,7 +6,7 @@ from marivo._definition.expressions import BuiltinSampleCoordinate
 from marivo._definition.types import CalendarCoordinate
 from marivo._kernel.temporal import grain_nests
 from marivo._kernel.timezones import same_timezone
-from marivo.analysis.core.model import reject
+from marivo.analysis.model.errors import reject
 
 
 def validate_sample_parent(

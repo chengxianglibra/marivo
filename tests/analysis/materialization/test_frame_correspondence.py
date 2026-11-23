@@ -21,22 +21,11 @@ from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     SourceReadStage,
 )
-from marivo.analysis.core.data_schema import DataAxis, DataSchema
-from marivo.analysis.core.data_types import (
-    DataColumn,
-    DataType,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-    TimestampDataType,
-)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     MemoryFrameBacking,
 )
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.core.frame_structure import PendingDataSchema
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.column import row_count
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -44,10 +33,21 @@ from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.frame_sources import values as frame_values
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import PreparedSources, run_frame_plan
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DataType,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.frame_structure import PendingDataSchema
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 
 
@@ -341,8 +341,8 @@ def test_automatic_axis_mapping_requires_unique_complete_metadata(
 
 def test_multiple_time_axes_do_not_infer_correspondence(local: LocalFrameServices) -> None:
     from marivo._kernel.temporal import builtin_grain
-    from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 
     period = exact_scope("2026-08-01", "2026-08-03", "UTC").by(builtin_grain("day"))
     first, second = (
@@ -750,7 +750,7 @@ def test_empty_values_do_not_qualify_for_compare(local: LocalFrameServices) -> N
 def test_source_binary_failure_still_closes_and_publishes_nothing(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.model.execution_errors import MaterializationError
     from marivo.datasource.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j1")
@@ -880,7 +880,7 @@ def _interval(
 ) -> AnalysisFrame:
     from marivo._definition.types import IntervalCoordinate
     from marivo._kernel.temporal import anchor_from_datetime
-    from marivo.analysis.core.frame_calendar import freeze_interval
+    from marivo.analysis.methods.carriers.frame_calendar import freeze_interval
 
     frozen = freeze_interval(
         IntervalCoordinate(
@@ -1071,8 +1071,8 @@ def test_comparison_select_retains_only_direct_bindings_and_exact_presence(
 
 
 def test_interval_comparison_alignment_transports_explicit_maps(local: LocalFrameServices) -> None:
-    from marivo.analysis.core.data_schema import IntervalComparisonBinding
     from marivo.analysis.dsl.correspondence import ordinal
+    from marivo.analysis.model.data_schema import IntervalComparisonBinding
 
     current, baseline = _interval(local, 1, 4), _interval(local, 2, 5)
     first = current.compare({"reference": mv.baseline(baseline, match=ordinal())})

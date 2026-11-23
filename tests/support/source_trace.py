@@ -15,10 +15,10 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_types import DataColumn
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.materialization import query_parameters
-from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.model.data_types import DataColumn
 from marivo.datasource.adapters import (
     BoundSource,
     CompiledRead,

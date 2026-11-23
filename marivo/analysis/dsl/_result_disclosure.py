@@ -1,6 +1,10 @@
 """Native finite result operations and axis-free correspondence disclosure."""
 
-from marivo.analysis._capabilities.dataset_model import (
+from marivo.analysis.dsl.baseline import ComparisonBaseline, baseline
+from marivo.analysis.dsl.column import Column, _Statistic, row_count
+from marivo.analysis.dsl.correspondence import offset
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.model.disclosure import (
     Descriptor,
     DisclosureProvider,
     ExampleInput,
@@ -9,13 +13,9 @@ from marivo.analysis._capabilities.dataset_model import (
     operation,
     value_type,
 )
-from marivo.analysis._capabilities.dataset_model import (
+from marivo.analysis.model.disclosure import (
     ParameterInput as P,
 )
-from marivo.analysis.dsl.baseline import ComparisonBaseline, baseline
-from marivo.analysis.dsl.column import Column, _Statistic, row_count
-from marivo.analysis.dsl.correspondence import offset
-from marivo.analysis.dsl.frame import AnalysisFrame
 
 
 def provider() -> DisclosureProvider:

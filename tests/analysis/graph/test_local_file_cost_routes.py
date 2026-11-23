@@ -8,7 +8,7 @@ from typing import Literal
 import pandas as pd
 import pytest
 
-from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.model.data_types import ScalarDataType
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import _rows, workload
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns

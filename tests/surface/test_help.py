@@ -26,9 +26,9 @@ from marivo._help.model import (
 from marivo._help.render import PublicHelpTarget
 from marivo._help.render import help as public_help
 from marivo._help.route import route_help_target
-from marivo.analysis._capabilities.dataset_model import Descriptor
 from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
 from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
+from marivo.analysis.model.disclosure import Descriptor
 from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
 from marivo.introspection.live.model import (
@@ -210,7 +210,7 @@ def test_analysis_task_members_resolve_independently() -> None:
         "sessions",
         "operators",
     ):
-        from marivo.analysis._capabilities.dataset_model import NavigationInput
+        from marivo.analysis.model.disclosure import NavigationInput
 
         topic = ANALYSIS_REGISTRY.by_canonical_id(owner)
         assert isinstance(topic, NavigationInput)

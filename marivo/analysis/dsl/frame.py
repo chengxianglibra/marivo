@@ -24,27 +24,19 @@ from marivo._definition.query import (
     SelectValues,
     Statistic,
     TopValues,
-    ValueBinary,
     ValueExpression,
     ValueLiteral,
     ValueSlot,
-    ValueUnary,
 )
 from marivo._definition.relations import ReadQuery
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
 from marivo.analysis._scope import scope_summary
-from marivo.analysis.core.artifact_data import ArtifactData, DataSchema, SavedFrameMethodFacts
-from marivo.analysis.core.data_types import (
-    DataColumn,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-    TimestampDataType,
-)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     ExpressionFrameBacking,
+    FrameBacking,
+    FrameDerivation,
     FrameExpressionRoot,
     LiteralFrameBinding,
     MemoryFrameBacking,
@@ -52,16 +44,8 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     StoredFrameBacking,
 )
-from marivo.analysis.core.frame_derivation import (
-    FrameDerivation,
-    complete_declaration,
-    derive_declaration,
-)
 from marivo.analysis.core.frame_expression import (
     AlignFrameValues,
-    AttributeContributionValues,
-    AttributeInputsValues,
-    AttributeProjectValues,
     CompareFrameValues,
     FrameUnaryOperationKind,
     NamedFrameComparison,
@@ -70,35 +54,50 @@ from marivo.analysis.core.frame_expression import (
     infer_frame_schema,
 )
 from marivo.analysis.core.frame_fix import FixFrameValues
-from marivo.analysis.core.frame_interpretation import FrameComparison
-from marivo.analysis.core.frame_metadata import (
+from marivo.analysis.core.frame_method_facts import FrameMethodFacts
+from marivo.analysis.dsl.baseline import ComparisonBaseline
+from marivo.analysis.dsl.baseline import baseline as declare_baseline
+from marivo.analysis.dsl.column import Column, _Statistic
+from marivo.analysis.dsl.frame_axis import FrameAxis
+from marivo.analysis.dsl.frame_derivation import complete_declaration, derive_declaration
+from marivo.analysis.dsl.frame_disclosure import (
+    _input_kind,
+    _operation_summary,
+    _pending_source_inputs,
+)
+from marivo.analysis.materialization.carriers.frame_page import FramePage, FramePeriodPage
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.model.artifact_data import ArtifactData, SavedFrameMethodFacts
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import FrameIdentity
+from marivo.analysis.model.frame_metadata import (
     MemoryInput,
     SourceInput,
     StoredFrameMetadata,
     StoredInput,
 )
-from marivo.analysis.core.frame_method_facts import FrameMethodFacts
-from marivo.analysis.core.frame_page import FramePage, FramePeriodPage
-from marivo.analysis.core.frame_schema import FrameAxisSchema, FrameSchema, capture_schema
-from marivo.analysis.core.frame_source_reads import FrameSourceRead
-from marivo.analysis.core.frame_structure import (
+from marivo.analysis.model.frame_schema import FrameAxisSchema, FrameSchema, capture_schema
+from marivo.analysis.model.frame_source_reads import FrameSourceRead
+from marivo.analysis.model.frame_structure import (
     PendingDataColumn,
     PendingDataSchema,
     axis_role,
     column_kind,
     require_complete_structure,
 )
-from marivo.analysis.core.lineage import FrameLineage
-from marivo.analysis.core.lineage import validate as validate_lineage
-from marivo.analysis.core.model import reject
-from marivo.analysis.core.result_reference import FrameReference
-from marivo.analysis.dsl.baseline import ComparisonBaseline
-from marivo.analysis.dsl.baseline import baseline as declare_baseline
-from marivo.analysis.dsl.column import Column, _Statistic
-from marivo.analysis.dsl.frame_axis import FrameAxis
-from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.model.layout_facts import FrameComparison
+from marivo.analysis.model.lineage import FrameLineage
+from marivo.analysis.model.lineage import validate as validate_lineage
+from marivo.analysis.model.result_reference import FrameReference
 
-FrameBacking: TypeAlias = ExpressionFrameBacking | MemoryFrameBacking | StoredFrameBacking
 CapturedSchema: TypeAlias = DataSchema | PendingDataSchema
 
 
@@ -111,7 +110,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, init=False, repr=False, eq=False)
-class AnalysisFrame:
+class AnalysisFrame(FrameIdentity):
     """One immutable data structure with expression, complete-memory or stored backing.
 
     Acquire through Session methods and Frame operators. Compute and persist return
@@ -197,7 +196,7 @@ class AnalysisFrame:
         input_id: str,
         derivation: FrameDerivation | None = None,
     ) -> AnalysisFrame:
-        from marivo.analysis.core.frame_interpretation import share_contexts, validate_current_facts
+        from marivo.analysis.model.frame_integrity import share_contexts, validate_current_facts
 
         schema = share_contexts(schema)
         validate_current_facts(schema)
@@ -519,7 +518,7 @@ class AnalysisFrame:
                 canonical_id="analysis_frame.fix",
             )
         keys = key if isinstance(key, tuple) else (key,)
-        from marivo.analysis.core.lineage import all_origins
+        from marivo.analysis.model.lineage import all_origins
 
         return self._derive(
             FixFrameValues(
@@ -545,7 +544,7 @@ class AnalysisFrame:
                 canonical_id="analysis_frame.select",
             )
         expressions: list[tuple[str, ValueExpression]] = []
-        from marivo.analysis.core.frame_structure import value_name
+        from marivo.analysis.model.value_names import value_name
 
         for name, value in values.items():
             value_name(name, location="frame.select", canonical_id="analysis_frame.select")
@@ -681,7 +680,7 @@ class AnalysisFrame:
                 "frame.reduce",
                 canonical_id="analysis_frame.reduce",
             )
-        from marivo.analysis.core.frame_structure import value_name
+        from marivo.analysis.model.value_names import value_name
 
         statistics: list[tuple[str, Statistic | PairStatistic]] = []
         candidates: dict[str, int] = {}
@@ -1173,7 +1172,7 @@ class AnalysisFrame:
         name and prepare inputs before compare. The reference alias retains full
         reference.baseline/absolute/relative paths.
         """
-        from marivo.analysis.core.frame_structure import validate_paths
+        from marivo.analysis.model.value_names import validate_paths
 
         declarations: tuple[tuple[str, ComparisonBaseline], ...]
         if isinstance(baselines, AnalysisFrame):
@@ -1277,7 +1276,9 @@ class AnalysisFrame:
         )
         result = evaluate_frame(self, declaration_keys=keys if needs_key_checkpoint else None)
         return self._from_memory(
-            self._local, result, complete_declaration(self._derivation, keys, result.metadata)
+            self._local,
+            result,
+            complete_declaration(self._derivation, keys, result.metadata, _bind_key_input),
         )
 
     @property
@@ -1711,7 +1712,7 @@ class AnalysisFrame:
                 f"{len(value_columns) - 3} omitted; .schema.values",
             )
         if self._schema.value_time_semantics:
-            from marivo.analysis.core.value_time import time_summary
+            from marivo.analysis.model.value_time import time_summary
 
             summaries = tuple(time_summary(fact) for _, fact in self._schema.value_time_semantics)
             card.field(
@@ -1733,7 +1734,7 @@ class AnalysisFrame:
             ):
                 card.field("time_details", ".schema.value_time_semantics")
         if self._schema.source_times:
-            from marivo.analysis.core.frame_interpretation import source_time_summary
+            from marivo.analysis.model.time_facts import source_time_summary
 
             card.field(
                 "source_times",
@@ -1918,130 +1919,7 @@ def _column_type_summary(column: DataColumn | PendingDataColumn) -> str:
     return f"duration({dtype.unit})"
 
 
-def _pending_source_inputs(
-    frame: AnalysisFrame,
-) -> tuple[tuple[AnalysisFrame, SourceFrameBinding], ...]:
-    """Collect explicit current source leaves; fixed inputs never recover history."""
-    pending = [frame]
-    seen: set[str] = set()
-    sources: list[tuple[AnalysisFrame, SourceFrameBinding]] = []
-    while pending:
-        current = pending.pop()
-        if current._input_id in seen:
-            continue
-        seen.add(current._input_id)
-        backing = current._backing
-        if not isinstance(backing, ExpressionFrameBacking):
-            continue
-        root = backing.root
-        if isinstance(root, SourceFrameBinding):
-            sources.append((current, root))
-        elif isinstance(root, OperationFrameBinding):
-            pending.extend(reversed(root.inputs))
-    return tuple(sources)
-
-
-def _input_kind(backing: FrameBacking) -> str:
-    if isinstance(backing, MemoryFrameBacking):
-        return "memory"
-    if isinstance(backing, StoredFrameBacking):
-        return "stored"
-    if isinstance(backing.root, SourceFrameBinding):
-        return "expression(source)"
-    if isinstance(backing.root, LiteralFrameBinding):
-        return "expression(literal)"
-    return "expression"
-
-
-def _value_summary(value: object, source: AnalysisFrame, depth: int = 0) -> str:
-    if depth >= 8:
-        return "... omitted (expression depth)"
-    if isinstance(value, ValueSlot):
-        return f"value[{source.output_names[value.index]!r}]"
-    if isinstance(value, CoordinateSlot):
-        return f"coordinate[{source._schema.axes[value.index].token!r}]"
-    if isinstance(value, PresenceSlot):
-        return f"presence[{'.'.join(value.path)!r}]"
-    if isinstance(value, ValueLiteral):
-        return repr(value.value)
-    if isinstance(value, ValueUnary):
-        return f"{value.operation}({_value_summary(value.operand, source, depth + 1)})"
-    if isinstance(value, ValueBinary):
-        return (
-            f"{value.operation}({_value_summary(value.left, source, depth + 1)}, "
-            f"{_value_summary(value.right, source, depth + 1)})"
-        )
-    return type(value).__name__
-
-
-def _operation_summary(binding: OperationFrameBinding) -> str:
-    from marivo.analysis.binding.attribute_rules import rule_effects
-    from marivo.analysis.core.attribute_game import AttributeGameValues
-    from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
-
-    operation, source = binding.operation, binding.inputs[0]
-    if isinstance(operation, AttributeMergeValues):
-        targets: list[str] = []
-        for frame in binding.inputs[:6]:
-            backing = frame._backing
-            if isinstance(backing, ExpressionFrameBacking) and isinstance(
-                backing.root, OperationFrameBinding
-            ):
-                targets.append(_operation_summary(backing.root))
-        remaining = len(binding.inputs) - len(targets)
-        suffix = f", remaining={remaining}" if remaining else ""
-        return f"attribute(targets={tuple(targets)!r}{suffix})"
-    if isinstance(operation, SelectValues):
-        values = tuple((name, _value_summary(value, source)) for name, value in operation.values)
-        return f"select(values={values!r})"
-    if isinstance(operation, FixFrameValues):
-        return f"fix(axis={source._schema.axes[operation.position].name!r}, key={operation.key!r})"
-    if isinstance(operation, FilterValues):
-        return f"where(predicate={_value_summary(operation.predicate, source)})"
-    if isinstance(operation, TopValues):
-        return (
-            f"top(n={operation.n}, by={_value_summary(operation.score, source)}, "
-            f"descending={operation.descending})"
-        )
-    if isinstance(operation, CompareFrameValues):
-        return f"compare(baselines={operation.baselines!r})"
-    if isinstance(operation, AlignFrameValues):
-        match = f", match={operation.match!r}" if operation.match is not None else ""
-        return f"align(on={operation.pairs!r}{match})"
-    if isinstance(operation, AttributeContributionValues):
-        target = operation.target
-        rule = (
-            "level_share"
-            if operation.single_endpoint
-            else "rate_mix"
-            if rule_effects(operation.rules[0][0][1])
-            else "additive"
-        )
-        return (
-            f"attribute(target={target.path!r}, kind={target.mode!r}, rule={rule!r})"
-            if target is not None
-            else "attribute(source_contribution)"
-        )
-    if isinstance(operation, AttributeGameValues):
-        return (
-            f"attribute(target={operation.target.path!r}, rule='group_replacement', "
-            f"permutations={operation.permutations}, seed={operation.seed}, "
-            "players=unknown, state_size=unknown)"
-        )
-    if isinstance(operation, AttributeInputsValues):
-        return "private Attribute input preparation"
-    assert not isinstance(operation, AttributeProjectValues)
-    statistics = tuple(
-        (
-            name,
-            statistic.method,
-            (_value_summary(statistic.left, source), _value_summary(statistic.right, source))
-            if isinstance(statistic, PairStatistic)
-            else None
-            if statistic.value is None
-            else _value_summary(statistic.value, source),
-        )
-        for name, statistic in operation.values
-    )
-    axes = tuple(source._schema.axes[position].token for position in operation.positions)
-    return f"reduce(values={statistics!r}, by={axes!r})"
+def _bind_key_input(
+    local: LocalFrameServices, result: CompletedFrameResult, input_id: str
+) -> AnalysisFrame:
+    return AnalysisFrame._bind(local, result.data.schema, MemoryFrameBacking(result), input_id)

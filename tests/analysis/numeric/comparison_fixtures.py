@@ -6,8 +6,8 @@ import pandas as pd
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.artifact_data import DataSchema
-from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.model.data_schema import DataSchema
+from marivo.analysis.model.data_types import ScalarDataType
 
 Operation = Literal["nested", "union", "ratio"]
 COMPLETE = {("a", 2**53, 1), ("a", 2**53 + 1, 2), ("b", 2**53 + 1, 1)}

@@ -10,11 +10,11 @@ computation fingerprints and executable dependency resolution.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from dataclasses import field as dataclass_field
 from typing import Literal, TypeAlias
 
 from ibis.common.deferred import Resolver
 
+from marivo._definition.observation_time import ContributionClockBinding
 from marivo._definition.population_types import (
     LiteralPopulation,
     PopulationProgram,
@@ -39,7 +39,7 @@ from marivo._definition.windows import ObservationWindow
 from marivo._kernel.ai_context import AiContextValue
 from marivo._kernel.errors import invalid
 from marivo._kernel.refs import DomainKind, ExactRef, Ref, SemanticKind, _validate_segment
-from marivo._kernel.temporal import Grain, InstantAnchor
+from marivo._kernel.temporal import Grain
 
 Reducer: TypeAlias = Literal[
     "sum",
@@ -65,35 +65,6 @@ def _check_quantile(reducer: Reducer, q: float | None) -> None:
             invalid(f"quantile expected q in [0, 1]; received {q!r}. Pass q such as 0.95.")
     elif q is not None:
         invalid(f"{reducer} does not accept q; received {q!r}. Remove q or use quantile.")
-
-
-@dataclass(frozen=True, slots=True)
-class ContributionClockBinding:
-    """Business time role of a source reduction: a time field and its single-valued path.
-
-    An empty path reads a time field native to the contribution root; a non-empty
-    path is the ordered relationship chain from the root to the field's Entity.
-    """
-
-    field: ExactRef
-    path: tuple[ExactRef, ...] = ()
-    at: InstantAnchor | None = None
-    source: Literal["explicit", "entity_default"] = "explicit"
-    source_at: InstantAnchor | None = dataclass_field(default=None, kw_only=True)
-    step_ats: tuple[InstantAnchor | None, ...] = dataclass_field(default=(), kw_only=True)
-
-    def __post_init__(self) -> None:
-        if self.field.ref.kind is not SemanticKind.TIME_DIMENSION:
-            invalid(
-                f"time binding expected a time_dimension reference; received "
-                f"{self.field.ref.key}. Pass a declared time field."
-            )
-        for step in self.path:
-            if step.ref.kind is not SemanticKind.RELATIONSHIP:
-                invalid(
-                    f"time path on {self.field.ref.key} expected relationship references; "
-                    f"received {step.ref.key}. Pass declared relationships in path order."
-                )
 
 
 @dataclass(frozen=True, slots=True)

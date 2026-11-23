@@ -17,7 +17,6 @@ from marivo._definition.query import (
     ValueExpression,
 )
 from marivo.analysis.core.attribute_game import AttributeGameValues
-from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
 from marivo.analysis.core.frame_expression import (
     AlignFrameValues,
     AttributeContributionValues,
@@ -27,7 +26,8 @@ from marivo.analysis.core.frame_expression import (
     FrameOperationKind,
 )
 from marivo.analysis.core.frame_fix import FixFrameValues
-from marivo.analysis.core.lineage import (
+from marivo.analysis.model.frame_attribute_merge import AttributeMergeValues
+from marivo.analysis.model.lineage import (
     ColumnLineage,
     FrameLineage,
     SemanticObjectIdentity,
@@ -40,15 +40,15 @@ from marivo.analysis.core.lineage import (
 )
 
 if TYPE_CHECKING:
-    from marivo.analysis.core.data_schema import DataSchema
-    from marivo.analysis.core.frame_structure import PendingDataSchema
-    from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.analysis.core.frame_data import FrameNode
+    from marivo.analysis.model.data_schema import DataSchema
+    from marivo.analysis.model.frame_structure import PendingDataSchema
 
 
 def derive(
     schema: DataSchema | PendingDataSchema,
     operation: FrameOperationKind,
-    inputs: tuple[AnalysisFrame, ...],
+    inputs: tuple[FrameNode, ...],
 ) -> FrameLineage:
     first = inputs[0].lineage
     values = tuple(first.values.values())

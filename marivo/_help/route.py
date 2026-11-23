@@ -29,7 +29,7 @@ _GLOBAL_TOPICS = ("root", "authoring")
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringCapability
-    from marivo.analysis._capabilities.dataset_model import Descriptor
+    from marivo.analysis.model.disclosure import Descriptor
     from marivo.ontology._capabilities.registry import OntologyDescriptor
     from marivo.semantic._capabilities.model import SemanticHelpDescriptor
 

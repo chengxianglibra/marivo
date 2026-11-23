@@ -8,10 +8,10 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.errors import SessionStateError
 from marivo.analysis.materialization.contracts import SessionRecord
-from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.terminal_store import admit
 from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.analysis.model.execution_errors import SessionBusyError
 from tests.shared_fixtures import DslCaseFactory, terminal_run, terminal_runs
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from marivo.analysis.core.frame_structure import AxisRole
+from marivo.analysis.model.frame_structure import AxisRole
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame

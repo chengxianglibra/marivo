@@ -10,7 +10,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.core.frame_data import StoredFrameBacking
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project

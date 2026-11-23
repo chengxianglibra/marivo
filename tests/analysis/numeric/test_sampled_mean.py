@@ -19,7 +19,7 @@ import sqlglot.expressions as sge
 
 import marivo.analysis as mv
 from marivo.analysis.materialization import sample_fusion
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
@@ -89,9 +89,10 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
     )
     from marivo._definition.expressions import PerReduce
     from marivo._definition.types import AxisBinding
-    from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
+    from marivo.analysis.binding.programs import FormulaProgram
     from marivo.analysis.compiler.sample_reductions import SampleLowerer
-    from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+    from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+    from marivo.analysis.model.programs import FormulaInput
 
     sample = AxisBinding(field.root, field.ref, (), "field")
     node = PerReduce(prepared.node, (sample,), reducer, nulls="error")
@@ -130,9 +131,10 @@ def test_sample_presence_filters_rows_without_discarding_present_nulls(marker: s
     from marivo._definition.expressions import RowField, SourceAggregate
     from marivo._definition.types import ExactRef, SumAll
     from marivo._kernel.refs import ref
-    from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
+    from marivo.analysis.binding.programs import FormulaProgram
     from marivo.analysis.compiler.sample_reductions import SampleLowerer
-    from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+    from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+    from marivo.analysis.model.programs import FormulaInput
 
     table = ibis.memtable(
         {"key.0": [1, 2, 3, 4], "value": [10.0, 1000.0, 2000.0, None]},
@@ -2046,10 +2048,11 @@ def test_native_ordered_concat_does_not_inherit_each_fragment_unique_time() -> N
     from marivo._definition.expressions import PerReduce, RowField, SourceAggregate
     from marivo._definition.types import AxisBinding, ExactRef, SumAll
     from marivo._kernel.refs import ref
-    from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
+    from marivo.analysis.binding.programs import FormulaProgram
     from marivo.analysis.compiler.sample_reductions import SampleLowerer
-    from marivo.analysis.core.data_types import DataColumn, ScalarDataType
-    from marivo.analysis.core.unique_keys import UniqueKeys
+    from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+    from marivo.analysis.model.programs import FormulaInput
+    from marivo.analysis.model.unique_keys import UniqueKeys
 
     field = RowField(
         ExactRef(ref.measure("sales.facts.amount"), "v1"),

@@ -7,7 +7,6 @@ from typing import Literal, TypeAlias, get_args
 
 from marivo.analysis.methods.errors import reject
 
-QUERY_COMBINE_KERNEL = "query.combine@v1"
 ScalarName: TypeAlias = Literal["boolean", "string", "int64", "float64", "date", "timestamp"]
 
 

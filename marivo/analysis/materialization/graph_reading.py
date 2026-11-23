@@ -13,35 +13,18 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from marivo.analysis.core.artifact_data import (
-    ArtifactManifest,
-    DataSchema,
-    OutputAttachment,
-    ParquetHandle,
-)
-from marivo.analysis.core.data_schema import (
-    CalendarComparisonBinding,
-    CalendarDataAxis,
-    IntervalComparisonBinding,
-    IntervalDataAxis,
-    PairedDataAxis,
-)
-from marivo.analysis.core.data_types import DataColumn
-from marivo.analysis.core.data_validation import normalize_complete_frame
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     StoredFrameBacking,
 )
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
-from marivo.analysis.core.frame_page import FrameReadStats, detached_rows
 from marivo.analysis.core.frozen_calendar import (
     FrozenCalendarBucket,
     FrozenCalendarDirectory,
     FrozenComparisonAbsent,
     FrozenIntervalBucket,
     FrozenIntervalDirectory,
-    FrozenKey,
     frozen_key_rows,
     frozen_key_table,
     read_calendar_records,
@@ -51,11 +34,9 @@ from marivo.analysis.core.frozen_calendar import (
     validate_paired_records,
     validate_presence,
 )
-from marivo.analysis.core.model import reject
-from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.errors import ArtifactNotFoundError
 from marivo.analysis.materialization import terminal_store
-from marivo.analysis.materialization.errors import MaterializationError, StorageAccessError
+from marivo.analysis.materialization.carriers.frame_page import FrameReadStats, detached_rows
 from marivo.analysis.materialization.frame_method_facts import decode_method_payload
 from marivo.analysis.materialization.storage import (
     _checked_path,
@@ -65,7 +46,23 @@ from marivo.analysis.materialization.storage import (
 from marivo.analysis.materialization.store import SessionStore, _one, _text
 from marivo.analysis.materialization.terminal_protocol import invalid
 from marivo.analysis.materialization.terminal_storage import POLICY, arrow_schema, physical_schema
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.methods.carriers.data_validation import normalize_complete_frame
 from marivo.analysis.methods.frame_method_facts import validate_method_facts
+from marivo.analysis.model.artifact_data import ArtifactManifest, ParquetHandle
+from marivo.analysis.model.data_schema import (
+    CalendarComparisonBinding,
+    CalendarDataAxis,
+    DataSchema,
+    IntervalComparisonBinding,
+    IntervalDataAxis,
+    PairedDataAxis,
+)
+from marivo.analysis.model.data_types import DataColumn
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.execution_errors import MaterializationError, StorageAccessError
+from marivo.analysis.model.frozen_keys import FrozenKey
+from marivo.analysis.model.unique_keys import UniqueKeys
 
 
 @dataclass(frozen=True, slots=True)

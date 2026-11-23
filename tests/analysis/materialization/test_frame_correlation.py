@@ -19,26 +19,26 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.graph import fingerprint
-from marivo.analysis.core.data_schema import DataAxis, DataSchema
-from marivo.analysis.core.data_types import (
-    DataColumn,
-    DataType,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
-)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     ExpressionFrameBacking,
     MemoryFrameBacking,
 )
-from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.core.frame_structure import PendingDataSchema
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_types import (
+    DataColumn,
+    DataType,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+)
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.frame_structure import PendingDataSchema
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.shared_fixtures import (
     DslCase,

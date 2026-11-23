@@ -11,7 +11,6 @@ from ibis.common.deferred import const, var
 
 from marivo._definition.deferred import resolver_of
 from marivo._definition.expressions import (
-    ContributionClockBinding,
     ContributionFilter,
     DeclaredMetricRef,
     MeasureAssertion,
@@ -29,6 +28,7 @@ from marivo._definition.graph import (
     definition_fingerprint,
     walk,
 )
+from marivo._definition.observation_time import ContributionClockBinding
 from marivo._definition.observations import SampleWindowContext
 from marivo._definition.relations import (
     LiteralPopulation,

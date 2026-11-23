@@ -9,8 +9,8 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.data_types import ScalarDataType
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.physical_workloads import Workload, workload

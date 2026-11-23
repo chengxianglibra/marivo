@@ -15,7 +15,7 @@ from sqlglot import expressions as sge
 import marivo.analysis as mv
 from marivo.analysis.compiler.native_formula import align_native_inputs
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject

@@ -9,7 +9,7 @@ from marivo._definition.expressions import EntityCount, SourceAggregate, SourceW
 from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.graph_plan import SourceReadStage, read_reduction, require_reduction
 from marivo.analysis.compiler.query_program import ResultProgram
-from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
+from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
 

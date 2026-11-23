@@ -369,7 +369,7 @@ def test_source_free_calendar_preserves_pandas_native_ambiguity(
     from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
 
     from marivo.analysis.dsl.population import _calendar_population
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.model.execution_errors import MaterializationError
 
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("pandas-native-calendar", timezone=zone)

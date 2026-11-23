@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from marivo._kernel.errors import MarivoError
+from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.frame_filter_fusion import fuse_frame_filters
 from marivo.analysis.compiler.frame_plan import (
     CompiledFramePlan,
@@ -25,7 +26,6 @@ from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     SourceReadStage,
 )
-from marivo.analysis.core.artifact_data import CalendarDataAxis, DataSchema, OutputAttachment
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -38,36 +38,37 @@ from marivo.analysis.core.frame_expression import (
     FrameExpression,
     SourceFrameInput,
 )
-from marivo.analysis.core.frame_metadata import (
-    EvaluationRecord,
-    FrameResultMetadata,
-)
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts, same_method_facts
-from marivo.analysis.core.frame_source_reads import (
-    FrameSourceRead,
-    FrameSourceReadPeriod,
-    FrameSourceReadScope,
-    merge_source_reads,
-)
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import reject
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_inputs import capture_frame_inputs
 from marivo.analysis.materialization.frame_source_preparation import prepare_frame_sources
-from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
     run_frame_plan,
 )
 from marivo.analysis.materialization.query_runtime_types import effective_frame_schema
+from marivo.analysis.methods.carriers.attachments import OutputAttachment
+from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.methods.frame_method_facts import validate_method_facts
+from marivo.analysis.model.data_schema import CalendarDataAxis, DataSchema
+from marivo.analysis.model.errors import reject
+from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_metadata import (
+    EvaluationRecord,
+    FrameResultMetadata,
+)
+from marivo.analysis.model.frame_source_reads import (
+    FrameSourceRead,
+    FrameSourceReadPeriod,
+    FrameSourceReadScope,
+    merge_source_reads,
+)
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.frame_attribute_inputs import AttributeInputRequest
     from marivo.analysis.core.attribute import AttributeMethodPayload, AttributeMethodProduction
-    from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.analysis.core.frame_data import FrameNode
 
 
 def _attribute_associations(
@@ -201,7 +202,7 @@ def _fold_method_facts(
 
 
 def _evaluate_frame(
-    frame: AnalysisFrame,
+    frame: FrameNode,
     request: AttributeInputRequest | None = None,
     declaration_keys: dict[str, CompletedFrameData] | None = None,
 ) -> CompletedFrameResult | StageOutput:
@@ -227,7 +228,7 @@ def _evaluate_frame(
         for facts in result.method_facts:
             validate_method_facts(facts)
         if declaration_keys is not None:
-            from marivo.analysis.core.frame_derivation import key_checkpoint
+            from marivo.analysis.core.frame_data import key_checkpoint
 
             declaration_keys[input_id] = key_checkpoint(result.data)
         fixed_method_facts[input_id] = result.method_facts
@@ -271,7 +272,7 @@ def _evaluate_frame(
             input_id = operation_stages.get(stage.stage_id)
             if declaration_keys is None or input_id is None or output.frame_schema is None:
                 return
-            from marivo.analysis.core.frame_derivation import key_checkpoint
+            from marivo.analysis.core.frame_data import key_checkpoint
 
             declaration_keys[input_id] = key_checkpoint(
                 CompletedFrameData(
@@ -359,7 +360,7 @@ def _evaluate_frame(
                 unique_keys=output.unique_keys,
             )
             if declaration_keys is not None:
-                from marivo.analysis.core.frame_derivation import key_checkpoint
+                from marivo.analysis.core.frame_data import key_checkpoint
 
                 declaration_keys[input_id] = key_checkpoint(completed)
             return replace(
@@ -458,7 +459,7 @@ def _evaluate_frame(
                 completed_frames=completed_frames,
             )
         except SemanticExpressionError as error:
-            from marivo.analysis.core.attribute import AttributeFailureContext
+            from marivo.analysis.model.attribute_failures import AttributeFailureContext
 
             attribute_context = error.details.get("attribute_context")
             assert (
@@ -529,7 +530,7 @@ def _evaluate_frame(
 
 
 def evaluate_frame(
-    frame: AnalysisFrame, *, declaration_keys: dict[str, CompletedFrameData] | None = None
+    frame: FrameNode, *, declaration_keys: dict[str, CompletedFrameData] | None = None
 ) -> CompletedFrameResult:
     result = _evaluate_frame(frame, declaration_keys=declaration_keys)
     assert isinstance(result, CompletedFrameResult)
