@@ -70,7 +70,7 @@ from marivo.analysis.compiler.query_stages import (
 from marivo.analysis.core.value_types import ibis_type
 from marivo.analysis.model.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.model.kernels import QUERY_COMBINE_KERNEL
-from marivo.analysis.model.local_laws import query_selection_fusion_issue
+from marivo.analysis.model.local_laws import total_selection_issue
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.lowered_query import LoweredQuery
@@ -282,7 +282,7 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
                 and inner.program.key_groups == stage.program.key_groups
                 and inner.program.columns == stage.program.columns
             )
-            issue = query_selection_fusion_issue(
+            issue = total_selection_issue(
                 first,
                 second,
                 values,

@@ -32,6 +32,7 @@ from marivo.analysis.model.data_types import DataColumn, DataType
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_attribute_merge import AttributeMergeProgram
 from marivo.analysis.model.kernels import QUERY_COMBINE_KERNEL
+from marivo.analysis.model.optimization_rules import FusionLawId, OptimizationRuleId
 from marivo.analysis.model.time_authority import SourceTimeAuthority
 from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.datasource.spi import DEFAULT_BACKEND_TYPE
@@ -125,14 +126,14 @@ class RequiredSlots:
 
 @dataclass(frozen=True, slots=True)
 class FusionGroup:
-    law: Literal["L1", "source_block"]
+    law: FusionLawId
     members: tuple[str, ...]
     output: str
 
 
 @dataclass(frozen=True, slots=True)
 class RuleDecision:
-    rule: str
+    rule: OptimizationRuleId
     status: Literal["adopted", "refused"]
     members: tuple[str, ...]
     reason: str

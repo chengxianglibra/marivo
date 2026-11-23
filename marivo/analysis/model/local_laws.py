@@ -5,15 +5,19 @@ from __future__ import annotations
 from marivo._definition.value_ir import (
     CoordinateSlot,
     FilterValues,
+    SelectValues,
     ValueBinary,
     ValueExpression,
     ValueLiteral,
+    ValuePartition,
+    ValueShare,
     ValueSlot,
+    ValueUnary,
 )
 from marivo.analysis.model.data_types import DataColumn, DecimalDataType, ScalarDataType
 
 
-def query_selection_fusion_issue(
+def short_circuit_selection_issue(
     first: FilterValues,
     second: FilterValues,
     value_columns: tuple[DataColumn, ...],
@@ -24,7 +28,32 @@ def query_selection_fusion_issue(
     same_layout: bool,
     original_boundary: bool,
 ) -> tuple[str, str] | None:
-    """L1 adapter for AnalysisFrame's same-mask nullable int64/integer-SUM comparisons.
+    """L1(a) admission for left-to-right selection with the second mask gated."""
+    # The current Frame rewrite uses the same conservative grammar as L1(b).
+    return total_selection_issue(
+        first,
+        second,
+        value_columns,
+        columns,
+        key_groups,
+        single_consumer=single_consumer,
+        same_layout=same_layout,
+        original_boundary=original_boundary,
+    )
+
+
+def total_selection_issue(
+    first: FilterValues,
+    second: FilterValues,
+    value_columns: tuple[DataColumn, ...],
+    columns: tuple[DataColumn, ...],
+    key_groups: tuple[tuple[str, ...], ...],
+    *,
+    single_consumer: bool,
+    same_layout: bool,
+    original_boundary: bool,
+) -> tuple[str, str] | None:
+    """L1(b) admission for total predicates over the same input domain.
 
     Both filters retain only True, so a common nullable comparison mask has
     exactly the same selected keys under sequential application and Kleene
@@ -45,6 +74,50 @@ def query_selection_fusion_issue(
             "closed int64 or Decimal(38,0) comparisons with the same drop-NA mask policy",
             "unqualified predicate or numeric operation",
         )
+    return None
+
+
+def _row_local(expression: ValueExpression) -> bool:
+    if isinstance(expression, ValueUnary):
+        return _row_local(expression.operand)
+    if isinstance(expression, ValueBinary):
+        return _row_local(expression.left) and _row_local(expression.right)
+    return not isinstance(expression, (ValuePartition, ValueShare))
+
+
+def select_fusion_issue(
+    first: SelectValues,
+    second: SelectValues,
+    *,
+    single_consumer: bool,
+    same_key_domain: bool,
+    original_boundary: bool,
+    protected_intermediate: bool,
+    value_policy_preserved: bool,
+    checks_preserved: bool,
+    demand_preserved: bool,
+) -> tuple[str, str] | None:
+    """L5 preconditions for per-key composition with a proposed replacement.
+
+    The caller establishes the replacement's value policy, checks and demand.
+    The gate returns the first unmet premise.
+    """
+    if not single_consumer:
+        return "one consumer of the intermediate projection", "multiple consumers"
+    if original_boundary:
+        return "an unchanged original fine-grid completion boundary", "original completion"
+    if protected_intermediate:
+        return "an unreferenced intermediate projection", "output or key checkpoint"
+    if not same_key_domain:
+        return "row-local projections over the same complete key domain", "different key domain"
+    if any(not _row_local(expression) for _, expression in (*first.values, *second.values)):
+        return "only row-local expressions", "partition or share expression"
+    if not value_policy_preserved:
+        return "the original value policies", "changed value policy"
+    if not checks_preserved:
+        return "all required projection checks", "lost check obligation"
+    if not demand_preserved:
+        return "the original conditional demand masks", "changed demand mask"
     return None
 
 

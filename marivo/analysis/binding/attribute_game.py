@@ -32,6 +32,7 @@ from marivo._definition.types import ExactRef
 from marivo.analysis.binding.attribute_rules import _row_allows
 from marivo.analysis.binding.attribute_units import component_unit, row_unit
 from marivo.analysis.model.attribute_game_errors import AttributeGameError
+from marivo.analysis.model.summary_traits import summary_trait
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.spi import NumericValue, lower_metric_formula
 from marivo.semantic.spi import rename_deferred_slots as _rename_slots
@@ -210,11 +211,7 @@ def build_game(
                 ),
                 (replace(current, nulls="ignore"),),
             )
-            state_eligible = current.reducer not in (
-                "approx_nunique",
-                "approx_median",
-                "approx_quantile",
-            )
+            state_eligible = summary_trait(current.reducer).l6_class != "sketch_opaque"
         elif isinstance(current, SourceWeightedMean):
             kind, states = "weighted_mean", _weighted_states(current)
         else:

@@ -19,6 +19,7 @@ from marivo.analysis.compiler.query_stages import (
 from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.model.data_types import DataColumn, DataType
+from marivo.analysis.model.summary_traits import summary_trait
 from marivo.datasource.spi import native_aggregate
 from marivo.semantic.spi import lower_row
 
@@ -74,7 +75,8 @@ def frequency_read(stage: SourceReadStage) -> SourceReadStage:
     if (
         not isinstance(stage.program, (ReductionRead, AttributeFrequencyRead))
         or not isinstance(node, SourceAggregate)
-        or node.reducer not in ("median", "quantile", "count_distinct")
+        or summary_trait(node.reducer, nulls_policy=node.nulls).l6_class
+        not in ("exact_multiset", "exact_set")
         or reduction.duration is not None
         or reduction.sampled
     ):
@@ -111,7 +113,7 @@ def share_frequency_reads(plan: QueryPlan) -> QueryPlan:
             node.time,
             node.nulls,
             node.rule_version,
-            "distinct" if node.reducer == "count_distinct" else "quantile",
+            summary_trait(node.reducer, nulls_policy=node.nulls).l6_class,
             reduction.axes,
             reduction.calendar,
             reduction.time_column,

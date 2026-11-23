@@ -19,8 +19,8 @@ from marivo.analysis.compiler.query_stages import (
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.frame_contracts import CheckedStageInputT
 from marivo.analysis.model.local_laws import (
-    query_selection_fusion_issue,
     selection_predicate_columns,
+    short_circuit_selection_issue,
 )
 
 
@@ -64,7 +64,7 @@ def fuse_frame_filters(
             input_schema = inner.program.input_schema
             midpoint = inner.program.output_schema
             output_schema = outer.program.output_schema
-            issue = query_selection_fusion_issue(
+            issue = short_circuit_selection_issue(
                 first,
                 second,
                 input_schema.values,

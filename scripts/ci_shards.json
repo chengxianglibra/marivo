@@ -126,7 +126,8 @@
       "tests/surface/test_live_errors.py",
       "tests/surface/test_predicate_disclosure.py",
       "tests/surface/test_semantic_object_typing.py",
-      "tests/surface/test_statistics_guidance.py"
+      "tests/surface/test_statistics_guidance.py",
+      "tests/analysis/graph/test_algebra_traits.py"
     ],
     "2": [
       "tests/analysis/graph/test_attribute_game.py",
