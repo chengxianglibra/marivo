@@ -1,15 +1,21 @@
-"""Check a finite semantic typing and ownership model against real capture and binding."""
+"""Check semantic typing and ownership against real authored expression graphs."""
+
+from __future__ import annotations
 
 import operator
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from fractions import Fraction
 from functools import partial
 from itertools import product
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, TypeAlias, cast
 
 import duckdb
+import pyarrow as pa
 import pytest
+from hypothesis import HealthCheck, example, given, settings
+from hypothesis import strategies as st
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -17,6 +23,7 @@ from marivo._definition.types import DefinitionGraphError, InputContext, Owner, 
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic._deferred_semantics import consume_metric, consume_predicate, consume_row
 from marivo.semantic._expression_values import _ExpressionCarrier
+from marivo.semantic._metric_expression import NumericMetric
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
@@ -33,6 +40,10 @@ euro = ms.measure_column(name="euro", entity=alpha, column="q", unit="EUR", addi
 bucket = ms.dimension_column(name="bucket", entity=alpha, column="bucket")
 alpha_time = ms.time_dimension_column(name="clock", entity=alpha, column="clock", parse=ms.timestamp())
 beta_time = ms.time_dimension_column(name="clock", entity=beta, column="clock", parse=ms.timestamp())
+
+@ms.metric()
+def kept():
+    return a.sum(time=alpha_time, where=bucket == "keep")
 """
 
 
@@ -58,7 +69,10 @@ def projects(
                 """CREATE TABLE alpha(id BIGINT, q BIGINT, bucket VARCHAR, clock TIMESTAMPTZ);
                 INSERT INTO alpha VALUES (1, 7, 'keep', '2026-02-02T08:00:00Z'),
                     (2, 100, 'keep', '2026-02-01T08:00:00Z'),
-                    (3, 1000, 'skip', '2026-02-02T08:00:00Z');
+                    (3, 1000, 'skip', '2026-02-02T08:00:00Z'),
+                    (4, NULL, 'early', '2026-01-31T08:00:00Z'),
+                    (5, 8, 'history', '2026-01-30T08:00:00Z'),
+                    (6, NULL, 'late', '2026-02-03T08:00:00Z');
                 CREATE TABLE beta(id BIGINT, q BIGINT, clock TIMESTAMPTZ);
                 INSERT INTO beta VALUES (1, 11, '2026-02-02T11:00:00Z'),
                     (2, 200, '2026-02-03T00:00:00Z')"""
@@ -327,3 +341,159 @@ def test_receiver_checks_session_root_and_clock_before_reads(
     ].tolist() == [
         503.5,
     ]
+
+
+MetricLeaf: TypeAlias = Literal["kept", "broadcast", "missing", "per", "first", "last", "window"]
+MetricOperation: TypeAlias = Literal[
+    "add", "subtract", "scale", "divide", "ifelse", "cases", "coalesce"
+]
+
+
+@dataclass(frozen=True)
+class MetricBranch:
+    operation: MetricOperation
+    left: MetricTree
+    right: MetricTree
+
+
+MetricTree: TypeAlias = MetricLeaf | MetricBranch
+_LEAF_NAMES: tuple[MetricLeaf, ...] = (
+    "kept",
+    "broadcast",
+    "missing",
+    "per",
+    "first",
+    "last",
+    "window",
+)
+_OPERATIONS: tuple[MetricOperation, ...] = (
+    "add",
+    "subtract",
+    "scale",
+    "divide",
+    "ifelse",
+    "cases",
+    "coalesce",
+)
+_TREES = st.recursive(
+    st.sampled_from(_LEAF_NAMES),
+    lambda inner: st.builds(MetricBranch, st.sampled_from(_OPERATIONS), inner, inner),
+    max_leaves=4,
+)
+
+
+def _metric_leaves(session: mv.Session) -> dict[MetricLeaf, NumericMetric]:
+    catalog = session.catalog
+    left = catalog_value(catalog, "sales.alpha.q", kind="measure")
+    right = catalog_value(catalog, "sales.beta.q", kind="measure")
+    clock = catalog_value(catalog, "sales.alpha.clock", kind="time_dimension")
+    group = catalog_value(catalog, "sales.alpha.bucket", kind="dimension")
+    kept = catalog_value(catalog, "sales.kept", kind="metric")
+    complete = left.sum(time=clock)
+    ordered = complete.per(clock, grain=mv.grain("day"))
+    return {
+        "kept": kept,
+        "broadcast": kept + right.sum(time=None),
+        "missing": left.max(time=clock, where=group == "not present"),
+        "per": complete.per(group).mean(),
+        "first": ordered.first(include_null=True),
+        "last": ordered.last(include_null=False),
+        "window": complete.window(mv.all_history()),
+    }
+
+
+def _author_tree(tree: MetricTree, leaves: Mapping[MetricLeaf, NumericMetric]) -> NumericMetric:
+    if isinstance(tree, str):
+        return leaves[tree]
+    left = _author_tree(tree.left, leaves)
+    right = _author_tree(tree.right, leaves)
+    match tree.operation:
+        case "add":
+            return left + right
+        case "subtract":
+            return left - right
+        case "scale":
+            return left * -2
+        case "divide":
+            return left / 4
+        case "ifelse":
+            return (left > 0).ifelse(right, left)
+        case "cases":
+            return left.cases((0, right), (107, 0), else_=left)
+        case "coalesce":
+            return left.coalesce(right)
+
+
+_LEAF_VALUES: Mapping[MetricLeaf, Fraction | None] = {
+    "kept": Fraction(107),
+    "broadcast": Fraction(318),
+    "missing": None,
+    "per": Fraction(1107, 2),
+    "first": None,
+    "last": Fraction(1007),
+    "window": Fraction(1115),
+}
+
+
+def _reference_tree(tree: MetricTree) -> tuple[Fraction | None, frozenset[str]]:
+    if isinstance(tree, str):
+        leaf_roots = {"sales.alpha", "sales.beta"} if tree == "broadcast" else {"sales.alpha"}
+        return _LEAF_VALUES[tree], frozenset(leaf_roots)
+    left, left_roots = _reference_tree(tree.left)
+    right, right_roots = _reference_tree(tree.right)
+    if tree.operation == "scale":
+        return (None if left is None else -2 * left), left_roots
+    if tree.operation == "divide":
+        return (None if left is None else left / 4), left_roots
+    roots = left_roots | right_roots
+    if tree.operation == "ifelse":
+        return (right if left is not None and left > 0 else left), roots
+    if tree.operation == "cases":
+        return (right if left == 0 else Fraction(0) if left == 107 else left), roots
+    if tree.operation == "coalesce":
+        return (right if left is None else left), roots
+    if left is None or right is None:
+        return None, roots
+    return (left + right if tree.operation == "add" else left - right), roots
+
+
+@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(tree=_TREES)
+@example(tree=MetricBranch("ifelse", MetricBranch("coalesce", "missing", "per"), "last"))
+@example(tree=MetricBranch("cases", "kept", MetricBranch("add", "broadcast", "window")))
+@example(tree=MetricBranch("divide", MetricBranch("subtract", "first", "last"), "kept"))
+@example(tree="window")
+@example(tree="first")
+@example(tree="last")
+def test_recursive_metric_ast_progress_and_preservation(
+    projects: _Projects, tree: MetricTree
+) -> None:
+    # The fixture provides immutable definitions. The source rows are read-only.
+    session = projects.session
+    expression = _author_tree(tree, _metric_leaves(session))
+    value, roots = _reference_tree(tree)
+    facts = consume_metric(expression)
+    assert {root.ref.path for root in facts.roots} == roots
+    assert facts.unit == "USD" and not facts.boolean
+    assert expression._context.project_root == session.catalog.workspace_dir
+    scope = session.time_scope(start="2026-01-31", end="2026-02-04")
+    table = session.observe({"q": expression}, where=scope).compute().to_pandas()
+    (actual,) = pa.array(table["q"], from_pandas=False).to_pylist()
+    assert actual == (float(value) if value is not None else None), (tree, value, actual)
+
+
+def test_recursive_graph_rejects_invalid_scope_before_source_reads(
+    projects: _Projects,
+    source_trace: SourceTrace,
+) -> None:
+    session = projects.session
+    leaves = _metric_leaves(session)
+    euro = catalog_value(session.catalog, "sales.alpha.euro", kind="measure").sum()
+    foreign = catalog_value(projects.foreign, "sales.alpha.q", kind="measure").sum()
+    scope = session.time_scope(start="2026-02-01", end="2026-02-03")
+    for bad in (euro, foreign):
+        with pytest.raises(SemanticError) as failure:
+            nested = (leaves["kept"] > 0).ifelse(leaves["per"], (leaves["first"] + bad) * 2)
+            session.observe({"q": nested}, where=scope)
+        assert failure.value.expected and failure.value.received and failure.value.repair
+    assert not source_trace.native_sql
