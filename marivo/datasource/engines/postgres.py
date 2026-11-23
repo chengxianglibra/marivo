@@ -33,6 +33,7 @@ from marivo.datasource.engines.query import (
     OriginalStringPolicy,
     QueryDialectProfile,
     finite_calendar_clock,
+    floating_order_keys,
     zipped_key_arrays,
 )
 from marivo.datasource.engines.requirements import POSTGRES_REQUIREMENT
@@ -570,6 +571,11 @@ PROFILE = EngineProfile(
         finite_calendar_clock=finite_calendar_clock,
         preview_requires_terminal_scope=True,
         supports_native_frame_top=True,
+        conditional_aggregate_style="filter_where",
+        supports_sql_window_frames=True,
+        window_frame_nulls_safe=True,
+        supports_grouping_sets=True,
+        float_order_keys=floating_order_keys,
     ),
     arrow_reads=True,
     issued_query_only=True,

@@ -326,6 +326,20 @@ Discovery does not create files or open connections. Its memory is connection
 local; use durable files or a declared datasource for data that must survive.
 Governed Source/backend capabilities apply equally to `default`.
 
+## SQL planning capabilities
+
+Internal consumers read the immutable provider profile through
+`marivo.datasource.spi.query_dialect(backend_type)`. It specifies the conditional
+aggregate syntax, support for SQL window frames and grouping sets, and whether
+a windowed `SUM` over a nullable input returns SQL `NULL` for an empty or all-`NULL`
+frame. The calling rewrite still owns its arithmetic, key and demand checks.
+
+The floating order hook places ordered numbers, valid NaNs and SQL `NULL` in
+that sequence in either direction. Only the numeric order reverses. Callers
+append their complete key to break ties. MySQL's native floating-point column
+domain has finite numbers and SQL `NULL`. The generic profile has conservative
+defaults for sources without a registered dialect.
+
 ## Implementation map
 
 - [authoring.py](../../../marivo/datasource/store/authoring.py) and [builders.py](../../../marivo/datasource/store/builders.py) own typed specs and their public constructors.

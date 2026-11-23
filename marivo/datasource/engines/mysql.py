@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime
+from functools import partial
 from typing import Literal
 
 import ibis.expr.types as ir
@@ -29,7 +30,11 @@ from marivo.datasource.engines.mysql_query import (
     source_timezones,
     string_bytes,
 )
-from marivo.datasource.engines.query import EngineQueryPolicy, QueryDialectProfile
+from marivo.datasource.engines.query import (
+    EngineQueryPolicy,
+    QueryDialectProfile,
+    floating_order_keys,
+)
 from marivo.datasource.engines.requirements import MYSQL_REQUIREMENT
 from marivo.datasource.engines.statements import (
     ProviderStatement,
@@ -680,6 +685,10 @@ PROFILE = EngineProfile(
         timezone_endpoint_years=(1971, 2037),
         preview_requires_terminal_scope=True,
         supports_native_frame_top=True,
+        conditional_aggregate_style="case_when",
+        supports_sql_window_frames=True,
+        window_frame_nulls_safe=True,
+        float_order_keys=partial(floating_order_keys, has_native_nan=False),
     ),
     read_issued_query=_read_issued_query,
     query_policy=EngineQueryPolicy(

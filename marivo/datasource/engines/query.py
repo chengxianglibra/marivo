@@ -60,6 +60,22 @@ def _utc_day(value: ir.DateValue, zone: str) -> ir.TimestampValue:
     return localize(zone, timestamp(value))
 
 
+def floating_order_keys(
+    value: ir.Value, descending: bool, *, has_native_nan: bool = True
+) -> tuple[ir.Value, ...]:
+    """Keep numbers, valid NaNs and SQL NULL in that order in either direction."""
+    if not isinstance(value, ir.FloatingValue):
+        raise TypeError("Floating order keys require a floating-point expression")
+    missing = value.isnull()
+    if not has_native_nan:
+        return missing.ifelse(1, 0), value.desc() if descending else value.asc()
+    is_nan = value.isnan()
+    category = missing.ifelse(2, is_nan.ifelse(1, 0))
+    # The caller's complete key breaks ties among NaNs and among NULLs.
+    numeric = (missing | is_nan).ifelse(ibis.literal(0, type=value.type()), value)
+    return category, numeric.desc() if descending else numeric.asc()
+
+
 def nullable_join_value(value: ir.Value) -> ir.Value:
     """Keep an absent outer-join payload null on servers with non-null defaults."""
     result = ops.Cast(value, to=value.type().copy(nullable=True)).to_expr()
@@ -160,3 +176,11 @@ class QueryDialectProfile:
     preview_requires_terminal_scope: bool = False
     supports_per_row_attribute_time: bool = False
     supports_native_frame_top: bool = False
+    conditional_aggregate_style: Literal["none", "filter_where", "case_when", "clickhouse_if"] = (
+        "none"
+    )
+    supports_sql_window_frames: bool = False
+    # SUM on nullable inputs returns NULL with no valid value in the frame.
+    window_frame_nulls_safe: bool = False
+    supports_grouping_sets: bool = False
+    float_order_keys: Callable[[ir.Value, bool], tuple[ir.Value, ...]] | None = None

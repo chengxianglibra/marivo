@@ -87,6 +87,7 @@
       "tests/datasource/test_datasource_typed_specs.py",
       "tests/datasource/test_mysql_cancellation.py",
       "tests/datasource/test_native_aggregate_compilers.py",
+      "tests/datasource/test_query_dialect_profiles.py",
       "tests/datasource/test_source_adapters_runtime.py",
       "tests/datasource/test_time_range_physical_runtime.py",
       "tests/packaging/test_installed_sources.py",

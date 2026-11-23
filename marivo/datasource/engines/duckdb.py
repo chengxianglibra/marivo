@@ -27,6 +27,7 @@ from marivo.datasource.engines.query import (
     EngineQueryPolicy,
     QueryDialectProfile,
     finite_calendar_clock,
+    floating_order_keys,
 )
 from marivo.datasource.engines.requirements import DUCKDB_REQUIREMENT
 from marivo.datasource.engines.statements import (
@@ -686,6 +687,11 @@ PROFILE = EngineProfile(
         finite_calendar_clock=finite_calendar_clock,
         supports_per_row_attribute_time=True,
         supports_native_frame_top=True,
+        conditional_aggregate_style="filter_where",
+        supports_sql_window_frames=True,
+        window_frame_nulls_safe=True,
+        supports_grouping_sets=True,
+        float_order_keys=floating_order_keys,
     ),
     arrow_reads=True,
     query_policy=EngineQueryPolicy(

@@ -18,7 +18,6 @@ from ibis.expr.datatypes import (
     DataType,
 )
 
-from marivo.datasource.engines.aggregate_policy import CLICKHOUSE_AGGREGATES
 from marivo.datasource.engines.base import (
     AuthoringCapabilities,
     EngineMetadataIntrospection,
@@ -33,20 +32,12 @@ from marivo.datasource.engines.base import (
 )
 from marivo.datasource.engines.clickhouse_partitions import clickhouse_partitions
 from marivo.datasource.engines.clickhouse_query import (
-    date_literal,
     inline_key_relation,
-    lower_query_numeric,
+    query_dialect_profile,
     read_issued_query,
-    row_number,
-    utc_day,
     validate_temporal_parsers,
 )
-from marivo.datasource.engines.query import (
-    EngineQueryPolicy,
-    OriginalStringPolicy,
-    QueryDialectProfile,
-    nullable_join_value,
-)
+from marivo.datasource.engines.query import EngineQueryPolicy
 from marivo.datasource.engines.requirements import CLICKHOUSE_REQUIREMENT
 from marivo.datasource.engines.statements import (
     ProviderStatement,
@@ -887,25 +878,9 @@ def _validate_query(backend: BaseBackend, sql: str) -> None:
 
 
 PROFILE = EngineProfile(
-    dialect=QueryDialectProfile(
-        aggregates=CLICKHOUSE_AGGREGATES,
-        original_strings=OriginalStringPolicy(
-            columns=partial(decoded_string_columns, enums=True),
-            unavailable="ClickHouse original strings require visible decoded-carrier metadata",
-            unsupported="ClickHouse column {column}: encoded string carrier is unsupported; use String or Enum8/Enum16 decoded values; FixedString is excluded from Attribute; Query preserves decoded string NUL padding",
-        ),
+    dialect=query_dialect_profile(
+        original_string_columns=partial(decoded_string_columns, enums=True),
         query_string_columns=decoded_string_columns,
-        date_literal=date_literal,
-        utc_day=utc_day,
-        row_number=row_number,
-        join_value=nullable_join_value,
-        lower_query_numeric=lower_query_numeric,
-        timestamp_has_implicit_timezone=True,
-        civil_date_needs_neutral_carrier=True,
-        calendar_clock_needs_utc_carrier=True,
-        preserve_utc_conversions=True,
-        native_subday_grains=frozenset({"second", "minute", "hour"}),
-        supports_native_frame_top=True,
     ),
     read_issued_query=read_issued_query,
     issued_query_only=True,

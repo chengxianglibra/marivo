@@ -19,7 +19,15 @@ from sqlglot import expressions as sge
 from marivo._kernel.numeric_types import native_unsigned_aggregates
 from marivo._kernel.timezones import normalize_timezone
 from marivo.datasource.arrow_types import native_pandas_type
-from marivo.datasource.engines.query import KeyRows
+from marivo.datasource.engines.aggregate_policy import CLICKHOUSE_AGGREGATES
+from marivo.datasource.engines.query import (
+    KeyRows,
+    OriginalStringPolicy,
+    QueryDialectProfile,
+    ReadStringColumns,
+    floating_order_keys,
+    nullable_join_value,
+)
 from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
 from marivo.datasource.temporal_primitives import localize, timestamp
 
@@ -190,3 +198,33 @@ def validate_temporal_parsers(backend: BaseBackend, sql: str) -> None:
                 action="Use a canonical year/month/day encoding, expose a native Date32/DateTime64 column, or upgrade ClickHouse to 23.3 or newer.",
             ),
         )
+
+
+def query_dialect_profile(
+    *, original_string_columns: ReadStringColumns, query_string_columns: ReadStringColumns
+) -> QueryDialectProfile:
+    return QueryDialectProfile(
+        aggregates=CLICKHOUSE_AGGREGATES,
+        original_strings=OriginalStringPolicy(
+            columns=original_string_columns,
+            unavailable="ClickHouse original strings require visible decoded-carrier metadata",
+            unsupported="ClickHouse column {column}: encoded string carrier is unsupported; use String or Enum8/Enum16 decoded values; FixedString is excluded from Attribute; Query preserves decoded string NUL padding",
+        ),
+        query_string_columns=query_string_columns,
+        date_literal=date_literal,
+        utc_day=utc_day,
+        row_number=row_number,
+        join_value=nullable_join_value,
+        lower_query_numeric=lower_query_numeric,
+        timestamp_has_implicit_timezone=True,
+        civil_date_needs_neutral_carrier=True,
+        calendar_clock_needs_utc_carrier=True,
+        preserve_utc_conversions=True,
+        native_subday_grains=frozenset({"second", "minute", "hour"}),
+        supports_native_frame_top=True,
+        conditional_aggregate_style="clickhouse_if",
+        supports_sql_window_frames=True,
+        window_frame_nulls_safe=True,
+        supports_grouping_sets=True,
+        float_order_keys=floating_order_keys,
+    )

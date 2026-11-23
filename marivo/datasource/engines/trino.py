@@ -33,6 +33,7 @@ from marivo.datasource.engines.query import (
     EngineQueryPolicy,
     OriginalStringPolicy,
     QueryDialectProfile,
+    floating_order_keys,
 )
 from marivo.datasource.engines.requirements import TRINO_REQUIREMENT
 from marivo.datasource.engines.statements import (
@@ -742,6 +743,11 @@ PROFILE = EngineProfile(
         preview_requires_terminal_scope=True,
         supports_per_row_attribute_time=True,
         supports_native_frame_top=True,
+        conditional_aggregate_style="filter_where",
+        supports_sql_window_frames=True,
+        window_frame_nulls_safe=True,
+        supports_grouping_sets=True,
+        float_order_keys=floating_order_keys,
     ),
     arrow_reads=True,
     query_policy=EngineQueryPolicy(
