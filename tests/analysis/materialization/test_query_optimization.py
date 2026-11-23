@@ -1447,7 +1447,7 @@ def test_null_empty_policy_and_different_source_fibers_remain_independent(
     assert result.table["value.1"].tolist() == [30]
 
 
-def test_mixed_observation_executes_once_per_contribution_domain(
+def test_mixed_observation_reduces_each_conditional_contribution_domain(
     optimization_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = optimization_session
@@ -1463,17 +1463,55 @@ def test_mixed_observation_executes_once_per_contribution_domain(
     )
     _, plan, _, _ = _same(session, query)
     assert any(
-        "predicates" in item.reason
+        item.rule == "conditional_source_merge" and item.status == "adopted"
         for item in plan.optimization_decisions
-        if item.rule == "source_merge" and item.status == "refused"
     )
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
-    # Terminal native fusion may carry both independently grouped reads in
-    # one statement; the common-aggregate planner still has exactly two groups.
-    assert len([stage for stage in plan.stages if isinstance(stage, SourceReadStage)]) == 2
-    assert len(trace.native_sql) <= 2
+    assert len([stage for stage in plan.stages if isinstance(stage, SourceReadStage)]) == 1
+    assert len(trace.native_sql) == 1
     assert result.iloc[0].tolist() == [60, Decimal("60.06"), 50, Decimal("50.05")]
+
+
+@pytest.mark.parametrize("partial", ("view", "generated", "predicate"))
+def test_conditional_source_merge_keeps_original_native_demand(
+    optimization_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, partial: str
+) -> None:
+    session = optimization_session
+    with duckdb.connect(str(tmp_path / "optimization.duckdb")) as connection:
+        if partial != "generated":
+            connection.execute("UPDATE orders SET amount=4611686018427387904 WHERE region='B'")
+        if partial in ("view", "generated"):
+            connection.execute("ALTER TABLE orders RENAME TO original_orders")
+        if partial == "view":
+            connection.execute(
+                "CREATE VIEW orders AS SELECT id, region, amount * 2 AS amount, detail, exact, "
+                "approximate, ordered_at FROM original_orders"
+            )
+        elif partial == "generated":
+            connection.execute(
+                "CREATE TABLE orders(id BIGINT, region VARCHAR, raw_amount BIGINT, "
+                "amount BIGINT GENERATED ALWAYS AS (raw_amount * 2), detail VARCHAR, "
+                "exact DECIMAL(38,2), approximate DOUBLE, ordered_at DATE)"
+            )
+            connection.execute("INSERT INTO orders SELECT * FROM original_orders")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    approximate = catalog_value(session.catalog, "sales.orders.approximate", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    chosen = (
+        amount.count(time=None).where((region == "A") & ((amount * amount) > 22))
+        if partial == "predicate"
+        else amount.sum(time=None).where(region == "A")
+    )
+    query = session.observe(
+        {"chosen": chosen, "other": approximate.count(time=None).where(region == "B")}
+    )
+    trace = capture_source(monkeypatch)
+    disabled = OptimizationPolicy.disabled()
+    expected = [2 if partial == "predicate" else 80, 1]
+    for policy in (disabled, disabled.with_rule("conditional_source_merge", enabled=True)):
+        assert compute_with_policy(query, policy).to_pandas().iloc[0].tolist() == expected
+    assert len(trace.native_sql) == 4
 
 
 @pytest.mark.parametrize("failure", ("strict_null", "overflow"))

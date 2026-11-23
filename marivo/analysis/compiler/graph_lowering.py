@@ -14,6 +14,7 @@ from marivo.analysis.compiler.attribute_frequencies import frequency_finishers
 from marivo.analysis.compiler.attribute_inputs import (
     attribute_preparation_key,
 )
+from marivo.analysis.compiler.conditional_observations import lower_conditional_observations
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead, PopulationCheck
 from marivo.analysis.compiler.observation import lower_observation
@@ -25,6 +26,7 @@ from marivo.analysis.compiler.query_stages import (
     AttributeFrequencyRead,
     AttributeRead,
     CheckedOutput,
+    CommonRead,
     NativeRead,
     ProjectionRead,
     QueryPlan,
@@ -173,26 +175,31 @@ def _lower_source(
         stage = _type_attribute_state(stage, filtered, columns)
     if read_attribute(stage) is not None:
         return _lower_attribute_read(stage, filtered, columns, relations)
-    if read_members(stage) and not isinstance(stage.program, AttributeFrequencyRead):
-        lowered = lower_common_components(
-            tuple(
-                require_reduction(read)
-                for read in read_members(stage)
-                if read_reduction(read) is not None
-            ),
-            tuple(read_components(read) for read in read_members(stage)),
-            filtered,
-            columns,
-            stage.predicates,
-            {column.slot_id: column for column in stage.columns},
-            cse=cse,
-        )
+    members = read_members(stage)
+    if members and not isinstance(stage.program, AttributeFrequencyRead):
+        value_columns = {column.slot_id: column for column in stage.columns}
+        if isinstance(stage.program, CommonRead) and stage.program.conditional:
+            lowered = lower_conditional_observations(
+                members, filtered, columns, value_columns, cse=cse
+            )
+        else:
+            lowered = lower_common_components(
+                tuple(
+                    require_reduction(read) for read in members if read_reduction(read) is not None
+                ),
+                tuple(read_components(read) for read in members),
+                filtered,
+                columns,
+                stage.predicates,
+                value_columns,
+                cse=cse,
+            )
         if lowered.saved_projections:
             decisions.append(
                 RuleDecision(
                     "common_read_cse",
                     "adopted",
-                    tuple(member.stage_id for member in read_members(stage)),
+                    tuple(member.stage_id for member in members),
                     f"Reused {lowered.saved_projections} common aggregate or check projections.",
                 )
             )

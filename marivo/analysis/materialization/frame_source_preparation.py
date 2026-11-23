@@ -398,9 +398,10 @@ class _FrameSourcePreparation:
                 frame_schemas=key_schemas,
                 json_responses=self.json_responses.setdefault(scope, {}),
                 reuse_sources=reuse_sources,
+                policy=self.policy,
             )
         )
-        return replace(prepared, optimization_policy=self.policy)
+        return prepared
 
     def _resolve_pending_interval(
         self,

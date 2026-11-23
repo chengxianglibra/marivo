@@ -174,6 +174,7 @@ class SourceSchema:
     time_authorities: tuple[SourceTimeAuthority, ...] = ()
     provider: str = DEFAULT_BACKEND_TYPE
     unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+    conditional_binding_id: str = ""
 
     def field(self, path: str) -> SourceField:
         for item in self.fields:
@@ -229,6 +230,7 @@ class ComponentRead:
 @dataclass(frozen=True, slots=True)
 class CommonRead:
     members: tuple[SourceReadStage, ...]
+    conditional: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,6 +333,7 @@ class SourceReadStage:
     attribute_native: bool = False
     native_relation_id: str = ""
     unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+    conditional_binding_id: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(

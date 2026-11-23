@@ -33,7 +33,12 @@ from tests.formal._runtime_algebra_relations import (
     test_live_shared_fanout_product as test_live_shared_fanout_product,
 )
 from tests.formal._smt import _z3
-from tests.formal.reference.equivalence import assert_equivalent, assert_policies_agree, run_frame
+from tests.formal.reference.equivalence import (
+    ObservedFailure,
+    assert_equivalent,
+    assert_policies_agree,
+    run_frame,
+)
 from tests.formal.reference.evaluator import observe, reduce_bag, top
 from tests.formal.reference.model import (
     Bag,
@@ -320,6 +325,169 @@ def test_live_calendar_independent_broadcast(
         {"daily": amount.sum(time=day), "all": amount.sum(time=None)}, by=(calendar,)
     )
     _verify(f"{provider} calendar broadcast", expected, query, capture_source(monkeypatch))
+
+
+def test_live_conditional_group_shares_five_independent_contributions(
+    sql_session: tuple[str, mv.Session], corpus: tuple[_Fact, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider, session = sql_session
+    catalog = session.catalog
+    amount = catalog_value(catalog, "sales.facts.amount", kind="measure")
+    weight = catalog_value(catalog, "sales.facts.weight", kind="measure")
+    category = catalog_value(catalog, "sales.facts.category", kind="dimension")
+    grouped = Scope("grouped")
+    west = _groups(row for row in corpus if row.category == "west")
+    eastern_zeroes = _groups(row for row in corpus if row.category == "east" and row.amount == 0)
+    void = _groups(row for row in corpus if row.category == "void")
+    branches = {
+        "total": _branch(west),
+        "mean": Branch(Reducer("mean"), eastern_zeroes),
+        "count": Branch(Reducer("count"), void),
+        "weighted": _branch(west, "weighted_mean"),
+        "strict": _branch({}, strict=True),
+    }
+    metrics = {
+        "total": amount.sum(time=None).where(category == "west"),
+        "mean": amount.mean(time=None).where((category == "east") & (amount == 0)),
+        "count": amount.count(time=None).where(category == "void"),
+        "weighted": amount.weighted_mean(weight=weight, time=None).where(
+            (category == "west") | (category == "never")
+        ),
+        "strict": amount.sum(time=None, nulls="error").where(category == "absent"),
+    }
+    query = session.observe(metrics, by=(category,))
+    expected = observe(branches, {label: Read(label) for label in branches}, grouped)
+    trace = capture_source(monkeypatch)
+    disabled = OptimizationPolicy.disabled()
+    control = run_frame(query, disabled)
+    assert len(trace.native_sql) == 5
+    candidate = run_frame(query, disabled.with_rule("conditional_source_merge", enabled=True))
+    assert len(trace.native_sql) == 6
+    default = run_frame(query, OptimizationPolicy.default())
+    for received in (control, candidate, default):
+        assert_equivalent(expected, received)
+    assert_policies_agree(control, candidate)
+    assert_policies_agree(candidate, default)
+    statement = trace.native_sql[5].upper()
+    style = query_dialect(provider).conditional_aggregate_style
+    if style == "filter_where":
+        assert "FILTER" in statement and "WHERE" in statement
+    elif style == "clickhouse_if":
+        assert "SUMIF" in statement and "AVGIF" in statement
+    else:
+        assert style == "case_when" and "CASE" in statement
+
+
+def test_live_conditional_group_preserves_excluded_predicate_witness(
+    sql_session: tuple[str, mv.Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, session = sql_session
+    catalog = session.catalog
+    amount = catalog_value(catalog, "sales.facts.amount", kind="measure")
+    big = catalog_value(catalog, "sales.facts.big", kind="measure")
+    category = catalog_value(catalog, "sales.facts.category", kind="dimension")
+    unsafe = big.sqrt() < 0
+    evaluated = amount.count(time=None).where(unsafe)
+    unmatched = amount.count(time=None).where(category == "absent")
+    west = amount.count(time=None).where(category == "west")
+    trace = capture_source(monkeypatch)
+    disabled = OptimizationPolicy.disabled()
+    for outputs in (
+        {"evaluated": evaluated, "unmatched": unmatched},
+        {"result": west.coalesce(evaluated)},
+    ):
+        query = session.observe(outputs, by=(category,))
+        control = run_frame(query, disabled)
+        candidate = run_frame(query, disabled.with_rule("conditional_source_merge", enabled=True))
+        for received in (control, candidate):
+            assert isinstance(received, ObservedFailure), received
+            assert received.witnesses == (("void",),), received
+            assert received.received is not None and "Sqrt" in received.received
+        assert "__numeric_present.block1" in trace.native_sql[-1]
+
+
+def test_live_conditional_weighted_product_skips_unselected_native_overflow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[..., SemanticProject],
+) -> None:
+    facts = (
+        _Fact(1, "A", "selected", None, 2, 3, _DAY1),
+        _Fact(2, "B", "outside", None, 2**62, 8, _DAY1),
+    )
+    provider, profile = CASES[0]
+    assert provider == "duckdb"
+    with _open_session(
+        provider, profile, _data(facts, 18, 2), tmp_path, monkeypatch, semantic_project_factory
+    ) as session:
+        catalog = session.catalog
+        big = catalog_value(catalog, "sales.facts.big", kind="measure")
+        weight = catalog_value(catalog, "sales.facts.weight", kind="measure")
+        category = catalog_value(catalog, "sales.facts.category", kind="dimension")
+        query = session.observe(
+            {
+                "weighted": big.weighted_mean(weight=weight, time=None).where(
+                    category == "selected"
+                ),
+                "outside": weight.count(time=None).where(category == "outside"),
+            }
+        )
+        trace = capture_source(monkeypatch)
+        disabled = OptimizationPolicy.disabled()
+        expected = Result(
+            ((),),
+            {},
+            {"weighted": Column.from_values({(): 2}), "outside": Column.from_values({(): 1})},
+        )
+        control = run_frame(query, disabled)
+        candidate = run_frame(query, disabled.with_rule("conditional_source_merge", enabled=True))
+        assert_equivalent(expected, control)
+        assert_equivalent(expected, candidate)
+        assert len(trace.native_sql) == 3
+
+
+@pytest.mark.parametrize(
+    "provider,profile", source_params([case for case in CASES if case[0] in ("postgres", "mysql")])
+)
+def test_live_conditional_filter_retains_native_floating_demand(
+    provider: str,
+    profile: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[..., SemanticProject],
+) -> None:
+    data = SourceData(
+        DATA.columns.replace(
+            "DECIMAL(18,2)", "DOUBLE PRECISION" if provider == "postgres" else "DOUBLE"
+        ),
+        "(1,'A','selected',7,1,1,DATE '2026-07-01'),(2,'B','outside',1e308,1,1,DATE '2026-07-01')",
+        DATA.clickhouse_columns,
+        [],
+    )
+    with _open_session(
+        provider, profile, data, tmp_path, monkeypatch, semantic_project_factory
+    ) as session:
+        catalog = session.catalog
+        amount = catalog_value(catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(catalog, "sales.facts.category", kind="dimension")
+        trace = capture_source(monkeypatch)
+        disabled = OptimizationPolicy.disabled()
+        expected = Result(
+            ((),), {}, {"chosen": Column.from_values({(): 1}), "other": Column.from_values({(): 1})}
+        )
+        for expression in (amount * amount, amount + amount, amount / 1e-10):
+            query = session.observe(
+                {
+                    "chosen": amount.count(time=None).where(
+                        (expression > 2) & (category == "selected")
+                    ),
+                    "other": amount.count(time=None).where(category == "outside"),
+                }
+            )
+            before = len(trace.native_sql)
+            for policy in (disabled, disabled.with_rule("conditional_source_merge", enabled=True)):
+                assert_equivalent(expected, run_frame(query, policy))
+            assert len(trace.native_sql) - before == 4
 
 
 def test_live_ordered_samples_and_explicit_population(

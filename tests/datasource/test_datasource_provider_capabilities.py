@@ -34,6 +34,7 @@ from marivo.datasource.engines.statements import (
 from marivo.datasource.errors import DatasourceSourceCapabilityError
 from marivo.datasource.metadata_types import TableMetadata
 from marivo.datasource.runtime import adapters as adapters
+from marivo.datasource.spi import TableSourceIR, default_datasource
 from tests.support.execution_logs import execution_records
 
 
@@ -303,6 +304,26 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
             "trino",
             "trino.views.definition",
         ): "35e034663ab1deb5121af91dd3f55eae847d78830513fd2e5756ee8549a25268",
+        (
+            "clickhouse",
+            "clickhouse.tables.stored_projection",
+        ): "957500a4da401d40a3bbd181277d83ee47ff040670c05111b63a915902ce9bb7",
+        (
+            "duckdb",
+            "duckdb.tables.stored_projection",
+        ): "fad7b5875608eeb55e27ef8d73367f1bc7e1a74413706775ac8745575f49b967",
+        (
+            "mysql",
+            "mysql.tables.stored_projection",
+        ): "bea55b3e2cc2725a60a81802ee897e9094a0f694e6185aa54e54273fbd914ad7",
+        (
+            "postgres",
+            "postgres.tables.stored_projection",
+        ): "2bee0190f0fdbbd42b36be86f4f8c02314bb996877ca370b3a5b8053fe3fcd57",
+        (
+            "trino",
+            "trino.tables.stored_projection",
+        ): "f69bd2a24dd42c156f3c5d0680baaa72ecfbf30f7796a5d9d1c7df6c7bb8399b",
     }
     observed = {
         (provider, statement_id): hashlib.sha256(statement.template.encode("utf-8")).hexdigest()
@@ -330,6 +351,17 @@ def test_every_production_statement_has_exact_authorized_purposes() -> None:
             else:
                 expected = {f"datasource.metadata.{backend}"}
             assert statement.allowed_purposes == frozenset(expected)
+
+
+def test_stored_projection_refuses_case_insensitive_view_shadowing() -> None:
+    backend = ibis.duckdb.connect()
+    profile = ENGINE_PROFILES["duckdb"]
+    with adapters.SourceSession(profile, default_datasource(), backend) as owner:
+        backend.create_table("orders", backend.sql("SELECT 1 AS amount"))
+        backend.raw_sql("CREATE TEMP VIEW OrDeRs AS SELECT 41 AS amount")
+        bound = owner.bind(TableSourceIR("orders"), source_identity="shadowed_orders")
+        assert bound.relation.to_pyarrow().column("amount").to_pylist() == [41]
+        assert not owner.stored_projection.proves(bound)
 
 
 def test_render_quotes_literals_and_identifiers_strictly() -> None:

@@ -43,6 +43,7 @@ from marivo.semantic._numeric_lowering import (
     lower_row,
     lower_source_reduction,
     native_mean,
+    source_contribution_count,
 )
 from marivo.semantic.catalog_entries import (
     DependencyContext,
@@ -243,6 +244,7 @@ __all__ = [
     "run_check",
     "serialize_catalog_json_value",
     "snapshot_target_source",
+    "source_contribution_count",
     "time_type_issue",
     "unit_state",
     "valid_embedding_shape",

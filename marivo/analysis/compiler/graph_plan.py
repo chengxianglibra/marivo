@@ -77,6 +77,29 @@ def _stage_id(occurrence: tuple[int, ...]) -> str:
     return "read:" + ".".join(str(index) for index in occurrence)
 
 
+def _contribution_period(
+    contribution: ContributionBinding, schema: SourceSchema
+) -> PeriodFilter | None:
+    time, period = contribution.time, contribution.period
+    if time is None or period is None:
+        return None
+    clock = FieldRead(
+        time.field,
+        contribution.root,
+        time.path,
+        time.at,
+        source_at=time.source_at,
+        step_ats=time.step_ats,
+    )
+    return PeriodFilter(
+        schema.field(field_read_key(clock)).column,
+        period.start,
+        period.end,
+        period.timezone,
+        predicate_prepared=any(item.field == "__time_period" for item in schema.fields),
+    )
+
+
 def _plan_source_reads(
     graph: BoundGraph,
     schemas: tuple[SourceSchema, ...],
@@ -167,26 +190,6 @@ def _plan_source_reads(
                 strict=True,
             )
         )
-        period = None
-        if contribution.period is not None and contribution.time is not None:
-            period = PeriodFilter(
-                schema.field(
-                    field_read_key(
-                        FieldRead(
-                            contribution.time.field,
-                            contribution.root,
-                            contribution.time.path,
-                            contribution.time.at,
-                            source_at=contribution.time.source_at,
-                            step_ats=contribution.time.step_ats,
-                        )
-                    )
-                ).column,
-                contribution.period.start,
-                contribution.period.end,
-                contribution.period.timezone,
-                predicate_prepared=any(item.field == "__time_period" for item in schema.fields),
-            )
         reads.append(
             SourceReadStage(
                 stage_id,
@@ -204,9 +207,10 @@ def _plan_source_reads(
                         else ()
                     ),
                 ),
-                period,
+                _contribution_period(contribution, schema),
                 preparation_checks=schema.preparation_checks,
                 binding_id=schema.binding_id,
+                conditional_binding_id=schema.conditional_binding_id,
                 unique_keys=UniqueKeys(tuple(c.slot_id for c in columns), (key_slots,))
                 if not contribution.memberships
                 and (

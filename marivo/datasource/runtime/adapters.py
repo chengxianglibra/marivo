@@ -54,6 +54,7 @@ from marivo.datasource.ir import (
     QueryParamScalarList,
     TableSourceIR,
 )
+from marivo.datasource.runtime.column_storage import StoredProjectionFacts
 from marivo.datasource.runtime.json_source import JsonResponseCache, read_json_source
 from marivo.datasource.runtime.read_types import (
     DURATION_UNIT_METADATA_KEY,
@@ -189,6 +190,7 @@ class SourceSession:
         self._bindings_by_identity: dict[str, tuple[SourceIR, dict[str, object]]] = {}
         self._json_responses = json_responses
         self._bound_sources: dict[str, BoundSource] = {}
+        self.stored_projection = StoredProjectionFacts(provider, datasource, backend, self._token)
         self.string_facts = SourceStringFacts(provider, datasource, backend)
         self._table_engines: dict[str, str | None] = {}
         self._table_join_issues: dict[str, str | None] = {}

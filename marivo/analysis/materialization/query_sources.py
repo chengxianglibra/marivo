@@ -8,20 +8,16 @@ from dataclasses import replace
 from json import dumps
 from typing import TYPE_CHECKING
 from urllib.error import HTTPError
-from uuid import uuid4
 
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
-import pyarrow as pa
 
 from marivo._kernel.errors import MarivoError
-from marivo.analysis.materialization.prepared_fields import PreparedFields
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo
 
 from marivo._definition.graph import computation_fingerprint
-from marivo._definition.observations import ContributionBinding
 from marivo._definition.query import ResultQuery
 from marivo._definition.relations import (
     AttributeKeys,
@@ -55,11 +51,9 @@ from marivo.analysis.materialization.population_domains import PreparedPopulatio
 from marivo.analysis.materialization.population_layout import population_field
 from marivo.analysis.materialization.population_preparation import population_entities
 from marivo.analysis.materialization.prepared_sources import PreparedSources
+from marivo.analysis.materialization.query_contributions import prepare_contribution_reads
 from marivo.analysis.materialization.query_preparation import (
-    SourceInputContract,
-    prepare_fields,
     prepare_population,
-    share_source_projections,
 )
 from marivo.analysis.materialization.query_source_dependencies import (
     _query_entities,
@@ -68,25 +62,20 @@ from marivo.analysis.materialization.query_source_dependencies import (
 from marivo.analysis.materialization.source_qualification import _route_gap
 from marivo.analysis.materialization.source_types import (
     _admitted,
-    _bound_physical_field,
     _population_field,
-    _preparation_error,
-    _validate_timestamp_precision,
-    admit_source_type,
 )
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.data_types import (
     DataColumn,
-    DecimalDataType,
-    DurationDataType,
-    ScalarDataType,
 )
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.optimization_policy import (
+    DEFAULT_OPTIMIZATION_POLICY,
+    OptimizationPolicy,
+)
 from marivo.analysis.model.time_facts import FrameSourceTime, merge_source_times
 from marivo.datasource.spi import (
-    DURATION_UNIT_METADATA_KEY,
-    TIMESTAMP_UNIT_METADATA_KEY,
     BoundSource,
     CsvSourceIR,
     DatasourceConnectionService,
@@ -94,7 +83,6 @@ from marivo.datasource.spi import (
     JsonSourceIR,
     SourceSession,
     json_source_param_names,
-    physical_fields,
     query_policy,
 )
 from marivo.semantic.spi import (
@@ -191,185 +179,6 @@ def _check_frame_parameter_types(
                         "Select an axis with the target's exact physical type, Duration unit and timestamp interpretation. Explicitly unify naive and aware identity values in the Entity output; TimeDimension parse does not rewrite primary_key.",
                         "frame.population",
                     )
-
-
-def _physical_identity_bound(
-    relation: ir.Table,
-    name: str,
-    owner: SourceSession,
-    bounds: Mapping[str, BoundSource],
-    owners: Mapping[str, SourceSession],
-) -> bool:
-    origins = physical_fields(relation[name])
-    if len(origins) != 1:
-        return False
-    field = origins[0]
-    # Semantic primary_key owns non-null identity integrity. Physical
-    # nullable metadata does not prevent sharing this exact source binding.
-    return any(
-        field.rel == bound.relation.op() and owners[path] is owner for path, bound in bounds.items()
-    )
-
-
-def _contribution_fields(
-    prepared: PreparedFields,
-    schema: pa.Schema,
-    bounds: Mapping[str, BoundSource],
-) -> list[SourceField]:
-    fields: list[SourceField] = []
-    originals = dict(prepared.originals)
-    for path, column in prepared.columns:
-        admitted = _admitted(schema, path, column)
-        expression = originals[column]
-        duration = DurationDataType("us") if expression.type().is_interval() else None
-        for physical in physical_fields(expression):
-            for bound in bounds.values():
-                raw = _bound_physical_field(physical, bound)
-                if raw is not None:
-                    metadata = raw.metadata or {}
-                    if not (
-                        DURATION_UNIT_METADATA_KEY in metadata
-                        or TIMESTAMP_UNIT_METADATA_KEY in metadata
-                    ):
-                        continue
-                    if TIMESTAMP_UNIT_METADATA_KEY in metadata:
-                        _validate_timestamp_precision(raw, path)
-                    if DURATION_UNIT_METADATA_KEY not in metadata:
-                        continue
-                    dtype = admit_source_type(raw, path)
-                    if isinstance(dtype, DurationDataType):
-                        if duration is not None and duration != dtype:
-                            raise _preparation_error("one exact Duration unit", path)
-                        duration = dtype
-        if duration is not None and (
-            isinstance(admitted.dtype, DecimalDataType)
-            or admitted.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
-        ):
-            admitted = replace(admitted, dtype=duration)
-        fields.append(admitted)
-    return fields
-
-
-def _prepare_contribution_read(
-    contribution: ContributionBinding,
-    input_contract: SourceInputContract,
-    state: CompiledSemanticState,
-    entities: Mapping[str, ir.Table],
-    bounds: Mapping[str, BoundSource],
-    owners: Mapping[str, SourceSession],
-    parameters: tuple[PopulationParameterPlan, ...],
-    source_bindings: dict[SourceInputContract, str],
-    source_times: list[FrameSourceTime],
-    consumption_timezone: str,
-) -> tuple[SourceSchema, ir.Table]:
-    registry = state.registry
-    input_contract = replace(input_contract, reads=contribution.reads)
-    root = contribution.root.ref.path
-    prepared = prepare_fields(
-        contribution,
-        entities,
-        state,
-        consumption_timezone=consumption_timezone,
-    )
-    source_times.extend(prepared.source_times)
-    for dependency in prepared.dependencies:
-        for physical in physical_fields(dependency):
-            for bound in bounds.values():
-                raw = _bound_physical_field(physical, bound)
-                if raw is not None:
-                    metadata = raw.metadata or {}
-                    if TIMESTAMP_UNIT_METADATA_KEY in metadata:
-                        _validate_timestamp_precision(raw, f"{root}: {physical.name}")
-                    if DURATION_UNIT_METADATA_KEY in metadata:
-                        admit_source_type(raw, f"{root}: {physical.name}")
-    table = prepared.table
-    source_contract = replace(
-        input_contract,
-        time_authorities=prepared.time_authorities,
-    )
-    schema = table.schema().to_pyarrow()
-
-    logical_binding = owners[root].provider.query_policy.key_fusion == "local" or (
-        owners[root].provider.query_policy.key_fusion != "none"
-        and owners[root].uses_native_provider()
-        and all(
-            _physical_identity_bound(table, name, owners[root], bounds, owners)
-            for name in registry.entities[root].primary_key
-        )
-    )
-    binding_id = (
-        source_bindings.setdefault(source_contract, f"source:{uuid4().hex}")
-        if logical_binding
-        else ""
-    )
-    keys = tuple(_admitted(schema, name, name) for name in registry.entities[root].primary_key)
-    fields = _contribution_fields(prepared, schema, bounds)
-    schema_facts = SourceSchema(
-        root,
-        keys,
-        tuple(fields),
-        contribution.occurrence,
-        prepared.checks,
-        binding_id=binding_id,
-        time_authorities=prepared.time_authorities,
-        provider=owners[root].provider.name,
-        parameters=tuple(
-            parameter
-            for parameter in parameters
-            if parameter.placeholder in {node.name for node in table.op().find(ops.UnboundTable)}
-        ),
-        original_identity=tuple(
-            _admitted(schema, name, name)
-            for name in normalize_target_entity(registry, root).version_row_key
-        ),
-    )
-    return schema_facts, table
-
-
-def _prepare_contribution_reads(
-    graph: BoundGraph,
-    state: CompiledSemanticState,
-    entities: Mapping[str, ir.Table],
-    bounds: Mapping[str, BoundSource],
-    owners: Mapping[str, SourceSession],
-    parameters: tuple[PopulationParameterPlan, ...],
-    schemas: list[SourceSchema],
-    relations: dict[str, ir.Table],
-    source_times: list[FrameSourceTime],
-    consumption_timezone: str,
-) -> None:
-    registry = state.registry
-    observation = graph.signature.observation
-    source_bindings: dict[SourceInputContract, str] = {}
-    contributions = () if observation is None else observation.contributions
-    contracts = tuple(
-        SourceInputContract.capture(
-            contribution,
-            source_owner=id(owners[contribution.root.ref.path]),
-            datasource=owners[contribution.root.ref.path].datasource.semantic_id,
-            source_fingerprint=normalize_target_entity(
-                registry, contribution.root.ref.path
-            ).dependency_fingerprint,
-        )
-        for contribution in contributions
-    )
-    contributions = share_source_projections(contributions, contracts)
-    for contribution, input_contract in zip(contributions, contracts, strict=True):
-        schema_facts, table = _prepare_contribution_read(
-            contribution,
-            input_contract,
-            state,
-            entities,
-            bounds,
-            owners,
-            parameters,
-            source_bindings,
-            source_times,
-            consumption_timezone,
-        )
-        schemas.append(schema_facts)
-        stage_id = "read:" + ".".join(str(i) for i in contribution.occurrence)
-        relations[stage_id] = table
 
 
 def _prepare_population_reads(
@@ -483,6 +292,7 @@ def prepare_query_sources(
     consumption_timezone: str = "UTC",
     frame_schemas: Mapping[str, DataSchema] | None = None,
     reuse_sources: PreparedSources | None = None,
+    policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY,
 ) -> PreparedSources:
     """Prepare fields and relationships, acquiring HTTP JSON to infer its types."""
     if isinstance(graph.root, ReadQuery):
@@ -495,6 +305,7 @@ def prepare_query_sources(
             frame_schemas=frame_schemas,
             consumption_timezone=consumption_timezone,
             reuse_sources=reuse_sources,
+            policy=policy,
         )
 
     available = sources or {source.datasource.semantic_id: source}
@@ -507,6 +318,7 @@ def prepare_query_sources(
             bounds,
             owners,
             entities,
+            optimization_policy=policy,
         )
     schemas: list[SourceSchema] = []
     relations: dict[str, ir.Table] = {}
@@ -515,7 +327,7 @@ def prepare_query_sources(
     )
     _check_frame_parameter_types(parameters, entities, bounds, state)
     source_times: list[FrameSourceTime] = []
-    _prepare_contribution_reads(
+    prepare_contribution_reads(
         graph,
         state,
         entities,
@@ -526,6 +338,7 @@ def prepare_query_sources(
         relations,
         source_times,
         consumption_timezone,
+        conditional=policy.allows("conditional_source_merge"),
     )
     populations = _query_populations(graph)
     population_checks = _prepare_population_reads(
@@ -577,6 +390,7 @@ def prepare_query_sources(
         source_times=merge_source_times(
             tuple(source_times), *(dependency.source_times for dependency in dependency_inputs)
         ),
+        optimization_policy=policy,
     )
 
 
@@ -706,6 +520,7 @@ def open_query_sources(
     frame_schemas: Mapping[str, DataSchema] | None = None,
     json_responses: dict[str, JsonResponseCache] | None = None,
     reuse_sources: PreparedSources | None = None,
+    policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY,
 ) -> Iterator[PreparedSources]:
     """Open sources, sharing HTTP responses only inside the caller's evaluation."""
     entities = qualify_source_inputs(graph, state)
@@ -756,5 +571,6 @@ def open_query_sources(
             memo=memo,
             frame_schemas=frame_schemas,
             reuse_sources=reuse_sources,
+            policy=policy,
         )
         yield replace(prepared, graph=native_graph)

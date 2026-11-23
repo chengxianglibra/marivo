@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 
 import ibis
+import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
@@ -14,6 +15,8 @@ from marivo._definition.expressions import (
     PredicateExpression,
     RowExpression,
     RowField,
+    SourceAggregate,
+    SourceWeightedMean,
 )
 from marivo._definition.graph import walk
 from marivo._definition.observation_time import ContributionClockBinding, ObservationPeriod
@@ -117,6 +120,28 @@ class SourceInputContract:
     sample_time_slots: tuple[str, ...] = ()
     sample_interval_ranges: tuple[tuple[str, SampleIntervalRanges], ...] = ()
 
+    def conditional_domain(self) -> SourceInputContract | None:
+        """Allow only predicates that cannot prefilter a prepared physical binding."""
+        if (
+            self.memberships
+            or self.population_reads
+            or self.sample_axes
+            or self.window_key is not None
+            or self.window_coordinates
+            or any(
+                read.entity != self.root or read.path or read.at is not None for read in self.reads
+            )
+        ):
+            return None
+        for predicate in self.predicates:
+            for expression in predicate.inputs:
+                if not isinstance(expression, RowExpression) or any(
+                    isinstance(node, RowField) and node.ref.ref.kind is SemanticKind.TIME_DIMENSION
+                    for node in walk((expression,), resolve=lambda _: None).order
+                ):
+                    return None
+        return replace(self, reads=(), predicates=())
+
     @classmethod
     def capture(
         cls,
@@ -158,7 +183,10 @@ class SourceInputContract:
 
 
 def share_source_projections(
-    contributions: tuple[ContributionBinding, ...], contracts: tuple[SourceInputContract, ...]
+    contributions: tuple[ContributionBinding, ...],
+    contracts: tuple[SourceInputContract, ...],
+    *,
+    conditional: frozenset[SourceInputContract] = frozenset(),
 ) -> tuple[ContributionBinding, ...]:
     """Union root projections while preserving every relationship read and row domain."""
     groups: dict[SourceInputContract, list[int]] = {}
@@ -172,13 +200,18 @@ def share_source_projections(
             continue
         # Only direct root fields are projections. Path/version reads retain
         # their exact identity because adding a join can change contributions.
-        domain = replace(
-            contract,
-            reads=tuple(
-                read
-                for read in contract.reads
-                if read.entity != contract.root or read.path or read.at is not None
-            ),
+        shared = contract.conditional_domain() if conditional else None
+        domain = (
+            shared
+            if shared is not None and shared in conditional
+            else replace(
+                contract,
+                reads=tuple(
+                    read
+                    for read in contract.reads
+                    if read.entity != contract.root or read.path or read.at is not None
+                ),
+            )
         )
         groups.setdefault(domain, []).append(index)
     result = list(contributions)
@@ -189,6 +222,95 @@ def share_source_projections(
         for index in indexes:
             result[index] = replace(result[index], reads=reads)
     return tuple(result)
+
+
+def candidate_conditional_domains(
+    contributions: tuple[ContributionBinding, ...], contracts: tuple[SourceInputContract, ...]
+) -> frozenset[SourceInputContract]:
+    """Find mixed branch domains before querying metadata or widening projections."""
+    signatures: dict[SourceInputContract, tuple[tuple[PredicateExpression, ...], str]] = {}
+    mixed: set[SourceInputContract] = set()
+    for contribution, contract in zip(contributions, contracts, strict=True):
+        domain = contract.conditional_domain()
+        if domain is None:
+            continue
+        node = contribution.definition
+        nulls = node.nulls if isinstance(node, (SourceAggregate, SourceWeightedMean)) else "ignore"
+        signature = contract.predicates, nulls
+        if signatures.setdefault(domain, signature) != signature:
+            mixed.add(domain)
+    return frozenset(mixed)
+
+
+def direct_conditional_projection(value: ir.Value) -> bool:
+    """Prove that this projection cannot compute an excluded row's value."""
+    node = value.op()
+    while isinstance(node, ops.Field):
+        relation = node.rel
+        definition = relation.values.get(node.name)
+        if definition is not None:
+            node = definition
+        elif isinstance(relation, ops.Reference):
+            node = ops.Field(relation.parent, node.name)
+        else:
+            return isinstance(relation, (ops.DatabaseTable, ops.UnboundTable, ops.InMemoryTable))
+    return False
+
+
+def _conditional_value_total(node: ops.Value) -> bool:
+    if isinstance(node, (ops.Field, ops.Literal)):
+        return True
+    if isinstance(node, ops.Cast):
+        if not (
+            node.arg.dtype.is_null()
+            or node.arg.dtype.copy(nullable=True) == node.dtype.copy(nullable=True)
+            or (node.arg.dtype.is_numeric() and node.dtype.copy(nullable=True) == dt.float64)
+        ):
+            return False
+    elif not isinstance(
+        node,
+        (
+            ops.And,
+            ops.Or,
+            ops.Not,
+            ops.Comparison,
+            ops.IsNull,
+            ops.NotNull,
+            ops.InValues,
+            ops.IfElse,
+            ops.SearchedCase,
+            ops.Coalesce,
+            ops.NullIf,
+            ops.Sqrt,
+            ops.Ln,
+            ops.Log,
+            ops.Log2,
+            ops.Log10,
+        ),
+    ):
+        return False
+    children = (
+        item
+        for argument in node.args
+        for item in (argument if isinstance(argument, tuple) else (argument,))
+        if isinstance(item, ops.Value)
+    )
+    return all(_conditional_value_total(child) for child in children)
+
+
+def proves_conditional_predicates(
+    predicates: tuple[PredicateExpression, ...], prepared: PreparedFields
+) -> bool:
+    """Keep partial WHERE expressions in their original native demand context."""
+    fields = {path: prepared.table[name] for path, name in prepared.columns}
+    for predicate in predicates:
+        lowered = lower_condition(predicate, fields)
+        if not all(
+            _conditional_value_total(value.op())
+            for value in (lowered.value, *(check.violation for check in lowered.checks))
+        ):
+            return False
+    return True
 
 
 def prepare_fields(

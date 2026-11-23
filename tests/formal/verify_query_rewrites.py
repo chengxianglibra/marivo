@@ -907,7 +907,12 @@ def _bag_sum(values: list[int | None]) -> int | None:
 
 
 def _verify_native_differential(
-    session: mv.Session, query: mv.AnalysisFrame, trace: SourceTrace, *, reads: tuple[int, int]
+    session: mv.Session,
+    query: mv.AnalysisFrame,
+    trace: SourceTrace,
+    *,
+    reads: tuple[int, int],
+    policy: OptimizationPolicy | None = None,
 ) -> None:
     graph = _source_graph(query).graph
     with (
@@ -915,7 +920,7 @@ def _verify_native_differential(
         open_query_sources(connections, graph, session.catalog._state) as prepared,
     ):
         original = plan_query(graph, prepared.schemas)
-        optimized = optimize_query(original)
+        optimized = optimize_query(original, policy=policy)
         assert any(group.law == "source_block" for group in optimized.fusion_groups)
         assert (
             sum(isinstance(stage, SourceReadStage) for stage in original.stages),
@@ -983,8 +988,9 @@ def test_actual_common_aggregate_preserves_bag_nulls_and_empty_domain(
     )
 
 
-def test_only_aggregates_on_the_same_contribution_domain_merge(
-    query_session: mv.Session, source_trace: SourceTrace
+@pytest.mark.parametrize("conditional, optimized_reads", ((False, 2), (True, 1)))
+def test_distinct_contribution_domains_require_conditional_aggregation(
+    query_session: mv.Session, source_trace: SourceTrace, conditional: bool, optimized_reads: int
 ) -> None:
     catalog = query_session.catalog
     amount = catalog_value(catalog, "sales.orders.amount", kind="measure")
@@ -997,7 +1003,10 @@ def test_only_aggregates_on_the_same_contribution_domain_merge(
             "first_extra": extra.sum().where(key <= 2),
         },
     )
-    _verify_native_differential(query_session, query, source_trace, reads=(3, 2))
+    policy = OptimizationPolicy.default().with_rule("conditional_source_merge", enabled=conditional)
+    _verify_native_differential(
+        query_session, query, source_trace, reads=(3, optimized_reads), policy=policy
+    )
     assert query.compute().to_pandas().iloc[0].tolist() == [20, -4, 3]
 
 
