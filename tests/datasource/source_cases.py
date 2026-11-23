@@ -178,7 +178,8 @@ def _duckdb_source_case(
     admin = ibis.duckdb.connect(path)
     try:
         admin.raw_sql(f"CREATE TABLE {name} ({columns})")
-        admin.raw_sql(f"INSERT INTO {name} VALUES {values}")
+        if values:
+            admin.raw_sql(f"INSERT INTO {name} VALUES {values}")
         admin.raw_sql(f"CREATE VIEW {name}_view AS SELECT * FROM {name}")
 
     finally:
@@ -261,7 +262,8 @@ def _postgres_source_case(
                 )
                 admin.execute(f"CREATE TABLE public.{name} (wrong TEXT)")
             admin.execute(f"CREATE TABLE {schema}.{name} ({columns})")
-            admin.execute(f"INSERT INTO {schema}.{name} VALUES {values}")
+            if values:
+                admin.execute(f"INSERT INTO {schema}.{name} VALUES {values}")
             admin.execute(f"CREATE VIEW {schema}.{name}_view AS SELECT * FROM {schema}.{name}")
             # Public fixtures inherit SELECT from pg.setup(); isolated schemas need their own grant.
             if schema != "public":
@@ -335,7 +337,8 @@ def source_case(
         with mysql.connection(admin=True, port=port) as admin, admin.cursor() as cursor:
             try:
                 cursor.execute(f"CREATE TABLE {name} ({columns}) ENGINE=InnoDB")
-                cursor.execute(f"INSERT INTO {name} VALUES {values}")
+                if values:
+                    cursor.execute(f"INSERT INTO {name} VALUES {values}")
                 cursor.execute(f"CREATE VIEW {name}_view AS SELECT * FROM {name}")
                 ds = datasource(
                     backend,
@@ -365,7 +368,10 @@ def source_case(
             cursor = trino_admin.cursor()
             try:
                 cursor.execute(f"CREATE TABLE {catalog}.analysis.{name} ({columns})").fetchall()
-                cursor.execute(f"INSERT INTO {catalog}.analysis.{name} VALUES {values}").fetchall()
+                if values:
+                    cursor.execute(
+                        f"INSERT INTO {catalog}.analysis.{name} VALUES {values}"
+                    ).fetchall()
                 ds = datasource(
                     backend,
                     {
@@ -394,11 +400,12 @@ def source_case(
             client.command(
                 f"CREATE TABLE {database}.{name} ({ch_columns}) ENGINE=MergeTree ORDER BY tuple()"
             )
-            client.insert(
-                f"{database}.{name}",
-                [list(row.values()) for row in rows],
-                column_names=list(rows[0]),
-            )
+            if rows:
+                client.insert(
+                    f"{database}.{name}",
+                    [list(row.values()) for row in rows],
+                    column_names=list(rows[0]),
+                )
             if distributed:
                 client.command(
                     f"CREATE TABLE {database}.{name}_distributed AS {database}.{name} "
