@@ -84,7 +84,10 @@ from marivo.datasource.ir import (
     source_name,
     source_to_dict,
 )
-from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.adapters import (
+    SourceSession,
+    expression_backend_name,
+)
 from marivo.datasource.runtime.connections import (
     DatasourceConnectionConfig,
     DatasourceConnectionService,
@@ -116,6 +119,7 @@ from marivo.datasource.runtime.read_types import (
     PhysicalRequirement,
     QualifiedSource,
 )
+from marivo.datasource.runtime.session_access import bound_duration_units
 from marivo.datasource.runtime.session_factory import probe_backend
 from marivo.datasource.runtime.table_source import (
     TableLookupBackend,
@@ -125,6 +129,7 @@ from marivo.datasource.source import (
     AuthoringScope,
     PartitionScope,
     UnprunedScope,
+    scope_time_range,
 )
 from marivo.datasource.source import _apply_scope as apply_scope
 from marivo.datasource.store.authoring import (
@@ -134,6 +139,7 @@ from marivo.datasource.store.authoring import (
     MySQLSpec,
     PostgresSpec,
     TrinoSpec,
+    datasource_ir_from_spec,
 )
 from marivo.datasource.store.builtin import (
     DEFAULT_DATASOURCE_DESCRIPTION,
@@ -210,13 +216,16 @@ __all__ = [
     "backend_errors",
     "backend_failure_summary",
     "bind_resolver",
+    "bound_duration_units",
     "calendar_data",
     "calendar_range",
     "check_binding",
     "credential_labels",
     "current_resolver",
+    "datasource_ir_from_spec",
     "default_datasource",
     "env",
+    "expression_backend_name",
     "governed_parse_operation",
     "governed_temporal_operation",
     "http_bearer_secret",
@@ -251,6 +260,7 @@ __all__ = [
     "render",
     "require_profile_for_backend_type",
     "s3_secret",
+    "scope_time_range",
     "source_name",
     "source_to_dict",
     "source_unavailability",

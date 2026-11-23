@@ -7,6 +7,7 @@ from functools import lru_cache
 from importlib import import_module
 
 import ibis.expr.datatypes as dt
+from typing_extensions import override
 
 from marivo.datasource.engines.base import (
     GENERIC_PROFILE as GENERIC_PROFILE,
@@ -50,12 +51,15 @@ def _load_profile(backend_type: str) -> EngineProfile:
 
 
 class _ProfileRegistry(Mapping[str, EngineProfile]):
+    @override
     def __iter__(self) -> Iterator[str]:
         return iter(SUPPORTED_BACKEND_TYPES)
 
+    @override
     def __len__(self) -> int:
         return len(SUPPORTED_BACKEND_TYPES)
 
+    @override
     def __getitem__(self, backend_type: str) -> EngineProfile:
         if backend_type not in SUPPORTED_BACKEND_TYPES:
             raise KeyError(backend_type)

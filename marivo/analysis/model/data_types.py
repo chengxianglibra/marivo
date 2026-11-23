@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
+from typing_extensions import override
+
 from marivo.analysis.model.errors import reject
 
 
@@ -36,6 +38,7 @@ class ScalarDataType:
                 "data.dtype",
             )
 
+    @override
     def __repr__(self) -> str:
         return f"<ScalarDataType name={self.name}; use .show()>"
 
@@ -69,6 +72,7 @@ class DecimalDataType:
                 "data.dtype",
             )
 
+    @override
     def __repr__(self) -> str:
         return f"<DecimalDataType precision={self.precision} scale={self.scale}; use .show()>"
 
@@ -93,6 +97,7 @@ class TimestampDataType:
         if self.timezone is not None:
             require_data_text(self.timezone, "data.timezone")
 
+    @override
     def __repr__(self) -> str:
         zone = None if self.timezone is None else self.timezone[:80]
         return f"<TimestampDataType unit={self.unit} timezone={zone!r}; use .show()>"
@@ -115,6 +120,7 @@ class DurationDataType:
     def __post_init__(self) -> None:
         _time_unit(self.unit)
 
+    @override
     def __repr__(self) -> str:
         return f"<DurationDataType unit={self.unit}; use .show()>"
 

@@ -42,7 +42,7 @@ from marivo.analysis._scope import scope_summary
 from marivo.analysis.compiler.query_program import FrameProgram
 from marivo.analysis.compiler.query_stages import FrameCompute, LocalCompute
 from marivo.analysis.core.attachments import OutputAttachment
-from marivo.analysis.core.data_validation import normalize_complete_frame
+from marivo.analysis.core.data_validation import detached_rows, normalize_complete_frame
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -90,7 +90,6 @@ from marivo.analysis.materialization.carriers.frame_page import (
     FrameIntervalPeriod,
     FramePairedPeriod,
     FramePeriodPage,
-    detached_rows,
 )
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_local_execution import LocalKernel
@@ -393,7 +392,7 @@ def test_required_comparison_map_rejects_corrupt_payload(local: LocalFrameServic
             ),
         ),
     )
-    with local.store._write() as conn:
+    with local.store.write_transaction() as conn:
         conn.execute(
             "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
             (encode(corrupt), value.artifact_id),
@@ -417,7 +416,7 @@ def test_required_comparison_map_rejects_corrupt_payload(local: LocalFrameServic
 
 
 def counts(local: LocalFrameServices) -> tuple[int, int]:
-    with local.store._read() as conn:
+    with local.store.read_transaction() as conn:
         return (
             conn.execute("SELECT count(*) FROM analysis_action_runs").fetchone()[0],
             conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0],
@@ -831,7 +830,7 @@ def test_unknown_outcome_requires_recovery_then_explicit_resubmission(
 
     monkeypatch.chdir(local.store.project_root)
     store = local.store
-    original = store._read
+    original = store.read_transaction
     memory = ordinary(local)
 
     def unavailable() -> None:
@@ -839,7 +838,7 @@ def test_unknown_outcome_requires_recovery_then_explicit_resubmission(
 
     def fault(event: str) -> None:
         if event == commit_point:
-            monkeypatch.setattr(store, "_read", unavailable)
+            monkeypatch.setattr(store, "read_transaction", unavailable)
             raise OSError("acknowledgement unknown")
 
     monkeypatch.setattr(terminal_publication, "_event", fault)
@@ -850,7 +849,7 @@ def test_unknown_outcome_requires_recovery_then_explicit_resubmission(
     assert error.repair is not None
     assert f"mv.session.resume({local.session_ref!r})" in error.repair.action
     assert "duplicate" in error.repair.action and "changed source data" in error.repair.action
-    monkeypatch.setattr(store, "_read", original)
+    monkeypatch.setattr(store, "read_transaction", original)
     monkeypatch.setattr(terminal_publication, "_event", lambda event: None)
     committed_before = int(commit_point == "after_commit")
     assert counts(local) == (1, committed_before)
@@ -1109,7 +1108,7 @@ def rewrite_primary(saved: AnalysisFrame, rows: pd.DataFrame) -> StoredFrameBack
     )
     handle = ParquetHandle(receipt, payload_digest(local.store.project_root, directory, receipt))
     corrupt = replace(value, data=replace(value.data, rows=handle))
-    with local.store._write() as conn:
+    with local.store.write_transaction() as conn:
         conn.execute(
             "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
             (encode(corrupt), value.artifact_id),
@@ -1211,7 +1210,7 @@ def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -
     saved = ordinary(local).persist()
     current = manifest(saved)
     frozen = Path(__file__).with_name("terminal_v1_frozen.json").read_text().strip()
-    with local.store._write() as conn:
+    with local.store.write_transaction() as conn:
         conn.execute(
             "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
             (frozen, current.artifact_id),
@@ -1230,7 +1229,7 @@ def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -
     for operation in operations:
         with pytest.raises(IntegrityError):
             operation()
-    with local.store._read() as conn:
+    with local.store.read_transaction() as conn:
         assert (
             conn.execute(
                 "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?",
@@ -3441,7 +3440,7 @@ def test_complete_read_validates_manifest_once_and_rechecks_next_call(
     assert reads == 1
     local.read_complete(backing)
     assert reads == 2
-    with local.store._write() as conn:
+    with local.store.write_transaction() as conn:
         conn.execute(
             "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
             ("{}", saved.artifact_id),

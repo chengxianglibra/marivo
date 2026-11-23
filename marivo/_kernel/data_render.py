@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from inspect import getdoc, signature
 from itertools import islice
 
+from typing_extensions import override
+
 from marivo._kernel.render import (
     _DEFAULT_MAX_OUTPUT_BYTES,
     RenderableResult,
@@ -120,6 +122,7 @@ class _DataResult(RenderableResult):
     def _data_card(self) -> _DataCard:
         raise NotImplementedError
 
+    @override
     def render(
         self, *, n: int | None = None, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES
     ) -> str:
@@ -135,6 +138,7 @@ class _DataResult(RenderableResult):
         _validate_display(n, max_output_bytes)
         return self._data_card().render(n=n, max_output_bytes=max_output_bytes)
 
+    @override
     def show(
         self, *, n: int | None = None, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES
     ) -> None:

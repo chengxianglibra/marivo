@@ -134,6 +134,6 @@ class DatasetRuntime:
             report_time=self.report_time,
         )
 
-    def _event(self, point: str) -> None:
+    def recovery_event(self, point: str) -> None:
         if self._hook is not None:
             self._hook(point)

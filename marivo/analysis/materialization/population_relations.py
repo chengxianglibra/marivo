@@ -40,7 +40,7 @@ from marivo.analysis.materialization.prepared_fields import PrepareFields
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.time_facts import FrameSourceTime
 from marivo.analysis.model.unique_keys import UniqueKeys
-from marivo.datasource.spi import query_policy
+from marivo.datasource.spi import expression_backend_name, query_policy
 from marivo.semantic.spi import (
     CompiledSemanticState,
     normalize_target_entity,
@@ -70,7 +70,7 @@ def prepare_member_fields(
     original = entities[entity]
     contract = normalize_target_entity(state.registry, entity)
     domain = _domain_table(operand)
-    provider = original._find_backend().name
+    provider = expression_backend_name(original)
     subject_keys = operand.key_groups[node.subject]
     reads = node.reads
 
@@ -337,7 +337,7 @@ def prepare_relationship_population(
     source_entity = node.path.source.ref.path
     contract = normalize_target_entity(state.registry, source_entity)
     source = entities[source_entity].view()
-    provider = source._find_backend().name
+    provider = expression_backend_name(source)
 
     def same_identity(left: ir.Value, right: ir.Value) -> ir.BooleanValue:
         if left.type().is_string() and right.type().is_string():

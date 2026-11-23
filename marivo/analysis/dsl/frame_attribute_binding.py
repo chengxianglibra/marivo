@@ -6,12 +6,13 @@ from dataclasses import dataclass, replace
 from typing import Literal, Protocol, TypeVar
 
 from ibis.common.deferred import Deferred
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import RowField, SourceAggregate
 from marivo._definition.graph import computation_fingerprint, direct_refs
-from marivo._definition.grouping import _MembershipGrouping
+from marivo._definition.grouping import _MembershipGrouping, grouping_binding
+from marivo._definition.population_types import population_definition, population_identity_keys
 from marivo._definition.relations import (
     MembershipBinding,
     ObserveQuery,
@@ -23,6 +24,8 @@ from marivo._definition.types import (
     field_axis,
 )
 from marivo._kernel.grouping import Grouping
+from marivo._kernel.input_context import captured_context
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding import observe
 from marivo.analysis.binding.attribute_game import (
     AttributeGame,
@@ -53,17 +56,15 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     SourceMetric,
 )
-from marivo.analysis.core.frame_interpretation import remap_context, unary_facts
 from marivo.analysis.core.frame_operations import (
     AttributeContributionValues,
     AttributeFrameValues,
     AttributeGameValues,
-    FixFrameValues,
     FrameAttributeTarget,
 )
 from marivo.analysis.core.frame_value_analysis import select_attribute_source_schema
 from marivo.analysis.core.source_frame_schema import pending_schema
-from marivo.analysis.core.source_lineage import source_lineage
+from marivo.analysis.dsl._frame_inputs import population_frame_inputs
 from marivo.analysis.dsl.frame_attribute_projection import project_attribute_parent
 from marivo.analysis.dsl.frame_attribute_sources import (
     SourceGroupKey,
@@ -71,27 +72,32 @@ from marivo.analysis.dsl.frame_attribute_sources import (
     collect_source_groups,
     source_group_key,
 )
+from marivo.analysis.dsl.frame_attribute_target import (
+    target_comparison as _target_comparison,
+)
 from marivo.analysis.dsl.population import Population, _axes, _owner, product
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.model.attribute_game_errors import AttributeGameError
 from marivo.analysis.model.data_schema import (
     CalendarDataAxis,
-    ComparisonValueBinding,
-    DataComparison,
     IntervalDataAxis,
-    OrdinaryComparisonBinding,
     PairedDataAxis,
 )
 from marivo.analysis.model.errors import reject
-from marivo.analysis.model.frame_contracts import merge_frame_key_inputs
+from marivo.analysis.model.frame_contracts import (
+    frame_backing,
+    frame_derivation_of,
+    frame_local,
+    frame_logical_schema,
+    merge_frame_key_inputs,
+)
 from marivo.analysis.model.frame_schema import LogicalSchema
-from marivo.analysis.model.layout_facts import FrameValueContext
-from marivo.analysis.model.lineage import all_origins
 from marivo.semantic import RowExpression
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.spi import (
     FieldExpression,
     bind_field_in_state,
+    expression_role,
     validate_context,
 )
 
@@ -100,6 +106,7 @@ class AttributeFrameNode(FrameNode, Protocol):
     """Construct further immutable nodes under the receiver's local authority."""
 
     @property
+    @override
     def _local(self) -> LocalFrameServices: ...
 
     @classmethod
@@ -111,6 +118,13 @@ class AttributeFrameNode(FrameNode, Protocol):
 AttributeFrameT = TypeVar("AttributeFrameT", bound=AttributeFrameNode)
 
 
+def derived_attribute_frame(
+    frame: AttributeFrameT, schema: LogicalSchema, root: FrameExpressionRoot
+) -> AttributeFrameT:
+    """Create an Attribute node under the receiver's exact local authority."""
+    return frame._from_expression(frame._local, schema, root)  # noqa: SLF001 - Attribute construction protocol.
+
+
 def _validate_classification_scope(
     source: SourceFrameBinding,
     target: DerivedOutput,
@@ -119,7 +133,11 @@ def _validate_classification_scope(
     fine_axes: tuple[ComparisonAxis, ...],
     fine_memberships: tuple[MembershipBinding, ...],
 ) -> None:
-    required = set(direct_refs(bound_by._definition)) if isinstance(bound_by, Population) else set()
+    required = (
+        set(direct_refs(population_definition(bound_by)))
+        if isinstance(bound_by, Population)
+        else set()
+    )
     for axis in fine_axes:
         if isinstance(axis, AxisBinding):
             required.update((axis.entity, *axis.path))
@@ -162,11 +180,11 @@ def _bind_classification(
     try:
         if isinstance(by, Population):
             validate_context(
-                by._context,
+                captured_context(by),
                 project_root=source.connection.project_root,
-                owner=parent._local.owner,
+                owner=frame_local(parent).owner,
             )
-            for identity, captured_keys in by._identity_keys:
+            for identity, captured_keys in population_identity_keys(by):
                 entity = source.state.registry.entities.get(identity.removeprefix("entity:"))
                 if entity is None or tuple(entity.primary_key) != captured_keys:
                     reject(
@@ -179,7 +197,7 @@ def _bind_classification(
         else:
             bound_items: list[Deferred | Grouping] = []
             for index, item in enumerate(by):
-                if isinstance(item, RowExpression) and item._role in (
+                if isinstance(item, RowExpression) and expression_role(item) in (
                     "dimension",
                     "time",
                     "numeric",
@@ -189,14 +207,14 @@ def _bind_classification(
                             item,
                             source.state,
                             project_root=source.connection.project_root,
-                            owner=parent._local.owner,
+                            owner=frame_local(parent).owner,
                         )
                     )
                 elif isinstance(item, Grouping):
                     validate_context(
-                        item._context,
+                        captured_context(item),
                         project_root=source.connection.project_root,
-                        owner=parent._local.owner,
+                        owner=frame_local(parent).owner,
                     )
                     bound_items.append(item)
                 else:
@@ -216,18 +234,18 @@ def _bind_classification(
             canonical_id="analysis_frame.attribute",
         )
     fine_memberships = (
-        tuple(item._binding for item in bound_by if isinstance(item, _MembershipGrouping))
+        tuple(grouping_binding(item) for item in bound_by if isinstance(item, _MembershipGrouping))
         if isinstance(bound_by, tuple)
         else ()
     )
     fine_axes = (
-        bound_by._definition.axes
+        population_definition(bound_by).axes
         if isinstance(bound_by, Population)
         else tuple(
             axis
             for item in bound_by
             for axis in (
-                tuple(field_axis(read) for read in item._binding.fields)
+                tuple(field_axis(read) for read in grouping_binding(item).fields)
                 if isinstance(item, _MembershipGrouping)
                 else _axes((item,))
             )
@@ -350,34 +368,34 @@ def _capture_attribute_endpoint(
         timezone=observation.period.timezone if observation.period is not None else "UTC",
         state=source.state,
         memberships=(*observation.coordinates.memberships, *fine_memberships),
-        population=fine_by._definition if fine_by is not None else None,
+        population=population_definition(fine_by) if fine_by is not None else None,
         report_period=observation.period,
     )
     bound = replace(
         bound,
         coordinates=replace(
             bound.coordinates,
-            parent_scope=projection.population._definition,
+            parent_scope=population_definition(projection.population),
         ),
     )
     graph = BoundGraph(
         ObserveQuery(
             tuple((quantity.name, quantity.definition) for quantity in quantities),
             axes,
-            parent._local.owner,
+            frame_local(parent).owner,
             population=bound.coordinates.population,
             count_populations=tuple(domain for _, domain in bound.count_populations),
         ),
         BoundSignature(
-            parent._local.owner,
+            frame_local(parent).owner,
             quantities,
             axes,
             original.signature.declared_metrics,
             observation=bound,
         ),
     )
-    fine: FrameNode = parent._from_expression(
-        parent._local,
+    fine: FrameNode = derived_attribute_frame(
+        parent,
         pending_schema(graph, source.state),
         SourceFrameBinding(
             graph,
@@ -385,16 +403,17 @@ def _capture_attribute_endpoint(
             source.connection,
             merge_frame_key_inputs(
                 source.frame_key_inputs,
-                projection.population._frame_inputs,
-                by._frame_inputs if isinstance(by, Population) else (),
-                owner=parent._local.owner,
+                population_frame_inputs(projection.population),
+                population_frame_inputs(by) if isinstance(by, Population) else (),
+                owner=frame_local(parent).owner,
             ),
         ),
     )
     if cache is not None:
         fine = cache.setdefault(source_group_key(metric, side, target.target), fine)
-    assert isinstance(fine._backing, ExpressionFrameBacking) and isinstance(
-        fine._backing.root, SourceFrameBinding
+    fine_backing = frame_backing(fine)
+    assert isinstance(fine_backing, ExpressionFrameBacking) and isinstance(
+        fine_backing.root, SourceFrameBinding
     )
     source_rules = (
         ()
@@ -417,7 +436,7 @@ def _capture_attribute_endpoint(
     return _AttributeEndpoint(
         fine,
         projection.positions,
-        computation_fingerprint(projection.population._definition),
+        computation_fingerprint(population_definition(projection.population)),
         None if game else source_rules[source_index][1],
         source_rules,
         source_index,
@@ -524,20 +543,20 @@ def _single(
             FrameAttributeTarget(
                 target.path,
                 target.target.mode,
-                parent._schema.value_paths.index(target.path),
+                frame_logical_schema(parent).value_paths.index(target.path),
                 _target_comparison(parent, target),
             ),
             permutations,
             seed,
         )
         schema = game_schema(
-            request.endpoints[0]._schema,
-            request.endpoints[1]._schema,
-            parent._schema,
+            frame_logical_schema(request.endpoints[0]),
+            frame_logical_schema(request.endpoints[1]),
+            frame_logical_schema(parent),
             game_operation,
         )
-        return parent._from_expression(
-            parent._local,
+        return derived_attribute_frame(
+            parent,
             schema,
             OperationFrameBinding(game_operation, (parent, *request.endpoints)),
         )
@@ -547,7 +566,7 @@ def _single(
         FrameAttributeTarget(
             target.path,
             target.target.mode,
-            parent._schema.value_paths.index(target.path),
+            frame_logical_schema(parent).value_paths.index(target.path),
             _target_comparison(parent, target),
         ),
         target.target.mode == "level",
@@ -556,13 +575,18 @@ def _single(
         request.source_sides,
     )
 
-    left_schema, right_schema = request.endpoints[0]._schema, request.endpoints[1]._schema
+    left_schema, right_schema = (
+        frame_logical_schema(request.endpoints[0]),
+        frame_logical_schema(request.endpoints[1]),
+    )
     if request.source_indices is not None:
         left_schema = select_attribute_source_schema(left_schema, request.source_indices[0])
         right_schema = select_attribute_source_schema(right_schema, request.source_indices[1])
-    schema = pending_contribution_schema(left_schema, right_schema, parent._schema, operation)
-    return parent._from_expression(
-        parent._local,
+    schema = pending_contribution_schema(
+        left_schema, right_schema, frame_logical_schema(parent), operation
+    )
+    return derived_attribute_frame(
+        parent,
         schema,
         OperationFrameBinding(
             operation,
@@ -586,14 +610,14 @@ def _requires_replacement_game(
     try:
         selected = source_inputs(parent, target, by)
         fine_fields = (
-            by._definition.axes
+            population_definition(by).axes
             if isinstance(by, Population)
             else tuple(
                 axis
                 for item in by
-                if isinstance(item, (Deferred, RowExpression, Grouping))  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+                if is_instance(item, (Deferred, RowExpression, Grouping))
                 for axis in (
-                    tuple(field_axis(read) for read in item._binding.fields)
+                    tuple(field_axis(read) for read in grouping_binding(item).fields)
                     if isinstance(item, _MembershipGrouping)
                     else _axes((item,))
                 )
@@ -644,7 +668,7 @@ def bind_attribute_reports(
             "frame.attribute",
             canonical_id="analysis_frame.attribute",
         )
-    if not isinstance(by, (tuple, Population)) or (isinstance(by, tuple) and not by):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(by, (tuple, Population)) or (isinstance(by, tuple) and not by):
         reject(
             "a nonempty classification tuple or complete Population",
             repr(by),
@@ -652,24 +676,27 @@ def bind_attribute_reports(
             "frame.attribute",
             canonical_id="analysis_frame.attribute",
         )
-    if isinstance(by, Population) and _owner(by._definition) not in (None, parent._local.owner):
+    if isinstance(by, Population) and _owner(population_definition(by)) not in (
+        None,
+        frame_local(parent).owner,
+    ):
         reject(
             "a Population from this Session",
-            repr(_owner(by._definition)),
+            repr(_owner(population_definition(by))),
             "Build the fine Population in the receiver's owning Session.",
             "frame.attribute",
             canonical_id="analysis_frame.attribute",
         )
-    declaration = parent._derivation
+    declaration = frame_derivation_of(parent)
     if declaration is None:
         ordinary_axes = tuple(
             (axis.token, axis.name)
-            for axis in parent._schema.axes
+            for axis in frame_logical_schema(parent).axes
             if not isinstance(axis, (CalendarDataAxis, IntervalDataAxis, PairedDataAxis))
         )
         reject(
             "a retained source declaration on this Frame instance",
-            repr((parent._schema.value_paths, ordinary_axes)),
+            repr((frame_logical_schema(parent).value_paths, ordinary_axes)),
             "Use the same-process compute/persist return value, or supply the original Metric, where, membership rules, time scopes and comparison. Bridge the saved complete ordinary keys "
             + repr(ordinary_axes)
             + " with session.population_from(saved_frame, on=...) and in_population before observe/compare. Reconstruct temporal periods and their original correspondence explicitly from saved coordinate facts.",
@@ -678,7 +705,7 @@ def bind_attribute_reports(
         )
     failed = tuple(
         (path, dict(declaration.rejections).get(path, "unsupported source recipe"))
-        for path in parent._schema.value_paths
+        for path in frame_logical_schema(parent).value_paths
         if path not in {item.path for item in declaration.outputs}
     )
     if failed:
@@ -728,56 +755,4 @@ def bind_attribute_reports(
             game,
         )
         for target, game in zip(declaration.outputs, selected_games, strict=True)
-    )
-
-
-def _target_comparison(parent: FrameNode, target: DerivedOutput) -> DataComparison | None:
-    """Capture align-derived change endpoints at their actual source binding boundary."""
-
-    if target.target.mode == "level" or any(
-        v.value_path == target.path and v.role == target.target.mode
-        for fact in parent._schema.comparisons
-        for v in fact.values
-    ):
-        return None
-    baseline = target.target.baseline
-    assert baseline is not None
-    contexts: list[FrameValueContext | None] = []
-    fixed = []
-    for side, metric in (("left", target.target.current), ("right", baseline)):
-        schema = pending_schema(metric.binding.graph, metric.binding.state)
-        tokens: dict[str, tuple[str, Literal["self", "left", "right"]]] = {}
-        for before, after in metric.axis_positions:
-            axis = parent._schema.axes[after]
-            endpoint: Literal["self", "left", "right"] = "left" if side == "left" else "right"
-            tokens[schema.axes[before].token] = (
-                axis.token,
-                endpoint if isinstance(axis, PairedDataAxis) else "self",
-            )
-        contexts.append(
-            remap_context(dict(schema.value_contexts).get(".".join(metric.path)), tokens)
-        )
-        lineage = source_lineage(schema, metric.binding)
-        selections = []
-        for position, key in metric.fixed_axes:
-            axis = schema.axes[position]
-            operation = FixFrameValues(position, key, all_origins(lineage.axes[axis.token]))
-            restricted = replace(
-                schema,
-                axes=tuple(a for i, a in enumerate(schema.axes) if i != position),
-                value_contexts=(),
-            )
-            selections.append(unary_facts(schema, restricted, operation).fixed_axes[-1])
-        fixed.append(tuple(selections))
-    return DataComparison(
-        "endpoints",
-        (ComparisonValueBinding(target.target.mode, target.path, target.path),),
-        OrdinaryComparisonBinding(),
-        None,
-        None,
-        namespace=("attribute", *target.path),
-        contexts=((target.path, contexts[0], contexts[1]),),
-        current_fixed_axes=fixed[0],
-        baseline_fixed_axes=fixed[1],
-        named=False,
     )

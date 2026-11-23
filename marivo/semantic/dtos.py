@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from typing_extensions import override
+
 from marivo._kernel.render import Card, RenderableResult
 from marivo.datasource.spi import PreviewResult
 from marivo.semantic.ir import (
@@ -90,9 +92,11 @@ class AuthoringAssessment(RenderableResult):
     status: ReviewStatus
     issues: tuple[AssessmentIssue, ...]
 
+    @override
     def _repr_identity(self) -> str:
         return f"AuthoringAssessment status={self.status} issues={len(self.issues)}"
 
+    @override
     def _card(self) -> Card:
         issue_rows = [[str(issue.kind), str(issue.severity)] for issue in self.issues]
         return Card(identity=self._repr_identity(), available=(".show()",)).table(
@@ -125,9 +129,11 @@ class PreviewBatchResult(RenderableResult):
         """Return previewed semantic refs in caller-supplied order."""
         return tuple(result.ref for result in self.results)
 
+    @override
     def _repr_identity(self) -> str:
         return f"PreviewBatchResult status={self.status} refs={len(self.results)}"
 
+    @override
     def _card(self) -> Card:
         return Card(
             identity=self._repr_identity(),

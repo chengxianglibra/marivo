@@ -16,6 +16,7 @@ from typing import (
 import ibis
 from ibis.common.deferred import BinaryOperator, Call, Deferred, Just, Resolver, UnaryOperator
 from ibis.common.deferred import Sequence as RecipeSequence
+from typing_extensions import override
 
 from marivo._definition.population_parameters import has_parameters
 from marivo._definition.types import (
@@ -27,11 +28,13 @@ from marivo._kernel.temporal import InstantAnchor
 from marivo.semantic._deferred_semantics import (
     consume_field,
 )
+from marivo.semantic._expression_carrier import expression_role
 from marivo.semantic.errors import _error, _stage_error
 from marivo.telemetry import traced
 
 if TYPE_CHECKING:
     from marivo._kernel.symbolic import PathSymbol
+from marivo.semantic._comparison_operators import _ComparisonOperators
 from marivo.semantic._expression_carrier import (
     NumericLiteral,
     RowRole,
@@ -64,6 +67,7 @@ class RowExpression(
         "RowExpression[Literal['boolean']]",
         "RowExpression[Literal['numeric']]",
     ],
+    _ComparisonOperators["RowExpression[RowRole]", "RowPredicate"],
 ):
     """An immutable row expression with one closed semantic role."""
 
@@ -196,77 +200,13 @@ class RowExpression(
         self._require("numeric")
         return RowExpression(UnaryOperator(operator.neg, self._recipe), self._context, "numeric")
 
-    def __eq__(self, other: RowExpression[RowRole] | LiteralValue) -> RowPredicate:  # type: ignore[override]  # Python equality constructs a typed predicate, never identity equality.
-        if isinstance(other, _ExpressionCarrier) and not isinstance(other, RowExpression):
-            _stage_error(
-                "Comparison requires expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
-        return RowExpression(
-            BinaryOperator(operator.eq, self._recipe, _parameter(other)),
-            _merge(self, other),
-            "boolean",
-        )
+    @override
+    def _comparison_accepts(self, other: _ExpressionCarrier) -> bool:
+        return isinstance(other, RowExpression)
 
-    def __ne__(self, other: RowExpression[RowRole] | LiteralValue) -> RowPredicate:  # type: ignore[override]  # Python equality constructs a typed predicate, never identity equality.
-        if isinstance(other, _ExpressionCarrier) and not isinstance(other, RowExpression):
-            _stage_error(
-                "Comparison requires expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
-        return RowExpression(
-            BinaryOperator(operator.ne, self._recipe, _parameter(other)),
-            _merge(self, other),
-            "boolean",
-        )
-
-    def __lt__(self, other: RowExpression[RowRole] | LiteralValue) -> RowPredicate:
-        if isinstance(other, _ExpressionCarrier) and not isinstance(other, RowExpression):
-            _stage_error(
-                "Comparison requires expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
-        return RowExpression(
-            BinaryOperator(operator.lt, self._recipe, _parameter(other)),
-            _merge(self, other),
-            "boolean",
-        )
-
-    def __le__(self, other: RowExpression[RowRole] | LiteralValue) -> RowPredicate:
-        if isinstance(other, _ExpressionCarrier) and not isinstance(other, RowExpression):
-            _stage_error(
-                "Comparison requires expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
-        return RowExpression(
-            BinaryOperator(operator.le, self._recipe, _parameter(other)),
-            _merge(self, other),
-            "boolean",
-        )
-
-    def __gt__(self, other: RowExpression[RowRole] | LiteralValue) -> RowPredicate:
-        if isinstance(other, _ExpressionCarrier) and not isinstance(other, RowExpression):
-            _stage_error(
-                "Comparison requires expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
-        return RowExpression(
-            BinaryOperator(operator.gt, self._recipe, _parameter(other)),
-            _merge(self, other),
-            "boolean",
-        )
-
-    def __ge__(self, other: RowExpression[RowRole] | LiteralValue) -> RowPredicate:
-        if isinstance(other, _ExpressionCarrier) and not isinstance(other, RowExpression):
-            _stage_error(
-                "Comparison requires expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
-        return RowExpression(
-            BinaryOperator(operator.ge, self._recipe, _parameter(other)),
-            _merge(self, other),
-            "boolean",
-        )
+    @override
+    def _new_predicate(self, recipe: Resolver, context: InputContext) -> RowPredicate:
+        return RowExpression(recipe, context, "boolean")
 
     def __and__(self: RowPredicate, other: RowPredicate | bool) -> RowPredicate:
         self._require_boolean_operand(other)
@@ -672,7 +612,9 @@ class RowExpression(
             scope validates roots, roles, units, time and operation-specific rules.
         """
         values = (*tuple(value for _, value in branches), else_)
-        roles = tuple(value._role for value in values if isinstance(value, _ExpressionCarrier))
+        roles = tuple(
+            expression_role(value) for value in values if isinstance(value, _ExpressionCarrier)
+        )
         if len(set(roles)) > 1:
             _error("Case results require the same semantic role.")
         result_role = (
@@ -751,7 +693,9 @@ class RowExpression(
         """
         self._require("boolean")
         roles = tuple(
-            value._role for value in (true, false) if isinstance(value, _ExpressionCarrier)
+            expression_role(value)
+            for value in (true, false)
+            if isinstance(value, _ExpressionCarrier)
         )
         if len(set(roles)) > 1:
             _error("Conditional branches require the same semantic role.")

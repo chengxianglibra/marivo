@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ibis.common.deferred import Attr, Call, Just, Resolver, Sequence
 
+from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.deferred_values import (
     NamedResolver,
     SemanticResolver,
@@ -90,28 +91,7 @@ def capture_sample(recipe: Resolver, path: tuple[str, ...]) -> None:
         ) or isinstance(binding, MembershipBinding)
         if membership:
             if not population:
-                if isinstance(member, ParameterResolver) and isinstance(
-                    member.parameter, MembershipParameter
-                ):
-                    if any(
-                        captured_field_kind(resolver_of(field))
-                        not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
-                        or captured_scalar_path(resolver_of(field))
-                        for field in member.parameter.fields
-                    ):
-                        invalid(
-                            "Internal membership samples require native Dimension or TimeDimension fields.",
-                            path=path,
-                        )
-                elif isinstance(binding, MembershipBinding) and any(
-                    read.field.ref.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
-                    or read.path
-                    for read in binding.fields
-                ):
-                    invalid(
-                        "Internal membership samples require native Dimension or TimeDimension fields.",
-                        path=path,
-                    )
+                _validate_membership_fields(member, binding, path)
             continue
         if population:
             invalid(
@@ -149,3 +129,28 @@ def capture_sample(recipe: Resolver, path: tuple[str, ...]) -> None:
                 "per requires Dimension or TimeDimension fields, grouping rules, or a Population.",
                 path=(*path, f"item:{index}"),
             )
+
+
+def _validate_membership_fields(
+    member: Resolver, binding: ComparisonAxis | MembershipBinding | None, path: tuple[str, ...]
+) -> None:
+    if isinstance(member, ParameterResolver) and isinstance(member.parameter, MembershipParameter):
+        if any(
+            captured_field_kind(resolver_of(field))
+            not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
+            or captured_scalar_path(resolver_of(field))
+            for field in member.parameter.fields
+        ):
+            invalid(
+                "Internal membership samples require native Dimension or TimeDimension fields.",
+                path=path,
+            )
+    elif isinstance(binding, MembershipBinding) and any(
+        read.field.ref.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
+        or read.path
+        for read in binding.fields
+    ):
+        invalid(
+            "Internal membership samples require native Dimension or TimeDimension fields.",
+            path=path,
+        )

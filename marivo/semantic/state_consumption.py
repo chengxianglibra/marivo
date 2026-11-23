@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -28,14 +29,57 @@ from marivo._definition.deferred import (
 from marivo._definition.types import (
     SumNone,
 )
+from marivo._kernel.paths import relationship_binding
 from marivo.semantic._deferred_facts import MetricFacts, _fail
 from marivo.semantic._deferred_semantics import _inspect, consume_metric
 from marivo.semantic.definition_resolution import _Resolver, author_value
 from marivo.semantic.errors import ErrorKind
-from marivo.semantic.expressions.objects import _Entity, _Relationship
+from marivo.semantic.expressions.objects import (
+    _Entity,
+    _Relationship,
+    entity_exact,
+    expression_default_time,
+)
 
 if TYPE_CHECKING:
     from marivo.semantic.compiled_types import CompiledSemanticState
+
+
+def _bind_declaration(
+    recipe: DeclarationResolver,
+    active: frozenset[str],
+    state: CompiledSemanticState,
+    resolver: _Resolver,
+    bind: Callable[[Resolver, frozenset[str]], Resolver],
+) -> Resolver:
+    declaration = recipe.declaration
+    if declaration.reference is not None and declaration.kind == "metric":
+        target = declaration.reference.ref
+        if target.path in active:
+            _fail(
+                "Published Metric dependency is cyclic.",
+                expected="an acyclic declaration closure",
+                received=target.key,
+            )
+        current = state.registry.declared_metrics.get(target.path)
+        if current is None:
+            _fail(
+                "Published Metric is absent from this consumption scope.",
+                kind=ErrorKind.MISSING_METRIC_REF,
+                expected="a Metric in the frozen catalog",
+                received=target.key,
+            )
+        captured = resolver_of(current)
+        assert isinstance(captured, DeclarationResolver)
+        return DeclarationResolver(
+            bind(captured.recipe, active | {target.path}),
+            replace(
+                captured.declaration,
+                reference=resolver.exact(target),
+                domain=declaration.domain,
+            ),
+        )
+    return DeclarationResolver(bind(recipe.recipe, active), declaration)
 
 
 def consume_metric_in_state(value: Deferred, state: CompiledSemanticState) -> MetricFacts:
@@ -66,15 +110,15 @@ def consume_metric_in_state(value: Deferred, state: CompiledSemanticState) -> Me
             if isinstance(named_value, _Entity):
                 return SemanticResolver(
                     SemanticInput(
-                        named_value._exact_ref,
-                        named_value._exact_ref,
+                        entity_exact(named_value),
+                        entity_exact(named_value),
                         "1",
                         SumNone(),
-                        default_time=named_value._default_time,
+                        default_time=expression_default_time(named_value),
                     )
                 )
             if isinstance(named_value, _Relationship):
-                return Just(named_value._parameter)
+                return Just(relationship_binding(named_value))
             _fail(
                 "Named input has an invalid computation role.",
                 expected="an Entity, field, Metric, or Relationship",
@@ -83,34 +127,7 @@ def consume_metric_in_state(value: Deferred, state: CompiledSemanticState) -> Me
         if isinstance(recipe, RescaleResolver):
             return RescaleResolver(bind(recipe.recipe, active), recipe.divisor, recipe.unit)
         if isinstance(recipe, DeclarationResolver):
-            declaration = recipe.declaration
-            if declaration.reference is not None and declaration.kind == "metric":
-                target = declaration.reference.ref
-                if target.path in active:
-                    _fail(
-                        "Published Metric dependency is cyclic.",
-                        expected="an acyclic declaration closure",
-                        received=target.key,
-                    )
-                current = state.registry.declared_metrics.get(target.path)
-                if current is None:
-                    _fail(
-                        "Published Metric is absent from this consumption scope.",
-                        kind=ErrorKind.MISSING_METRIC_REF,
-                        expected="a Metric in the frozen catalog",
-                        received=target.key,
-                    )
-                captured = resolver_of(current)
-                assert isinstance(captured, DeclarationResolver)
-                return DeclarationResolver(
-                    bind(captured.recipe, active | {target.path}),
-                    replace(
-                        captured.declaration,
-                        reference=resolver.exact(target),
-                        domain=declaration.domain,
-                    ),
-                )
-            return DeclarationResolver(bind(recipe.recipe, active), declaration)
+            return _bind_declaration(recipe, active, state, resolver, bind)
         if isinstance(recipe, BinaryOperator):
             return BinaryOperator(
                 recipe.func, bind(recipe.left, active), bind(recipe.right, active)

@@ -9,7 +9,11 @@ from marivo._kernel.project import resolve_project_root
 from marivo.analysis.materialization.carriers.dataframe_result import DataFrameResult
 from marivo.analysis.materialization.dataframe_store import publish, read
 from marivo.analysis.materialization.result_files import ResultStorageError
-from marivo.analysis.model.result_reference import DataFrameReference, DataFrameReferenceWire
+from marivo.analysis.model.result_reference import (
+    DataFrameReference,
+    DataFrameReferenceWire,
+    make_dataframe_reference,
+)
 
 
 def persist_dataframe(
@@ -134,4 +138,4 @@ def read_dataframe(
             "Check the captured project path and read permissions, then explicitly read again.",
             target="read_dataframe",
         ) from None
-    return read(root, DataFrameReference._create(root, result_id))
+    return read(root, make_dataframe_reference(root, result_id))

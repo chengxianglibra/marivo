@@ -14,6 +14,7 @@ from typing import (
 import ibis
 from ibis.common.deferred import BinaryOperator, Call, Just, Resolver, UnaryOperator
 from ibis.common.deferred import Sequence as RecipeSequence
+from typing_extensions import override
 
 from marivo._definition.deferred_sample_validation import captured_field_kind, captured_scalar_path
 from marivo._definition.relations import PopulationParameter
@@ -36,6 +37,7 @@ from marivo.semantic._expression_carrier import (
     _MetricRoleT,
     _parameter,
     _RowCarrier,
+    expression_role,
 )
 from marivo.semantic._metric_predicates import _MetricPredicates
 from marivo.semantic._sample_reductions import _SampleReductions
@@ -189,9 +191,11 @@ class MetricExpression(_MetricOperators[_MetricRoleT]):
             _stage_error("MetricExpression requires a closed metric role.", received=repr(role))
         super().__init__(recipe, context, role)
 
+    @override
     def _new_predicate(self, recipe: Resolver, context: InputContext) -> MetricPredicate:
         return MetricExpression(recipe, context, "boolean")
 
+    @override
     def _card(self) -> Card:
         return super()._card().field("next", "session.observe({'output': metric})")
 
@@ -533,7 +537,9 @@ class MetricExpression(_MetricOperators[_MetricRoleT]):
             scope validates roots, roles, units, time and operation-specific rules.
         """
         values = (*tuple(value for _, value in branches), else_)
-        roles = tuple(value._role for value in values if isinstance(value, _ExpressionCarrier))
+        roles = tuple(
+            expression_role(value) for value in values if isinstance(value, _ExpressionCarrier)
+        )
         if len(set(roles)) > 1:
             _error("Case results require the same semantic role.")
         result_role = (
@@ -600,7 +606,9 @@ class MetricExpression(_MetricOperators[_MetricRoleT]):
         """
         self._require("boolean")
         roles = tuple(
-            value._role for value in (true, false) if isinstance(value, _ExpressionCarrier)
+            expression_role(value)
+            for value in (true, false)
+            if isinstance(value, _ExpressionCarrier)
         )
         if len(set(roles)) > 1:
             _error("Conditional branches require the same semantic role.")
@@ -751,6 +759,7 @@ MetricPredicate: TypeAlias = MetricExpression[Literal["boolean"]]
 class _MetricSamples(_SampleReductions[NumericMetric]):
     """The intermediate sample role, requiring a final reduction."""
 
+    @override
     def _numeric_metric(
         self, recipe: Resolver, context: InputContext, role: Literal["numeric"]
     ) -> NumericMetric:

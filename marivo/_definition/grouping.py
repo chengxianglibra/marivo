@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, overload
 
+from typing_extensions import override
+
 from marivo._definition.correspondence import ComparisonAxis, coordinate_matches
 from marivo._definition.population_types import MembershipBinding
 from marivo._definition.relations import validate_memberships
@@ -67,6 +69,7 @@ class _DefinitionGrouping(Grouping):
     def _binding(self) -> ComparisonAxis | MembershipBinding:
         raise NotImplementedError
 
+    @override
     def __repr__(self) -> str:
         binding = self._binding
         if isinstance(binding, (CalendarCoordinate, IntervalCoordinate)):
@@ -77,6 +80,7 @@ class _DefinitionGrouping(Grouping):
             identity = (binding.field or binding.entity).ref.key[:96]
         return f"<Grouping kind={self.kind} id={identity}; use .show()>"
 
+    @override
     def show(self) -> None:
         """Print bounded captured grouping facts.
 
@@ -109,6 +113,7 @@ class _CoordinateGrouping(_DefinitionGrouping):
     _identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = field(default=(), compare=False)
 
     @property
+    @override
     def kind(self) -> Literal["field", "identity", "calendar", "interval"]:
         return (
             "calendar"
@@ -119,6 +124,7 @@ class _CoordinateGrouping(_DefinitionGrouping):
         )
 
     @property
+    @override
     def _binding(self) -> AxisBinding | CalendarCoordinate | IntervalCoordinate:
         return self._value
 
@@ -130,16 +136,22 @@ class _MembershipGrouping(_DefinitionGrouping):
     _identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = field(default=(), compare=False)
 
     @property
+    @override
     def kind(self) -> Literal["membership"]:
         return "membership"
 
     @property
+    @override
     def _binding(self) -> MembershipBinding:
         return self._value
 
 
 @overload
 def grouping_binding(value: CalendarAxis) -> CalendarCoordinate: ...
+
+
+@overload
+def grouping_binding(value: _MembershipGrouping) -> MembershipBinding: ...
 
 
 @overload
@@ -151,5 +163,5 @@ def grouping_binding(value: Grouping) -> ComparisonAxis | MembershipBinding:
     if isinstance(value, CalendarAxis):
         return calendar_coordinate(value.grid)
     if isinstance(value, _DefinitionGrouping):
-        return value._binding
+        return value._binding  # noqa: SLF001 - Closed definition binding of the grouping.
     invalid("Expected a captured Grouping from Marivo.")

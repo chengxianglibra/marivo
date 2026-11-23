@@ -9,6 +9,7 @@ from ibis.common.deferred import Deferred
 
 from marivo._definition.deferred import DeclarationRecord, declare, resolver_of
 from marivo._definition.types import SourceLocation
+from marivo._kernel.input_context import captured_context
 from marivo._kernel.refs import SemanticKind, _validate_segment
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.symbolic import (
@@ -185,7 +186,7 @@ def metric(
                 ),
             )
 
-            return MetricExpression(resolver_of(declared), value._context, "numeric")
+            return MetricExpression(resolver_of(declared), captured_context(value), "numeric")
         except SemanticExpressionError as error:
             error.location = location
             if not error.semantic_refs:

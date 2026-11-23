@@ -6,6 +6,8 @@ from dataclasses import MISSING, dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
 from typing import Literal, TypeAlias
 
+from typing_extensions import override
+
 from marivo._kernel.render import Card, RenderableResult
 from marivo.analysis.model.data_types import DataType, require_data_text
 from marivo.analysis.model.errors import reject
@@ -34,6 +36,7 @@ class UnresolvedDataType:
         ):
             _invalid("an explicit pending value kind")
 
+    @override
     def __repr__(self) -> str:
         return f"<UnresolvedDataType kind={self.kind}; use .show()>"
 
@@ -87,6 +90,7 @@ class FrameField:
         if self.unit is not None:
             require_data_text(self.unit, "frame.schema.unit")
 
+    @override
     def __repr__(self) -> str:
         return f"<FrameField slot={self.slot_id[:64]!r} name={self.name[:64]!r}; use .show()>"
 
@@ -105,6 +109,7 @@ class _Fact(RenderableResult):
     def __post_init__(self) -> None:
         _validate_kind(self)
 
+    @override
     def _repr_identity(self) -> str:
         assert is_dataclass(self)
         parts = [type(self).__name__]
@@ -157,6 +162,7 @@ class _Fact(RenderableResult):
     def _identity_detail(self) -> str | None:
         return None
 
+    @override
     def _card(self) -> Card:
         assert is_dataclass(self)
         card = Card(identity=self._repr_identity(), available=(".show()",))

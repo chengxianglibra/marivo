@@ -25,6 +25,7 @@ from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     MemoryFrameBacking,
 )
+from marivo.analysis.dsl.column import column_expression, column_value_kind
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
@@ -128,7 +129,7 @@ def test_required_method_binding_and_invalid_arguments(local: LocalFrameServices
             frame.correlate(frame["x"], frame["y"], method=method)  # type: ignore[arg-type]  # Reject unsupported correlation methods.
         with pytest.raises(AnalysisError):
             frame["x"].corr(frame["y"], method=method)  # type: ignore[arg-type]  # Reject unsupported methods.
-    for operand in ("x", 1, [1, 2], frame, frame.coord(frame.axes[0])._expression):
+    for operand in ("x", 1, [1, 2], frame, column_expression(frame.coord(frame.axes[0]))):
         with pytest.raises(AnalysisError):
             frame.correlate(operand, frame["y"], method="pearson")  # type: ignore[arg-type]  # Reject non-column operands.
         with pytest.raises(AnalysisError):
@@ -691,7 +692,7 @@ def test_unresolved_source_duration_rejected_during_preparation(
     )
     ms.load(workspace_dir=case.root)
     source = _source(case)
-    assert source["x"]._kind == "unresolved"
+    assert column_value_kind(source["x"]) == "unresolved"
     for candidate in (
         source.correlate(source["x"], source["y"], method="pearson"),
         _composed(source, "pearson"),

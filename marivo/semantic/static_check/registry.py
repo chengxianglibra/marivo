@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ibis.common.deferred import Deferred
+from typing_extensions import override
 
 from marivo.datasource.spi import DatasourceIR
 from marivo.semantic.ir import (
@@ -42,6 +43,7 @@ class Registry:
             return
         object.__setattr__(self, "_frozen", True)
 
+    @override
     def __setattr__(self, name: str, value: object) -> None:
         if getattr(self, "_frozen", False):
             raise AttributeError("compiled semantic registry is immutable")

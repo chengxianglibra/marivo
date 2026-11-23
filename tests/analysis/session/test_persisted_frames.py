@@ -83,14 +83,14 @@ def test_directory_is_source_and_payload_free_read_only_metadata(
     # Even absent result files must not prevent metadata discovery.
 
     shutil.rmtree(session._runtime.store.layout.artifact_dir(session.id, saved.artifact_id))
-    original_read = session._runtime.store._read
+    original_read = session._runtime.store.read_transaction
     snapshots: list[bool] = []
 
     def tracked_read() -> AbstractContextManager[sqlite3.Connection]:
         snapshots.append(True)
         return original_read()
 
-    monkeypatch.setattr(session._runtime.store, "_read", tracked_read)
+    monkeypatch.setattr(session._runtime.store, "read_transaction", tracked_read)
     page = session.persisted_frames()
     assert len(snapshots) == 1
     assert {item.artifact_id for item in page.items} == {saved.artifact_id, described.artifact_id}

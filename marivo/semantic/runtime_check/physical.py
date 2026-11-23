@@ -19,6 +19,7 @@ from marivo.datasource.spi import (
     ibis_table_type,
 )
 from marivo.semantic._expression_binding import evaluate_expression_body
+from marivo.semantic.catalog_model.objects import lookup_registry, lookup_state
 from marivo.semantic.errors import SemanticError, repair
 from marivo.semantic.runtime_check.context import ValidationLookup
 from marivo.semantic.runtime_check.physical_contracts import validate_bound_field
@@ -106,10 +107,10 @@ def _schema_missing_fields(
     available_columns: set[str],
 ) -> tuple[Ref[SemanticKindTag], ...]:
     missing: list[Ref[SemanticKindTag]] = []
-    for field_ref, owner_ref in catalog._state.sidecar.field_owners.items():
+    for field_ref, owner_ref in lookup_state(catalog).sidecar.field_owners.items():
         if owner_ref.path != entity_id:
             continue
-        body = catalog._state.sidecar.bodies.get(field_ref)
+        body = lookup_state(catalog).sidecar.bodies.get(field_ref)
         if body is not None and any(
             column not in available_columns for column in body.source_columns
         ):
@@ -126,8 +127,12 @@ def _inspected_entity_output(
     """Bind the Entity output to inspected physical types without reading rows."""
 
     entity_ref = ref_factory.entity(entity_id)
-    body = catalog._state.sidecar.bodies.get(entity_ref)
-    engine = catalog._reg.datasources[catalog._reg.entities[entity_id].datasource].backend_type
+    body = lookup_state(catalog).sidecar.bodies.get(entity_ref)
+    engine = (
+        lookup_registry(catalog)
+        .datasources[lookup_registry(catalog).entities[entity_id].datasource]
+        .backend_type
+    )
     input_types: dict[str, str] = {}
     unavailable: dict[str, str] = {}
     for column in inspection.schema:
@@ -151,7 +156,7 @@ def _inspected_entity_output(
     try:
         result = evaluate_expression_body(
             catalog_definition_fingerprint=catalog.definition_fingerprint,
-            expression_sidecar=catalog._state.sidecar,
+            expression_sidecar=lookup_state(catalog).sidecar,
             owning_ref=entity_ref,
             body=body,
             entity_refs=(entity_ref,),
@@ -176,24 +181,24 @@ def _field_contracts(
     field_types: dict[str, str] = {}
     errors: list[SemanticError] = []
     for field_ref, owner in sorted(
-        catalog._state.sidecar.field_owners.items(), key=lambda item: item[0].key
+        lookup_state(catalog).sidecar.field_owners.items(), key=lambda item: item[0].key
     ):
         if owner.path != entity_id:
             continue
-        body = catalog._state.sidecar.bodies[field_ref]
+        body = lookup_state(catalog).sidecar.bodies[field_ref]
         if field_ref in unavailable_fields:
             continue
         try:
             value = evaluate_expression_body(
                 catalog_definition_fingerprint=catalog.definition_fingerprint,
-                expression_sidecar=catalog._state.sidecar,
+                expression_sidecar=lookup_state(catalog).sidecar,
                 owning_ref=field_ref,
                 body=body,
                 entity_refs=(owner,),
                 aliases=(table,),
             )
             field_types[field_ref.key] = str(value.type())
-            validate_bound_field(value, ref=field_ref, registry=catalog._reg)
+            validate_bound_field(value, ref=field_ref, registry=lookup_registry(catalog))
         except SemanticError as exc:
             errors.append(exc)
     return field_types, tuple(errors)

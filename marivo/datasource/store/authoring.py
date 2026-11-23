@@ -10,6 +10,8 @@ from dataclasses import MISSING, Field, dataclass, field, fields
 from pathlib import Path
 from typing import ClassVar, TypeAlias, cast, get_args, get_origin
 
+from typing_extensions import override
+
 from marivo._kernel.refs import DatasourceKind, Ref, SemanticKind, _validate_segment
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.render import Card, RenderableResult
@@ -19,6 +21,7 @@ from marivo._kernel.symbolic import (
     native_symbol_ref,
     symbol_factory,
 )
+from marivo._kernel.validation import is_instance
 from marivo.datasource.credentials.inputs import (
     DuckDBSecret,
     EnvRef,
@@ -223,9 +226,11 @@ class _SpecBase(RenderableResult):
         object.__setattr__(self, "env_refs", env_refs)
         object.__setattr__(self, "ai_context", _build_ai_context(self.ai_context))
 
+    @override
     def _repr_identity(self) -> str:
         return f"{type(self).__name__} name={self.name} backend={self.backend_type}"
 
+    @override
     def _card(self) -> Card:
         target_fields = _SPEC_TARGET_FIELDS[self.backend_type]
         rendered_target = " | ".join(
@@ -319,7 +324,7 @@ class _SpecBase(RenderableResult):
             literal_fields[key] = _validate_jsonable_field(self.name, key, value)
 
         if self.extra is not None:
-            if not isinstance(self.extra, dict) or not all(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            if not is_instance(self.extra, dict) or not all(
                 isinstance(key, str) for key in self.extra
             ):
                 raise invalid(
@@ -616,11 +621,13 @@ def validate_datasource_name(name: object) -> None:
         ) from None
 
 
-def _ir_from_spec(spec: DatasourceSpec, *, location: DatasourceSourceLocation) -> DatasourceIR:
-    return spec._to_ir(location=location)
+def datasource_ir_from_spec(
+    spec: DatasourceSpec, *, location: DatasourceSourceLocation
+) -> DatasourceIR:
+    return spec._to_ir(location=location)  # noqa: SLF001 - Serialize the admitted datasource declaration.
 
 
 def _declare_if_loading(spec: DatasourceSpec) -> None:
     ctx = _current_ctx()
     if ctx is not None:
-        ctx.pending_objects.append(_ir_from_spec(spec, location=_caller_location()))
+        ctx.pending_objects.append(datasource_ir_from_spec(spec, location=_caller_location()))

@@ -14,8 +14,19 @@ tomllib = import_module("tomllib" if sys.version_info >= (3, 11) else "tomli")
 BASELINE = "scripts/architecture_baseline.json"
 IMPORT_CONFIG = ".importlinter"
 TOOL_CONFIG = "pyproject.toml"
-PROTECTED_RUFF = {"PLC0415", "TID251"}
-PROTECTED_MYPY = {"ignore-without-code", "redundant-expr", "truthy-bool", "possibly-undefined"}
+PROTECTED_RUFF = {"PLC0415", "TID251", "C901", "PLR0912", "PLR0915", "SLF001"}
+PROTECTED_MYPY = {
+    "ignore-without-code",
+    "redundant-expr",
+    "truthy-bool",
+    "possibly-undefined",
+    "explicit-override",
+}
+RUFF_LIMITS = {
+    ("mccabe", "max-complexity"): 15,
+    ("pylint", "max-branches"): 15,
+    ("pylint", "max-statements"): 80,
+}
 
 
 def baseline_increases(before: str, after: str) -> list[str]:
@@ -103,17 +114,26 @@ def tool_config_relaxations(before: str, after: str) -> list[str]:
     candidate = tomllib.loads(after)["tool"]
     old_ruff = previous["ruff"]["lint"]
     ruff = candidate["ruff"]["lint"]
+    added_exemptions = _ruff_exemptions(ruff) - _ruff_exemptions(old_ruff)
+    # White-box fixtures and engineering scripts can inspect private state.
+    added_exemptions.discard(("!marivo/**/*.py", "SLF001"))
     errors = [
         f"{TOOL_CONFIG} adds Ruff {code} exemption for {pattern}"
-        for pattern, code in sorted(_ruff_exemptions(ruff) - _ruff_exemptions(old_ruff))
+        for pattern, code in sorted(added_exemptions)
     ]
     old_bans = old_ruff.get("flake8-tidy-imports", {}).get("banned-api", {})
     bans = ruff.get("flake8-tidy-imports", {}).get("banned-api", {})
     errors.extend(
         f"{TOOL_CONFIG} removes banned API {api}" for api in sorted(old_bans.keys() - bans.keys())
     )
-    if not set(ruff.get("select", [])) >= PROTECTED_RUFF:
-        errors.append(f"{TOOL_CONFIG} must select PLC0415 and TID251")
+    missing_rules = PROTECTED_RUFF - set(ruff.get("select", []))
+    if missing_rules:
+        errors.append(f"{TOOL_CONFIG} must select {', '.join(sorted(missing_rules))}")
+    for (section, name), maximum in RUFF_LIMITS.items():
+        previous_limit = old_ruff.get(section, {}).get(name, maximum)
+        limit = ruff.get(section, {}).get(name)
+        if type(limit) is not int or limit > min(previous_limit, maximum):
+            errors.append(f"{TOOL_CONFIG} relaxes Ruff {section}.{name}")
     mypy = candidate["mypy"]
     if not set(mypy.get("enable_error_code", [])) >= PROTECTED_MYPY or (
         PROTECTED_MYPY & set(mypy.get("disable_error_code", []))

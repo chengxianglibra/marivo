@@ -167,6 +167,27 @@ def _reduction_axes(
     return dict(sorted(result.items(), key=lambda item: int(item[0].split(".")[1])))
 
 
+def _bind_window_coordinate(
+    table: ir.Table, window_key: int | datetime | None
+) -> tuple[ir.Table, str | None]:
+    window_slot: str | None = None
+    if window_key is not None:
+        window_slot = "__marivo_window_key"
+        while window_slot in table.columns:
+            window_slot += "_"
+        # Group a projected coordinate, preserving empty-input grouping and
+        # avoiding SQL dialects interpreting an integer literal as a position.
+        table = table.mutate(
+            **{
+                window_slot: ibis.literal(
+                    window_key,
+                    type="timestamp('UTC', 6)" if isinstance(window_key, datetime) else "int64",
+                )
+            }
+        ).view()
+    return table, window_slot
+
+
 def lower_observation(
     prepared: ReductionInput,
     table: ir.Table,
@@ -178,23 +199,7 @@ def lower_observation(
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Emit grouped nullable values and ephemeral check columns in one read."""
     table, columns = bind_reduction_calendars(prepared, table, columns)
-    window_slot: str | None = None
-    if prepared.window_key is not None:
-        window_slot = "__marivo_window_key"
-        while window_slot in table.columns:
-            window_slot += "_"
-        # Group a projected coordinate, preserving empty-input grouping and
-        # avoiding SQL dialects interpreting an integer literal as a position.
-        table = table.mutate(
-            **{
-                window_slot: ibis.literal(
-                    prepared.window_key,
-                    type="timestamp('UTC', 6)"
-                    if isinstance(prepared.window_key, datetime)
-                    else "int64",
-                )
-            }
-        ).view()
+    table, window_slot = _bind_window_coordinate(table, prepared.window_key)
     fields = {path: table[name] for path, name in columns.items()}
     if window_slot is not None:
         fields[window_slot] = table[window_slot]

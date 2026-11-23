@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 import ibis
+from typing_extensions import override
 
 from marivo._kernel.refs import DatasourceKind, Ref
 from marivo._kernel.render import Card, RenderableResult
@@ -17,6 +18,7 @@ from marivo._kernel.symbolic import (
     DatasourceSymbol,
     symbol_factory,
 )
+from marivo._kernel.validation import is_instance
 from marivo.datasource.errors import (
     DatasourceAuthoringError,
     DatasourceFieldInvalidError,
@@ -39,12 +41,13 @@ from marivo.datasource.ir import (
     TableSourceIR,
     _format_database_identity,
 )
-from marivo.datasource.metadata_types import ColumnMetadata, MetadataWarning
+from marivo.datasource.metadata_types import ColumnMetadata, MetadataWarning, uses_ibis_column_type
 from marivo.datasource.source import (
     AuthoringScope,
     PartitionScope,
     TableSource,
     UnprunedScope,
+    scope_time_range,
 )
 from marivo.datasource.store.evidence import DiscoveryEvidence
 from marivo.telemetry import traced
@@ -69,6 +72,7 @@ class SourceInspection(RenderableResult):
         """Native lookup selector for the inspected datasource."""
         return symbol_factory.datasource(self._datasource.path)
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"SourceInspection datasource={self._datasource.path} source={self.source.kind} "
@@ -76,6 +80,7 @@ class SourceInspection(RenderableResult):
             f"partition_state={self.partitioning.state}"
         )
 
+    @override
     def _card(self) -> Card:
         available = (
             (".source_column(name)",) if isinstance(self.source, TableSourceIR) else ()
@@ -168,7 +173,7 @@ class SourceInspection(RenderableResult):
                     (
                         column.name,
                         column.type
-                        if column._type_is_ibis
+                        if uses_ibis_column_type(column)
                         else (
                             _ibis_table_type(column.type, backend_type=self._backend_type)
                             or "unavailable"
@@ -192,7 +197,7 @@ class SourceInspection(RenderableResult):
     def _table_schema_row(self, column: ColumnMetadata) -> tuple[str, ...]:
         ibis_type = (
             column.type
-            if column._type_is_ibis
+            if uses_ibis_column_type(column)
             else _ibis_table_type(column.type, backend_type=self._backend_type)
         )
         return (
@@ -497,7 +502,7 @@ def _preflight_scope(inspection: SourceInspection, *, scope: AuthoringScope) -> 
         )
     _validate_scope_values(scope)
 
-    if state == "unknown" and isinstance(scope, PartitionScope) and scope._time_range is None:
+    if state == "unknown" and isinstance(scope, PartitionScope) and scope_time_range(scope) is None:
         raise _authoring_error(
             code="partition_state_unknown",
             stage="preflight",
@@ -510,7 +515,7 @@ def _preflight_scope(inspection: SourceInspection, *, scope: AuthoringScope) -> 
     transformed = tuple(
         field.name for field in inspection.partitioning.fields if field.transform is not None
     )
-    time_predicate = scope._time_range if isinstance(scope, PartitionScope) else None
+    time_predicate = scope_time_range(scope)
     if transformed and time_predicate is None:
         raise _authoring_error(
             code="transformed_partition_unsupported",
@@ -539,11 +544,11 @@ def _preflight_scope(inspection: SourceInspection, *, scope: AuthoringScope) -> 
                 scope_state=state,
             )
         physical_column = next(
-            (column for column in inspection._physical_schema if column.name == time_column.name),
+            (column for column in physical_schema(inspection) if column.name == time_column.name),
             time_column,
         )
         category = _physical_temporal_category(
-            physical_column, backend_type=inspection._backend_type
+            physical_column, backend_type=inspection_backend(inspection)
         )
         if category is None:
             raise _authoring_error(
@@ -617,10 +622,10 @@ def _validate_scope_values(scope: AuthoringScope) -> None:
             raise ValueError(f"{field} must be a positive integer.")
     if not isinstance(scope, PartitionScope):
         return
-    if scope._time_range is not None:
+    predicate = scope_time_range(scope)
+    if predicate is not None:
         if scope.values:
             raise ValueError("PartitionScope cannot combine partition values and a time range.")
-        predicate = scope._time_range
         if not predicate.column:
             raise ValueError("PartitionScope time-range column must be non-empty.")
         if type(predicate.start) is not type(predicate.end) or predicate.start >= predicate.end:
@@ -634,7 +639,7 @@ def _validate_scope_values(scope: AuthoringScope) -> None:
         if type(entry) is not tuple or len(entry) != 2:
             raise TypeError("PartitionScope.values entries must be tuple[str, str].")
         name, partition_value = entry
-        if not isinstance(name, str) or not isinstance(partition_value, str):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not is_instance(name, str) or not isinstance(partition_value, str):
             raise TypeError("PartitionScope.values entries must be tuple[str, str].")
         if not name or not partition_value:
             raise ValueError("PartitionScope partition names and values must be non-empty.")
@@ -646,7 +651,7 @@ def _physical_temporal_category(
     """Classify native and reflected types without losing their physical meaning."""
     canonical = (
         column.type
-        if column._type_is_ibis
+        if uses_ibis_column_type(column)
         else _canonical_catalog_type(column.type, backend_type=backend_type)
     )
     try:
@@ -719,3 +724,11 @@ def _validate_time_range_category(
             preserves_evidence=True,
         ),
     )
+
+
+def physical_schema(inspection: SourceInspection) -> tuple[ColumnMetadata, ...]:
+    return inspection._physical_schema  # noqa: SLF001 - Retain unprojected types for acquisition planning.
+
+
+def inspection_backend(inspection: SourceInspection) -> str:
+    return inspection._backend_type  # noqa: SLF001 - Interpret physical types using the owning provider.

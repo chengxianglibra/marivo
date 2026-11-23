@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, TypeAlias
 
+from typing_extensions import override
+
 from marivo._kernel.refs import DatasourceKind, Ref
 from marivo._kernel.render import Card, RenderableResult
 from marivo._kernel.symbolic import DatasourceSymbol, symbol_factory
@@ -99,12 +101,14 @@ class DiscoveryEvidence(RenderableResult):
         """Native lookup selector for the acquired datasource."""
         return symbol_factory.datasource(self._datasource.path)
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"DiscoveryEvidence id={self.id} datasource={self._datasource.path} "
             f"columns={len(self.columns)} rows={self.coverage.retained_row_count}"
         )
 
+    @override
     def _card(self) -> Card:
         return (
             Card(
@@ -164,3 +168,7 @@ class DiscoveryEvidence(RenderableResult):
                 label="profiles",
             )
         )
+
+
+def evidence_datasource(snapshot: DiscoveryEvidence) -> Ref[DatasourceKind]:
+    return snapshot._datasource  # noqa: SLF001 - Preserve the exact identity in stored evidence.

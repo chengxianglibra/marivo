@@ -34,6 +34,7 @@ from marivo.semantic.spi import (
     DeclaredSourceTimezone,
     HourPrefixParse,
     Registry,
+    SemanticParse,
     StrptimeParse,
     TargetDimensionContract,
     TargetEntityContract,
@@ -246,6 +247,42 @@ def endpoint_rewrite_safe(point: datetime, zone: str, engine: str) -> bool:
     return len(offsets) == 1
 
 
+def _source_cutoff(
+    value: ir.Value,
+    parse: SemanticParse | None,
+    authority: SourceTimeAuthority,
+    bound: date | datetime,
+    prefix: ir.Value | None,
+    prefix_axis: TargetDimensionContract | None,
+    engine: str,
+    strict: bool,
+) -> ir.BooleanValue | None:
+    if authority.kind == "civil_date":
+        point = (
+            _boundary_instant(bound, authority)
+            .astimezone(normalize_timezone(authority.timezone).tz)
+            .replace(tzinfo=None)
+        )
+        inclusive = not strict
+    else:
+        instant = _boundary_instant(bound, authority)
+        if authority.kind == "wall_clock":
+            point = instant.astimezone(normalize_timezone(authority.timezone).tz).replace(
+                tzinfo=None
+            )
+            inclusive = not strict
+        else:
+            point, inclusive = instant, not strict
+    if isinstance(parse, HourPrefixParse):
+        assert prefix is not None and prefix_axis is not None
+        return _composite_cutoff(
+            value, prefix, point, inclusive=inclusive, prefix_axis=prefix_axis, engine=engine
+        )
+    if isinstance(parse, StrptimeParse):
+        return _encoded_cutoff(value, point, parse, inclusive=inclusive)
+    return _scalar_cutoff(value, point, inclusive=inclusive, engine=engine)
+
+
 def source_time_comparison(
     value: ir.Value,
     axis: TargetDimensionContract,
@@ -283,30 +320,7 @@ def source_time_comparison(
         return None
 
     def lower(strict: bool) -> ir.BooleanValue | None:
-        if authority.kind == "civil_date":
-            point = (
-                _boundary_instant(bound, authority)
-                .astimezone(normalize_timezone(authority.timezone).tz)
-                .replace(tzinfo=None)
-            )
-            inclusive = not strict
-        else:
-            instant = _boundary_instant(bound, authority)
-            if authority.kind == "wall_clock":
-                point = instant.astimezone(normalize_timezone(authority.timezone).tz).replace(
-                    tzinfo=None
-                )
-                inclusive = not strict
-            else:
-                point, inclusive = instant, not strict
-        if isinstance(parse, HourPrefixParse):
-            assert prefix is not None and prefix_axis is not None
-            return _composite_cutoff(
-                value, prefix, point, inclusive=inclusive, prefix_axis=prefix_axis, engine=engine
-            )
-        if isinstance(parse, StrptimeParse):
-            return _encoded_cutoff(value, point, parse, inclusive=inclusive)
-        return _scalar_cutoff(value, point, inclusive=inclusive, engine=engine)
+        return _source_cutoff(value, parse, authority, bound, prefix, prefix_axis, engine, strict)
 
     try:
         if comparison in (">=", "<"):
@@ -651,6 +665,27 @@ def _hour_clock(value: ir.Value, prefix: ir.DateValue, *, engine: str) -> ir.Tim
     return result
 
 
+def _parse_source_time(
+    value: ir.Value, parse: SemanticParse | None, prefix: ir.Value | None, engine: str
+) -> ir.Value:
+    if isinstance(parse, HourPrefixParse):
+        if prefix is None:
+            raise compilation_error("a bound civil-date hour prefix", "missing date prefix")
+        if not isinstance(prefix, ir.DateValue):
+            raise compilation_error("a civil-date hour prefix", "timestamp hour prefix")
+        value = _hour_clock(value, prefix, engine=engine)
+    elif isinstance(parse, StrptimeParse):
+        text = value.cast("string")
+        assert isinstance(text, ir.StringValue)
+        value = parse_strptime(engine, text, parse)
+    elif isinstance(parse, DateParse):
+        if not isinstance(value, ir.DateValue):
+            raise compilation_error("a native civil date", "unsupported source representation")
+    elif parse is not None and not isinstance(parse, TimestampParse):
+        raise compilation_error("a supported time parser", "unresolved parser")
+    return value
+
+
 def source_time(
     value: ir.Value,
     axis: TargetDimensionContract,
@@ -692,21 +727,7 @@ def source_time(
     physical_is_aware = (
         frozen.kind == "instant" if frozen is not None else timestamp_is_instant(physical, engine)
     ) and not isinstance(parse, (StrptimeParse, HourPrefixParse))
-    if isinstance(parse, HourPrefixParse):
-        if prefix is None:
-            raise compilation_error("a bound civil-date hour prefix", "missing date prefix")
-        if not isinstance(prefix, ir.DateValue):
-            raise compilation_error("a civil-date hour prefix", "timestamp hour prefix")
-        value = _hour_clock(value, prefix, engine=engine)
-    elif isinstance(parse, StrptimeParse):
-        text = value.cast("string")
-        assert isinstance(text, ir.StringValue)
-        value = parse_strptime(engine, text, parse)
-    elif isinstance(parse, DateParse):
-        if not isinstance(value, ir.DateValue):
-            raise compilation_error("a native civil date", "unsupported source representation")
-    elif parse is not None and not isinstance(parse, TimestampParse):
-        raise compilation_error("a supported time parser", "unresolved parser")
+    value = _parse_source_time(value, parse, prefix, engine)
     if physical_is_aware:
         if query_dialect(engine).timestamp_has_implicit_timezone and value.type().timezone is None:
             value = value.cast(dt.Timestamp(timezone="UTC", scale=value.type().scale))

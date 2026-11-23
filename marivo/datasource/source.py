@@ -8,6 +8,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import ibis
+from typing_extensions import override
 
 from marivo._kernel.compat import UTC
 from marivo._kernel.render import Card, RenderableResult
@@ -48,6 +49,7 @@ class PartitionScope(RenderableResult):
     timeout_seconds: int
     _time_range: _TimeRangePredicate | None = field(default=None, init=False, repr=False)
 
+    @override
     def __repr__(self) -> str:
         if self._time_range is None:
             return (
@@ -61,10 +63,12 @@ class PartitionScope(RenderableResult):
             f"timeout_seconds={self.timeout_seconds!r})"
         )
 
+    @override
     def _repr_identity(self) -> str:
         kind = "time_range" if self._time_range is not None else "partition"
         return f"PartitionScope kind={kind}"
 
+    @override
     def _card(self) -> Card:
         if self._time_range is not None:
             predicate = self._time_range
@@ -110,9 +114,11 @@ class UnprunedScope(RenderableResult):
     max_rows: int
     timeout_seconds: int
 
+    @override
     def _repr_identity(self) -> str:
         return "UnprunedScope kind=unpruned"
 
+    @override
     def _card(self) -> Card:
         return Card(
             identity=self._repr_identity(),
@@ -126,12 +132,17 @@ class UnprunedScope(RenderableResult):
 AuthoringScope: TypeAlias = PartitionScope | UnprunedScope
 
 
+def scope_time_range(scope: AuthoringScope) -> _TimeRangePredicate | None:
+    """Return the physical predicate retained by a time-range scope."""
+    return scope._time_range if isinstance(scope, PartitionScope) else None  # noqa: SLF001 - Datasource owns scope lowering.
+
+
 def _apply_scope(table: ir.Table, scope: AuthoringScope) -> ir.Table:
     """Lower physical scopes with typed literals, keeping source columns bare."""
     if not isinstance(scope, PartitionScope):
         return table
-    if scope._time_range is not None:
-        predicate = scope._time_range
+    predicate = scope_time_range(scope)
+    if predicate is not None:
         return table.filter(
             (table[predicate.column] >= predicate.start) & (table[predicate.column] < predicate.end)
         )

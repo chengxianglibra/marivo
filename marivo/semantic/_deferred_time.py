@@ -22,6 +22,7 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.grouping import grouping_binding, normalize_groupings
 from marivo._definition.observation_time import ContributionClockBinding
+from marivo._definition.population_types import population_definition
 from marivo._definition.relations import (
     LiteralPopulation,
     MembershipBinding,
@@ -41,6 +42,7 @@ from marivo._definition.types import (
     fixed_attribute_time,
 )
 from marivo._kernel.grouping import Grouping
+from marivo._kernel.paths import relationship_binding
 from marivo._kernel.refs import SemanticKind
 from marivo._kernel.temporal import Grain, TimeScope
 from marivo.semantic._deferred_facts import _REDUCERS, InspectRecipe, RowFacts, _fail
@@ -56,9 +58,13 @@ def _constant(recipe: Resolver, default: object = None) -> object:
         return _constant(recipe.recipe, default)
     relationship = relationship_carrier(recipe)
     if relationship is not None:
-        return relationship._parameter
+        return relationship_binding(relationship)
     if isinstance(recipe, Just):
-        return recipe.value._parameter if isinstance(recipe.value, Relationship) else recipe.value
+        return (
+            relationship_binding(recipe.value)
+            if isinstance(recipe.value, Relationship)
+            else recipe.value
+        )
     return default
 
 
@@ -82,6 +88,52 @@ def _native_sample_axis(axis: ComparisonAxis) -> AxisBinding:
     return axis
 
 
+def _sample_item(
+    member: Resolver, domain: PopulationParameter | None, consume: InspectRecipe
+) -> ComparisonAxis | MembershipBinding:
+    value = _constant(member)
+    binding = grouping_binding(value) if isinstance(value, Grouping) else None
+    if isinstance(binding, MembershipBinding):
+        if domain is None:
+            for read in binding.fields:
+                _native_sample_axis(field_axis(read))
+        return binding
+    if domain is not None or isinstance(value, PopulationParameter):
+        _fail(
+            "A sample Population must be first and followed only by membership rules.",
+            expected="per(P) or per((P, rule, ...))",
+            received=type(value).__name__,
+        )
+    if binding is not None:
+        return _native_sample_axis(binding)
+    axis = consume(member)
+    if (
+        not isinstance(axis, RowFacts)
+        or axis.field is None
+        or axis.field.reference.ref.kind
+        not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
+    ):
+        _fail(
+            "Internal samples require semantic fields.",
+            expected="resolved field",
+            received=type(axis).__name__,
+        )
+    assert axis.field is not None
+    axis_read = axis.field.field_read
+    if axis_read is not None and axis_read.path:
+        _fail(
+            "A scalar via field is not an internal sample domain.",
+            kind=ErrorKind.INVALID_TIME_PATH,
+            expected="native field or explicit Population",
+            received=axis.field.reference.ref.key,
+        )
+    return (
+        field_axis(axis_read)
+        if axis_read is not None
+        else AxisBinding(axis.root, axis.field.reference, (), "field")
+    )
+
+
 def _sample_domain(
     recipe: Resolver,
     consume: InspectRecipe,
@@ -97,7 +149,7 @@ def _sample_domain(
             action='Use m.per(mv.grain("day")).<reducer>() and pass the finite scope in observe(where=...).',
         )
     if isinstance(domain, PopulationParameter):
-        return domain._definition
+        return population_definition(domain)
     if isinstance(recipe, Sequence) and recipe.typ is not tuple:
         _fail(
             "Internal sample tuples must use a built-in tuple.",
@@ -109,52 +161,11 @@ def _sample_domain(
     domain = population if isinstance(population, PopulationParameter) else None
     items: list[ComparisonAxis | MembershipBinding] = []
     for member in members[1:] if domain is not None else members:
-        value = _constant(member)
-        binding = grouping_binding(value) if isinstance(value, Grouping) else None
-        if isinstance(binding, MembershipBinding):
-            if domain is None:
-                for read in binding.fields:
-                    _native_sample_axis(field_axis(read))
-            items.append(binding)
-            continue
-        if domain is not None or isinstance(value, PopulationParameter):
-            _fail(
-                "A sample Population must be first and followed only by membership rules.",
-                expected="per(P) or per((P, rule, ...))",
-                received=type(value).__name__,
-            )
-        if binding is not None:
-            items.append(_native_sample_axis(binding))
-            continue
-        axis = consume(member)
-        if (
-            not isinstance(axis, RowFacts)
-            or axis.field is None
-            or axis.field.reference.ref.kind
-            not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
-        ):
-            _fail(
-                "Internal samples require semantic fields.",
-                expected="resolved field",
-                received=type(axis).__name__,
-            )
-        assert isinstance(axis, RowFacts) and axis.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        axis_read = axis.field.field_read
-        if axis_read is not None and axis_read.path:
-            _fail(
-                "A scalar via field is not an internal sample domain.",
-                kind=ErrorKind.INVALID_TIME_PATH,
-                expected="native field or explicit Population",
-                received=axis.field.reference.ref.key,
-            )
-        items.append(
-            field_axis(axis_read)
-            if axis_read is not None
-            else AxisBinding(axis.root, axis.field.reference, (), "field")
-        )
+        items.append(_sample_item(member, domain, consume))
     try:
         axes, memberships = normalize_groupings(
-            tuple(items), population_axes=domain._definition.axes if domain is not None else None
+            tuple(items),
+            population_axes=population_definition(domain).axes if domain is not None else None,
         )
     except DefinitionGraphError as error:
         _fail(
@@ -164,7 +175,7 @@ def _sample_domain(
             kind=ErrorKind.INVALID_EXPRESSION_VALUE,
         )
     if domain is not None:
-        return SampleDomain(axes, memberships, domain._definition)
+        return SampleDomain(axes, memberships, population_definition(domain))
     if not axes:
         _fail(
             "Internal sample axes must be nonempty and unique.",
@@ -181,7 +192,8 @@ def _calendar_sample_recipe(sample: Resolver) -> bool:
         sample = sample.values[0]
     value = _constant(sample)
     return isinstance(value, Grain) or (
-        isinstance(value, PopulationParameter) and calendar_sample_domain(value._definition)
+        isinstance(value, PopulationParameter)
+        and calendar_sample_domain(population_definition(value))
     )
 
 
@@ -282,7 +294,7 @@ def _time(
             expected="a resolved TimeField",
             received=type(value).__name__,
         )
-    assert isinstance(value, RowFacts) and value.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    assert value.field is not None
     read = value.field.field_read
     if read is not None and isinstance(read.at, RowAttributeTime):
         _fail(

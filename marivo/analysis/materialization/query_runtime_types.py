@@ -356,6 +356,75 @@ def _shared_key(column: DataColumn, inputs: tuple[tuple[DataColumn, pd.Series], 
     return replace(column, dtype=dtype)
 
 
+def _effective_formula(
+    stage: LocalCompute,
+    program: FormulaProgram,
+    inputs: tuple[StageOutput, ...],
+    actual: Mapping[str, DataColumn],
+) -> LocalCompute:
+    formula = _formula(program, actual)
+    assert formula is not None
+    # One logical reduction can be transported as multiple endpoint reads.
+    # Their Decimal metadata may describe each native batch separately.
+    batches: dict[tuple[int, ...], list[DataType]] = {}
+    for value, source in zip(formula.values, inputs[: len(formula.values)], strict=True):
+        if len(source.table):
+            batches.setdefault(value.occurrence, []).append(value.column.dtype)
+    common_decimals: dict[tuple[int, ...], DecimalDataType] = {}
+    for occurrence, dtypes in batches.items():
+        decimals = tuple(dtype for dtype in dtypes if isinstance(dtype, DecimalDataType))
+        if len(decimals) != len(dtypes) or len(set(decimals)) < 2:
+            continue
+        scale = max(dtype.scale for dtype in decimals)
+        common_decimals[occurrence] = DecimalDataType(
+            max(dtype.precision - dtype.scale for dtype in decimals) + scale, scale
+        )
+    if common_decimals:
+        formula = replace(
+            formula,
+            values=tuple(
+                replace(
+                    value,
+                    column=replace(
+                        value.column,
+                        dtype=common_decimals.get(value.occurrence, value.column.dtype),
+                    ),
+                )
+                for value in formula.values
+            ),
+        )
+    types = {column.slot_id: column.dtype for column in formula_columns(formula)}
+    if formula.output_population is not None:
+        for index, population in enumerate(formula.populations):
+            if population.definition == formula.output_population:
+                source = inputs[len(formula.values) + index]
+                types.update(
+                    (target, source.columns[source.keys.index(slot)].dtype)
+                    for target, slot in zip(stage.keys, population.keys, strict=True)
+                )
+    for column in stage.columns:
+        if column.slot_id not in stage.keys:
+            continue
+        consumed = tuple(
+            (actual, source.table[actual.slot_id])
+            for source in inputs[: len(formula.values)]
+            for actual in source.columns
+            if actual.slot_id in source.keys and actual.name == column.name
+        )
+        if consumed:
+            types[column.slot_id] = _shared_key(column, consumed).dtype
+    return replace(
+        stage,
+        program=formula,
+        columns=tuple(
+            replace(column, dtype=types[column.slot_id])
+            if column.slot_id in types
+            else _column(column, actual)
+            for column in stage.columns
+        ),
+    )
+
+
 def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> LocalCompute:
     """Reuse the compiler's numeric rules with this invocation's consumed types."""
     actual = {
@@ -368,67 +437,7 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
         {column.slot_id: column for source in reversed(inputs) for column in source.columns}
     )
     if isinstance(stage.program, FormulaProgram):
-        formula = _formula(stage.program, actual)
-        assert formula is not None
-        # One logical reduction can be transported as multiple endpoint reads.
-        # Their Decimal metadata may describe each native batch separately.
-        batches: dict[tuple[int, ...], list[DataType]] = {}
-        for value, source in zip(formula.values, inputs[: len(formula.values)], strict=True):
-            if len(source.table):
-                batches.setdefault(value.occurrence, []).append(value.column.dtype)
-        common_decimals: dict[tuple[int, ...], DecimalDataType] = {}
-        for occurrence, dtypes in batches.items():
-            decimals = tuple(dtype for dtype in dtypes if isinstance(dtype, DecimalDataType))
-            if len(decimals) != len(dtypes) or len(set(decimals)) < 2:
-                continue
-            scale = max(dtype.scale for dtype in decimals)
-            common_decimals[occurrence] = DecimalDataType(
-                max(dtype.precision - dtype.scale for dtype in decimals) + scale, scale
-            )
-        if common_decimals:
-            formula = replace(
-                formula,
-                values=tuple(
-                    replace(
-                        value,
-                        column=replace(
-                            value.column,
-                            dtype=common_decimals.get(value.occurrence, value.column.dtype),
-                        ),
-                    )
-                    for value in formula.values
-                ),
-            )
-        types = {column.slot_id: column.dtype for column in formula_columns(formula)}
-        if formula.output_population is not None:
-            for index, population in enumerate(formula.populations):
-                if population.definition == formula.output_population:
-                    source = inputs[len(formula.values) + index]
-                    types.update(
-                        (target, source.columns[source.keys.index(slot)].dtype)
-                        for target, slot in zip(stage.keys, population.keys, strict=True)
-                    )
-        for column in stage.columns:
-            if column.slot_id not in stage.keys:
-                continue
-            consumed = tuple(
-                (actual, source.table[actual.slot_id])
-                for source in inputs[: len(formula.values)]
-                for actual in source.columns
-                if actual.slot_id in source.keys and actual.name == column.name
-            )
-            if consumed:
-                types[column.slot_id] = _shared_key(column, consumed).dtype
-        return replace(
-            stage,
-            program=formula,
-            columns=tuple(
-                replace(column, dtype=types[column.slot_id])
-                if column.slot_id in types
-                else _column(column, actual)
-                for column in stage.columns
-            ),
-        )
+        return _effective_formula(stage, stage.program, inputs, actual)
     program = local_result(stage)
     if program is None or not inputs:
         return stage

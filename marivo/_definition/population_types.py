@@ -313,3 +313,14 @@ class PopulationParameter:
     _identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = field(
         default=(), kw_only=True, compare=False
     )
+
+
+def population_definition(population: PopulationParameter) -> PopulationDependency:
+    """Return the closed definition captured by a Population input."""
+    return population._definition  # noqa: SLF001 - Internal Population carrier.
+
+
+def population_identity_keys(
+    population: PopulationParameter,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    return population._identity_keys  # noqa: SLF001 - Internal Population carrier.

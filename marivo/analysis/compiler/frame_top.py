@@ -10,6 +10,7 @@ import ibis.expr.types as ir
 
 from marivo._definition.query import TopValues, ValueSlot
 from marivo._definition.relations import ReadQuery
+from marivo._kernel.validation import is_instance
 from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
 from marivo.analysis.compiler.lowered_query import LoweredRead
 from marivo.analysis.compiler.native_query import NativeFrameTopFinish, NativeQueryFinish
@@ -186,7 +187,7 @@ def bound_pending_frame_top(
                     if (
                         schema.axes
                         and all(
-                            isinstance(axis, DataAxis) and axis.kind == "member"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+                            is_instance(axis, DataAxis) and axis.kind == "member"
                             for axis in schema.axes
                         )
                         and all(

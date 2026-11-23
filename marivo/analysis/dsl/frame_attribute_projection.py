@@ -39,7 +39,12 @@ from marivo.analysis.dsl.frame_attribute_sources import (
 )
 from marivo.analysis.dsl.population import Population, in_population, product
 from marivo.analysis.model.errors import reject
-from marivo.analysis.model.frame_contracts import FrameKeyInput
+from marivo.analysis.model.frame_contracts import (
+    FrameKeyInput,
+    frame_input_id,
+    frame_local,
+    frame_logical_schema,
+)
 from marivo.semantic.spi import (
     consume_predicate,
 )
@@ -127,7 +132,7 @@ def project_attribute_parent(
     source_axes = tuple(original_axes[i] for i in retained)
     mappings = {retained.index(i): position for i, position in metric.axis_positions}
     if set(mappings) != set(range(len(source_axes))) or set(mappings.values()) != set(
-        range(len(parent._schema.axes))
+        range(len(frame_logical_schema(parent).axes))
     ):
         reject(
             "complete original parent coordinates",
@@ -157,8 +162,8 @@ def project_attribute_parent(
         )
     bindings = tuple(
         FrameKeyAxis(
-            parent._schema.axes[mappings[i]].token,
-            tuple(c.name for c in parent._schema.axes[mappings[i]].columns),
+            frame_logical_schema(parent).axes[mappings[i]].token,
+            tuple(c.name for c in frame_logical_schema(parent).axes[mappings[i]].columns),
             axis,
         )
         for i, axis in ordinary
@@ -173,7 +178,7 @@ def project_attribute_parent(
     )
     presence = None
     if metric.fixed_axes:
-        for fact in parent._schema.comparisons:
+        for fact in frame_logical_schema(parent).comparisons:
             for binding in fact.values:
                 if binding.value_path == target.path:
                     endpoint = (
@@ -188,9 +193,9 @@ def project_attribute_parent(
         if isinstance(target.target.pairing, AlignFrameValues):
             presence = (f"{projection_side}_present",)
     keys = AttributeKeys(
-        parent._input_id,
+        frame_input_id(parent),
         bindings,
-        parent._schema.axes[mappings[temporal[0][0]]].token if temporal else None,
+        frame_logical_schema(parent).axes[mappings[temporal[0][0]]].token if temporal else None,
         temporal_axis,
         projection_side,
         "outer",
@@ -206,14 +211,14 @@ def project_attribute_parent(
     projection = Population(
         PopulationProgram(
             keys,
-            parent._local.owner,
+            frame_local(parent).owner,
             (
                 *tuple(axis for _, axis in ordinary),
                 *((temporal_axis,) if temporal_axis else ()),
             ),
         ),
-        (FrameKeyInput(parent._input_id, parent),),
-        _context=InputContext(source.connection.project_root, parent._local.owner),
+        (FrameKeyInput(frame_input_id(parent), parent),),
+        _context=InputContext(source.connection.project_root, frame_local(parent).owner),
     )
     # Fixed coordinates restrict their original complete membership domain
     # without becoming new output axes.
@@ -222,7 +227,7 @@ def project_attribute_parent(
         source_axes,
         tuple(
             next(i for i, receiver in mappings.items() if receiver == position)
-            for position in range(len(parent._schema.axes))
+            for position in range(len(frame_logical_schema(parent).axes))
         ),
         _scope_condition(projection, observation.condition, ordinary, fixed_keys, original_axes),
         projection_side,

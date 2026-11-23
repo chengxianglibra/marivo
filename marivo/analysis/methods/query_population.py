@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from itertools import product
 
@@ -97,6 +98,65 @@ def _coordinate_rows(
     )
 
 
+def _population_filter_rows(
+    domain: PopulationProgram,
+    node: PopulationFilter,
+    rows: Callable[[PopulationDependency], tuple[tuple[object, ...], ...]],
+) -> tuple[tuple[object, ...], ...]:
+    # Resolve every leaf first so constant branches retain producer checks.
+
+    operand = rows(node.operand)
+    values: dict[str, pd.Series] = {}
+    for leaf in node.predicate.inputs:
+        if not isinstance(leaf, PopulationContains):
+            continue
+        positions = tuple(coordinate_position(domain.axes, axis) for axis in leaf.population.axes)
+
+        def member_key(values: tuple[object, ...], axes: tuple[ComparisonAxis, ...]) -> object:
+            return _token(
+                tuple(
+                    axis.bounds[int(value)]
+                    if isinstance(axis, IntervalCoordinate) and isinstance(value, int)
+                    else value
+                    for value, axis in zip(values, axes, strict=True)
+                )
+            )
+
+        members = {member_key(key, leaf.population.axes) for key in rows(leaf.population)}
+        actual = tuple(domain.axes[i] for i in positions)
+        values[population_key(leaf.population)] = pd.Series(
+            [member_key(tuple(row[i] for i in positions), actual) in members for row in operand],
+            dtype="boolean[pyarrow]",
+        )
+    for key, position in predicate_fields(domain.axes, node.predicate):
+        raw = [row[position] for row in operand]
+        physical = next((item.type for item in raw if isinstance(item, pa.Scalar)), None)
+        array = pa.array(raw, type=physical, from_pandas=False)
+        values[key] = pd.Series(pd.arrays.ArrowExtensionArray(array))
+    if not operand:
+        return ()
+    inputs = ibis.table(
+        {
+            key: dt.DataType.from_pyarrow(dtype.pyarrow_dtype)
+            for key, value in values.items()
+            if isinstance(dtype := value.dtype, pd.ArrowDtype)
+        },
+        name="_population_coordinates",
+    )
+    predicate = lower_condition(node.predicate, {key: inputs[key] for key in values})
+    index = pd.RangeIndex(len(operand))
+    for check in predicate.checks:
+        failures = evaluate_numeric(check.violation.op(), values, index)
+        if failures.astype("boolean").fillna(False).any():
+            numeric_failure(check.expected, check.received)
+    selected = evaluate_numeric(predicate.value.op(), values, index)
+    return tuple(
+        row
+        for row, keep in zip(operand, selected.astype("boolean").fillna(False), strict=True)
+        if keep
+    )
+
+
 def evaluate_population(
     definition: PopulationDependency,
     atoms: tuple[PopulationDependency, ...],
@@ -142,65 +202,7 @@ def evaluate_population(
                 )
             )
         if isinstance(node, PopulationFilter):
-            # Resolve every leaf first so constant branches retain producer checks.
-
-            operand = rows(node.operand)
-            values: dict[str, pd.Series] = {}
-            for leaf in node.predicate.inputs:
-                if not isinstance(leaf, PopulationContains):
-                    continue
-                positions = tuple(
-                    coordinate_position(domain.axes, axis) for axis in leaf.population.axes
-                )
-
-                def member_key(
-                    values: tuple[object, ...], axes: tuple[ComparisonAxis, ...]
-                ) -> object:
-                    return _token(
-                        tuple(
-                            axis.bounds[int(value)]
-                            if isinstance(axis, IntervalCoordinate) and isinstance(value, int)
-                            else value
-                            for value, axis in zip(values, axes, strict=True)
-                        )
-                    )
-
-                members = {member_key(key, leaf.population.axes) for key in rows(leaf.population)}
-                actual = tuple(domain.axes[i] for i in positions)
-                values[population_key(leaf.population)] = pd.Series(
-                    [
-                        member_key(tuple(row[i] for i in positions), actual) in members
-                        for row in operand
-                    ],
-                    dtype="boolean[pyarrow]",
-                )
-            for key, position in predicate_fields(domain.axes, node.predicate):
-                raw = [row[position] for row in operand]
-                physical = next((item.type for item in raw if isinstance(item, pa.Scalar)), None)
-                array = pa.array(raw, type=physical, from_pandas=False)
-                values[key] = pd.Series(pd.arrays.ArrowExtensionArray(array))
-            if not operand:
-                return ()
-            inputs = ibis.table(
-                {
-                    key: dt.DataType.from_pyarrow(dtype.pyarrow_dtype)
-                    for key, value in values.items()
-                    if isinstance(dtype := value.dtype, pd.ArrowDtype)
-                },
-                name="_population_coordinates",
-            )
-            predicate = lower_condition(node.predicate, {key: inputs[key] for key in values})
-            index = pd.RangeIndex(len(operand))
-            for check in predicate.checks:
-                failures = evaluate_numeric(check.violation.op(), values, index)
-                if failures.astype("boolean").fillna(False).any():
-                    numeric_failure(check.expected, check.received)
-            selected = evaluate_numeric(predicate.value.op(), values, index)
-            return tuple(
-                row
-                for row, keep in zip(operand, selected.astype("boolean").fillna(False), strict=True)
-                if keep
-            )
+            return _population_filter_rows(domain, node, rows)
         reject(
             "a planned complete Population input",
             type(node).__name__,

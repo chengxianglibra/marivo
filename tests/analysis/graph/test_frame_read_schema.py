@@ -263,7 +263,7 @@ def test_public_schema_uses_captured_facts_for_every_carrier_without_io(
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     monkeypatch.setattr(frame_evaluation, "evaluate_frame", forbidden)
-    monkeypatch.setattr(SessionStore, "_read", forbidden)
+    monkeypatch.setattr(SessionStore, "read_transaction", forbidden)
     monkeypatch.setattr(OutputRead, "_open", forbidden)
     monkeypatch.setattr(FrameReader, "data", forbidden)
     monkeypatch.setattr(FrameReader, "complete", forbidden)

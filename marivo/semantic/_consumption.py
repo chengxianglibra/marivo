@@ -10,6 +10,7 @@ from ibis.common.deferred import Deferred
 
 from marivo._definition.deferred import inspect_capture, resolver_of
 from marivo._definition.types import Owner
+from marivo._kernel.input_context import captured_context
 from marivo._kernel.refs import Ref, SemanticKindTag
 from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import (
@@ -26,7 +27,12 @@ from marivo.semantic._expression_values import (
     RowPredicate,
 )
 from marivo.semantic._symbolic_binding import bind_recipe
-from marivo.semantic.catalog_model.objects import Entity, Relationship
+from marivo.semantic.catalog_model.objects import (
+    Entity,
+    Relationship,
+    entry_reference,
+    lookup_value,
+)
 from marivo.semantic.definition_resolution import _Resolver, author_value
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.expressions.inputs import _as_deferred
@@ -48,7 +54,7 @@ def _bind_recipe(
     lookup: Callable[[Ref[SemanticKindTag]], object],
 ) -> Deferred:
 
-    validate_context(value._context, project_root=project_root, owner=owner)
+    validate_context(captured_context(value), project_root=project_root, owner=owner)
     recipe = _as_deferred(value)
     inspection = inspect_capture(recipe)
     if inspection.symbols:
@@ -86,7 +92,7 @@ def _bind(
 
     def lookup(reference: Ref[SemanticKindTag]) -> object:
         entry = catalog.get(reference.key)
-        return author_value(catalog._index.values.get(entry._ref))
+        return author_value(lookup_value(catalog, entry_reference(entry)))
 
     return _bind_recipe(value, project_root=catalog.workspace_dir, owner=owner, lookup=lookup)
 
@@ -168,10 +174,10 @@ def bind_entity(value: Entity, catalog: SemanticCatalog, *, owner: Owner | None 
 
     if not isinstance(value, Entity):
         raise TypeError("Expected a loaded Entity object.")
-    validate_context(value._context, project_root=catalog.workspace_dir, owner=owner)
+    validate_context(captured_context(value), project_root=catalog.workspace_dir, owner=owner)
     target = catalog.get(value.id)
     assert isinstance(target, Entity)
-    result = catalog._index.values.get(target._ref)
+    result = lookup_value(catalog, entry_reference(target))
     assert isinstance(result, _Entity)
     return result
 
@@ -182,10 +188,10 @@ def bind_relationship(
 
     if not isinstance(value, Relationship):
         raise TypeError("Expected a loaded Relationship object.")
-    validate_context(value._context, project_root=catalog.workspace_dir, owner=owner)
+    validate_context(captured_context(value), project_root=catalog.workspace_dir, owner=owner)
     target = catalog.get(value.id)
     assert isinstance(target, Relationship)
-    result = catalog._index.values.get(target._ref)
+    result = lookup_value(catalog, entry_reference(target))
     assert isinstance(result, _Relationship)
     return result
 

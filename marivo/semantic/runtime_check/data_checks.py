@@ -22,6 +22,7 @@ from marivo.datasource.spi import (
     SourceInspection,
     require_profile_for_backend_type,
 )
+from marivo.semantic.catalog_model.objects import lookup_registry
 from marivo.semantic.errors import repair
 from marivo.semantic.runtime_check.context import (
     ValidationLookup,
@@ -47,6 +48,8 @@ from marivo.semantic.runtime_check.source_checks import (
     RelationshipMatchesSourceCheck,
     UniqueSourceCheck,
     ValidationStatus,
+    source_check_field,
+    source_check_relationship,
 )
 
 if TYPE_CHECKING:
@@ -107,8 +110,8 @@ def _execute_field_check(
     resolver: SemanticResolver,
     checked_at: str,
 ) -> ValidationCheckResult:
-    registry = catalog._reg
-    fields = check._fields if isinstance(check, UniqueSourceCheck) else (check._field,)
+    registry = lookup_registry(catalog)
+    fields = check._fields if isinstance(check, UniqueSourceCheck) else (source_check_field(check),)
     entity_id = _field_owner(registry, fields[0])
     entity = registry.entities[entity_id]
     datasource = ref_factory.datasource(entity.datasource)
@@ -172,7 +175,7 @@ def _execute_field_check(
         }
     elif isinstance(check, FreshnessSourceCheck):
         maximum = frame.iloc[:, 0].max() if not frame.empty else None
-        parse = registry.dimensions[check._field.path].parse
+        parse = registry.dimensions[source_check_field(check).path].parse
         normalized, issue = _freshness_observation(
             maximum,
             declared_timezone=getattr(parse, "timezone", None),
@@ -339,12 +342,12 @@ def _execute_relationship_check(
     resolver: SemanticResolver,
     checked_at: str,
 ) -> ValidationCheckResult:
-    registry = catalog._reg
-    relationship = registry.relationships[check._relationship.path]
+    registry = lookup_registry(catalog)
+    relationship = registry.relationships[source_check_relationship(check).path]
     left_entity = registry.entities[relationship.from_entity]
     right_entity = registry.entities[relationship.to_entity]
     datasource = ref_factory.datasource(left_entity.datasource)
-    target_refs = (check._relationship,)
+    target_refs = (source_check_relationship(check),)
     affected = _reverse_affected(catalog, target_refs)
     bound_scopes = (
         (ref_factory.entity(relationship.from_entity), scopes[relationship.from_entity]),
@@ -387,7 +390,7 @@ def _execute_relationship_check(
                 left, right, _left_id, _right_id = _relationship_frames(
                     resolver,
                     registry,
-                    check._relationship,
+                    source_check_relationship(check),
                     scopes,
                 )
     except Exception as exc:

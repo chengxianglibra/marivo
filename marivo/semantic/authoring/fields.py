@@ -13,6 +13,7 @@ from ibis.common.deferred import Deferred
 
 from marivo._definition.deferred import DeclarationRecord, declare, resolver_of
 from marivo._definition.types import SourceLocation as DefinitionSourceLocation
+from marivo._kernel.input_context import captured_context
 from marivo._kernel.refs import SemanticKind, _validate_segment
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.symbolic import (
@@ -451,8 +452,8 @@ def measure(
                 ),
             )
             context = _merge(
-                row._context,
-                additivity._context
+                captured_context(row),
+                captured_context(additivity)
                 if isinstance(additivity, (AdditiveOverV1, AdditiveAllV1))
                 else None,
             )

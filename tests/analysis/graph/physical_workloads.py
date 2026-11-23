@@ -226,6 +226,51 @@ def _clickhouse_cost_tables(
             admin.command(f"DROP TABLE IF EXISTS {prefix}{local_subjects}")
 
 
+def _trino_cost_tables(
+    case: Case,
+    source: TableSourceIR,
+    native_profile: str,
+    rows: list[dict[str, object]],
+    subjects: list[dict[str, object]],
+    other: str,
+    subjects_name: str,
+) -> Iterator[tuple[Case, str, str]]:
+    backend = "trino"
+    database = source.database
+    assert isinstance(database, tuple)
+    catalog = database[0]
+    prefix = ".".join(database) + "."
+    with trino.connection(admin=True, catalog=catalog) as trino_admin:
+        cursor = trino_admin.cursor()
+        try:
+            cursor.execute(
+                f"CREATE TABLE {prefix}{subjects_name} (tenant VARCHAR(10), sid BIGINT)"
+            ).fetchall()
+            cursor.execute(
+                f"CREATE TABLE {prefix}{other} ({_data(rows[:1], backend).columns})"
+            ).fetchall()
+            cursor.execute(
+                f"INSERT INTO {prefix}{subjects_name} VALUES " + _values(subjects, backend)
+            ).fetchall()
+            for start in range(0, len(rows), BATCH_ROWS):
+                batch = rows[start : start + BATCH_ROWS]
+                cursor.execute(
+                    f"INSERT INTO {prefix}{other} VALUES " + _values(batch, backend)
+                ).fetchall()
+                if start == 0:
+                    batch = batch[1:]
+                if batch:
+                    cursor.execute(
+                        f"INSERT INTO {prefix}{source.table} VALUES " + _values(batch, backend)
+                    ).fetchall()
+            case.environment["profile"] = native_profile
+            yield case, subjects_name, other
+        finally:
+            cursor.execute(f"DROP TABLE IF EXISTS {prefix}{other}").fetchall()
+            cursor.execute(f"DROP TABLE IF EXISTS {prefix}{subjects_name}").fetchall()
+            cursor.close()
+
+
 @contextmanager
 def _tables(
     backend: str,
@@ -244,7 +289,6 @@ def _tables(
     with source_case(backend, native_profile, root, monkeypatch, _data(rows[:1], backend)) as case:
         assert isinstance(case.source, TableSourceIR)
         subjects_name, other = case.source.table + "_subjects", case.source.table + "_other"
-        database = case.source.database
         if backend == "postgres":
             with pg.connection(admin=True) as admin:
                 prefix = "public."
@@ -302,39 +346,9 @@ def _tables(
                     cursor.execute(f"DROP TABLE IF EXISTS {other}")
                     cursor.execute(f"DROP TABLE IF EXISTS {subjects_name}")
         elif backend == "trino":
-            assert isinstance(database, tuple)
-            catalog = database[0]
-            prefix = ".".join(database) + "."
-            with trino.connection(admin=True, catalog=catalog) as trino_admin:
-                cursor = trino_admin.cursor()
-                try:
-                    cursor.execute(
-                        f"CREATE TABLE {prefix}{subjects_name} (tenant VARCHAR(10), sid BIGINT)"
-                    ).fetchall()
-                    cursor.execute(
-                        f"CREATE TABLE {prefix}{other} ({_data(rows[:1], backend).columns})"
-                    ).fetchall()
-                    cursor.execute(
-                        f"INSERT INTO {prefix}{subjects_name} VALUES " + _values(subjects, backend)
-                    ).fetchall()
-                    for start in range(0, len(rows), BATCH_ROWS):
-                        batch = rows[start : start + BATCH_ROWS]
-                        cursor.execute(
-                            f"INSERT INTO {prefix}{other} VALUES " + _values(batch, backend)
-                        ).fetchall()
-                        if start == 0:
-                            batch = batch[1:]
-                        if batch:
-                            cursor.execute(
-                                f"INSERT INTO {prefix}{case.source.table} VALUES "
-                                + _values(batch, backend)
-                            ).fetchall()
-                    case.environment["profile"] = native_profile
-                    yield case, subjects_name, other
-                finally:
-                    cursor.execute(f"DROP TABLE IF EXISTS {prefix}{other}").fetchall()
-                    cursor.execute(f"DROP TABLE IF EXISTS {prefix}{subjects_name}").fetchall()
-                    cursor.close()
+            yield from _trino_cost_tables(
+                case, case.source, native_profile, rows, subjects, other, subjects_name
+            )
         else:
             yield from _clickhouse_cost_tables(case, case.source, native_profile, rows, subjects)
 

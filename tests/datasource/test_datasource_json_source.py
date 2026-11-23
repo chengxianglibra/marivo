@@ -11,6 +11,7 @@ from threading import Thread
 
 import ibis
 import pytest
+from typing_extensions import override
 
 import marivo.datasource as md
 import marivo.semantic as ms
@@ -47,6 +48,7 @@ def _post_json_server(
             self.end_headers()
             self.wfile.write(payload)
 
+        @override
         def log_message(self, _format: str, *_args: object) -> None:
             return
 

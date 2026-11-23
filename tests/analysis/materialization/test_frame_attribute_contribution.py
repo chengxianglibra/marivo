@@ -42,6 +42,7 @@ from marivo.analysis.core.frame_method_facts import (
     FrameRatioMethod,
 )
 from marivo.analysis.core.frame_operations import AttributeContributionValues
+from marivo.analysis.dsl.column import column_unit
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import Population
 from marivo.analysis.errors import AnalysisError
@@ -107,8 +108,8 @@ def test_pending_weighted_components_keep_dimensional_weight_unit(session: Sessi
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     pending = session.observe({"q": amount.weighted_mean(weight=amount)}).attribute(by=(channel,))
     for frame in (pending, pending.compute()):
-        assert frame["component.value.numerator.q"]._unit == "USD.USD"
-        assert frame["component.value.denominator.q"]._unit == "USD"
+        assert column_unit(frame["component.value.numerator.q"]) == "USD.USD"
+        assert column_unit(frame["component.value.denominator.q"]) == "USD"
 
 
 @pytest.mark.parametrize(
@@ -138,7 +139,7 @@ def test_attribute_constant_division_retains_original_operation(
     assert rows["contribution.base.relative.q"].tolist() == pytest.approx(
         [0.3 if divisor > 0 else -0.3, -0.1 if divisor > 0 else 0.1]
     )
-    assert report["total.q"]._unit == ("GiB/s" if rescale else "USD")
+    assert column_unit(report["total.q"]) == ("GiB/s" if rescale else "USD")
 
 
 @pytest.mark.parametrize("divisor", [3, 3.0, Decimal("3.00")])
@@ -177,8 +178,8 @@ def test_attribute_division_rounds_operands_before_large_integer_cancellation(
         assert rows[f"detail.value.{name}"].tolist() == [expected, 0.0]
         for role in ("total", "observed_total"):
             assert rows[f"{role}.{name}"].tolist() == [expected, expected]
-    assert report["contribution.scaled"]._unit == "USD"
-    assert report["contribution.rescaled"]._unit == "GiB/s"
+    assert column_unit(report["contribution.scaled"]) == "USD"
+    assert column_unit(report["contribution.rescaled"]) == "GiB/s"
     baseline = session.observe(metrics, where=phase == "base")
     compared = current.compare({"base": mv.baseline(baseline)})
     changes = compared.select({"q": compared["base.absolute.residual"]})
@@ -327,7 +328,7 @@ def test_rescaled_ratio_keeps_nested_linear_methods(session: Session) -> None:
     rows = report.to_pandas()
     assert rows["contribution.q"].tolist() == pytest.approx([13 / 33, 3 / 11])
     assert rows["total.q"].tolist() == pytest.approx([2 / 3] * 2)
-    assert report["total.q"]._unit == "GiB/s"
+    assert column_unit(report["total.q"]) == "GiB/s"
     method = report.method_facts[0].parents[0].metrics[0].method
     assert method.kind == "level_linear"
     child = method.terms[0].method

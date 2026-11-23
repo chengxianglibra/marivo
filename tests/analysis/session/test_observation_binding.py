@@ -19,6 +19,7 @@ from marivo._kernel.temporal import (
     InstantAnchor,
     _time_scope_from_contract_data,
     _validate_time_scope_data,
+    time_scope_contract,
 )
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
@@ -385,8 +386,8 @@ def test_exact_boundaries_calendar_and_host_independence(
     monkeypatch.setenv("TZ", "Pacific/Honolulu")
     assert scope.by(mv.grain("day")) == axis
     assert mv.grain("day")._width_seconds() == 86400
-    assert scope._contract().model_dump(mode="json")["schema"] == "time-scope/v1"
-    reopened = _time_scope_from_contract_data(scope._contract().model_dump(mode="json"))
+    assert time_scope_contract(scope).model_dump(mode="json")["schema"] == "time-scope/v1"
+    reopened = _time_scope_from_contract_data(time_scope_contract(scope).model_dump(mode="json"))
     assert reopened == scope
     assert reopened.by(mv.grain("day")) == axis
     assert _validate_time_scope_data(scope._model_dump(mode="json")) == scope

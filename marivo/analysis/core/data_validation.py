@@ -213,6 +213,20 @@ def _stage_key_tokens(
         )
 
 
+def detached_rows(rows: pd.DataFrame) -> pd.DataFrame:
+    """Copy selected Arrow buffers too; pandas deep copies retain their parents."""
+    values: dict[str, pd.Series] = {}
+    for name in rows.columns:
+        column = rows[name]
+        if isinstance(column.dtype, pd.ArrowDtype):
+            array = pa.array(column, from_pandas=True)
+            copied = pc.take(array, pa.array(range(len(array)), type=pa.int64()))
+            values[name] = pd.Series(pd.arrays.ArrowExtensionArray(copied))
+        else:
+            values[name] = column.reset_index(drop=True).copy(deep=True)
+    return pd.DataFrame(values, index=pd.RangeIndex(len(rows)))
+
+
 def distinct_key_rows(rows: pd.DataFrame, keys: tuple[str, ...]) -> pd.DataFrame:
     """Keep the first row of each exact key, preserving its physical carriers."""
     if not keys:

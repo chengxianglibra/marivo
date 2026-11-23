@@ -6,6 +6,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 import pytest
+from typing_extensions import override
 
 import marivo.analysis as mv
 from marivo._kernel.compat import UTC
@@ -50,6 +51,7 @@ def test_agent_result_is_runtime_checkable() -> None:
         def show(self) -> None:
             print(self.render())
 
+        @override
         def __repr__(self) -> str:
             return result_repr("X id=1")
 

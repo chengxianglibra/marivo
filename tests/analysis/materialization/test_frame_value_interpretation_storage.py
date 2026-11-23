@@ -95,7 +95,7 @@ print(json.dumps({
     assert isinstance(expected, dict)
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
-    with case.session._runtime.store._write() as connection:
+    with case.session._runtime.store.write_transaction() as connection:
         connection.execute(
             "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
             ("unavailable parent output", expected["parent"]),

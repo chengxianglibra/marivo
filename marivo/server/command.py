@@ -12,6 +12,8 @@ from importlib.util import find_spec
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from typing_extensions import override
+
 from marivo._kernel.environment import MARIVO_VERSION
 from marivo._kernel.project import resolve_project_root
 from marivo.server import granite_model as granite_assets
@@ -104,6 +106,7 @@ def serve(
         ) from None
 
     class _Server(uvicorn.Server):
+        @override
         async def startup(self, sockets: list[socket.socket] | None = None) -> None:
             await super().startup(sockets=sockets)
             if self.started:

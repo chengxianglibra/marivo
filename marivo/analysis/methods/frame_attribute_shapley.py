@@ -27,7 +27,6 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyMethod,
 )
 from marivo.analysis.core.frame_shapley_facts import (
-    FrameShapleyCapture,
     FrameShapleyGame,
     FrameShapleyLeaf,
     FrameShapleyQuantile,
@@ -49,6 +48,9 @@ from marivo.analysis.methods.attribute_game_sampling import (
 )
 from marivo.analysis.methods.attribute_numeric import _numeric_binary, _Value
 from marivo.analysis.methods.attribute_quantiles import FrequencyGame
+from marivo.analysis.methods.attribute_state_capture import (
+    capture_facts as _capture_facts,
+)
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.methods.frame_game_report import assemble_game_report
 from marivo.analysis.model.data_types import DataColumn, DataType, DecimalDataType, ScalarDataType
@@ -163,6 +165,77 @@ class _LeafState:
             value = None if any(cell[2] for cell in selected) else 0
         return _series(value, self.output)
 
+    def _bounds(self, slot: int) -> tuple[Fraction, Fraction]:
+        pairs = [
+            (Fraction(a[slot] or 0), Fraction(b[slot] or 0))
+            for a, b in zip(self.current, self.baseline, strict=True)
+        ]
+        return sum((min(pair) for pair in pairs), Fraction(0)), sum(
+            (max(pair) for pair in pairs), Fraction(0)
+        )
+
+    def _magnitude(self, slot: int) -> Fraction:
+        return sum(
+            (
+                max(abs(Fraction(a[slot] or 0)), abs(Fraction(b[slot] or 0)))
+                for a, b in zip(self.current, self.baseline, strict=True)
+            ),
+            Fraction(0),
+        )
+
+    def _mass_padding(self, slot: int) -> Fraction | None:
+        lo, hi = self._bounds(slot)
+        dtype = self.columns[slot].dtype
+        if isinstance(dtype, DecimalDataType):
+            limit = Fraction(10**dtype.precision - 1, 10**dtype.scale)
+            return None if lo < -limit or hi > limit else Fraction(0)
+        if dtype == ScalarDataType("int64"):
+            return None if lo < -(2**63) or hi > 2**63 - 1 else Fraction(0)
+        if dtype == ScalarDataType("float64"):
+            absolute = self._magnitude(slot)
+            if absolute > Fraction(sys.float_info.max):
+                return None
+            if absolute == 0:
+                return Fraction(0)
+            return Fraction(math.ulp(float(absolute))) * (len(self.current) + 1)
+        return None
+
+    def _mean_domain(self, lo: Fraction, hi: Fraction, minvalid: int, nullable: bool) -> Domain:
+        if self._mass_padding(1) is None:
+            return Domain(None, None, nullable, finite=False)
+        maximum_count = sum(
+            max(int(a[1] or 0), int(b[1] or 0))
+            for a, b in zip(self.current, self.baseline, strict=True)
+        )
+        if maximum_count == 0:
+            return Domain.null()
+        lower_count = max(1, minvalid)
+        if isinstance(self.output.dtype, DecimalDataType):
+            ratios = [value / count for value in (lo, hi) for count in (lower_count, maximum_count)]
+            rounding = Fraction(1, 2 * 10**self.output.dtype.scale)
+        else:
+            limit = Fraction(sys.float_info.max)
+            if lo < -limit or hi > limit:
+                return Domain(None, None, nullable, finite=False)
+            endpoints = (float(lo), float(hi))
+            numerator_bounds = (
+                math.nextafter(endpoints[0], -math.inf),
+                math.nextafter(endpoints[1], math.inf),
+            )
+            if not all(math.isfinite(value) for value in numerator_bounds):
+                return Domain(None, None, nullable, finite=False)
+            numerators = tuple(Fraction(value) for value in numerator_bounds)
+            denominators = (
+                Fraction(math.nextafter(float(lower_count), -math.inf)),
+                Fraction(math.nextafter(float(maximum_count), math.inf)),
+            )
+            ratios = [value / count for value in numerators for count in denominators]
+            absolute = max(abs(value) for value in ratios)
+            if absolute > Fraction(sys.float_info.max):
+                return Domain(None, None, nullable, finite=False)
+            rounding = Fraction(math.ulp(float(absolute))) * 4
+        return Domain(min(ratios) - rounding, max(ratios) + rounding, nullable)
+
     def value_domain(self) -> Domain:
         if any(
             isinstance(value, float) and not math.isfinite(value)
@@ -178,41 +251,6 @@ class _LeafState:
         )
         nullable = kind != "count" and minvalid == 0
 
-        def bounds(slot: int) -> tuple[Fraction, Fraction]:
-            pairs = [
-                (Fraction(a[slot] or 0), Fraction(b[slot] or 0))
-                for a, b in zip(self.current, self.baseline, strict=True)
-            ]
-            return sum((min(pair) for pair in pairs), Fraction(0)), sum(
-                (max(pair) for pair in pairs), Fraction(0)
-            )
-
-        def magnitude(slot: int) -> Fraction:
-            return sum(
-                (
-                    max(abs(Fraction(a[slot] or 0)), abs(Fraction(b[slot] or 0)))
-                    for a, b in zip(self.current, self.baseline, strict=True)
-                ),
-                Fraction(0),
-            )
-
-        def mass_padding(slot: int) -> Fraction | None:
-            lo, hi = bounds(slot)
-            dtype = self.columns[slot].dtype
-            if isinstance(dtype, DecimalDataType):
-                limit = Fraction(10**dtype.precision - 1, 10**dtype.scale)
-                return None if lo < -limit or hi > limit else Fraction(0)
-            if dtype == ScalarDataType("int64"):
-                return None if lo < -(2**63) or hi > 2**63 - 1 else Fraction(0)
-            if dtype == ScalarDataType("float64"):
-                absolute = magnitude(slot)
-                if absolute > Fraction(sys.float_info.max):
-                    return None
-                if absolute == 0:
-                    return Fraction(0)
-                return Fraction(math.ulp(float(absolute))) * (len(self.current) + 1)
-            return None
-
         if kind in ("min", "max"):
             cells = [
                 Fraction(cell[0])
@@ -220,53 +258,18 @@ class _LeafState:
                 if cell[1] and cell[0] is not None
             ]
             return Domain(min(cells), max(cells), nullable) if cells else Domain.null()
-        padding = mass_padding(0)
+        padding = self._mass_padding(0)
         if padding is None:
             return Domain(None, None, nullable, finite=False)
-        lo, hi = bounds(0)
+        lo, hi = self._bounds(0)
         lo, hi = lo - padding, hi + padding
         if kind == "mean":
-            if mass_padding(1) is None:
-                return Domain(None, None, nullable, finite=False)
-            maximum_count = sum(
-                max(int(a[1] or 0), int(b[1] or 0))
-                for a, b in zip(self.current, self.baseline, strict=True)
-            )
-            if maximum_count == 0:
-                return Domain.null()
-            lower_count = max(1, minvalid)
-            if isinstance(self.output.dtype, DecimalDataType):
-                ratios = [
-                    value / count for value in (lo, hi) for count in (lower_count, maximum_count)
-                ]
-                rounding = Fraction(1, 2 * 10**self.output.dtype.scale)
-            else:
-                limit = Fraction(sys.float_info.max)
-                if lo < -limit or hi > limit:
-                    return Domain(None, None, nullable, finite=False)
-                endpoints = (float(lo), float(hi))
-                numerator_bounds = (
-                    math.nextafter(endpoints[0], -math.inf),
-                    math.nextafter(endpoints[1], math.inf),
-                )
-                if not all(math.isfinite(value) for value in numerator_bounds):
-                    return Domain(None, None, nullable, finite=False)
-                numerators = tuple(Fraction(value) for value in numerator_bounds)
-                denominators = (
-                    Fraction(math.nextafter(float(lower_count), -math.inf)),
-                    Fraction(math.nextafter(float(maximum_count), math.inf)),
-                )
-                ratios = [value / count for value in numerators for count in denominators]
-                absolute = max(abs(value) for value in ratios)
-                if absolute > Fraction(sys.float_info.max):
-                    return Domain(None, None, nullable, finite=False)
-                rounding = Fraction(math.ulp(float(absolute))) * 4
-            return Domain(min(ratios) - rounding, max(ratios) + rounding, nullable)
+            return self._mean_domain(lo, hi, minvalid, nullable)
         if kind == "weighted_mean":
-            weight_padding = mass_padding(1)
+            weight_padding = self._mass_padding(1)
             if weight_padding is None:
                 return Domain(None, None, nullable, finite=False)
-            dlow, dhigh = bounds(1)
+            dlow, dhigh = self._bounds(1)
             dlow, dhigh = dlow - weight_padding, dhigh + weight_padding
             if dlow <= 0 <= dhigh:
                 if all((cell[1] or 0) == 0 for cell in (*self.current, *self.baseline)):
@@ -441,63 +444,6 @@ def _sample(
         return CoalitionValue(output, _number(series.iloc[0]))
 
     return sample_game(parent, players, permutations, seed, evaluate), proof
-
-
-_FixedStateRoute: TypeAlias = Literal[
-    "typed_sufficient_state/v1", "typed_value_frequency/v1", "typed_sufficient_frequency/v1"
-]
-
-
-def _capture_facts(
-    left: StageOutput, right: StageOutput
-) -> tuple[tuple[FrameShapleyCapture, ...], _FixedStateRoute]:
-    capture_directory = {
-        capture.stage_id: capture
-        for source in (left, right)
-        for capture in source.attribute_state_captures
-    }
-    current_ids = {capture.stage_id for capture in left.attribute_state_captures}
-    baseline_ids = {capture.stage_id for capture in right.attribute_state_captures}
-    captured_facts = []
-    for capture_id, receipt in sorted(capture_directory.items()):
-        endpoint: Literal["current", "baseline", "both"] = (
-            "both"
-            if capture_id in current_ids and capture_id in baseline_ids
-            else "current"
-            if capture_id in current_ids
-            else "baseline"
-        )
-        route: Literal["typed_sufficient_state/v1", "typed_value_frequency/v1"] = (
-            "typed_value_frequency/v1"
-            if receipt.state_route in ("typed_frequencies", "typed_membership")
-            else "typed_sufficient_state/v1"
-        )
-        captured_facts.append(
-            FrameShapleyCapture(
-                capture_id,
-                endpoint,
-                receipt.provider,
-                None,
-                route,
-                receipt.state_entries,
-                receipt.state_bytes,
-                receipt.returned_rows,
-                receipt.decoded_arrow_bytes,
-                1,
-                0,
-                0,
-                None,
-                None,
-                None,
-            )
-        )
-    if not captured_facts:
-        _fail("no actual fixed-state capture receipts")
-    routes = {capture.state_route for capture in captured_facts}
-    combined_route: _FixedStateRoute = (
-        next(iter(routes)) if len(routes) == 1 else "typed_sufficient_frequency/v1"
-    )
-    return tuple(captured_facts), combined_route
 
 
 def _frequency_state(
@@ -721,7 +667,7 @@ def attribute_game_data(
     output_columns = dict(
         zip(program.output_schema.value_paths, program.output_schema.values, strict=True)
     )
-    captured_facts, combined_route = _capture_facts(left, right)
+    captured_facts, combined_route = _capture_facts(left, right, _fail)
     input_type_maps: tuple[dict[str, tuple[DataType, ...]], ...] = tuple(
         {
             slot: types

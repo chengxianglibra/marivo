@@ -37,7 +37,7 @@ class CompiledSemanticState:
         default_factory=dict, init=False, repr=False, compare=False
     )
 
-    def _definition_version(self, root: Ref[SemanticKindTag]) -> str:
+    def definition_version(self, root: Ref[SemanticKindTag]) -> str:
 
         version = self._scoped_fingerprints.get(root)
         if version is None:

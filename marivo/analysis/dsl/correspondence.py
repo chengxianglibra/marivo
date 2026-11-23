@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing_extensions import overload
+from typing_extensions import overload, override
 
 from marivo._definition.correspondence import CalendarCorrespondence
 from marivo.analysis.model.errors import reject
@@ -23,6 +23,7 @@ def ordinal() -> CalendarCorrespondence:
 class _Omitted:
     """Distinguish an absent keyword from an explicitly invalid value."""
 
+    @override
     def __repr__(self) -> str:
         return "<omitted>"
 

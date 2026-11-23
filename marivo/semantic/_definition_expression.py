@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Literal
 
 from marivo._kernel.refs import EntityKind, FieldKind, Ref
@@ -28,30 +28,81 @@ class _UnsupportedError(Exception):
     pass
 
 
-def describe_expression(
-    function: ast.FunctionDef,
-    *,
-    entities: Mapping[str, Ref[EntityKind]],
-    bindings: Mapping[int, tuple[Ref[FieldKind], Ref[EntityKind]]],
-) -> ExpressionDescription:
-    """Capture only known structural syntax; preserve literal values without resolving names."""
-    count = 0
+class _ExpressionCapture:
+    def __init__(
+        self,
+        entities: Mapping[str, Ref[EntityKind]],
+        bindings: Mapping[int, tuple[Ref[FieldKind], Ref[EntityKind]]],
+    ) -> None:
+        self.entities = entities
+        self.bindings = bindings
+        self.count = 0
 
-    def visit(node: ast.expr, depth: int = 0) -> ExpressionNode:
-        nonlocal count
-        count += 1
-        if depth > 32 or count > 256:
+    @staticmethod
+    def literal(node: ast.Constant) -> ExpressionNode:
+        value_type: Literal["str", "int", "float", "bool", "none"]
+        if node.value is None:
+            value_type = "none"
+        elif type(node.value) is bool:
+            value_type = "bool"
+        elif type(node.value) is int:
+            value_type = "int"
+        elif type(node.value) is float:
+            value_type = "float"
+        elif type(node.value) is str:
+            value_type = "str"
+        else:
+            raise _UnsupportedError
+        return _Literal(value_type, node.value)
+
+    def call(self, node: ast.Call, child: Callable[[ast.expr], ExpressionNode]) -> ExpressionNode:
+        binding = self.bindings.get(id(node))
+        if binding is not None:
+            return _Field(*binding)
+        if isinstance(node.func, ast.Attribute) and not node.keywords:
+            if node.func.attr == "cast" and len(node.args) == 1:
+                data_type = node.args[0]
+                # Only fixed type tokens are structural metadata.
+                if (
+                    isinstance(data_type, ast.Constant)
+                    and isinstance(data_type.value, str)
+                    and data_type.value
+                    in {
+                        "int8",
+                        "int16",
+                        "int32",
+                        "int64",
+                        "uint8",
+                        "uint16",
+                        "uint32",
+                        "uint64",
+                        "float32",
+                        "float64",
+                        "string",
+                        "boolean",
+                        "date",
+                        "timestamp",
+                    }
+                ):
+                    return _Cast(child(node.func.value), data_type.value)
+            if node.func.attr == "ifelse" and len(node.args) == 2:
+                return _IfElse(child(node.func.value), child(node.args[0]), child(node.args[1]))
+        raise _UnsupportedError
+
+    def visit(self, node: ast.expr, depth: int = 0) -> ExpressionNode:
+        self.count += 1
+        if depth > 32 or self.count > 256:
             raise OverflowError
 
         def child(value: ast.expr) -> ExpressionNode:
-            return visit(value, depth + 1)
+            return self.visit(value, depth + 1)
 
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-            entity = entities.get(node.value.id)
+            entity = self.entities.get(node.value.id)
             if entity is not None:
                 return _Column(entity, node.attr)
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
-            entity = entities.get(node.value.id)
+            entity = self.entities.get(node.value.id)
             if (
                 entity is not None
                 and isinstance(node.slice, ast.Constant)
@@ -59,52 +110,9 @@ def describe_expression(
             ):
                 return _Column(entity, node.slice.value)
         if isinstance(node, ast.Constant):
-            value_type: Literal["str", "int", "float", "bool", "none"]
-            if node.value is None:
-                value_type = "none"
-            elif type(node.value) is bool:
-                value_type = "bool"
-            elif type(node.value) is int:
-                value_type = "int"
-            elif type(node.value) is float:
-                value_type = "float"
-            elif type(node.value) is str:
-                value_type = "str"
-            else:
-                raise _UnsupportedError
-            return _Literal(value_type, node.value)
+            return self.literal(node)
         if isinstance(node, ast.Call):
-            binding = bindings.get(id(node))
-            if binding is not None:
-                return _Field(*binding)
-            if isinstance(node.func, ast.Attribute) and not node.keywords:
-                if node.func.attr == "cast" and len(node.args) == 1:
-                    data_type = node.args[0]
-                    # Only fixed type tokens are structural metadata.
-                    if (
-                        isinstance(data_type, ast.Constant)
-                        and isinstance(data_type.value, str)
-                        and data_type.value
-                        in {
-                            "int8",
-                            "int16",
-                            "int32",
-                            "int64",
-                            "uint8",
-                            "uint16",
-                            "uint32",
-                            "uint64",
-                            "float32",
-                            "float64",
-                            "string",
-                            "boolean",
-                            "date",
-                            "timestamp",
-                        }
-                    ):
-                        return _Cast(child(node.func.value), data_type.value)
-                if node.func.attr == "ifelse" and len(node.args) == 2:
-                    return _IfElse(child(node.func.value), child(node.args[0]), child(node.args[1]))
+            return self.call(node, child)
         if isinstance(node, ast.UnaryOp):
             unary: dict[type[ast.unaryop], Literal["positive", "negative", "invert"]] = {
                 ast.UAdd: "positive",
@@ -152,6 +160,14 @@ def describe_expression(
             return _Binary(binary[type(node.ops[0])], child(node.left), child(node.comparators[0]))
         raise _UnsupportedError
 
+
+def describe_expression(
+    function: ast.FunctionDef,
+    *,
+    entities: Mapping[str, Ref[EntityKind]],
+    bindings: Mapping[int, tuple[Ref[FieldKind], Ref[EntityKind]]],
+) -> ExpressionDescription:
+    """Capture only known structural syntax; preserve literal values without resolving names."""
     returns = [node for node in function.body if isinstance(node, ast.Return)]
     if len(returns) != 1 or returns[0].value is None:
         return _UnsupportedExpression("unsupported_syntax")
@@ -162,7 +178,9 @@ def describe_expression(
     except (OverflowError, ValueError, RecursionError):
         display = None
     try:
-        return _SupportedExpression(visit(returns[0].value), display=display)
+        return _SupportedExpression(
+            _ExpressionCapture(entities, bindings).visit(returns[0].value), display=display
+        )
     except _UnsupportedError:
         return _UnsupportedExpression("unsupported_syntax", display=display)
     except OverflowError:

@@ -219,7 +219,7 @@ def _integer(value: object) -> int:
 
 
 def _artifact_count(session: mv.Session) -> int:
-    with session._runtime.store._read() as connection:
+    with session._runtime.store.read_transaction() as connection:
         value = connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0]
     assert isinstance(value, int)
     return value

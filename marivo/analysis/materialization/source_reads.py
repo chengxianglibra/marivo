@@ -289,7 +289,7 @@ def read_stage(
             help_target="analysis_frame.compute",
         ) from error
     if isinstance(stage.program, AttributeFrequencyRead):
-        return source_completion._capture_attribute_state(
+        return source_completion.capture_attribute_state(
             stage,
             frame,
             source_completion.complete_attribute_frequencies(stage, frame, lowered.numeric_checks),
@@ -298,12 +298,12 @@ def read_stage(
     if read_attribute(stage) is not None:
         return _complete_attribute_read(stage, frame, lowered.numeric_checks)
     if read_members(stage):
-        output = source_completion._complete_common_read(stage, frame, lowered.numeric_checks)
+        output = source_completion.complete_common_read(stage, frame, lowered.numeric_checks)
     else:
-        output = source_completion._complete_source_frame(
+        output = source_completion.complete_source_frame(
             stage, frame, lowered.numeric_checks, value_keys=value_keys
         )
-    return source_completion._capture_attribute_state(stage, frame, output, source.provider.name)
+    return source_completion.capture_attribute_state(stage, frame, output, source.provider.name)
 
 
 def _complete_attribute_read(
@@ -311,7 +311,7 @@ def _complete_attribute_read(
     frame: pd.DataFrame,
     numeric_checks: tuple[tuple[str, NumericCheck], ...],
 ) -> StageOutput:
-    source_completion._validate_source_checks(stage, frame, numeric_checks)
+    source_completion.validate_source_checks(stage, frame, numeric_checks)
     layout = require_attribute(stage)
     originals: dict[tuple[int, str], StageOutput] = {}
     for kind, keys in (
@@ -353,7 +353,7 @@ def _complete_attribute_read(
                 for name, check in numeric_checks
                 if name.startswith(prefix)
             )
-            completed = source_completion._complete_source_frame(original_stage, raw, checks)
+            completed = source_completion.complete_source_frame(original_stage, raw, checks)
             originals[(kind, reduction.value_slot)] = completed
     # Formula originals are actual native outputs of this same statement.
     # Capture their physical carriers before the root normalizer consumes

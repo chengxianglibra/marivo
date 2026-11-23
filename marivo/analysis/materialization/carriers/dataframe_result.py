@@ -9,6 +9,7 @@ from typing import Literal
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
+from typing_extensions import override
 
 from marivo._kernel.render import Card, RenderableResult
 from marivo.analysis.model.result_reference import DataFrameReference
@@ -34,22 +35,6 @@ class DataFrameResult(RenderableResult):
 
     def __new__(cls) -> DataFrameResult:
         raise TypeError("Acquire a DataFrameResult from read_dataframe().")
-
-    @classmethod
-    def _create(
-        cls,
-        reference: DataFrameReference,
-        committed_at: datetime,
-        row_count: int,
-        table: pa.Table,
-    ) -> DataFrameResult:
-        value = object.__new__(cls)
-        object.__setattr__(value, "ref", reference)
-        object.__setattr__(value, "committed_at", committed_at)
-        object.__setattr__(value, "row_count", row_count)
-        object.__setattr__(value, "schema", table.schema)
-        object.__setattr__(value, "_table", table)
-        return value
 
     @property
     def kind(self) -> Literal["dataframe"]:
@@ -81,9 +66,11 @@ class DataFrameResult(RenderableResult):
         rows: pd.DataFrame = table.to_pandas(types_mapper=pd.ArrowDtype, ignore_metadata=True)
         return rows
 
+    @override
     def _repr_identity(self) -> str:
         return f"DataFrameResult kind={self.kind} result_id={self.ref.result_id!r}"
 
+    @override
     def _card(self) -> Card:
         card = Card(identity=self._repr_identity(), available=(".schema", ".to_pandas()"))
         card.field("committed_at", self.committed_at.isoformat())
@@ -100,3 +87,18 @@ class DataFrameResult(RenderableResult):
             recovery="Read .schema for all ordered columns and exact types.",
         )
         return card
+
+
+def make_dataframe_result(
+    reference: DataFrameReference,
+    committed_at: datetime,
+    row_count: int,
+    table: pa.Table,
+) -> DataFrameResult:
+    value = object.__new__(DataFrameResult)
+    object.__setattr__(value, "ref", reference)
+    object.__setattr__(value, "committed_at", committed_at)
+    object.__setattr__(value, "row_count", row_count)
+    object.__setattr__(value, "schema", table.schema)
+    object.__setattr__(value, "_table", table)
+    return value

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from typing_extensions import override
+
 from marivo._kernel.project import resolve_project_root
 from marivo._kernel.render import Card, RenderableResult
 from marivo._kernel.symbolic import DatasourceIdentityHandle, DatasourceSymbol
@@ -150,10 +152,12 @@ class DatasourceCatalog(RenderableResult):
             persist_env_secrets=True,
         )
 
+    @override
     def _repr_identity(self) -> str:
         count = len(_store.load_all(self.workspace_dir))
         return f"DatasourceCatalog datasources={count}"
 
+    @override
     def _card(self) -> Card:
         datasources = sorted(
             _store.load_all(self.workspace_dir).values(),

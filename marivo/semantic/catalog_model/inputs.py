@@ -13,6 +13,7 @@ from typing import (
 from ibis.common.deferred import Deferred
 
 from marivo._definition.deferred import root_declaration
+from marivo._kernel.paths import relationship_binding
 from marivo._kernel.refs import (
     Ref,
     SemanticKind,
@@ -24,7 +25,7 @@ from marivo._kernel.refs import (
 from marivo._kernel.symbolic import (
     native_symbol_ref,
 )
-from marivo._kernel.validation import input_sequence
+from marivo._kernel.validation import input_sequence, is_instance
 from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic.catalog_model.index import _CatalogIndex
 from marivo.semantic.catalog_model.objects import (
@@ -32,6 +33,9 @@ from marivo.semantic.catalog_model.objects import (
     CatalogLookup,
     SemanticObject,
     _SemanticObject,
+    entry_reference,
+    entry_workspace,
+    lookup_state,
 )
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import (
@@ -47,6 +51,7 @@ from marivo.semantic.expressions.objects import (
     TimeField,
     _Entity,
     _Relationship,
+    entity_exact,
 )
 
 if TYPE_CHECKING:
@@ -64,7 +69,7 @@ def _same_kind_candidates(
     catalog: CatalogInputLookup,
     allowed_kinds: frozenset[SemanticKind],
 ) -> tuple[Ref[SemanticKindTag], ...]:
-    return tuple(ref for ref in catalog._require_index()._refs if ref.kind in allowed_kinds)[
+    return tuple(ref for ref in require_catalog_index(catalog).refs if ref.kind in allowed_kinds)[
         :_SEMANTIC_INPUT_CANDIDATE_LIMIT
     ]
 
@@ -88,10 +93,10 @@ def _physical_dependencies(
         seen.add(current)
         declared = current.kind is SemanticKind.METRIC or (
             current.kind is SemanticKind.MEASURE
-            and current.path in catalog._state.registry.declared_measures
+            and current.path in lookup_state(catalog).registry.declared_measures
         )
         if declared:
-            pending.extend(catalog._state.dependencies.get(current, ()))
+            pending.extend(lookup_state(catalog).dependencies.get(current, ()))
         else:
             physical.add(current)
     return tuple(sorted(physical, key=lambda item: item.key))
@@ -115,9 +120,9 @@ def _value_lookup_ref(value: object) -> Ref[SemanticKindTag] | None:
     if isinstance(value, TimeField) and value.path:
         return None
     if isinstance(value, _Entity):
-        return value._exact_ref.ref
+        return entity_exact(value).ref
     if isinstance(value, _Relationship):
-        return value._parameter.ref.ref
+        return relationship_binding(value).ref.ref
     if isinstance(value, (_Dimension, TimeField, _Measure)):
         return value.ref.ref
     return None
@@ -128,7 +133,7 @@ def _semantic_input_ref(value: object) -> Ref[SemanticKindTag] | None:
     if symbolic is not None:
         return symbolic
     if isinstance(value, _SemanticObject):
-        return value._ref
+        return entry_reference(value)
     return _value_lookup_ref(value)
 
 
@@ -176,7 +181,7 @@ def _raise_invalid_semantic_input(
             action="Choose an allowed named object directly from the receiving project's Catalog.",
             snippet=f"subject = catalog.get({received_ref.key!r})"
             if received_ref is not None
-            and received_ref in catalog._require_index()._refs
+            and received_ref in require_catalog_index(catalog).refs
             and received_ref.kind in allowed_kinds
             else None,
             candidates=tuple(candidate.key for candidate in candidates),
@@ -203,7 +208,7 @@ def _normalize_semantic_input(
     declaration_closure: bool = False,
 ) -> Ref[SemanticKindTag]:
     """Resolve a named object's identity in the explicit receiving project scope."""
-    index = catalog._require_index()
+    index = require_catalog_index(catalog)
     if not isinstance(value, _SemanticObject):
         _raise_invalid_semantic_input(
             catalog=catalog,
@@ -212,7 +217,7 @@ def _normalize_semantic_input(
             location=location,
             message="expected a named semantic object obtained from this project's Catalog.get(id) or search().",
         )
-    exact_ref = value._ref
+    exact_ref = entry_reference(value)
     if type(value) is not _ENTRY_TYPE_BY_KIND.get(exact_ref.kind):
         _raise_invalid_semantic_input(
             catalog=catalog,
@@ -221,14 +226,14 @@ def _normalize_semantic_input(
             location=location,
             message="expected a concrete named semantic object produced by a Catalog.",
         )
-    if value._catalog.workspace_dir.resolve() != catalog.workspace_dir.resolve():
+    if entry_workspace(value).resolve() != catalog.workspace_dir.resolve():
         _raise_invalid_semantic_input(
             catalog=catalog,
             value=value,
             allowed_kinds=allowed_kinds,
             location=location,
             message=(
-                f"input belongs to project {value._catalog.workspace_dir}; "
+                f"input belongs to project {entry_workspace(value)}; "
                 f"the receiving Catalog belongs to {catalog.workspace_dir}."
             ),
         )
@@ -250,7 +255,7 @@ def _normalize_semantic_input(
             message="the named identity is outside the receiving Catalog scope.",
             candidate_kinds=frozenset({exact_ref.kind}),
         )
-    registry = catalog._state.registry
+    registry = lookup_state(catalog).registry
     if not declaration_closure and (
         (exact_ref.kind is SemanticKind.METRIC and not metric_preview)
         or (exact_ref.kind is SemanticKind.MEASURE and exact_ref.path in registry.declared_measures)
@@ -315,7 +320,7 @@ def _freeze_semantic_inputs(
             expected="a non-empty sequence of named semantic objects",
             received=(
                 f"an empty {type(values).__name__}"
-                if isinstance(values, Sequence) and not values  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+                if is_instance(values, Sequence) and not values
                 else type(values).__name__
             ),
             repair_value=repair(
@@ -334,3 +339,13 @@ class CatalogInputLookup(CatalogLookup, Protocol):
     def _entry_dependencies(
         self, ref: Ref[SemanticKindTag]
     ) -> tuple[Ref[SemanticKindTag], ...]: ...
+
+
+def require_catalog_index(catalog: CatalogInputLookup) -> _CatalogIndex:
+    return catalog._require_index()  # noqa: SLF001 - The Catalog checks its loaded state.
+
+
+def catalog_entry_dependencies(
+    catalog: CatalogInputLookup, ref: Ref[SemanticKindTag]
+) -> tuple[Ref[SemanticKindTag], ...]:
+    return catalog._entry_dependencies(ref)  # noqa: SLF001 - Captured closure of the owning Catalog.

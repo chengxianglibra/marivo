@@ -372,6 +372,25 @@ def reconcile_first_result(
         first["reconciled"] = {"error": "marker epoch is missing, nonnumeric, or outside the run"}
 
 
+def _record_action(
+    event: dict[str, Json],
+    received: float,
+    actions: list[dict[str, Json]],
+    completed: list[dict[str, Json]],
+) -> None:
+    item = event.get("item")
+    if isinstance(item, dict) and item.get("type") not in NON_ACTION_ITEMS:
+        action = {
+            "id": item.get("id"),
+            "type": item.get("type"),
+            "received_epoch": received,
+        }
+        if event.get("type") == "item.started":
+            actions.append(action)
+        elif event.get("type") == "item.completed":
+            completed.append(action)
+
+
 def run(options: Options) -> int:
     if options.output.is_relative_to(options.project):
         raise ValueError("Output must be outside the project directory")
@@ -483,17 +502,7 @@ def run(options: Options) -> int:
                         + "\n"
                     )
                     timed.flush()
-                    item = event.get("item")
-                    if isinstance(item, dict) and item.get("type") not in NON_ACTION_ITEMS:
-                        action = {
-                            "id": item.get("id"),
-                            "type": item.get("type"),
-                            "received_epoch": received,
-                        }
-                        if event.get("type") == "item.started":
-                            actions.append(action)
-                        elif event.get("type") == "item.completed":
-                            completed.append(action)
+                    _record_action(event, received, actions, completed)
                     if event.get("type") == "turn.completed" and isinstance(
                         event.get("usage"), dict
                     ):

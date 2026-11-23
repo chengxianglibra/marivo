@@ -9,6 +9,7 @@ from pathlib import Path
 
 from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame_factory import require_stored_frame
 from marivo.analysis.dsl.frame_reopening import reopen_frame
 from marivo.analysis.materialization.carriers.frame_page import (
     FrameCalendarPeriod,
@@ -99,10 +100,10 @@ from marivo.analysis.model.lineage import (
 from marivo.analysis.model.pages import decode_keyset_cursor, encode_keyset_cursor
 from marivo.analysis.model.receipts import digest
 from marivo.analysis.model.result_reference import (
-    DataFrameReference,
     DataFrameReferenceWire,
-    FrameReference,
     FrameReferenceWire,
+    make_dataframe_reference,
+    make_frame_reference,
 )
 from marivo.analysis.model.time_facts import (
     FrameAllHistoryWindow,
@@ -230,7 +231,9 @@ class StoredSession:
 
     def frame(self, artifact_id: str) -> FrameSnapshot:
         frame = reopen_frame(self._local, artifact_id)
-        return FrameSnapshot(frame, frame._require_stored("detail"), self._local, frame.schema)
+        return FrameSnapshot(
+            frame, require_stored_frame(frame, "detail"), self._local, frame.schema
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,11 +259,11 @@ def find_sessions(root: Path) -> StoredSessions | None:
 
 
 def frame_reference(store_id: str, session_id: str, artifact_id: str) -> FrameReferenceWire:
-    return FrameReference._create(store_id, session_id, artifact_id).to_dict()
+    return make_frame_reference(store_id, session_id, artifact_id).to_dict()
 
 
 def dataframe_reference(root: Path, result_id: str) -> DataFrameReferenceWire:
-    return DataFrameReference._create(root, result_id).to_dict()
+    return make_dataframe_reference(root, result_id).to_dict()
 
 
 def check_existing_store(root: Path) -> None:

@@ -14,6 +14,7 @@ from marivo._definition.expressions import (
     PerWeightedMean,
 )
 from marivo._definition.graph import children
+from marivo._definition.observations import ObservationBinding
 from marivo._definition.relations import ObserveQuery
 from marivo._definition.types import CalendarCoordinate, ExactRef, IntervalCoordinate
 from marivo._definition.windows import (
@@ -85,29 +86,11 @@ def _window(
     return None
 
 
-def observation_time_semantics(
-    graph: BoundGraph,
-    state: CompiledSemanticState | None = None,
-) -> tuple[tuple[str, FrameValueTimeSemantics], ...]:
-    """Capture every original branch and its own window/sample/report application."""
-    if not isinstance(graph.root, ObserveQuery):
-        return ()
-    observation = graph.signature.observation
-    period = observation.period if observation is not None else None
-    report = (
-        FrameFixedTime(_instant(period.start), _instant(period.end), period.timezone)
-        if period is not None and period.start is not None
-        else None
-    )
-    axis = next(
-        (
-            axis
-            for axis in graph.signature.axes
-            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-        ),
-        None,
-    )
-    has_axis = axis is not None
+def _report_cells(
+    axis: CalendarCoordinate | IntervalCoordinate | None,
+    observation: ObservationBinding | None,
+    state: CompiledSemanticState | None,
+) -> tuple[FrameTimeEndpoint | None, tuple[tuple[datetime, datetime, datetime, datetime], ...]]:
     report_axis: FrameTimeEndpoint | None = None
     report_cells: tuple[tuple[datetime, datetime, datetime, datetime], ...] = ()
     if isinstance(axis, CalendarCoordinate):
@@ -132,6 +115,33 @@ def observation_time_semantics(
                     _instant(axis.end),
                 ),
             )
+    return report_axis, report_cells
+
+
+def observation_time_semantics(
+    graph: BoundGraph,
+    state: CompiledSemanticState | None = None,
+) -> tuple[tuple[str, FrameValueTimeSemantics], ...]:
+    """Capture every original branch and its own window/sample/report application."""
+    if not isinstance(graph.root, ObserveQuery):
+        return ()
+    observation = graph.signature.observation
+    period = observation.period if observation is not None else None
+    report = (
+        FrameFixedTime(_instant(period.start), _instant(period.end), period.timezone)
+        if period is not None and period.start is not None
+        else None
+    )
+    axis = next(
+        (
+            axis
+            for axis in graph.signature.axes
+            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+        ),
+        None,
+    )
+    has_axis = axis is not None
+    report_axis, report_cells = _report_cells(axis, observation, state)
 
     declared = dict(graph.signature.declared_metrics)
     result: list[tuple[str, FrameValueTimeSemantics]] = []

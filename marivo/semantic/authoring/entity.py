@@ -63,7 +63,7 @@ _register_authoring_file(__file__)
 
 def _reject_named_entity_decorator(ctx: LoaderContext, location: SourceLocation) -> None:
     """Reject direct-constructor decorator syntax before Deferred can absorb it."""
-    source = ctx._sources.get(location.file)
+    source = ctx.sources.get(location.file)
     if source is not None and location.line in source.named_decorator_lines:
         _raise(
             ErrorKind.ENTITY_CONSTRUCTOR_AS_DECORATOR,

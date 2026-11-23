@@ -5,6 +5,8 @@ from __future__ import annotations
 from ibis.common.deferred import Deferred
 
 from marivo._definition.types import Owner
+from marivo._kernel.input_context import captured_context
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.observation import ObservationOwner, construction_error
 from marivo.analysis.binding.source_bindings import SourceParameterScopes
 from marivo.analysis.model.errors import reject
@@ -16,6 +18,7 @@ from marivo.semantic.spi import (
     bind_field,
     bind_predicate,
     catalog_state,
+    expression_role,
 )
 
 
@@ -48,14 +51,14 @@ def _predicate_input(
 ) -> Deferred | None:
     if value is None:
         return None
-    if not isinstance(value, RowExpression) or value._role != "boolean":  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(value, RowExpression) or expression_role(value) != "boolean":
         reject(
             "a row Predicate",
             type(value).__name__,
             "Use a condition built from loaded fields or in_population(...).",
             location,
         )
-    if value._context.owner not in (None, owner):
+    if captured_context(value).owner not in (None, owner):
         reject(
             "a Predicate owned by this Session",
             "another Store or Session",
@@ -68,7 +71,11 @@ def _predicate_input(
 def _field_input(
     value: FieldExpression, catalog: SemanticCatalog, owner: Owner, *, location: str
 ) -> Deferred:
-    if not isinstance(value, RowExpression) or value._role not in ("dimension", "time", "numeric"):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(value, RowExpression) or expression_role(value) not in (
+        "dimension",
+        "time",
+        "numeric",
+    ):
         reject(
             "a semantic field expression",
             type(value).__name__,

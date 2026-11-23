@@ -118,7 +118,7 @@ def test_cold_projection_reads_once_without_source(
     expected_source_reads = json.dumps(
         [asdict(read) for read in artifact.source_reads], default=str, sort_keys=True
     )
-    with case.session._runtime.store._write() as conn:
+    with case.session._runtime.store.write_transaction() as conn:
         conn.execute(
             "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
             ("unavailable ancestor", ancestor.artifact_id),

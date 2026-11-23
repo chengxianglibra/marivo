@@ -47,7 +47,12 @@ from marivo.semantic.catalog_entries import (
     _freeze_json,
 )
 from marivo.semantic.catalog_model.details import DatasourceDetails
-from marivo.semantic.catalog_model.inputs import CatalogInputLookup
+from marivo.semantic.catalog_model.inputs import (
+    CatalogInputLookup,
+    catalog_entry_dependencies,
+    require_catalog_index,
+)
+from marivo.semantic.catalog_model.objects import entry_details, lookup_registry, lookup_state
 from marivo.semantic.compiled_types import PublishedDeclaration
 from marivo.semantic.expressions.objects import ExpressionContract
 from marivo.semantic.ir import DimensionIR, EntityIR, RelationshipIR
@@ -58,13 +63,13 @@ from marivo.semantic.static_check.targets import normalize_target_relationship
 
 
 def context_for(catalog: DefinitionLookup, ref: Ref[SemanticKindTag]) -> AiContextIR:
-    definition = catalog._state.definitions.get(ref)
+    definition = lookup_state(catalog).definitions.get(ref)
     context = getattr(definition, "ai_context", None)
     if isinstance(context, AiContextIR):
         return context
-    entry = catalog._require_index().entry(ref)
+    entry = require_catalog_index(catalog).entry(ref)
     if entry is not None:
-        details = entry._details
+        details = entry_details(entry)
         context = getattr(details, "context", None)
         if isinstance(context, AiContextIR):
             return context
@@ -80,8 +85,8 @@ def dependency_context(
             context_for(catalog, item).business_definition,
             context_for(catalog, item).guardrails,
         )
-        for item in catalog._state.dependencies.get(ref, ())
-        if item in catalog._require_index()
+        for item in lookup_state(catalog).dependencies.get(ref, ())
+        if item in require_catalog_index(catalog)
     )
 
 
@@ -150,12 +155,82 @@ def _null_rule(
     return f"nulls={node.nulls}: {policy}; {empty}"
 
 
+def _metric_definition(
+    catalog: DefinitionLookup,
+    ref: Ref[SemanticKindTag],
+    context: AiContextIR,
+    dependencies: tuple[str, ...],
+    contract: ExpressionContract,
+) -> MetricDefinition:
+    metric = consume_metric(lookup_registry(catalog).declared_metrics[ref.path])
+    reductions: list[str] = []
+    conditions: list[str] = []
+    nulls: list[str] = []
+    seen: set[int] = set()
+    declared = dict(metric.declared)
+    display = FormulaDisplay(metric.node, *declared.values())
+    bindings = metric_time_bindings(metric, display)
+
+    def visit(node: MetricNode | RowNode | PredicateExpression) -> None:
+        if id(node) in seen:
+            return
+        seen.add(id(node))
+        if isinstance(node, DeclaredMetricRef):
+            visit(declared[node.ref])
+        if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
+            reductions.append(display.formula(node))
+        if isinstance(
+            node, (SourceAggregate, SourceWeightedMean, EntityCount, PerReduce, PerWeightedMean)
+        ):
+            nulls.append(f"{display.formula(node)}: {_null_rule(node)}")
+        if isinstance(node, ContributionFilter):
+            conditions.append(display.formula(node.predicate))
+        for edge in children(node):
+            child = edge.child
+            if isinstance(
+                child,
+                (
+                    RowField,
+                    MeasureAssertion,
+                    RowExpression,
+                    SourceAggregate,
+                    SourceWeightedMean,
+                    EntityCount,
+                    ContributionFilter,
+                    PerReduce,
+                    PerWeightedMean,
+                    MemberCount,
+                    MetricExpression,
+                    MetricWindow,
+                    DeclaredMetricRef,
+                    PredicateExpression,
+                ),
+            ):
+                visit(child)
+
+    visit(metric.node)
+    return MetricDefinition(
+        context,
+        tuple(item.ref.key for item in metric.roots),
+        display.formula(metric.node),
+        display.explanation(metric.node),
+        tuple(reductions),
+        tuple(conditions),
+        tuple(bindings),
+        metric.unit,
+        tuple(nulls),
+        dependencies,
+        dependency_context(catalog, ref),
+        contract.facts,
+    )
+
+
 def definition_for(catalog: DefinitionLookup, ref: Ref[SemanticKindTag]) -> EntryDefinition:
     """Project complete captured facts without execution or authored-function replay."""
 
-    registry = catalog._reg
+    registry = lookup_registry(catalog)
     context = context_for(catalog, ref)
-    dependencies = tuple(item.key for item in catalog._state.dependencies.get(ref, ()))
+    dependencies = tuple(item.key for item in lookup_state(catalog).dependencies.get(ref, ()))
     if ref.kind is SemanticKind.DOMAIN:
         domain = registry.domains[ref.path]
         return DomainDefinition(
@@ -164,15 +239,16 @@ def definition_for(catalog: DefinitionLookup, ref: Ref[SemanticKindTag]) -> Entr
             domain.default,
             tuple(
                 item.key
-                for item in catalog._require_index()._refs
+                for item in require_catalog_index(catalog).refs
                 if item.kind not in {SemanticKind.DOMAIN, SemanticKind.DATASOURCE}
                 and item.path.split(".")[0] == ref.path
             ),
         )
     if ref.kind is SemanticKind.DATASOURCE:
-        entry = catalog._require_index().entry(ref)
-        assert entry is not None and isinstance(entry._details, DatasourceDetails)
-        datasource = entry._details
+        entry = require_catalog_index(catalog).entry(ref)
+        assert entry is not None
+        datasource = entry_details(entry)
+        assert isinstance(datasource, DatasourceDetails)
         return DatasourceDefinition(
             context,
             datasource.backend_type,
@@ -185,7 +261,7 @@ def definition_for(catalog: DefinitionLookup, ref: Ref[SemanticKindTag]) -> Entr
                 if item.datasource == ref.path
             ),
         )
-    captured = catalog._state.definitions[ref]
+    captured = lookup_state(catalog).definitions[ref]
     if isinstance(captured, RelationshipIR):
         outside = tuple(
             path
@@ -203,15 +279,15 @@ def definition_for(catalog: DefinitionLookup, ref: Ref[SemanticKindTag]) -> Entr
             f"entity:{captured.to_entity}",
             tuple((item.from_key, item.to_key) for item in captured.keys),
             cardinality,
-            tuple(item.key for item in catalog._entry_dependencies(ref)),
+            tuple(item.key for item in catalog_entry_dependencies(catalog, ref)),
         )
-    contract = catalog._describe(ref)
+    contract = describe_catalog_entry(catalog, ref)
     if isinstance(captured, EntityIR):
-        body = catalog._state.sidecar.bodies.get(ref)
+        body = lookup_state(catalog).sidecar.bodies.get(ref)
         entity_expression = (
             (
                 body.source_syntax
-                or (ast.unparse(body._function_ast) if body._function_ast is not None else "")
+                or (ast.unparse(body.syntax_tree) if body.syntax_tree is not None else "")
             )
             if body is not None
             else ""
@@ -229,7 +305,7 @@ def definition_for(catalog: DefinitionLookup, ref: Ref[SemanticKindTag]) -> Entr
             else None,
             tuple(
                 item.key
-                for item in catalog._require_index()._refs
+                for item in require_catalog_index(catalog).refs
                 if item.kind
                 in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION, SemanticKind.MEASURE}
                 and item.path.rsplit(".", 1)[0] == ref.path
@@ -237,68 +313,8 @@ def definition_for(catalog: DefinitionLookup, ref: Ref[SemanticKindTag]) -> Entr
             dependencies,
         )
     if ref.kind is SemanticKind.METRIC:
-        metric = consume_metric(registry.declared_metrics[ref.path])
-        reductions: list[str] = []
-        conditions: list[str] = []
-        nulls: list[str] = []
-        seen: set[int] = set()
-        declared = dict(metric._declared)
-        display = FormulaDisplay(metric.node, *declared.values())
-        bindings = metric_time_bindings(metric, display)
-
-        def visit(node: MetricNode | RowNode | PredicateExpression) -> None:
-            if id(node) in seen:
-                return
-            seen.add(id(node))
-            if isinstance(node, DeclaredMetricRef):
-                visit(declared[node.ref])
-            if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
-                reductions.append(display.formula(node))
-            if isinstance(
-                node, (SourceAggregate, SourceWeightedMean, EntityCount, PerReduce, PerWeightedMean)
-            ):
-                nulls.append(f"{display.formula(node)}: {_null_rule(node)}")
-            if isinstance(node, ContributionFilter):
-                conditions.append(display.formula(node.predicate))
-            for edge in children(node):
-                child = edge.child
-                if isinstance(
-                    child,
-                    (
-                        RowField,
-                        MeasureAssertion,
-                        RowExpression,
-                        SourceAggregate,
-                        SourceWeightedMean,
-                        EntityCount,
-                        ContributionFilter,
-                        PerReduce,
-                        PerWeightedMean,
-                        MemberCount,
-                        MetricExpression,
-                        MetricWindow,
-                        DeclaredMetricRef,
-                        PredicateExpression,
-                    ),
-                ):
-                    visit(child)
-
-        visit(metric.node)
-        return MetricDefinition(
-            context,
-            tuple(item.ref.key for item in metric.roots),
-            display.formula(metric.node),
-            display.explanation(metric.node),
-            tuple(reductions),
-            tuple(conditions),
-            tuple(bindings),
-            metric.unit,
-            tuple(nulls),
-            dependencies,
-            dependency_context(catalog, ref),
-            contract.facts,
-        )
-    body = catalog._state.sidecar.bodies.get(ref)
+        return _metric_definition(catalog, ref, context, dependencies, contract)
+    body = lookup_state(catalog).sidecar.bodies.get(ref)
     expression = body.source_syntax if body is not None else None
     if isinstance(captured, PublishedDeclaration):
         expression = FormulaDisplay().formula(
@@ -327,3 +343,9 @@ def definition_for(catalog: DefinitionLookup, ref: Ref[SemanticKindTag]) -> Entr
 
 class DefinitionLookup(CatalogInputLookup, Protocol):
     def _describe(self, ref: Ref[SemanticKindTag], /) -> ExpressionContract: ...
+
+
+def describe_catalog_entry(
+    catalog: DefinitionLookup, ref: Ref[SemanticKindTag]
+) -> ExpressionContract:
+    return catalog._describe(ref)  # noqa: SLF001 - The Catalog validates and describes its exact entry.

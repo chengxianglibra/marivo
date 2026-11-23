@@ -142,6 +142,129 @@ def _prepare_dependent_read(
     return stage, request
 
 
+def _evaluate_query_local(
+    stage: LocalCompute,
+    inputs: tuple[StageOutput, ...],
+    lowered: LoweredQuery,
+    report_domain: pd.DataFrame | None,
+    sample_domains: Mapping[tuple[int, ...], pd.DataFrame] | None,
+    observe_local: Callable[[LocalCompute, StageOutput], None] | None,
+) -> StageOutput:
+    stage = effective_local(stage, inputs) if not local_steps(stage) else stage
+    output = (
+        graph_local_execution.run_local(
+            stage, inputs, report_domain=report_domain, sample_domains=sample_domains
+        )
+        if (report_domain is not None or sample_domains is not None)
+        and stage.stage_id == lowered.plan.publish
+        else graph_local_execution.run_local(stage, inputs)
+    )
+    if observe_local is not None:
+        observe_local(stage, output)
+    return output
+
+
+def _execute_dependent_query(
+    stage: SourceReadStage,
+    inputs: tuple[StageOutput, ...],
+    prepared: PreparedSources | None,
+    prepared_by_stage: Mapping[str, PreparedSources] | None,
+    native_prepared: Mapping[str, PreparedNativeGame] | None,
+    native_cache: NativeCache,
+    lowered: LoweredQuery,
+    parameter_relations: dict[tuple[SourceSession, str], ir.Table],
+    value_keys: Mapping[str, tuple[str, ...]],
+    observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None,
+    observe_frame: Callable[[FrameCompute | SourceReadStage, StageOutput], None] | None,
+) -> StageOutput:
+    if isinstance(stage.program, AttributeCoalitionRead):
+        assert native_prepared is not None
+        output = run_native_game(
+            stage, inputs, native_prepared[stage.stage_id], native_cache, observe_read
+        )
+        if observe_frame is not None:
+            observe_frame(stage, output)
+        return output
+    selected = prepared if prepared_by_stage is None else prepared_by_stage.get(stage.stage_id)
+    assert selected is not None
+    if isinstance(stage.program, (SampleWindowRead, ActualWindowRead)):
+        nested = (
+            prepare_sample_window_read(selected, stage, stage.program, inputs)
+            if isinstance(stage.program, SampleWindowRead)
+            else prepare_actual_window_read(selected, stage, stage.program, inputs)
+        )
+        if isinstance(nested, StageOutput):
+            return nested
+        output = execute_numeric_query(
+            nested.sources,
+            nested.lowered,
+            observe_read=observe_read,
+            report_domain=nested.report_domain,
+            sample_domains=nested.sample_domains,
+            frame_key_inputs=nested.frame_key_inputs,
+            checked_inputs=nested.checked_inputs,
+        )
+        return replace(output, receipts=(*nested.receipts, *output.receipts))
+    owner = selected.sources.get(stage.source_id, selected.source)
+    stage, request = _prepare_dependent_read(
+        stage, lowered.read(stage.stage_id), owner, inputs, parameter_relations
+    )
+    output = source_reads.read_stage(
+        selected, stage, request, value_keys=value_keys.get(stage.stage_id, ())
+    )
+    if observe_read is not None:
+        observe_read(stage, request, output)
+    return output
+
+
+def _evaluate_fixed_query_input(
+    stage: FrameInput, read_fixed: Callable[[FrameInput], CompletedFrameData] | None
+) -> StageOutput:
+    if read_fixed is None:
+        reject(
+            "an available complete fixed-input reader",
+            stage.input_id,
+            "Bind memory data or the qualified stored reader.",
+            "frame.input",
+        )
+    data = read_fixed(stage)
+    if data.schema != stage.schema:
+        reject(
+            "the exact fixed input schema",
+            repr(data.schema),
+            "Use this input's complete descriptor.",
+            "frame.input",
+        )
+    return StageOutput.from_completed(data)
+
+
+def _finish_query_output(
+    stage: QueryStage,
+    output: StageOutput,
+    source_outputs: Mapping[str, str] | None,
+    adapt_source: Callable[[str, StageOutput], StageOutput] | None,
+    transport: Callable[[str, StageOutput], StageOutput],
+    retain_inputs: dict[str, StageOutput] | None,
+) -> StageOutput:
+    if source_outputs is not None and stage.stage_id in source_outputs:
+        if adapt_source is None:
+            reject(
+                "a complete source-to-data boundary adapter",
+                stage.stage_id,
+                "Freeze the explicit source output.",
+                "frame.source",
+            )
+        if output.frame_schema is None:
+            output = adapt_source(source_outputs[stage.stage_id], output)
+    output = transport(stage.stage_id, output)
+    if retain_inputs is not None:
+        if isinstance(stage, FrameInput):
+            retain_inputs[stage.input_id] = output
+        if source_outputs is not None and stage.stage_id in source_outputs:
+            retain_inputs[source_outputs[stage.stage_id]] = output
+    return output
+
+
 def execute_numeric_query(
     prepared: PreparedSources | None,
     lowered: LoweredQuery,
@@ -202,76 +325,27 @@ def execute_numeric_query(
         return output
 
     def local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
-        stage = effective_local(stage, inputs) if not local_steps(stage) else stage
-        output = (
-            graph_local_execution.run_local(
-                stage, inputs, report_domain=report_domain, sample_domains=sample_domains
-            )
-            if (report_domain is not None or sample_domains is not None)
-            and stage.stage_id == lowered.plan.publish
-            else graph_local_execution.run_local(stage, inputs)
+        return _evaluate_query_local(
+            stage, inputs, lowered, report_domain, sample_domains, observe_local
         )
-        if observe_local is not None:
-            observe_local(stage, output)
-        return output
 
     def dependent(stage: SourceReadStage, inputs: tuple[StageOutput, ...]) -> StageOutput:
-        if isinstance(stage.program, AttributeCoalitionRead):
-            assert native_prepared is not None
-            output = run_native_game(
-                stage, inputs, native_prepared[stage.stage_id], native_cache, observe_read
-            )
-            if observe_frame is not None:
-                observe_frame(stage, output)
-            return output
-        selected = prepared if prepared_by_stage is None else prepared_by_stage.get(stage.stage_id)
-        assert selected is not None
-        if isinstance(stage.program, (SampleWindowRead, ActualWindowRead)):
-            nested = (
-                prepare_sample_window_read(selected, stage, stage.program, inputs)
-                if isinstance(stage.program, SampleWindowRead)
-                else prepare_actual_window_read(selected, stage, stage.program, inputs)
-            )
-            if isinstance(nested, StageOutput):
-                return nested
-            output = execute_numeric_query(
-                nested.sources,
-                nested.lowered,
-                observe_read=observe_read,
-                report_domain=nested.report_domain,
-                sample_domains=nested.sample_domains,
-                frame_key_inputs=nested.frame_key_inputs,
-                checked_inputs=nested.checked_inputs,
-            )
-            return replace(output, receipts=(*nested.receipts, *output.receipts))
-        owner = selected.sources.get(stage.source_id, selected.source)
-        stage, request = _prepare_dependent_read(
-            stage, lowered.read(stage.stage_id), owner, inputs, parameter_relations
+        return _execute_dependent_query(
+            stage,
+            inputs,
+            prepared,
+            prepared_by_stage,
+            native_prepared,
+            native_cache,
+            lowered,
+            parameter_relations,
+            value_keys,
+            observe_read,
+            observe_frame,
         )
-        output = source_reads.read_stage(
-            selected, stage, request, value_keys=value_keys.get(stage.stage_id, ())
-        )
-        if observe_read is not None:
-            observe_read(stage, request, output)
-        return output
 
     def fixed(stage: FrameInput) -> StageOutput:
-        if read_fixed is None:
-            reject(
-                "an available complete fixed-input reader",
-                stage.input_id,
-                "Bind memory data or the qualified stored reader.",
-                "frame.input",
-            )
-        data = read_fixed(stage)
-        if data.schema != stage.schema:
-            reject(
-                "the exact fixed input schema",
-                repr(data.schema),
-                "Use this input's complete descriptor.",
-                "frame.input",
-            )
-        return StageOutput.from_completed(data)
+        return _evaluate_fixed_query_input(stage, read_fixed)
 
     def frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
         steps = (
@@ -285,23 +359,9 @@ def execute_numeric_query(
         return inputs[0]
 
     def finish(stage: QueryStage, output: StageOutput) -> StageOutput:
-        if source_outputs is not None and stage.stage_id in source_outputs:
-            if adapt_source is None:
-                reject(
-                    "a complete source-to-data boundary adapter",
-                    stage.stage_id,
-                    "Freeze the explicit source output.",
-                    "frame.source",
-                )
-            if output.frame_schema is None:
-                output = adapt_source(source_outputs[stage.stage_id], output)
-        output = transport(stage.stage_id, output)
-        if retain_inputs is not None:
-            if isinstance(stage, FrameInput):
-                retain_inputs[stage.input_id] = output
-            if source_outputs is not None and stage.stage_id in source_outputs:
-                retain_inputs[source_outputs[stage.stage_id]] = output
-        return output
+        return _finish_query_output(
+            stage, output, source_outputs, adapt_source, transport, retain_inputs
+        )
 
     result = graph_execution.run_query_plan(
         lowered.plan,

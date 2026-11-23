@@ -21,7 +21,7 @@ import marivo.semantic as ms
 from marivo._definition.expressions import SourceAggregate
 from marivo._definition.query import FilterValues, LiteralValues
 from marivo._definition.types import AxisBinding
-from marivo._kernel.temporal import TimeScope, _time_scope_from_contract_data
+from marivo._kernel.temporal import TimeScope, _time_scope_from_contract_data, time_scope_contract
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler import optimization
 from marivo.analysis.compiler.attribute_frequencies import frequency_read
@@ -1289,7 +1289,7 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     assert type(scope) is TimeScope
     axis = scope.by(mv.grain("day"))
     assert scope.by(mv.grain("month")).scope is scope
-    restored = _time_scope_from_contract_data(scope._contract().model_dump(mode="json"))
+    restored = _time_scope_from_contract_data(time_scope_contract(scope).model_dump(mode="json"))
     assert isinstance(restored, TimeScope)
     assert restored.start == scope.start and restored.end == scope.end
     assert restored.boundary_timezone == scope.boundary_timezone
@@ -1601,7 +1601,7 @@ def test_grouped_common_completion_preserves_joint_rows_without_merge(
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     query = session.observe({"sum": amount.sum(), "count": amount.count()}, by=(region,))
-    complete = execution._complete_common_read
+    complete = execution.complete_common_read
     observed: list[int] = []
     sort_values = pd.DataFrame.sort_values
 
@@ -1622,7 +1622,7 @@ def test_grouped_common_completion_preserves_joint_rows_without_merge(
         observed.append(sort.call_count)
         return result
 
-    monkeypatch.setattr(execution, "_complete_common_read", complete_joint)
+    monkeypatch.setattr(execution, "complete_common_read", complete_joint)
     result, _, _, _ = _execute(session, query, optimized=True)
     assert observed == [1]
     assert result.table["value.0"].iloc[:2].tolist() == [40, 20]

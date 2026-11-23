@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from importlib import util as importlib_util
 from pathlib import Path
 
+from typing_extensions import override
+
 from marivo._definition.graph import fingerprint
 from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult
 from marivo.ontology._authoring import _CONTEXT, _OntologyAuthoringContext, _repair
@@ -121,6 +123,7 @@ class OntologyCatalog(RenderableResult):
         """Return the number of validated authored edges."""
         return len(self._edges)
 
+    @override
     def _repr_identity(self) -> str:
         return (
             "OntologyCatalog "
@@ -128,6 +131,7 @@ class OntologyCatalog(RenderableResult):
             f"fingerprint={self.definition_fingerprint[:12]} edges={len(self._edges)}"
         )
 
+    @override
     def _card(self) -> Card:
         card = (
             Card(
@@ -154,6 +158,7 @@ class OntologyCatalog(RenderableResult):
             card = card.field("edges_omitted", str(omitted))
         return card
 
+    @override
     def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         """Render configuration and at most the first eight edges by name.
 
@@ -162,6 +167,7 @@ class OntologyCatalog(RenderableResult):
         """
         return self._card().render(max_output_bytes=max_output_bytes)
 
+    @override
     def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
         """Print the same bounded configuration and edge summary as render()."""
         print(self.render(max_output_bytes=max_output_bytes))

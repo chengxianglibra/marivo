@@ -1029,7 +1029,7 @@ def terminal_runs(
     """Inspect internal publication records without a public history API."""
 
     store, session_id = _publication_store(owner)
-    with store._read() as conn:
+    with store.read_transaction() as conn:
         refs = conn.execute(
             "SELECT run_ref FROM analysis_action_runs WHERE session_ref=? ORDER BY admitted_at DESC,run_ref DESC",
             (session_id,),
@@ -1046,7 +1046,7 @@ def terminal_runs(
 def terminal_run(owner: Session | DatasetRuntime | LocalFrameServices, run_id: str) -> TerminalRun:
 
     store, session_id = _publication_store(owner)
-    with store._read() as conn:
+    with store.read_transaction() as conn:
         value = load_run(conn, run_id)
     assert value is not None and value.session_ref == session_id
     return value

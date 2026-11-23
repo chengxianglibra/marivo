@@ -17,6 +17,7 @@ from ibis.common.deferred import (
     Sequence,
     UnaryOperator,
 )
+from typing_extensions import override
 
 from marivo._definition.deferred_values import (
     DeclarationResolver,
@@ -41,6 +42,7 @@ from marivo._kernel.refs import ExactRef, SemanticKind
 from marivo._kernel.symbolic import SymbolResolver, native_symbol_ref
 from marivo._kernel.temporal import CalendarAxis, TimeScope
 from marivo._kernel.time_types import InstantAnchor
+from marivo._kernel.validation import is_instance
 
 PathValue: TypeAlias = Deferred | PathParameter
 AxisValue: TypeAlias = Deferred | Grouping
@@ -101,17 +103,20 @@ Parameter: TypeAlias = (
 ParameterRole: TypeAlias = Literal["population", "grouping", "axes", "predicate", "metric", "path"]
 
 
+def _parameter_role(value: Parameter) -> ParameterRole:
+    if isinstance(value, PathRecipe):
+        return "path"
+    if isinstance(value, (IdentityParameter, MembershipParameter)):
+        return "grouping"
+    if isinstance(value, ContainsParameter):
+        return "predicate"
+    return "population"
+
+
 def parameter_role(recipe: Resolver) -> ParameterRole | None:
     """Identify finite helper results without treating count as a Population."""
     if isinstance(recipe, ParameterResolver):
-        value = recipe.parameter
-        if isinstance(value, PathRecipe):
-            return "path"
-        if isinstance(value, (IdentityParameter, MembershipParameter)):
-            return "grouping"
-        if isinstance(value, ContainsParameter):
-            return "predicate"
-        return "population"
+        return _parameter_role(recipe.parameter)
     if isinstance(recipe, PopulationCountResolver):
         return "metric"
     if isinstance(recipe, PopulationContainsResolver):
@@ -184,6 +189,10 @@ def validate_parameter_call(recipe: Resolver, path: tuple[str, ...] = ()) -> Non
         if name != "axes":
             invalid("Population parameters expose only axes as an attribute", path=path)
         return
+    _validate_population_method(recipe, name, path)
+
+
+def _validate_population_method(recipe: Call, name: str, path: tuple[str, ...]) -> None:
     required = {
         "project": {"by"},
         "classify": {"by"},
@@ -293,6 +302,7 @@ class ParameterResolver(_FrozenResolver):
     def __init__(self, parameter: Parameter) -> None:
         super().__init__(parameter=parameter)
 
+    @override
     def resolve(self, context: dict[str, object]) -> NoReturn:
         invalid("Symbolic grouping and Population parameters require loader binding.")
 
@@ -343,7 +353,15 @@ def validate_parameter(
             invalid("membership via requires Paths constructed with mv.path(...)", path=path)
         for index, item in enumerate(value.fields):
             _validate_field_recipe(resolver_of(item), (*path, "field", str(index)), grouping=False)
-    elif isinstance(value, CoordinatesParameter):
+    else:
+        _validate_population_parameter(value, path)
+    return parameter_inputs(recipe)
+
+
+def _validate_population_parameter(
+    value: CoordinatesParameter | ProductParameter | ContainsParameter, path: tuple[str, ...]
+) -> None:
+    if isinstance(value, CoordinatesParameter):
         for index, coordinate in enumerate(value.by):
             if isinstance(coordinate, Deferred):
                 _validate_field_recipe(
@@ -366,8 +384,7 @@ def validate_parameter(
                     path=(*path, "factor", str(index)),
                 )
     elif (
-        isinstance(value, ContainsParameter)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        is_instance(value, ContainsParameter)
         and parameter_role(resolver_of(value.population)) != "population"
     ):
         invalid("in_population requires a Population parameter", path=path)
-    return parameter_inputs(recipe)

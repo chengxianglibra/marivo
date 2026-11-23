@@ -6,6 +6,8 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from typing_extensions import override
+
 from marivo._authoring.model import AuthoringRepair
 from marivo._authoring.render import _repair_summary
 from marivo._kernel.refs import (
@@ -95,12 +97,14 @@ class ValidationCheckResult(RenderableResult):
     def scopes(self) -> tuple[tuple[EntitySymbol, AuthoringScope], ...]:
         return tuple((symbol_factory.entity(ref.path), scope) for ref, scope in self._scopes)
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"ValidationCheckResult kind={self.kind} status={self.status} "
             f"targets={len(self._target_refs)}"
         )
 
+    @override
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
@@ -165,15 +169,19 @@ class ValidationReport(RenderableResult):
 
     @property
     def _affected_refs(self) -> tuple[Ref[SemanticKindTag], ...]:
-        return tuple(dict.fromkeys(ref for check in self.checks for ref in check._affected_refs))
+        return tuple(
+            dict.fromkeys(ref for check in self.checks for ref in check_affected_refs(check))
+        )
 
     @property
     def affected_refs(self) -> tuple[LookupSymbol, ...]:
         return tuple(symbol_from_ref(ref) for ref in self._affected_refs)
 
+    @override
     def _repr_identity(self) -> str:
         return f"ValidationReport status={self.status} checks={len(self.checks)}"
 
+    @override
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
@@ -185,7 +193,7 @@ class ValidationReport(RenderableResult):
                 "non-successful checks",
                 (
                     f"{check.kind}: {check.status}; affected refs: "
-                    f"{', '.join(ref.key for ref in check._affected_refs) or 'none'}"
+                    f"{', '.join(ref.key for ref in check_affected_refs(check)) or 'none'}"
                     + (f" -> {_repair_summary(check.repair)}" if check.repair is not None else "")
                     for check in failures
                 ),
@@ -197,7 +205,7 @@ class ValidationReport(RenderableResult):
                     check.kind,
                     check.status,
                     "yes" if check.user_data_queried else "no",
-                    str(len(check._affected_refs)),
+                    str(len(check_affected_refs(check))),
                 )
                 for check in self.checks
             ),
@@ -216,3 +224,7 @@ class ValidationReport(RenderableResult):
             "checked_at": self.checked_at,
             "catalog_definition_fingerprint": self.catalog_definition_fingerprint,
         }
+
+
+def check_affected_refs(check: ValidationCheckResult) -> tuple[Ref[SemanticKindTag], ...]:
+    return check._affected_refs  # noqa: SLF001 - Report aggregation uses exact captured identities.

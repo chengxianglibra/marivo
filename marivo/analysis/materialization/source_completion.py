@@ -67,7 +67,7 @@ from marivo.semantic.spi import (
 )
 
 
-def _capture_attribute_state(
+def capture_attribute_state(
     stage: SourceReadStage, raw: pd.DataFrame, output: StageOutput, provider: str
 ) -> StageOutput:
     if not stage.attribute_state and not stage.attribute_native:
@@ -170,7 +170,7 @@ def complete_attribute_frequencies(
     reduction = stage.program.reduction
     assert isinstance(reduction.node, SourceAggregate)
     assert stage.program.input_type is not None
-    _validate_source_checks(stage, frame, numeric_checks)
+    validate_source_checks(stage, frame, numeric_checks)
     members = stage.program.members or (stage,)
     reductions = tuple(require_reduction(member) for member in members)
     output_types = {c.slot_id: c.dtype for c in stage.columns}
@@ -246,7 +246,7 @@ def complete_attribute_frequencies(
                 ),
                 index=scalar_frame.index,
             )
-    output = _complete_source_frame(
+    output = complete_source_frame(
         replace(stage, program=ReductionRead(reduction)), scalar_frame, numeric_checks
     )
     captured_groups = tuple(groups)
@@ -275,7 +275,7 @@ def complete_attribute_frequencies(
     return replace(output, attribute_frequencies=tuple(captures), source_rows=len(frame))
 
 
-def _validate_source_checks(
+def validate_source_checks(
     stage: SourceReadStage,
     frame: pd.DataFrame,
     numeric_checks: tuple[tuple[str, NumericCheck], ...],
@@ -428,7 +428,7 @@ def _attribute_source_check_failure(
         raise
 
 
-def _complete_source_frame(
+def complete_source_frame(
     stage: SourceReadStage,
     frame: pd.DataFrame,
     numeric_checks: tuple[tuple[str, NumericCheck], ...],
@@ -442,7 +442,7 @@ def _complete_source_frame(
     if read_components(stage) is not None:
         frame, component = complete_components(require_components(stage), frame)
         components = (component,)
-    _validate_source_checks(stage, frame, numeric_checks)
+    validate_source_checks(stage, frame, numeric_checks)
     retained_checks = {column.slot_id for column in stage.columns}
     if "__numeric_present" in frame.columns and "__numeric_present" not in retained_checks:
         frame = frame.loc[frame["__numeric_present"].astype("boolean").fillna(False)]
@@ -509,7 +509,7 @@ def _complete_source_frame(
     return completed
 
 
-def _complete_common_read(
+def complete_common_read(
     stage: SourceReadStage,
     frame: pd.DataFrame,
     numeric_checks: tuple[tuple[str, NumericCheck], ...],
@@ -565,7 +565,7 @@ def _complete_common_read(
             for name, check in numeric_checks
             if name.endswith(suffix)
         )
-        output = _complete_source_frame(member, local, checks, ordered=not same_rows)
+        output = complete_source_frame(member, local, checks, ordered=not same_rows)
         components.extend(output.components)
         tables.append(
             output.table.rename(

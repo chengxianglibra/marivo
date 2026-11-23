@@ -134,19 +134,8 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
             return _edges(*(("operand", item) for item in node.inputs))
         case MetricExpression():
             return _edges(*(("operand", item) for item in node.operands))
-        case (
-            RowField()
-            | EntityCount()
-            | DeclaredMetricRef()
-            | LiteralPopulation()
-            | CalendarKeys()
-            | IntervalKeys()
-            | FrameKeys()
-            | AttributeKeys()
-        ):
+        case RowField() | EntityCount() | DeclaredMetricRef():
             return ()
-        case SourceIdentities():
-            return _edges(*_predicate_inputs(node.predicate))
         case MeasureAssertion() | SourceAggregate() | MetricWindow():
             return _edges(("operand", node.operand))
         case SourceWeightedMean():
@@ -163,26 +152,10 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
             )
         case MemberCount():
             return _edges(("population", node.population))
-        case PopulationProgram():
-            return _edges(("population", node.root))
         case ReadQuery():
             return _edges(("population", node.population))
         case ResultQuery():
             return ()
-        case PopulationClassify() | PopulationProject():
-            return _edges(("population", node.operand))
-        case PopulationProduct():
-            return _edges(*(("population", factor) for factor in node.factors))
-        case PopulationSet():
-            return _edges(("left", node.left), ("right", node.right))
-        case PopulationContains():
-            return _edges(("population", node.population))
-        case PopulationFilter():
-            return _edges(("population", node.operand), *_predicate_inputs(node.predicate))
-        case PopulationImage():
-            return _edges(("population", node.operand))
-        case PopulationPreimage():
-            return _edges(("population", node.operand), ("members", node.targets))
         case ObserveQuery():
             return (
                 *tuple(
@@ -198,6 +171,34 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
                     for index, population in enumerate(node.count_populations)
                 ),
             )
+        case _:
+            return _population_children(node)
+
+
+def _population_children(
+    node: LiteralPopulation | PopulationProgram | PopulationNode | PopulationContains,
+) -> tuple[Edge, ...]:
+    match node:
+        case LiteralPopulation() | CalendarKeys() | IntervalKeys() | FrameKeys() | AttributeKeys():
+            return ()
+        case SourceIdentities():
+            return _edges(*_predicate_inputs(node.predicate))
+        case PopulationProgram():
+            return _edges(("population", node.root))
+        case PopulationClassify() | PopulationProject():
+            return _edges(("population", node.operand))
+        case PopulationProduct():
+            return _edges(*(("population", factor) for factor in node.factors))
+        case PopulationSet():
+            return _edges(("left", node.left), ("right", node.right))
+        case PopulationContains():
+            return _edges(("population", node.population))
+        case PopulationFilter():
+            return _edges(("population", node.operand), *_predicate_inputs(node.predicate))
+        case PopulationImage():
+            return _edges(("population", node.operand))
+        case PopulationPreimage():
+            return _edges(("population", node.operand), ("members", node.targets))
         case _:
             assert_never(node)
 

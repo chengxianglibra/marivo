@@ -42,6 +42,11 @@ from marivo.semantic.ir import (
     ParquetSourceIR,
     TableSourceIR,
 )
+from marivo.semantic.project_view import (
+    project_compiled_state,
+    project_expression_sidecar,
+    project_registry,
+)
 from marivo.semantic.runtime_check.physical_contracts import validate_bound_field
 from marivo.semantic.static_check.projected_schema import _expression_entity_output_schema_errors
 from marivo.semantic.static_check.registry import Registry
@@ -155,8 +160,8 @@ class Materializer:
                 "Cannot materialize: project is not loaded.",
                 cls=SemanticRuntimeError,
             )
-        registry = self._project._registry
-        sidecar = self._project._expression_sidecar
+        registry = project_registry(self._project)
+        sidecar = project_expression_sidecar(self._project)
 
         if registry is None or sidecar is None:
             _raise(
@@ -185,7 +190,7 @@ class Materializer:
                 refs=(owning_ref.key,),
             )
         assert self._project is not None
-        compiled_state = self._project._compiled_state
+        compiled_state = project_compiled_state(self._project)
         if compiled_state is None:
             raise RuntimeError("semantic project has no immutable compiled state")
         result = evaluate_expression_body(
@@ -300,7 +305,7 @@ class Materializer:
     ) -> ibis.Table:
         registry, sidecar = self._get_registry_and_sidecar()
         assert self._project is not None
-        compiled_state = self._project._compiled_state
+        compiled_state = project_compiled_state(self._project)
         if compiled_state is None:
             raise RuntimeError("semantic project has no immutable compiled state")
         return materialize_entity_output(
@@ -312,7 +317,7 @@ class Materializer:
         )
 
     @staticmethod
-    def _require_output_keys(
+    def require_output_keys(
         *,
         semantic_id: str,
         ds_ir: EntityIR,
@@ -356,7 +361,7 @@ class Materializer:
         )
 
     @staticmethod
-    def _require_single_source_boundary(
+    def require_single_source_boundary(
         *,
         semantic_id: str,
         source_table: ibis.Table,
@@ -514,7 +519,7 @@ class Materializer:
             detected_at=datetime.now(tz=UTC),
         )
         assert self._project is not None
-        self._project._runtime_metadata[semantic_id] = meta
+        _record_runtime_metadata(self._project, semantic_id, meta)
 
     def dimension(self, semantic_id: str) -> ir.Value:
         """Materialize a dimension, returning an ibis Value expression."""
@@ -635,10 +640,10 @@ def materialize_entity_output(
     )
     if not isinstance(result, ibis.Table):
         raise TypeError("Entity expression must return an Ibis Table")
-    Materializer._require_single_source_boundary(
+    Materializer.require_single_source_boundary(
         semantic_id=entity.semantic_id, source_table=source_table, result=result
     )
-    Materializer._require_output_keys(semantic_id=entity.semantic_id, ds_ir=entity, result=result)
+    Materializer.require_output_keys(semantic_id=entity.semantic_id, ds_ir=entity, result=result)
 
     errors = _expression_entity_output_schema_errors(
         registry=registry,
@@ -663,3 +668,9 @@ class MaterializerProject(Protocol):
 
     @property
     def _runtime_metadata(self) -> dict[str, EntityRuntimeMetadata]: ...
+
+
+def _record_runtime_metadata(
+    project: MaterializerProject, semantic_id: str, metadata: EntityRuntimeMetadata
+) -> None:
+    project._runtime_metadata[semantic_id] = metadata  # noqa: SLF001 - Materializer owns captured runtime facts.

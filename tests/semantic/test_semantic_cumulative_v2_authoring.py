@@ -149,7 +149,7 @@ def test_validator_accepts_complete_derived_formula_for_all_window_rules() -> No
             assert isinstance(node.operand, DeclaredMetricRef)
             assert node.operand.ref.ref.path == "test.aov"
             assert (
-                dict(facts._declared)[node.operand.ref]
+                dict(facts.declared)[node.operand.ref]
                 == consume_metric(result.registry.declared_metrics["test.aov"]).node
             )
 

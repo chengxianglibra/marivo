@@ -6,6 +6,7 @@ from hashlib import sha256
 
 import pandas as pd
 
+from marivo._kernel.validation import is_instance
 from marivo.analysis.core.attachments import OutputAttachment
 from marivo.analysis.core.frame_method_facts import (
     FrameMethodCoordinate,
@@ -82,7 +83,7 @@ def decode_method_payload(saved: SavedFrameMethodFacts, rows: pd.DataFrame) -> F
     """Decode checked physical rows and validate their entire closed logical value."""
     if (
         type(saved) is not SavedFrameMethodFacts
-        or not isinstance(rows, pd.DataFrame)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        or not is_instance(rows, pd.DataFrame)
         or tuple(rows.columns) != ("entry", "kind", "record")
         or len(rows) != saved.parent_count + saved.coordinate_count
     ):

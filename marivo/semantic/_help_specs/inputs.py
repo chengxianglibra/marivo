@@ -246,6 +246,31 @@ _EXTRAS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _source_check_requirement(
+    requirement: AuthoringInputRequirement, fact: tuple[str, tuple[LiveHelpTarget, ...]] | None
+) -> tuple[str, tuple[LiveHelpTarget, ...]] | None:
+    if requirement.role == "subject":
+        fact = (
+            "Pass native loaded fields/relationships or explicit ms.ref declaration selectors; anonymous and routed expressions are not accepted.",
+            _links("ref", "SemanticCatalog.get"),
+        )
+    elif requirement.parameter_names == ("side",):
+        fact = (
+            "'from' checks source keys for target matches; 'both' also checks target keys for source matches. Both use only the selected bounded scopes.",
+            (),
+        )
+    elif requirement.parameter_names == ("expected",):
+        fact = (
+            "Choose 'one_to_one', 'many_to_one', 'one_to_many' or 'many_to_many' in the declared from_entity -> to_entity direction.",
+            (),
+        )
+    elif requirement.parameter_names == ("values",):
+        fact = ("Pass a nonempty sequence of unique str, int, float or bool values.", ())
+    elif requirement.parameter_names == ("max_age",):
+        fact = ("Pass a strictly positive datetime.timedelta.", ())
+    return fact
+
+
 def authoring_inputs(
     canonical_id: str, inputs: tuple[AuthoringInputRequirement, ...]
 ) -> tuple[AuthoringInputRequirement, ...]:
@@ -278,25 +303,7 @@ def authoring_inputs(
                 _links("datasource.unpruned", "datasource.time_range", "datasource.partition"),
             )
         if canonical_id.startswith("source_check."):
-            if requirement.role == "subject":
-                fact = (
-                    "Pass native loaded fields/relationships or explicit ms.ref declaration selectors; anonymous and routed expressions are not accepted.",
-                    _links("ref", "SemanticCatalog.get"),
-                )
-            elif requirement.parameter_names == ("side",):
-                fact = (
-                    "'from' checks source keys for target matches; 'both' also checks target keys for source matches. Both use only the selected bounded scopes.",
-                    (),
-                )
-            elif requirement.parameter_names == ("expected",):
-                fact = (
-                    "Choose 'one_to_one', 'many_to_one', 'one_to_many' or 'many_to_many' in the declared from_entity -> to_entity direction.",
-                    (),
-                )
-            elif requirement.parameter_names == ("values",):
-                fact = ("Pass a nonempty sequence of unique str, int, float or bool values.", ())
-            elif requirement.parameter_names == ("max_age",):
-                fact = ("Pass a strictly positive datetime.timedelta.", ())
+            fact = _source_check_requirement(requirement, fact)
         if fact is not None:
             requirement = requirement.model_copy(
                 update={"description": fact[0], "acquisition": fact[1]}

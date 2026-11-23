@@ -25,7 +25,7 @@ from marivo.analysis.model.lineage import validate
 
 
 def admit(store: SessionStore, session: str, ref: str, result_id: str) -> None:
-    with store._write() as conn:
+    with store.write_transaction() as conn:
         if (
             _one(
                 conn,
@@ -85,7 +85,7 @@ def manifest(store: SessionStore, conn: sqlite3.Connection, ref: str) -> Artifac
             raise invalid("terminal receipt requires its immutable payload digest")
         if any(
             owns_resource(handle.receipt, resource)
-            for resource in store._resources(conn, value.session_id)
+            for resource in store.resources_in_transaction(conn, value.session_id)
         ):
             raise invalid("committed terminal output retains a cleanup obligation")
     return value
@@ -124,7 +124,7 @@ def publish(
     payload = encode(value)
     decode(payload, ArtifactManifest)
     validate_result_metadata(value.data.schema, metadata)
-    with store._write() as conn:
+    with store.write_transaction() as conn:
         producer = load_run(conn, value.run_id)
         if (
             producer is None
@@ -148,7 +148,7 @@ def publish(
             "UPDATE sessions SET updated_at=? WHERE session_ref=?", (now, value.session_id)
         )
         event("insert_terminal")
-        store._delete_resources(conn, value.run_id, resources)
+        store.delete_resources_in_transaction(conn, value.run_id, resources)
         if (
             _one(conn, "SELECT 1 FROM action_resource_journal WHERE run_ref=?", (value.run_id,))
             is not None

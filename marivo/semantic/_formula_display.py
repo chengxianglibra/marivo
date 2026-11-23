@@ -297,6 +297,24 @@ class FormulaDisplay:
             arguments.append("non_additive()")
         return f"assert_measure({', '.join(arguments)})"
 
+    def _source_formula(self, node: SourceAggregate | EntityCount | SourceWeightedMean) -> str:
+        if isinstance(node, SourceAggregate):
+            arguments = (
+                *((f"q={node.q}",) if node.q is not None else ()),
+                self._time(node.time),
+                *_null_argument(node.nulls),
+            )
+            return f"{self.formula(node.operand)}.{node.reducer}({', '.join(arguments)})"
+        if isinstance(node, EntityCount):
+            return f"{self._name(node.entity)}.count({self._time(node.time)})"
+        else:
+            arguments = (
+                f"weight={self.formula(node.weight)}",
+                self._time(node.time),
+                *_null_argument(node.nulls),
+            )
+            return f"{self.formula(node.value)}.weighted_mean({', '.join(arguments)})"
+
     def formula(self, node: RowNode | MetricNode | PredicateExpression) -> str:
         """Render captured operators and semantic arguments as display notation."""
         if isinstance(node, RowField):
@@ -322,22 +340,8 @@ class FormulaDisplay:
             )
         if isinstance(node, DeclaredMetricRef):
             return self._name(node.ref)
-        if isinstance(node, SourceAggregate):
-            arguments = (
-                *((f"q={node.q}",) if node.q is not None else ()),
-                self._time(node.time),
-                *_null_argument(node.nulls),
-            )
-            return f"{self.formula(node.operand)}.{node.reducer}({', '.join(arguments)})"
-        if isinstance(node, EntityCount):
-            return f"{self._name(node.entity)}.count({self._time(node.time)})"
-        if isinstance(node, SourceWeightedMean):
-            arguments = (
-                f"weight={self.formula(node.weight)}",
-                self._time(node.time),
-                *_null_argument(node.nulls),
-            )
-            return f"{self.formula(node.value)}.weighted_mean({', '.join(arguments)})"
+        if isinstance(node, (SourceAggregate, EntityCount, SourceWeightedMean)):
+            return self._source_formula(node)
         if isinstance(node, ContributionFilter):
             return f"{self.formula(node.operand)}.where({self.formula(node.predicate)})"
         if isinstance(node, PerReduce):

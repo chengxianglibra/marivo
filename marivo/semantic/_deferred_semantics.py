@@ -52,6 +52,7 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.graph import DefinitionNode, children, walk
 from marivo._definition.population_builders import validate_path_read
+from marivo._definition.population_types import population_definition
 from marivo._definition.relations import (
     PopulationContains,
 )
@@ -66,6 +67,7 @@ from marivo._definition.types import (
     SumNone,
 )
 from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
+from marivo._kernel.paths import relationship_default_time
 from marivo._kernel.refs import SemanticKind
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.temporal import InstantAnchor
@@ -251,10 +253,8 @@ def _consume_window(recipe: Call, receiver: _Facts) -> MetricFacts:
             expected="Metric.window(mv.all_history() or another window rule)",
             received="invalid receiver or rule",
         )
-    assert isinstance(receiver, MetricFacts) and isinstance(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        rule, (AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods)
-    )
-    definitions = dict(receiver._declared)
+    assert isinstance(rule, (AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods))
+    definitions = dict(receiver.declared)
     walk((receiver.node,), resolve=definitions.get)
     pending: list[DefinitionNode] = [receiver.node]
     seen: set[int] = set()
@@ -297,7 +297,7 @@ def _consume_at(recipe: Call, receiver: _Facts) -> RowFacts:
                 else "a computed expression without a native field identity",
                 action="Declare the derived time as a fact-root TimeDimension, without via/at, or use session.instant(...) for a fixed attribute time.",
             )
-        assert isinstance(control, RowFacts) and control.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        assert control.field is not None
         anchor = RowAttributeTime(control.field.reference, control.field.root)
     if (
         not isinstance(receiver, RowFacts)
@@ -316,11 +316,7 @@ def _consume_at(recipe: Call, receiver: _Facts) -> RowFacts:
             expected="Dimension.at(session.instant(...)) or Dimension.at(fact_time)",
             received="invalid field or anchor",
         )
-    assert (
-        isinstance(receiver, RowFacts)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        and receiver.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        and isinstance(anchor, (InstantAnchor, RowAttributeTime))
-    )
+    assert isinstance(anchor, (InstantAnchor, RowAttributeTime))
     native = receiver.field.field_read or FieldRead(
         receiver.field.reference,
         receiver.field.root,
@@ -365,7 +361,7 @@ def _consume_via(recipe: Call, receiver: _Facts) -> RowFacts:
             expected="Field.via(mv.path(relationship, ...))",
             received="invalid receiver or arguments",
         )
-    assert isinstance(receiver, RowFacts) and receiver.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    assert receiver.field is not None
     if receiver.field.field_read is not None and receiver.field.field_read.path:
         _fail(
             "via is already bound on this field.",
@@ -428,7 +424,7 @@ def _consume_via(recipe: Call, receiver: _Facts) -> RowFacts:
         receiver,
         root=path.source,
         field=field,
-        default_time=relationships[0]._from_default_time,
+        default_time=relationship_default_time(relationships[0]),
         node=RowField(
             field.reference,
             field.root,
@@ -480,7 +476,7 @@ def _consume_where(recipe: Call, receiver: _Facts) -> MetricFacts:
         )
     assert isinstance(receiver, MetricFacts)
     source = receiver.node
-    declared = dict(receiver._declared)
+    declared = dict(receiver.declared)
     while isinstance(source, (DeclaredMetricRef, ContributionFilter)):
         source = declared[source.ref] if isinstance(source, DeclaredMetricRef) else source.operand
     if not isinstance(source, (SourceAggregate, SourceWeightedMean, EntityCount)):
@@ -539,42 +535,97 @@ def _consume_method(recipe: Call, method: Attr) -> _Facts:
     )
 
 
+def _consume_rescale(recipe: RescaleResolver) -> RowFacts | MetricFacts:
+    value = _consume(recipe.recipe)
+    if (
+        not isinstance(value, (RowFacts, MetricFacts))
+        or value.boolean
+        or (isinstance(value, RowFacts) and not value.numeric)
+    ):
+        _fail(
+            "rescale requires a numeric Row or completed Metric expression.",
+            expected="a numeric Row or Metric expression",
+            received=type(value).__name__,
+            help_target="rescale",
+            action="Pass a Measure expression or a completed numeric reduction to ms.rescale.",
+        )
+    if value.unit is None:
+        _fail(
+            "rescale requires a known input unit after binding.",
+            kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+            expected="an expression with a known unit",
+            received="unknown input unit",
+            help_target="rescale",
+            action="Declare the source quantity's unit before applying ms.rescale.",
+        )
+    scaled = _compose(
+        recipe,
+        (value, _Scalar(Just(recipe.divisor), recipe.divisor)),
+        lambda parts: RescaleResolver(parts[0], recipe.divisor, recipe.unit),
+        _consume,
+        operation="truediv",
+    )
+    assert isinstance(scaled, (RowFacts, MetricFacts))
+    return replace(scaled, unit=recipe.unit)
+
+
+def _consume_declaration(recipe: DeclarationResolver) -> RowFacts | MetricFacts:
+    value = _consume(recipe.recipe)
+    declaration = recipe.declaration
+    if declaration.kind == "metric":
+        if not isinstance(value, MetricFacts):
+            _fail(
+                "Metric declaration must complete a reduction.",
+                expected="Metric",
+                received=type(value).__name__,
+            )
+        if declaration.reference is not None:
+            return replace(
+                value,
+                node=DeclaredMetricRef(declaration.reference),
+                declared=(*value.declared, (declaration.reference, value.node)),
+            )
+        return value
+    if not isinstance(value, RowFacts) or not value.numeric:
+        _fail(
+            "Measure declaration must return numeric rows.",
+            expected="numeric row",
+            received=type(value).__name__,
+        )
+    if declaration.reference is not None:
+        value = replace(
+            value,
+            node=replace(
+                value.node,
+                origins=tuple(dict.fromkeys((*value.node.origins, declaration.reference))),
+            ),
+        )
+    unit = value.unit if declaration.unit is None else declaration.unit
+    permission = value.permission if declaration.permission is None else declaration.permission
+    if unit == value.unit and permission == value.permission:
+        return value
+
+    identity = hashlib.sha256(str(canonical_recipe(recipe.recipe)).encode()).hexdigest()
+    authorization = Authorization(
+        ExactRef(
+            ref_factory.measure(f"{value.root.ref.path}.{declaration.name}"),
+            f"sha256:{identity}",
+        )
+    )
+    return replace(
+        value,
+        node=MeasureAssertion(value.node, declaration.unit, declaration.permission, authorization),
+        unit=unit,
+        permission=permission,
+        field=None,
+    )
+
+
 def _consume(recipe: Resolver) -> _Facts:
     if isinstance(recipe, NamedResolver):
         return _consume(recipe.recipe)
     if isinstance(recipe, RescaleResolver):
-        value = _consume(recipe.recipe)
-        if (
-            not isinstance(value, (RowFacts, MetricFacts))
-            or value.boolean
-            or (isinstance(value, RowFacts) and not value.numeric)
-        ):
-            _fail(
-                "rescale requires a numeric Row or completed Metric expression.",
-                expected="a numeric Row or Metric expression",
-                received=type(value).__name__,
-                help_target="rescale",
-                action="Pass a Measure expression or a completed numeric reduction to ms.rescale.",
-            )
-        assert isinstance(value, (RowFacts, MetricFacts))
-        if value.unit is None:
-            _fail(
-                "rescale requires a known input unit after binding.",
-                kind=ErrorKind.INVALID_EXPRESSION_VALUE,
-                expected="an expression with a known unit",
-                received="unknown input unit",
-                help_target="rescale",
-                action="Declare the source quantity's unit before applying ms.rescale.",
-            )
-        scaled = _compose(
-            recipe,
-            (value, _Scalar(Just(recipe.divisor), recipe.divisor)),
-            lambda parts: RescaleResolver(parts[0], recipe.divisor, recipe.unit),
-            _consume,
-            operation="truediv",
-        )
-        assert isinstance(scaled, (RowFacts, MetricFacts))
-        return replace(scaled, unit=recipe.unit)
+        return _consume_rescale(recipe)
     if isinstance(recipe, PopulationContainsResolver):
         _fail(
             "Membership leaves require an admitted source predicate position.",
@@ -584,7 +635,7 @@ def _consume(recipe: Resolver) -> _Facts:
             help_target="predicate",
         )
     if isinstance(recipe, PopulationCountResolver):
-        return MetricFacts(MemberCount(recipe.population._definition), (), "1")
+        return MetricFacts(MemberCount(population_definition(recipe.population)), (), "1")
     if isinstance(recipe, SemanticResolver):
         item = recipe.input
         if item.reference.ref.kind is SemanticKind.ENTITY:
@@ -610,59 +661,7 @@ def _consume(recipe: Resolver) -> _Facts:
             default_time=item.default_time,
         )
     if isinstance(recipe, DeclarationResolver):
-        value = _consume(recipe.recipe)
-        declaration = recipe.declaration
-        if declaration.kind == "metric":
-            if not isinstance(value, MetricFacts):
-                _fail(
-                    "Metric declaration must complete a reduction.",
-                    expected="Metric",
-                    received=type(value).__name__,
-                )
-            assert isinstance(value, MetricFacts)
-            if declaration.reference is not None:
-                return replace(
-                    value,
-                    node=DeclaredMetricRef(declaration.reference),
-                    _declared=(*value._declared, (declaration.reference, value.node)),
-                )
-            return value
-        if not isinstance(value, RowFacts) or not value.numeric:
-            _fail(
-                "Measure declaration must return numeric rows.",
-                expected="numeric row",
-                received=type(value).__name__,
-            )
-        assert isinstance(value, RowFacts)
-        if declaration.reference is not None:
-            value = replace(
-                value,
-                node=replace(
-                    value.node,
-                    origins=tuple(dict.fromkeys((*value.node.origins, declaration.reference))),
-                ),
-            )
-        unit = value.unit if declaration.unit is None else declaration.unit
-        permission = value.permission if declaration.permission is None else declaration.permission
-        if unit == value.unit and permission == value.permission:
-            return value
-
-        identity = hashlib.sha256(str(canonical_recipe(recipe.recipe)).encode()).hexdigest()
-        authorization = Authorization(
-            ExactRef(
-                ref_factory.measure(f"{value.root.ref.path}.{declaration.name}"),
-                f"sha256:{identity}",
-            )
-        )
-        return replace(
-            value,
-            node=MeasureAssertion(
-                value.node, declaration.unit, declaration.permission, authorization
-            ),
-            unit=unit,
-            permission=permission,
-            field=None,
-        )
+        return _consume_declaration(recipe)
     if isinstance(recipe, Just):
         return _Scalar(recipe, recipe.value)
     if isinstance(recipe, Sequence):
@@ -759,7 +758,7 @@ def validate_closed_time_operation(recipe: Resolver) -> None:
     elif name == "window" or calendar_per(recipe.func.obj):
         metric = _consume(recipe)
         assert isinstance(metric, MetricFacts)
-        validate_metric_time_consumers(metric.node, dict(metric._declared))
+        validate_metric_time_consumers(metric.node, dict(metric.declared))
 
 
 def consume_row(value: Deferred | RecipeInput) -> RowFacts:
@@ -784,7 +783,7 @@ def consume_metric(value: Deferred | RecipeInput, *, allow_boolean: bool = False
             received=type(result).__name__,
         )
     assert isinstance(result, MetricFacts)
-    validate_metric_time_consumers(result.node, dict(result._declared))
+    validate_metric_time_consumers(result.node, dict(result.declared))
     return result
 
 
@@ -813,7 +812,7 @@ def consume_field(value: Deferred | RecipeInput) -> SemanticInput:
             expected="a resolved field or valid via path",
             received=type(result).__name__,
         )
-    assert isinstance(result, RowFacts) and result.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    assert result.field is not None
     return result.field
 
 
@@ -859,7 +858,7 @@ def _consume_predicate_recipe(recipe: Resolver, *, coordinates: bool = False) ->
     def capture(item: Resolver) -> Resolver:
         if isinstance(item, PopulationContainsResolver):
             slot = Variable(f"slot_{len(inputs)}")
-            inputs.append(PopulationContains(item.population._definition))
+            inputs.append(PopulationContains(population_definition(item.population)))
             return slot
         if (
             coordinates

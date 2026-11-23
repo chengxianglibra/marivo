@@ -24,6 +24,7 @@ from marivo._kernel.refs import (
     SemanticKind,
 )
 from marivo._kernel.time_types import Grain, InstantAnchor, grain_token
+from marivo._kernel.validation import is_instance
 
 if TYPE_CHECKING:
     from marivo._kernel.temporal_grid import CivilBounds, TimeShiftEntry
@@ -416,5 +417,5 @@ def field_axis(read: FieldRead) -> AxisBinding:
 
 
 def check_identity_anchor(value: InstantAnchor | None) -> None:
-    if value is not None and (not isinstance(value, InstantAnchor) or value.utcoffset() is None):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if value is not None and (not is_instance(value, InstantAnchor) or value.utcoffset() is None):
         invalid("an identity version selection requires an exact InstantAnchor")

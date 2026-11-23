@@ -12,6 +12,8 @@ from decimal import Decimal
 from math import isfinite
 from typing import Literal, TypeAlias
 
+from typing_extensions import override
+
 from marivo.analysis.core.frame_level_facts import (
     FrameLevelAdditiveMethod,
     FrameLevelDivisionMethod,
@@ -35,6 +37,7 @@ from marivo.analysis.core.frame_shapley_facts import (
     FrameShapleyQueryGame,
     FrameShapleyReduction,
     state_metric_approximation,
+    validate_shapley_leaves,
 )
 from marivo.analysis.core.frozen_calendar import (
     FrozenAttachment,
@@ -72,6 +75,7 @@ from marivo.analysis.model.method_values import (
     _MethodScalar,
     _short,
     _text,
+    fact_lines,
 )
 
 _ExactMethod: TypeAlias = (
@@ -125,9 +129,11 @@ class FrameMethodSupport(_FactRecord):
                 ", ".join(_coefficient_text(count) for count in counts),
             )
 
+    @override
     def _summary(self) -> str:
         return f"kind=support, root={_short(self.root_id)!r}, policy={self.policy}"
 
+    @override
     def _lines(self) -> Iterator[str]:
         yield (
             f"left input/effective={_coefficient_text(self.left_input_count)}/{_coefficient_text(self.left_effective_count)}; "
@@ -170,71 +176,74 @@ def _exact_method(value: _ExactMethod) -> None:
         )
 
 
+def _method_values(method: _Method) -> Iterator[str]:
+    for value in (method.left, method.right, method.change):
+        yield repr(value.value)
+    if isinstance(method, FrameShapleyMethod):
+        for leaf in method.leaves:
+            if isinstance(leaf.reduction, (FrameShapleyQuantile, FrameShapleyNativeQuantile)):
+                yield repr(leaf.reduction.q)
+    if isinstance(method, FrameRatioMethod):
+        for value in (
+            method.numerator_left,
+            method.numerator_right,
+            method.denominator_left,
+            method.denominator_right,
+        ):
+            yield repr(value.value)
+    if isinstance(method, FrameDivisionMethod):
+        yield repr(method.divisor)
+        yield from _method_values(method.method)
+    if isinstance(method, FrameLinearMethod):
+        for term in method.terms:
+            yield repr(term.coefficient)
+            yield from _method_values(term.method)
+
+
+def _target_values(method: _Method | _LevelMethod) -> Iterator[str]:
+    if isinstance(
+        method,
+        (
+            FrameAdditiveMethod,
+            FrameRatioMethod,
+            FrameLinearMethod,
+            FrameDivisionMethod,
+            FrameShapleyMethod,
+        ),
+    ):
+        yield from _method_values(method)
+    else:
+        yield repr(method.value.value)
+        if isinstance(method, FrameLevelRatioMethod):
+            yield repr(method.numerator.value)
+            yield repr(method.denominator.value)
+        elif isinstance(method, FrameLevelDivisionMethod):
+            yield repr(method.divisor)
+            yield from _target_values(method.method)
+        elif isinstance(method, FrameLevelLinearMethod):
+            for term in method.terms:
+                yield repr(term.coefficient)
+                yield from _target_values(term.method)
+
+
+def _scalar_values(facts: FrameMethodFacts) -> Iterator[str]:
+    for parent in facts.parents:
+        for key in parent.key:
+            yield repr(key.value)
+        for metric in parent.metrics:
+            yield repr(metric.observed_total.value)
+            yield repr(metric.total.value)
+            yield from _target_values(metric.method)
+    for coordinate in facts.coordinates:
+        for row in coordinate.rows:
+            for value in row:
+                yield repr(value)
+
+
 def same_method_facts(left: FrameMethodFacts, right: FrameMethodFacts) -> bool:
     """Compare complete typed payloads, including preserved scalar representations."""
 
-    def method_values(method: _Method) -> Iterator[str]:
-        for value in (method.left, method.right, method.change):
-            yield repr(value.value)
-        if isinstance(method, FrameShapleyMethod):
-            for leaf in method.leaves:
-                if isinstance(leaf.reduction, (FrameShapleyQuantile, FrameShapleyNativeQuantile)):
-                    yield repr(leaf.reduction.q)
-        if isinstance(method, FrameRatioMethod):
-            for value in (
-                method.numerator_left,
-                method.numerator_right,
-                method.denominator_left,
-                method.denominator_right,
-            ):
-                yield repr(value.value)
-        if isinstance(method, FrameDivisionMethod):
-            yield repr(method.divisor)
-            yield from method_values(method.method)
-        if isinstance(method, FrameLinearMethod):
-            for term in method.terms:
-                yield repr(term.coefficient)
-                yield from method_values(term.method)
-
-    def target_values(method: _Method | _LevelMethod) -> Iterator[str]:
-        if isinstance(
-            method,
-            (
-                FrameAdditiveMethod,
-                FrameRatioMethod,
-                FrameLinearMethod,
-                FrameDivisionMethod,
-                FrameShapleyMethod,
-            ),
-        ):
-            yield from method_values(method)
-        else:
-            yield repr(method.value.value)
-            if isinstance(method, FrameLevelRatioMethod):
-                yield repr(method.numerator.value)
-                yield repr(method.denominator.value)
-            elif isinstance(method, FrameLevelDivisionMethod):
-                yield repr(method.divisor)
-                yield from target_values(method.method)
-            elif isinstance(method, FrameLevelLinearMethod):
-                for term in method.terms:
-                    yield repr(term.coefficient)
-                    yield from target_values(term.method)
-
-    def scalar_values(facts: FrameMethodFacts) -> Iterator[str]:
-        for parent in facts.parents:
-            for key in parent.key:
-                yield repr(key.value)
-            for metric in parent.metrics:
-                yield repr(metric.observed_total.value)
-                yield repr(metric.total.value)
-                yield from target_values(metric.method)
-        for coordinate in facts.coordinates:
-            for row in coordinate.rows:
-                for value in row:
-                    yield repr(value)
-
-    return left == right and tuple(scalar_values(left)) == tuple(scalar_values(right))
+    return left == right and tuple(_scalar_values(left)) == tuple(_scalar_values(right))
 
 
 def _method_lines(method: _Method) -> Iterator[str]:
@@ -272,14 +281,16 @@ class FrameAdditiveMethod(_FactRecord):
     support: tuple[FrameMethodSupport, ...]
 
     def __post_init__(self) -> None:
-        if self.kind != "additive" or type(self.kind) is not str:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if (type(self.kind), self.kind) != (str, "additive"):
             _fail("kind='additive'", repr(self.kind))
         _totals(self.left, self.right, self.change)
         _supports(self.support)
 
+    @override
     def _summary(self) -> str:
         return f"kind=additive, column={_short(self.left.column.name)!r}, roots={len(self.support)}"
 
+    @override
     def _lines(self) -> Iterator[str]:
         yield from _method_lines(self)
 
@@ -308,7 +319,7 @@ class FrameRatioMethod(_FactRecord):
     boundary_policy: Literal["zero_mass_entry_exit/v1"] = "zero_mass_entry_exit/v1"
 
     def __post_init__(self) -> None:
-        if self.kind != "ratio_component" or type(self.kind) is not str:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if (type(self.kind), self.kind) != (str, "ratio_component"):
             _fail("kind='ratio_component'", repr(self.kind))
         if (self.rule_version, self.component_policy, self.boundary_policy) != (
             "symmetric_rate_mix/v1",
@@ -332,9 +343,11 @@ class FrameRatioMethod(_FactRecord):
                 _fail("component units whose ratio matches the metric", self.left.column.name)
         _supports(self.support)
 
+    @override
     def _summary(self) -> str:
         return f"kind=ratio_component, column={_short(self.left.column.name)!r}, roots={len(self.support)}"
 
+    @override
     def _lines(self) -> Iterator[str]:
         yield f"rule={self.rule_version}; components={self.component_policy}; boundary={self.boundary_policy}"
         yield from _method_lines(self)
@@ -373,7 +386,7 @@ class FrameShapleyMethod(_FactRecord):
     captures: tuple[FrameShapleyCapture | FrameShapleyQuery, ...]
 
     def __post_init__(self) -> None:
-        if self.kind != "shapley" or self.algorithm_version != "permutation/v1":  # type: ignore[redundant-expr]  # Preserve the runtime check.
+        if (self.kind, self.algorithm_version) != ("shapley", "permutation/v1"):
             _fail("the versioned permutation sampling rule", repr(self.kind))
         _totals(self.left, self.right, self.change)
         if type(self.permutations) is not int or self.permutations < 2:
@@ -435,61 +448,17 @@ class FrameShapleyMethod(_FactRecord):
                 )
         elif self.state_route == "native_queries/v1":
             _fail("a typed captured-state route for the fixed-state game", self.state_route)
-        directory = {capture.capture_id: capture for capture in self.captures}
-        if len(directory) != len(self.captures) or len(
-            {leaf.occurrence for leaf in self.leaves}
-        ) != len(self.leaves):
-            _fail("unique capture identities and original leaf occurrences", self.left.column.name)
-        for leaf in self.leaves:
-            if (
-                not native
-                and isinstance(leaf.reduction, FrameShapleyReduction)
-                and leaf.reduction.reducer == "approx_nunique"
-            ):
-                _fail(
-                    "original approximate distinct through native queries without merged estimates",
-                    repr(leaf.occurrence),
-                )
-            if (native and isinstance(leaf.reduction, FrameShapleyQuantile)) or (
-                not native and isinstance(leaf.reduction, FrameShapleyNativeQuantile)
-            ):
-                _fail(
-                    "original quantile metadata matching the state or native query route",
-                    repr(leaf.occurrence),
-                )
-            for capture_ids, endpoint in (
-                (leaf.current_capture_ids, "current"),
-                (leaf.baseline_capture_ids, "baseline"),
-            ):
-                resolved = tuple(directory.get(capture_id) for capture_id in capture_ids)
-                for capture_id, capture in zip(capture_ids, resolved, strict=True):
-                    if capture is None or capture.endpoint not in (endpoint, "both"):
-                        _fail(
-                            "original leaves resolving to the correct fixed endpoint captures",
-                            capture_id,
-                        )
-                if (
-                    not native
-                    and (
-                        isinstance(leaf.reduction, FrameShapleyQuantile)
-                        or leaf.reduction.reducer == "count_distinct"
-                    )
-                    and not any(
-                        isinstance(capture, FrameShapleyCapture)
-                        and capture.state_route
-                        in ("typed_value_frequency/v1", "typed_sufficient_frequency/v1")
-                        for capture in resolved
-                    )
-                ):
-                    _fail(
-                        "an exact frequency input among the original leaf's captured components",
-                        repr(capture_ids),
-                    )
+        validate_shapley_leaves(
+            self.leaves, self.captures, native=native, column=self.left.column.name
+        )
         if self.captured_source_reads != sum(capture.source_reads for capture in self.captures):
             _fail(
                 "aggregate read costs counting each actual query or capture once",
                 self.left.column.name,
             )
+        self._validate_route_metrics(native)
+
+    def _validate_route_metrics(self, native: bool) -> None:
         if native:
             approximate = any(
                 (
@@ -530,18 +499,20 @@ class FrameShapleyMethod(_FactRecord):
             if self.state_route != expected_route:
                 _fail("the state route matching the actual captured inputs", self.state_route)
 
+    @override
     def _summary(self) -> str:
         return f"kind=shapley, column={_short(self.left.column.name)!r}, players={_coefficient_text(self.player_count)}, permutations={_coefficient_text(self.permutations)}"
 
+    @override
     def _lines(self) -> Iterator[str]:
         yield from _method_lines(self)
-        yield from self.game._lines()
+        yield from fact_lines(self.game)
         for leaf in self.leaves:
             yield repr(leaf)
-            yield from leaf._lines()
+            yield from fact_lines(leaf)
         for capture in self.captures:
             yield repr(capture)
-            yield from capture._lines()
+            yield from fact_lines(capture)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -572,11 +543,13 @@ class FrameDivisionMethod(_FactRecord):
         if self.operation == "rescale" and self.left.column.unit is None:
             _fail("an explicit rescale result unit", self.left.column.name)
 
+    @override
     def _summary(self) -> str:
         return (
             f"kind=division, column={_short(self.left.column.name)!r}, operation={self.operation}"
         )
 
+    @override
     def _lines(self) -> Iterator[str]:
         yield from _method_lines(self)
 
@@ -601,9 +574,11 @@ class FrameLinearTerm(_FactRecord):
             _fail("a finite non-bool original numeric coefficient", type(self.coefficient).__name__)
         _exact_method(self.method)
 
+    @override
     def _summary(self) -> str:
         return f"kind=linear_term, child={self.method.kind}, column={_short(self.method.left.column.name)!r}"
 
+    @override
     def _lines(self) -> Iterator[str]:
         yield f"coefficient={_coefficient_text(self.coefficient)}"
         yield from _method_lines(self.method)
@@ -624,7 +599,7 @@ class FrameLinearMethod(_FactRecord):
     terms: tuple[FrameLinearTerm, ...]
 
     def __post_init__(self) -> None:
-        if self.kind != "linear" or type(self.kind) is not str:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if (type(self.kind), self.kind) != (str, "linear"):
             _fail("kind='linear'", repr(self.kind))
         _totals(self.left, self.right, self.change)
         if (
@@ -636,11 +611,56 @@ class FrameLinearMethod(_FactRecord):
         if any(term.method.left.column.unit != self.left.column.unit for term in self.terms):
             _fail("term units matching the linear total", self.left.column.name)
 
+    @override
     def _summary(self) -> str:
         return f"kind=linear, column={_short(self.left.column.name)!r}, terms={len(self.terms)}"
 
+    @override
     def _lines(self) -> Iterator[str]:
         yield from _method_lines(self)
+
+
+def _method_supports(method: _Method | _LevelMethod) -> Iterator[tuple[str, str, str, int, int]]:
+    if isinstance(method, FrameShapleyMethod):
+        return
+    if isinstance(method, (FrameDivisionMethod, FrameLevelDivisionMethod)):
+        yield from _method_supports(method.method)
+    elif isinstance(method, (FrameLinearMethod, FrameLevelLinearMethod)):
+        for term in method.terms:
+            yield from _method_supports(term.method)
+    elif isinstance(method, (FrameLevelAdditiveMethod, FrameLevelRatioMethod)):
+        for item in method.support:
+            yield item.root_id, "level", item.policy, item.input_count, item.effective_count
+    else:
+        for paired_support in method.support:
+            yield (
+                paired_support.root_id,
+                "current",
+                paired_support.policy,
+                paired_support.left_input_count,
+                paired_support.left_effective_count,
+            )
+            yield (
+                paired_support.root_id,
+                "baseline",
+                paired_support.policy,
+                paired_support.right_input_count,
+                paired_support.right_effective_count,
+            )
+
+
+def _effect_roles(method: _Method | _LevelMethod) -> set[str]:
+    if isinstance(method, FrameRatioMethod):
+        return {"effect_within", "effect_mix", "effect_entry_exit"}
+    if isinstance(method, FrameDivisionMethod):
+        return _effect_roles(method.method)
+    if isinstance(method, FrameLinearMethod):
+        children = tuple(_effect_roles(term.method) for term in method.terms)
+        combined = set().union(*children)
+        if combined and any(not child for child in children):
+            combined.add("effect_additive")
+        return combined
+    return set()
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -705,35 +725,7 @@ class FrameAttributeMetric(_FactRecord):
             _fail("level, absolute or relative target", repr(self.kind))
         support_by_root: dict[tuple[str, str], tuple[str, int, int]] = {}
 
-        def supports(method: _Method | _LevelMethod) -> Iterator[tuple[str, str, str, int, int]]:
-            if isinstance(method, FrameShapleyMethod):
-                return
-            if isinstance(method, (FrameDivisionMethod, FrameLevelDivisionMethod)):
-                yield from supports(method.method)
-            elif isinstance(method, (FrameLinearMethod, FrameLevelLinearMethod)):
-                for term in method.terms:
-                    yield from supports(term.method)
-            elif isinstance(method, (FrameLevelAdditiveMethod, FrameLevelRatioMethod)):
-                for item in method.support:
-                    yield item.root_id, "level", item.policy, item.input_count, item.effective_count
-            else:
-                for paired_support in method.support:
-                    yield (
-                        paired_support.root_id,
-                        "current",
-                        paired_support.policy,
-                        paired_support.left_input_count,
-                        paired_support.left_effective_count,
-                    )
-                    yield (
-                        paired_support.root_id,
-                        "baseline",
-                        paired_support.policy,
-                        paired_support.right_input_count,
-                        paired_support.right_effective_count,
-                    )
-
-        for root, endpoint, policy, input_count, effective_count in supports(self.method):
+        for root, endpoint, policy, input_count, effective_count in _method_supports(self.method):
             key = (root, endpoint)
             value = (policy, input_count, effective_count)
             if key in support_by_root and support_by_root[key] != value:
@@ -761,20 +753,7 @@ class FrameAttributeMetric(_FactRecord):
         ):
             _fail("four ordered main outputs and unique diagnostic mappings", self.name)
 
-        def effect_roles(method: _Method | _LevelMethod) -> set[str]:
-            if isinstance(method, FrameRatioMethod):
-                return {"effect_within", "effect_mix", "effect_entry_exit"}
-            if isinstance(method, FrameDivisionMethod):
-                return effect_roles(method.method)
-            if isinstance(method, FrameLinearMethod):
-                children = tuple(effect_roles(term.method) for term in method.terms)
-                combined = set().union(*children)
-                if combined and any(not child for child in children):
-                    combined.add("effect_additive")
-                return combined
-            return set()
-
-        expected_effects = effect_roles(self.method)
+        expected_effects = _effect_roles(self.method)
         actual_effects = {role for role in roles if role.startswith("effect_")}
         if expected_effects != actual_effects:
             _fail("exact effect mappings selected by the closed rule", self.name)
@@ -783,13 +762,15 @@ class FrameAttributeMetric(_FactRecord):
         if self.share_state != ("zero_total" if self.total.value == 0 else "defined"):
             _fail("share state matching the exact reread total", self.name)
 
+    @override
     def _summary(self) -> str:
         return f"kind={self.kind}, target={_short(self.name)!r}, share_state={self.share_state}"
 
+    @override
     def _lines(self) -> Iterator[str]:
         yield f"observed_total={_cell(self.observed_total.value)}, total={_cell(self.total.value)}"
         yield repr(self.method)
-        yield from self.method._lines()
+        yield from fact_lines(self.method)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -815,20 +796,23 @@ class FrameMethodParent(_FactRecord):
         if len({m.name for m in self.metrics}) != len(self.metrics):
             _fail("unique parent metric names", "duplicate metric")
 
+    @override
     def __repr__(self) -> str:
         key = ", ".join(_cell(value.value) for value in self.key[:2])
         if len(self.key) > 2:
             key += ", ..."
         return f"FrameMethodParent(kind=parent, key=({_short(key, 90)}), metrics={len(self.metrics)}; .show())"
 
+    @override
     def _summary(self) -> str:
         return f"kind=parent, key_columns={len(self.key)}, metrics={len(self.metrics)}"
 
+    @override
     def _lines(self) -> Iterator[str]:
         yield "key: " + " | ".join(f"{_short(v.column.name)}={_cell(v.value)}" for v in self.key)
         for metric in self.metrics:
             yield repr(metric)
-            yield from metric._lines()
+            yield from fact_lines(metric)
 
 
 def _coordinates(
@@ -901,6 +885,132 @@ def _coordinates(
 def _key_order(parent: FrameMethodParent) -> tuple[tuple[bool, _MethodScalar], ...]:
     # Every key position has one fixed physical type. Nulls sort last, as Frame rows do.
     return tuple((v.value is None, v.value) for v in parent.key)
+
+
+def _validate_target_outputs(
+    target: FrameMethodTarget,
+    directory: dict[tuple[str, ...], DataColumn],
+    presence: set[tuple[str, ...]],
+    mapped_values: list[tuple[str, ...]],
+    mapped_presence: set[tuple[str, ...]],
+) -> None:
+    roles = {output.role for output in target.outputs}
+    required = (
+        {"value", "present"}
+        if target.kind == "level"
+        else {"current", "baseline", "absolute", "current_present", "baseline_present"}
+    )
+    if not required <= roles:
+        _fail("complete diagnostics for the target endpoint shape", repr(target.target))
+    typed = {}
+    for output in target.outputs:
+        if output.role in ("present", "current_present", "baseline_present"):
+            if output.path not in presence:
+                _fail("presence roles mapped only to presence columns", repr(output.path))
+            mapped_presence.add(output.path)
+        else:
+            column = directory.get(output.path)
+            if column is None:
+                _fail("numeric report roles mapped only to value columns", repr(output.path))
+            if not (
+                isinstance(column.dtype, (DecimalDataType, DurationDataType))
+                or column.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
+            ):
+                _fail("numeric or Duration report values", column.name)
+            if output.role.startswith("valid_count") and (
+                column.dtype != ScalarDataType("int64") or column.unit not in (None, "1")
+            ):
+                _fail("integer dimensionless valid sample counts", column.name)
+            typed[output.role] = column
+            mapped_values.append(output.path)
+    total = typed["total"]
+    for main_role in (
+        "contribution",
+        "observed_total",
+        *(effect_role for effect_role in typed if effect_role.startswith("effect_")),
+    ):
+        expected_type = (
+            ScalarDataType("float64")
+            if main_role == "contribution" and "contribution_std_error" in typed
+            else total.dtype
+        )
+        if typed[main_role].dtype != expected_type or typed[main_role].unit != total.unit:
+            _fail(
+                "main report outputs matching their native or sampled carrier and target unit",
+                repr(target.target),
+            )
+    if "contribution_std_error" in typed:
+        error = typed["contribution_std_error"]
+        if error.dtype != ScalarDataType("float64") or error.unit != total.unit:
+            _fail("Float64 permutation standard error in the target unit", error.name)
+    share = typed["share"]
+    if isinstance(share.dtype, DurationDataType) or share.unit != (
+        None if total.unit is None else "1"
+    ):
+        _fail("numeric dimensionless share output", share.name)
+
+
+def _validate_parent_metric(
+    metric: FrameAttributeMetric,
+    directory: dict[tuple[str, ...], DataColumn],
+    presence: set[tuple[str, ...]],
+) -> None:
+    by_role: dict[str, tuple[str, ...]] = {output.role: output.path for output in metric.outputs}
+    rule = metric.method
+    if isinstance(
+        rule,
+        (
+            FrameLevelAdditiveMethod,
+            FrameLevelRatioMethod,
+            FrameLevelLinearMethod,
+            FrameLevelDivisionMethod,
+        ),
+    ):
+        expected_columns = {"value": rule.value.column}
+        required_presence: tuple[str, ...] = ("present",)
+        if isinstance(rule, FrameLevelRatioMethod):
+            expected_columns.update(
+                numerator=rule.numerator.column, denominator=rule.denominator.column
+            )
+    else:
+        expected_columns = {
+            "current": rule.left.column,
+            "baseline": rule.right.column,
+            "absolute": rule.change.column,
+        }
+        required_presence = ("current_present", "baseline_present")
+        if isinstance(rule, FrameRatioMethod):
+            expected_columns.update(
+                numerator_current=rule.numerator_left.column,
+                numerator_baseline=rule.numerator_right.column,
+                denominator_current=rule.denominator_left.column,
+                denominator_baseline=rule.denominator_right.column,
+            )
+    for presence_role in required_presence:
+        if presence_role not in by_role:
+            _fail("all endpoint presence diagnostics", metric.name)
+    for diagnostic_role, column in expected_columns.items():
+        diagnostic = directory.get(by_role.get(diagnostic_role, ()))
+        if (
+            diagnostic is None
+            or diagnostic.dtype != column.dtype
+            or diagnostic.unit != column.unit
+            or diagnostic.nullable != column.nullable
+        ):
+            _fail(
+                "diagnostic columns matching exact captured rule carriers and units",
+                diagnostic_role,
+            )
+    for output in metric.outputs:
+        if output.path not in directory and output.path not in presence:
+            _fail("output mappings resolving in the saved schema", repr(output.path))
+    for total_role, value in (
+        ("total", metric.total),
+        ("observed_total", metric.observed_total),
+    ):
+        path = next(output.path for output in metric.outputs if output.role == total_role)
+        if directory.get(path) != value.column:
+            _fail("exact typed report columns for parent totals", repr(path))
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -985,62 +1095,7 @@ class FrameMethodFacts(_FactRecord):
         mapped_values: list[tuple[str, ...]] = []
         mapped_presence: set[tuple[str, ...]] = set()
         for target in self.targets:
-            roles = {output.role for output in target.outputs}
-            required = (
-                {"value", "present"}
-                if target.kind == "level"
-                else {"current", "baseline", "absolute", "current_present", "baseline_present"}
-            )
-            if not required <= roles:
-                _fail("complete diagnostics for the target endpoint shape", repr(target.target))
-            typed = {}
-            for output in target.outputs:
-                if output.role in ("present", "current_present", "baseline_present"):
-                    if output.path not in presence:
-                        _fail("presence roles mapped only to presence columns", repr(output.path))
-                    mapped_presence.add(output.path)
-                else:
-                    column = directory.get(output.path)
-                    if column is None:
-                        _fail(
-                            "numeric report roles mapped only to value columns", repr(output.path)
-                        )
-                    if not (
-                        isinstance(column.dtype, (DecimalDataType, DurationDataType))
-                        or column.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
-                    ):
-                        _fail("numeric or Duration report values", column.name)
-                    if output.role.startswith("valid_count") and (
-                        column.dtype != ScalarDataType("int64") or column.unit not in (None, "1")
-                    ):
-                        _fail("integer dimensionless valid sample counts", column.name)
-                    typed[output.role] = column
-                    mapped_values.append(output.path)
-            total = typed["total"]
-            for main_role in (
-                "contribution",
-                "observed_total",
-                *(effect_role for effect_role in typed if effect_role.startswith("effect_")),
-            ):
-                expected_type = (
-                    ScalarDataType("float64")
-                    if main_role == "contribution" and "contribution_std_error" in typed
-                    else total.dtype
-                )
-                if typed[main_role].dtype != expected_type or typed[main_role].unit != total.unit:
-                    _fail(
-                        "main report outputs matching their native or sampled carrier and target unit",
-                        repr(target.target),
-                    )
-            if "contribution_std_error" in typed:
-                error = typed["contribution_std_error"]
-                if error.dtype != ScalarDataType("float64") or error.unit != total.unit:
-                    _fail("Float64 permutation standard error in the target unit", error.name)
-            share = typed["share"]
-            if isinstance(share.dtype, DurationDataType) or share.unit != (
-                None if total.unit is None else "1"
-            ):
-                _fail("numeric dimensionless share output", share.name)
+            _validate_target_outputs(target, directory, presence, mapped_values, mapped_presence)
         if tuple(mapped_values) != self.output_schema.value_paths or mapped_presence != presence:
             _fail(
                 "complete ordered value and presence output mapping", "missing or extra output path"
@@ -1062,66 +1117,7 @@ class FrameMethodFacts(_FactRecord):
                     "inconsistent targets",
                 )
             for metric in metrics:
-                by_role: dict[str, tuple[str, ...]] = {
-                    output.role: output.path for output in metric.outputs
-                }
-                rule = metric.method
-                if isinstance(
-                    rule,
-                    (
-                        FrameLevelAdditiveMethod,
-                        FrameLevelRatioMethod,
-                        FrameLevelLinearMethod,
-                        FrameLevelDivisionMethod,
-                    ),
-                ):
-                    expected_columns = {"value": rule.value.column}
-                    required_presence: tuple[str, ...] = ("present",)
-                    if isinstance(rule, FrameLevelRatioMethod):
-                        expected_columns.update(
-                            numerator=rule.numerator.column, denominator=rule.denominator.column
-                        )
-                else:
-                    expected_columns = {
-                        "current": rule.left.column,
-                        "baseline": rule.right.column,
-                        "absolute": rule.change.column,
-                    }
-                    required_presence = ("current_present", "baseline_present")
-                    if isinstance(rule, FrameRatioMethod):
-                        expected_columns.update(
-                            numerator_current=rule.numerator_left.column,
-                            numerator_baseline=rule.numerator_right.column,
-                            denominator_current=rule.denominator_left.column,
-                            denominator_baseline=rule.denominator_right.column,
-                        )
-                for presence_role in required_presence:
-                    if presence_role not in by_role:
-                        _fail("all endpoint presence diagnostics", metric.name)
-                for diagnostic_role, column in expected_columns.items():
-                    diagnostic = directory.get(by_role.get(diagnostic_role, ()))
-                    if (
-                        diagnostic is None
-                        or diagnostic.dtype != column.dtype
-                        or diagnostic.unit != column.unit
-                        or diagnostic.nullable != column.nullable
-                    ):
-                        _fail(
-                            "diagnostic columns matching exact captured rule carriers and units",
-                            diagnostic_role,
-                        )
-                for output in metric.outputs:
-                    if output.path not in directory and output.path not in presence:
-                        _fail("output mappings resolving in the saved schema", repr(output.path))
-                for total_role, value in (
-                    ("total", metric.total),
-                    ("observed_total", metric.observed_total),
-                ):
-                    path = next(
-                        output.path for output in metric.outputs if output.role == total_role
-                    )
-                    if directory.get(path) != value.column:
-                        _fail("exact typed report columns for parent totals", repr(path))
+                _validate_parent_metric(metric, directory, presence)
         if (
             len({parent.key for parent in self.parents}) != len(self.parents)
             or tuple(sorted(self.parents, key=_key_order)) != self.parents
@@ -1135,13 +1131,15 @@ class FrameMethodFacts(_FactRecord):
             self.parent_schema,
         )
 
+    @override
     def _summary(self) -> str:
         return f"kind=attribute, origin={_short(self.origin_result_id)!r}, parents={len(self.parents)}, coordinates={len(self.coordinates)}, parent_axes={self.parent_axis_count}"
 
+    @override
     def _lines(self) -> Iterator[str]:
         for parent in self.parents:
             yield repr(parent)
-            yield from parent._lines()
+            yield from fact_lines(parent)
         for coordinate in self.coordinates:
             yield repr(coordinate)
-            yield from coordinate._lines()
+            yield from fact_lines(coordinate)

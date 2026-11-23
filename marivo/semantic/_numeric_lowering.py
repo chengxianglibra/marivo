@@ -135,6 +135,48 @@ def native_mean(value: ir.Value) -> ir.Value:
     return result
 
 
+def _weighted_reduction(
+    node: SourceWeightedMean,
+    fields: Mapping[str, ir.Value],
+    value: ir.Value,
+    checks: list[NumericCheck],
+) -> NumericValue:
+    weight = lower_row(node.weight, fields)
+    checks.extend(weight.checks)
+    pair = value.notnull() & weight.value.notnull()
+    if node.nulls == "error":
+        checks.append(
+            NumericCheck(~pair, "non-NA value/weight pairs", "weighted_mean(nulls='error')")
+        )
+    product = numeric_binary("multiply", NumericValue(value), NumericValue(weight.value))
+    checks.extend(product.checks)
+    numerator = _source_sum(
+        pair.ifelse(product.value, ibis.null().cast(product.value.type().copy(nullable=True)))
+    )
+    denominator = _source_sum(
+        pair.ifelse(weight.value, ibis.null().cast(weight.value.type().copy(nullable=True)))
+    )
+    numerator = numerator.fill_null(ibis.literal(0).cast(numerator.type()))
+    denominator = denominator.fill_null(ibis.literal(0).cast(denominator.type()))
+    divided = numeric_binary(
+        "divide",
+        NumericValue(numerator),
+        NumericValue(denominator),
+    )
+    return NumericValue(divided.value, (*(_aggregate_check(c) for c in checks), *divided.checks))
+
+
+def _approx_quantile(node: SourceAggregate, value: ir.Value) -> ir.Value:
+    q = 0.5 if node.reducer == "approx_median" else node.q
+    assert q is not None
+    # Native sketches consume floating values. Retain the declared Decimal
+    # carrier explicitly rather than relying on Ibis's inferred SQL type.
+    result = value.cast("float64").approx_quantile(q)
+    if value.type().is_decimal():
+        result = force_cast(result, value.type())
+    return result
+
+
 def lower_source_reduction(
     node: SourceAggregate | SourceWeightedMean | EntityCount,
     table: ir.Table,
@@ -147,31 +189,7 @@ def lower_source_reduction(
     value = item.value
     checks = list(item.checks)
     if isinstance(node, SourceWeightedMean):
-        weight = lower_row(node.weight, fields)
-        checks.extend(weight.checks)
-        pair = value.notnull() & weight.value.notnull()
-        if node.nulls == "error":
-            checks.append(
-                NumericCheck(~pair, "non-NA value/weight pairs", "weighted_mean(nulls='error')")
-            )
-        product = numeric_binary("multiply", NumericValue(value), NumericValue(weight.value))
-        checks.extend(product.checks)
-        numerator = _source_sum(
-            pair.ifelse(product.value, ibis.null().cast(product.value.type().copy(nullable=True)))
-        )
-        denominator = _source_sum(
-            pair.ifelse(weight.value, ibis.null().cast(weight.value.type().copy(nullable=True)))
-        )
-        numerator = numerator.fill_null(ibis.literal(0).cast(numerator.type()))
-        denominator = denominator.fill_null(ibis.literal(0).cast(denominator.type()))
-        divided = numeric_binary(
-            "divide",
-            NumericValue(numerator),
-            NumericValue(denominator),
-        )
-        return NumericValue(
-            divided.value, (*(_aggregate_check(c) for c in checks), *divided.checks)
-        )
+        return _weighted_reduction(node, fields, value, checks)
     if node.nulls == "error":
         checks.append(
             NumericCheck(value.isnull(), "non-NA source values", f"{node.reducer}(nulls='error')")
@@ -188,13 +206,7 @@ def lower_source_reduction(
     elif node.reducer == "approx_nunique":
         result = value.approx_nunique()
     elif node.reducer in ("approx_median", "approx_quantile"):
-        q = 0.5 if node.reducer == "approx_median" else node.q
-        assert q is not None
-        # Native sketches consume floating values. Retain the declared Decimal
-        # carrier explicitly rather than relying on Ibis's inferred SQL type.
-        result = value.cast("float64").approx_quantile(q)
-        if value.type().is_decimal():
-            result = force_cast(result, value.type())
+        result = _approx_quantile(node, value)
     elif node.reducer == "mean":
         result = native_mean(value)
     elif node.reducer == "min":

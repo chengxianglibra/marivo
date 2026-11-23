@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import operator
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, TypeAlias
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -121,25 +122,7 @@ def expression_value(
     if isinstance(expression, PresenceSlot):
         return ibis.null().cast("boolean")
     if isinstance(expression, ValueLiteral):
-        if isinstance(expression.value, timedelta) and expression.value == timedelta(0):
-            return ibis.interval(0, unit="us")
-        if type(expression.value) is int and not -(2**63) <= expression.value < 2**63:
-            digits = len(str(abs(expression.value)))
-            if digits > 38:
-                reject(
-                    "a losslessly representable integer or Decimal literal",
-                    repr(expression.value),
-                    "Use a value within decimal(38,0) or int64.",
-                    "Query.prepare",
-                )
-            return ibis.literal(Decimal(expression.value), type=f"decimal({digits},0)")
-
-        literal = expression.value
-        if for_type_inference and isinstance(literal, pd.Timestamp) and literal.nanosecond:
-            # Match Ibis's inferred microsecond type without normalizing the
-            # original literal used by local execution.
-            literal = literal.floor("us")
-        return bind_numeric_literal(ibis.literal(literal))
+        return _literal_expression(expression, for_type_inference)
     if isinstance(expression, ValueUnary):
         value = expression_value(
             expression.operand,
@@ -169,7 +152,52 @@ def expression_value(
         partition_type=partition_type,
         for_type_inference=for_type_inference,
     )
-    if expression.operation in ("add", "sub", "mul", "div"):
+    return _binary_expression(expression.operation, left, right)
+
+
+ValueBinaryOperation: TypeAlias = Literal[
+    "add", "sub", "mul", "div", "eq", "ne", "lt", "le", "gt", "ge", "and", "or"
+]
+
+
+def _literal_expression(expression: ValueLiteral, for_type_inference: bool) -> ir.Value:
+    if isinstance(expression.value, timedelta) and expression.value == timedelta(0):
+        return ibis.interval(0, unit="us")
+    if type(expression.value) is int and not -(2**63) <= expression.value < 2**63:
+        digits = len(str(abs(expression.value)))
+        if digits > 38:
+            reject(
+                "a losslessly representable integer or Decimal literal",
+                repr(expression.value),
+                "Use a value within decimal(38,0) or int64.",
+                "Query.prepare",
+            )
+        return ibis.literal(Decimal(expression.value), type=f"decimal({digits},0)")
+
+    literal = expression.value
+    if for_type_inference and isinstance(literal, pd.Timestamp) and literal.nanosecond:
+        # Match Ibis's inferred microsecond type without normalizing the
+        # original literal used by local execution.
+        literal = literal.floor("us")
+    return bind_numeric_literal(ibis.literal(literal))
+
+
+_RESULT_OPERATORS = {
+    "eq": operator.eq,
+    "ne": operator.ne,
+    "lt": operator.lt,
+    "le": operator.le,
+    "gt": operator.gt,
+    "ge": operator.ge,
+    "and": operator.and_,
+    "or": operator.or_,
+}
+
+
+def _binary_expression(
+    operation: ValueBinaryOperation, left: ir.Value, right: ir.Value
+) -> ir.Value:
+    if operation in ("add", "sub", "mul", "div"):
         if not all(
             value.type().is_numeric() or value.type().is_interval() for value in (left, right)
         ):
@@ -181,13 +209,11 @@ def expression_value(
             )
 
         return numeric_binary(
-            {"add": "add", "sub": "subtract", "mul": "multiply", "div": "divide"}[
-                expression.operation
-            ],
+            {"add": "add", "sub": "subtract", "mul": "multiply", "div": "divide"}[operation],
             NumericValue(left),
             NumericValue(right),
         ).value
-    if expression.operation in ("eq", "ne", "lt", "le", "gt", "ge"):
+    if operation in ("eq", "ne", "lt", "le", "gt", "ge"):
         left_type, right_type = left.type(), right.type()
         temporal = (
             left_type.is_date()
@@ -205,26 +231,6 @@ def expression_value(
                 "Compare dates with dates and timezone-aware timestamps with timestamps.",
                 "Query.prepare",
             )
-    if expression.operation == "add":
-        return left + right
-    if expression.operation == "sub":
-        return left - right
-    if expression.operation == "mul":
-        return left * right
-    if expression.operation == "div":
-        return left / right
-    if expression.operation == "eq":
-        return left == right
-    if expression.operation == "ne":
-        return left != right
-    if expression.operation == "lt":
-        return left < right
-    if expression.operation == "le":
-        return left <= right
-    if expression.operation == "gt":
-        return left > right
-    if expression.operation == "ge":
-        return left >= right
-    if expression.operation == "and":
-        return left & right
-    return left | right
+    result = _RESULT_OPERATORS[operation](left, right)
+    assert isinstance(result, ir.Value)
+    return result

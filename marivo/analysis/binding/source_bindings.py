@@ -10,8 +10,11 @@ from dataclasses import InitVar, dataclass
 from math import isfinite
 from typing import SupportsIndex, TypeAlias
 
+from typing_extensions import override
+
 from marivo._kernel.compat import Never
 from marivo._kernel.refs import EntityKind, Ref, RefPayloadV1, SemanticKind
+from marivo._kernel.validation import has_exact_type
 from marivo.analysis.model.errors import ObservationBindingError
 from marivo.analysis.model.observation_identity import CanonicalValue, _canonical_digest
 from marivo.datasource.spi import (
@@ -92,10 +95,13 @@ class BoundSourceParametersV1:
     def __post_init__(self, _token: object) -> None:
         if _token is not _TOKEN:
             raise _error("source-factory capture", "direct parameter capture construction")
-        self._validate()
+        self.validate()
 
-    def _validate(self) -> None:
-        if type(self.entity_ref) is not Ref or self.entity_ref.kind is not SemanticKind.ENTITY:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    def validate(self) -> None:
+        if (
+            not has_exact_type(self.entity_ref, Ref)
+            or self.entity_ref.kind is not SemanticKind.ENTITY
+        ):
             raise _error("exact Entity ref", "invalid captured Entity")
         names = self.ordered_parameter_names
         values = self.private_canonical_typed_values
@@ -129,7 +135,7 @@ class BoundSourceParametersV1:
         )
 
     def identity_payload(self) -> CanonicalValue:
-        self._validate()
+        self.validate()
         return (
             "source.bindings.v1",
             self.entity_ref.path,
@@ -137,12 +143,14 @@ class BoundSourceParametersV1:
             self.exact_value_digest,
         )
 
+    @override
     def __repr__(self) -> str:
         return (
             f"<private source binding entity={self.entity_ref.path[:100]} "
             f"parameters={len(self.ordered_parameter_names)}; values redacted>"
         )
 
+    @override
     def __reduce_ex__(self, protocol: SupportsIndex) -> Never:
         raise _error("process-local source parameter capture", "serialization")
 
@@ -196,7 +204,7 @@ class SourceParameterScopes:
     def __init__(self, entities: tuple[TargetEntityContract, ...]) -> None:
         if type(entities) is not tuple:
             raise _error("immutable normalized Entity authority", "mutable Entity collection")
-        self._initialize(
+        self.initialize(
             tuple(
                 _BindingDeclaration(entity.ref, entity.source, entity.credential_slots)
                 for entity in entities
@@ -217,10 +225,10 @@ class SourceParameterScopes:
                 )
             )
         instance = cls.__new__(cls)
-        instance._initialize(tuple(declarations))
+        instance.initialize(tuple(declarations))
         return instance
 
-    def _initialize(self, declarations: tuple[_BindingDeclaration, ...]) -> None:
+    def initialize(self, declarations: tuple[_BindingDeclaration, ...]) -> None:
         paths = tuple(entity.ref.path for entity in declarations)
         if len(set(paths)) != len(paths):
             raise _error("unique current Entity definitions", "duplicate Entity authority")
@@ -237,7 +245,7 @@ class SourceParameterScopes:
         normalized: list[BoundSourceParametersV1] = []
         entities = {entity.ref.path: entity for entity in self._entities}
         for entity_ref, values in bindings.items():
-            if type(entity_ref) is not Ref or entity_ref.kind is not SemanticKind.ENTITY:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            if not has_exact_type(entity_ref, Ref) or entity_ref.kind is not SemanticKind.ENTITY:
                 raise _error("exact current Entity ref key", "invalid binding Entity key")
             entity = entities.get(entity_ref.path)
             if entity is None:
@@ -305,6 +313,6 @@ class SourceParameterScopes:
                 )
             if binding.ordered_parameter_names != names or binding.entity_ref.path != path:
                 raise _error("exact declared source binding", "changed parameter declaration")
-            binding._validate()
+            binding.validate()
             captured.append(binding)
         return tuple(sorted(captured, key=lambda item: item.entity_ref.path))

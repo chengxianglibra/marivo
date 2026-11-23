@@ -30,6 +30,7 @@ from marivo.datasource.spi import (
     MySQLSpec,
     PostgresSpec,
     TrinoSpec,
+    datasource_ir_from_spec,
     default_datasource,
     env,
     http_bearer_secret,
@@ -186,8 +187,8 @@ def _static_datasource_from_call(
             f"Invalid datasource declaration: {error}. Use user/password/auth=md.env('NAME') or secrets=[md.s3_secret(...), md.http_bearer_secret(...), md.http_headers_secret(...)].",
             line=call.lineno,
         )
-    return spec._to_ir(
-        location=DatasourceSourceLocation(file=str(filepath), line=call.lineno)
+    return datasource_ir_from_spec(
+        spec, location=DatasourceSourceLocation(file=str(filepath), line=call.lineno)
     ), None
 
 

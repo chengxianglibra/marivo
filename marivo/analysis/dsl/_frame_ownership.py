@@ -8,10 +8,11 @@ from marivo.analysis.core.frame_data import (
     LiteralFrameBinding,
     SourceFrameBinding,
 )
-from marivo.analysis.dsl.column import Column
-from marivo.analysis.dsl.frame_axis import FrameAxis
+from marivo.analysis.dsl.column import Column, column_frame, column_input_id
+from marivo.analysis.dsl.frame_axis import FrameAxis, axis_frame, axis_input_id
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import frame_local
 from marivo.analysis.model.frame_schema import LogicalSchema
 from marivo.analysis.model.frame_structure import PendingDataSchema, require_complete_structure
 
@@ -50,7 +51,7 @@ def axis_index(
     canonical_id: str | None,
 ) -> int:
     if not isinstance(axis, FrameAxis) or (
-        axis._input_id != input_id or axis._frame._local.owner != owner
+        axis_input_id(axis) != input_id or frame_local(axis_frame(axis)).owner != owner
     ):
         reject(
             "an axis from this exact Frame input",
@@ -84,8 +85,11 @@ def require_column(
     location: str,
     canonical_id: str | None,
 ) -> None:
+    bound_frame = column_frame(column) if isinstance(column, Column) else None
     if not isinstance(column, Column) or (
-        column._input_id != input_id or column._frame is None or column._frame._local.owner != owner
+        column_input_id(column) != input_id
+        or bound_frame is None
+        or frame_local(bound_frame).owner != owner
     ):
         reject(
             "a Column from this exact Store/Session/Frame input",

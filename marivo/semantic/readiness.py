@@ -7,6 +7,8 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol
 
+from typing_extensions import override
+
 from marivo._authoring.model import AuthoringRepair
 from marivo._authoring.render import _repair_summary
 from marivo._kernel.compat import UTC
@@ -15,6 +17,11 @@ from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.render import Card, RenderableResult
 from marivo.semantic.errors import SourceTimezoneMissing, repair
 from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse
+from marivo.semantic.project_view import (
+    project_compiled_state,
+    project_datasources,
+    project_registry,
+)
 from marivo.semantic.runtime_check.preview_scope import dependency_entities_for_ref
 from marivo.semantic.static_check.source_timezone import (
     require_source_timezone,
@@ -109,12 +116,14 @@ class ReadinessReport(RenderableResult):
         """Directly selected ready physical objects from the report's captured scope."""
         return self._resolved_inputs
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"ReadinessReport scope={self.scope} status={self.status} "
             f"issues={len(self.blockers) + len(self.warnings)}"
         )
 
+    @override
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
@@ -258,7 +267,7 @@ def _issue(
 
 
 def _object_maps(project: ReadinessProject) -> tuple[dict[str, SemanticKind], dict[str, object]]:
-    reg = project._registry
+    reg = project_registry(project)
     if reg is None:
         return {}, {}
 
@@ -286,7 +295,7 @@ def _object_maps(project: ReadinessProject) -> tuple[dict[str, SemanticKind], di
         key = _exact_key(domain_ir.name, SemanticKind.DOMAIN)
         kinds[key] = SemanticKind.DOMAIN
         objects[key] = domain_ir
-    for ds_ir in project._datasource_irs or reg.datasources.values():
+    for ds_ir in project_datasources(project) or reg.datasources.values():
         key = _exact_key(ds_ir.semantic_id, SemanticKind.DATASOURCE)
         kinds[key] = SemanticKind.DATASOURCE
         objects[key] = ds_ir
@@ -489,7 +498,7 @@ def build_readiness_report(
     if not project.is_ready():
         return _load_blocked_report(project)
 
-    compiled_state = project._compiled_state
+    compiled_state = project_compiled_state(project)
     if compiled_state is None:
         raise RuntimeError("ready semantic project has no compiled state")
     catalog_definition_fingerprint = compiled_state.definition_fingerprint
@@ -507,7 +516,7 @@ def build_readiness_report(
         dependencies=dependencies,
     )
     scoped_datasources = _datasource_refs_for_checked_refs(checked_refs, objects, kinds)
-    reg = project._registry
+    reg = project_registry(project)
     if reg is not None:
         for field_id, dimension in reg.dimensions.items():
             if f"time_dimension:{field_id}" not in checked_refs:
@@ -639,3 +648,7 @@ class ReadinessProject(Protocol):
     def errors(self) -> tuple[SemanticError, ...]: ...
 
     def warnings(self) -> tuple[StructuredWarning, ...]: ...
+
+
+def ready_input_refs(report: ReadinessReport) -> tuple[Ref[SemanticKindTag], ...]:
+    return report._analysis_ready_inputs  # noqa: SLF001 - Identities available to the receiving Catalog.

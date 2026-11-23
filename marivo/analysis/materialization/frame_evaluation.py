@@ -10,6 +10,8 @@ from types import TracebackType
 from typing import TYPE_CHECKING, TypeAlias
 from uuid import uuid4
 
+from typing_extensions import override
+
 from marivo._kernel.errors import MarivoError
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.compiled_frame import CompiledFramePlan, CompiledSourceFrame
@@ -51,6 +53,7 @@ from marivo.analysis.model.attribute_failures import AttributeFailureContext
 from marivo.analysis.model.data_schema import CalendarDataAxis, DataSchema
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_contracts import frame_backing, frame_input_id, frame_local
 from marivo.analysis.model.frame_metadata import (
     EvaluationRecord,
     FrameResultMetadata,
@@ -123,6 +126,7 @@ def _plain(value: datetime) -> datetime:
 class _SourceContexts(ExitStack):
     """Translate failures raised by owned context cleanup, preserving their chain."""
 
+    @override
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
@@ -231,12 +235,12 @@ class _FrameEvaluation:
 
     def read_input(self, input_id: str) -> CompletedFrameResult:
         current = self.captured.fixed_frames[input_id]
-        backing = current._backing
+        backing = frame_backing(current)
         if isinstance(backing, MemoryFrameBacking):
             result = backing.result
         else:
             assert isinstance(backing, StoredFrameBacking)
-            result = current._local.read_complete(backing)
+            result = frame_local(current).read_complete(backing)
         self.fixed_source_reads[input_id] = result.metadata.source_reads
         for facts in result.method_facts:
             validate_method_facts(facts)
@@ -336,7 +340,7 @@ class _FrameEvaluation:
         calendar_owners: _CalendarOwners,
     ) -> StageOutput:
         current = self.captured.source_frames[input_id]
-        backing = current._backing
+        backing = frame_backing(current)
         assert isinstance(backing, ExpressionFrameBacking)
         schema = effective_frame_schema(schemas[input_id], output.columns)
         attachments: tuple[OutputAttachment, ...] = ()
@@ -524,7 +528,7 @@ def _evaluate_frame(
     )
     metadata = replace(metadata, lineage=frame.lineage)
     method_facts = _fold_method_facts(
-        frame._input_id,
+        frame_input_id(frame),
         captured.dependencies,
         frozenset(captured.fixed_frames),
         completed_method_productions,

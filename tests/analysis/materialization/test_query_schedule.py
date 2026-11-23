@@ -363,7 +363,7 @@ def test_real_source_checks_and_strict_formula_keep_occurrence_order(
     graph = _source_graph(session.observe(metrics))
     events: list[tuple[str, str]] = []
     completed_reads: dict[str, StageOutput] = {}
-    validate = execution._validate_source_checks
+    validate = execution.validate_source_checks
 
     def checked(
         stage: SourceReadStage,
@@ -383,7 +383,7 @@ def test_real_source_checks_and_strict_formula_keep_occurrence_order(
     def local(stage: LocalCompute, output: StageOutput) -> None:
         events.append(("local-complete", stage.stage_id))
 
-    monkeypatch.setattr(execution, "_validate_source_checks", checked)
+    monkeypatch.setattr(execution, "validate_source_checks", checked)
     with (
         session._runtime.connection_service().operation() as connections,
         open_query_sources(connections, graph, session.catalog._state) as prepared,

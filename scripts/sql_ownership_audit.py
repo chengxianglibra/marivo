@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
 
+from typing_extensions import override
+
 Json: TypeAlias = bool | int | str | list["Json"] | dict[str, "Json"] | None
 ROOT = Path(__file__).resolve().parents[1]
 RETIRED_MODULES = frozenset(
@@ -577,6 +579,7 @@ class _Scanner(ast.NodeVisitor):
                 return True
         return False
 
+    @override
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self.scopes.append(node.name)
         if any(
@@ -587,6 +590,7 @@ class _Scanner(ast.NodeVisitor):
         self.generic_visit(node)
         self.scopes.pop()
 
+    @override
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self.scopes.append(node.name)
         self.aliases.append({})
@@ -601,14 +605,17 @@ class _Scanner(ast.NodeVisitor):
         self.aliases.pop()
         self.scopes.pop()
 
+    @override
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self.visit_FunctionDef(node)
 
+    @override
     def visit_Assign(self, node: ast.Assign) -> None:
         for target in node.targets:
             self._bind(node, target, node.value)
         self.generic_visit(node)
 
+    @override
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if node.value is not None:
             self._bind(node, node.target, node.value)
@@ -626,17 +633,20 @@ class _Scanner(ast.NodeVisitor):
         ):
             self._record(node, "compiler_patch", _identity(target))
 
+    @override
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
         if self._sql(node.target):
             self._record(node, "sql_text_rewrite", _identity(node.target))
         self.generic_visit(node)
 
+    @override
     def visit_Import(self, node: ast.Import) -> None:
         for name in node.names:
             self._import(node, name.name)
             if name.asname is not None and name.name in {"re", "ibis", "sqlglot"}:
                 self.aliases[-1][name.asname] = name.name
 
+    @override
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         module = node.module or ""
         self._import(node, module)
@@ -651,6 +661,7 @@ class _Scanner(ast.NodeVisitor):
         if set(name.split(".")) & RETIRED_MODULES and "materialization" in name:
             self._record(node, "retired_entry_import", name)
 
+    @override
     def visit_Call(self, node: ast.Call) -> None:
         call = self._call(node.func)
         leaf = call.rsplit(".", 1)[-1]
@@ -684,6 +695,7 @@ class _Scanner(ast.NodeVisitor):
             self._record(node, "compiler_patch", call)
         self.generic_visit(node)
 
+    @override
     def visit_Constant(self, node: ast.Constant) -> None:
         if isinstance(node.value, str) and SQL_TEXT.match(node.value):
             self.records.append(

@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, TypeAlias, cast, get_args
 
+from typing_extensions import override
+
 from marivo._kernel.errors import HelpSurface, LiveHelpTarget
 from marivo._kernel.render import Card, RenderableResult
 from marivo.analysis.errors import AnalysisRepair, RepairKind
@@ -176,9 +178,11 @@ class RunFailure(RenderableResult):
         if len(canonical_json((self.expected, self.received, repair_payload)).encode()) > 8192:
             raise invalid("Run failure diagnostic byte bound exceeded")
 
+    @override
     def _repr_identity(self) -> str:
         return f"RunFailure phase={self.phase} kind={self.kind}"[:256]
 
+    @override
     def _card(self) -> Card:
         card = (
             Card(identity=self._repr_identity(), available=(".show()",))

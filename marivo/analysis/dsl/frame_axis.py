@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+from typing_extensions import override
+
+from marivo.analysis.model.frame_contracts import frame_input_id
 from marivo.analysis.model.frame_structure import AxisRole
 
 if TYPE_CHECKING:
@@ -37,22 +40,7 @@ class FrameAxis:
     def __init__(self) -> None:
         raise TypeError("Use frame.axes or frame.axis(name).")
 
-    @classmethod
-    def _from_frame(
-        cls, frame: FrameNode, token: str, name: str, role: AxisRole, key_names: tuple[str, ...]
-    ) -> FrameAxis:
-        result = object.__new__(cls)
-        for key, value in (
-            ("_frame", frame),
-            ("_input_id", frame._input_id),
-            ("token", token),
-            ("name", name),
-            ("role", role),
-            ("key_names", key_names),
-        ):
-            object.__setattr__(result, key, value)
-        return result
-
+    @override
     def __repr__(self) -> str:
         return f"<FrameAxis token={self.token[:40]!r} role={self.role} input={self._input_id[:16]}; use .show()>"
 
@@ -82,3 +70,27 @@ class FrameAxis:
                 if len(value.encode("utf-8")) <= 600
                 else f"{key}=omitted ({len(value)} characters)"
             )
+
+
+def make_frame_axis(
+    frame: FrameNode, token: str, name: str, role: AxisRole, key_names: tuple[str, ...]
+) -> FrameAxis:
+    result = object.__new__(FrameAxis)
+    for key, value in (
+        ("_frame", frame),
+        ("_input_id", frame_input_id(frame)),
+        ("token", token),
+        ("name", name),
+        ("role", role),
+        ("key_names", key_names),
+    ):
+        object.__setattr__(result, key, value)
+    return result
+
+
+def axis_frame(axis: FrameAxis) -> FrameNode:
+    return axis._frame  # noqa: SLF001 - Internal exact axis binding.
+
+
+def axis_input_id(axis: FrameAxis) -> str:
+    return axis._input_id  # noqa: SLF001 - Internal exact axis binding.

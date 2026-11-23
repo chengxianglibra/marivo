@@ -248,7 +248,7 @@ def test_named_loaded_leaf_rebinds_when_published_in_receiving_scope() -> None:
     second = _physical_scope("USD", (old_revenue,))
     reopened = consume_metric(catalog_get(second, "metric:sales.old_revenue", kind="metric"))
     assert reopened.unit == "USD"
-    assert isinstance(reopened._declared[-1][1], SourceAggregate)
+    assert isinstance(reopened.declared[-1][1], SourceAggregate)
     assert consume_row(catalog_value(second, "sales.orders.amount", kind="measure")).unit == "USD"
     assert consume_row(old_amount).unit == "CNY"
 
@@ -342,10 +342,10 @@ def direct():
     catalog = _catalog(semantic_project_factory, source)
     direct = consume_metric(catalog_get(catalog, "metric:sales.direct", kind="metric"))
     lookup = consume_metric(catalog_get(catalog, "metric:sales.lookup", kind="metric"))
-    assert direct._declared[0][0] == lookup._declared[0][0]
-    assert direct._declared[0][0].ref.path == "sales.revenue"
-    assert computation_fingerprint(direct._declared[-1][1]) == computation_fingerprint(
-        lookup._declared[-1][1]
+    assert direct.declared[0][0] == lookup.declared[0][0]
+    assert direct.declared[0][0].ref.path == "sales.revenue"
+    assert computation_fingerprint(direct.declared[-1][1]) == computation_fingerprint(
+        lookup.declared[-1][1]
     )
 
 

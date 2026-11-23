@@ -5,10 +5,8 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable
 from difflib import SequenceMatcher
-from typing import cast
 
 from marivo._help.model import (
-    GlobalTopic,
     HelpRoute,
     MarivoHelpTargetError,
     NativeHelpRoute,
@@ -23,8 +21,6 @@ from marivo.introspection.capabilities.resolve import (
 from marivo.introspection.capabilities.spec import CapabilitySpec
 from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface
 from marivo.introspection.live.targets import canonical_target
-
-_GLOBAL_TOPICS = ("root", "authoring")
 
 
 def _load_datasource() -> SurfaceProvider:
@@ -187,56 +183,59 @@ def native_route_target(route: NativeHelpRoute) -> str:
     return f"{route.owner}.{target}"
 
 
+def _route_string(target: str) -> HelpRoute:
+    if not re.fullmatch(r"[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)*", target):
+        raise MarivoHelpTargetError(target=target, outcome="unknown")
+    if target in _SURFACES:
+        return SurfaceRootHelpRoute(target)
+    qualified = _qualified_string(target)
+    if qualified is not None:
+        owner, native_target = qualified
+        if not native_target:
+            raise MarivoHelpTargetError(target=target, outcome="unknown")
+        route = _resolve_one(native_target, owner)
+        if route is None:
+            qualified_errors: list[Exception] = []
+            try:
+                resolve_live_target(native_target, _native_surface(owner))
+            except _native_provider(owner).target_error as error:
+                qualified_errors.append(error)
+            candidates = tuple(
+                dict.fromkeys(
+                    (
+                        *_receiver_candidates(native_target, owner),
+                        *_exact_cross_surface_candidates(
+                            native_target,
+                            excluded_owner=owner,
+                        ),
+                        *(f"{owner}.{candidate}" for candidate in _suggestions(qualified_errors)),
+                    )
+                )
+            )[: SURFACE_LIMITS.help_suggestion_limit]
+            raise MarivoHelpTargetError(
+                target=target,
+                outcome="unknown",
+                candidates=candidates,
+            )
+        return route
+    if target == "root":
+        return TopicHelpRoute("root")
+    if target == "authoring":
+        return TopicHelpRoute("authoring")
+    raise MarivoHelpTargetError(
+        target=target,
+        outcome="unknown",
+        candidates=_exact_cross_surface_candidates(target),
+    )
+
+
 def route_help_target(target: object | None) -> HelpRoute:
     """Resolve one public target without rendering or invoking domain behavior."""
     if target is None:
         return TopicHelpRoute("root")
 
     if isinstance(target, str):
-        if not re.fullmatch(r"[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)*", target):
-            raise MarivoHelpTargetError(target=target, outcome="unknown")
-        if target in _SURFACES:
-            return SurfaceRootHelpRoute(target)
-        qualified = _qualified_string(target)
-        if qualified is not None:
-            owner, native_target = qualified
-            if not native_target:
-                raise MarivoHelpTargetError(target=target, outcome="unknown")
-            route = _resolve_one(native_target, owner)
-            if route is None:
-                qualified_errors: list[Exception] = []
-                try:
-                    resolve_live_target(native_target, _native_surface(owner))
-                except _native_provider(owner).target_error as error:
-                    qualified_errors.append(error)
-                candidates = tuple(
-                    dict.fromkeys(
-                        (
-                            *_receiver_candidates(native_target, owner),
-                            *_exact_cross_surface_candidates(
-                                native_target,
-                                excluded_owner=owner,
-                            ),
-                            *(
-                                f"{owner}.{candidate}"
-                                for candidate in _suggestions(qualified_errors)
-                            ),
-                        )
-                    )
-                )[: SURFACE_LIMITS.help_suggestion_limit]
-                raise MarivoHelpTargetError(
-                    target=target,
-                    outcome="unknown",
-                    candidates=candidates,
-                )
-            return route
-        if target in _GLOBAL_TOPICS:
-            return TopicHelpRoute(cast("GlobalTopic", target))
-        raise MarivoHelpTargetError(
-            target=target,
-            outcome="unknown",
-            candidates=_exact_cross_surface_candidates(target),
-        )
+        return _route_string(target)
     if not isinstance(target, type) and not callable(target):
         raise MarivoHelpTargetError(target=target, outcome="unknown")
 

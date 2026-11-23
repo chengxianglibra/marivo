@@ -307,7 +307,7 @@ def test_unknown_ack_and_failed_readback_reconcile_the_same_run(
             if event == cut.event:
                 observed.append(_observe(session))
                 if readback == "unavailable":
-                    patch.setattr(session._runtime.store, "_read", unavailable)
+                    patch.setattr(session._runtime.store, "read_transaction", unavailable)
                 else:
                     patch.setattr(terminal_store, "manifest", contradictory)
                 raise OSError("Commit acknowledgement lost")

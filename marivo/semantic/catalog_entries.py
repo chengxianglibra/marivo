@@ -13,6 +13,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Generic, Literal, Protocol, TypeAlias, TypeVar
 
+from typing_extensions import override
+
 from marivo._kernel.data_render import _text
 from marivo._kernel.render import Card, RenderableResult
 from marivo._kernel.temporal import InstantAnchor
@@ -272,13 +274,16 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
     def __post_init__(self) -> None:
         object.__setattr__(self, "matches", MappingProxyType(dict(self.matches)))
 
+    @override
     def _repr_identity(self) -> str:
         partial = " partial" if not self.scope.complete else ""
         return f"CatalogPage{partial} items={len(self.items)} candidates={self.candidate_count}"
 
+    @override
     def __str__(self) -> str:
         return self._card().render(_include_newline=True)
 
+    @override
     def _card(self) -> Card:
 
         card = Card(
@@ -323,6 +328,7 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
         return card
 
     @traced(surface="semantic", operation="catalog_page.show", kind="method")
+    @override
     def show(self, *, max_output_bytes: int | None = 8192) -> None:
         """Print a current-page projection and its exact display counts.
 
@@ -339,6 +345,7 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
         print(self._card().render(max_output_bytes=max_output_bytes, _include_newline=True))
 
     @traced(surface="semantic", operation="catalog_page.render", kind="method")
+    @override
     def render(self, *, max_output_bytes: int | None = 8192) -> str:
         """Render this page without retrieving subsequent pages.
 

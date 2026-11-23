@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 from pandas.api.types import is_object_dtype
+from typing_extensions import override
 
 from marivo._authoring.model import AuthoringRepair
 from marivo._kernel import execution_log as _execution_log
@@ -82,12 +83,14 @@ class RawSqlResult(_DataResult):
         """Return complete query rows by declared columns."""
         return (self.returned_row_count, len(self.columns))
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"RawSqlResult datasource={self._datasource.path} "
             f"rows={self.returned_row_count} terminal_only"
         )
 
+    @override
     def _data_card(self) -> _DataCard:
         return _DataCard(
             identity=f"RawSqlResult datasource={self._datasource.path} terminal_only",

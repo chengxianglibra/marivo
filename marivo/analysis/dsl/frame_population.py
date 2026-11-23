@@ -7,16 +7,25 @@ from ibis.common.deferred import Deferred
 from marivo._definition.correspondence import coordinate_matches
 from marivo._definition.relations import FrameKeyAxis, FrameKeys, PopulationProgram
 from marivo._definition.types import AxisBinding, InputContext, field_axis
+from marivo._kernel.input_context import captured_context
 from marivo._kernel.refs import SemanticKind
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.coordinates import bind_read, native_read
 from marivo.analysis.binding.relationship_binding import RelationshipResolver
 from marivo.analysis.core.frame_data import FrameKeyDependency
+from marivo.analysis.dsl.column import frame_axis_index
 from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.dsl.frame_axis import FrameAxis
+from marivo.analysis.dsl.frame_axis import FrameAxis, axis_frame, axis_input_id
 from marivo.analysis.dsl.population import Population, _read
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.model.errors import reject
-from marivo.analysis.model.frame_contracts import FrameKeyInput, merge_frame_key_inputs
+from marivo.analysis.model.frame_contracts import (
+    FrameKeyInput,
+    frame_input_id,
+    frame_local,
+    frame_logical_schema,
+    merge_frame_key_inputs,
+)
 from marivo.analysis.model.frame_structure import axis_role, column_kind
 from marivo.analysis.model.lineage import ColumnLineage
 from marivo.semantic import Entity as EntityObject
@@ -68,6 +77,31 @@ def _is_captured_direct_field(binding: AxisBinding, axis_name: str, lineage: Col
     )
 
 
+def _bind_population_target(
+    local: LocalFrameServices,
+    state: CompiledSemanticState,
+    resolver: _Resolver,
+    target: Deferred | Entity | EntityObject | FieldExpression,
+) -> Deferred | Entity:
+    if isinstance(target, EntityObject):
+        validate_context(
+            captured_context(target), project_root=local.store.project_root, owner=local.owner
+        )
+        if target.path not in state.registry.entities:
+            reject(
+                "an Entity declared in the receiving Catalog",
+                target.id,
+                "Obtain an Entity from the receiving Session's loaded scope.",
+                "frame.population",
+            )
+        target = resolver.entity(target.path)
+    elif isinstance(target, RowExpression):
+        target = bind_field_in_state(
+            target, state, project_root=local.store.project_root, owner=local.owner
+        )
+    return target
+
+
 def population_from(
     local: LocalFrameServices,
     state: CompiledSemanticState | None,
@@ -76,7 +110,7 @@ def population_from(
     on: tuple[tuple[FrameAxis, Deferred | Entity | EntityObject | FieldExpression], ...],
 ) -> Population:
     """Capture explicit joint coordinate bindings without preparing or reading data."""
-    if not isinstance(frame, AnalysisFrame) or frame._local.owner != local.owner:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(frame, AnalysisFrame) or frame_local(frame).owner != local.owner:
         reject(
             "an AnalysisFrame from the receiving Store and Session",
             repr(frame),
@@ -95,28 +129,13 @@ def population_from(
     selected: set[int] = set()
     targets: list[AxisBinding] = []
     identity_keys: list[tuple[str, tuple[str, ...]]] = []
-    inputs: tuple[FrameKeyDependency, ...] = (FrameKeyInput(frame._input_id, frame),)
+    inputs: tuple[FrameKeyDependency, ...] = (FrameKeyInput(frame_input_id(frame), frame),)
     for axis, target in on:
         assert state is not None and resolver is not None
-        if isinstance(target, EntityObject):
-            validate_context(
-                target._context, project_root=local.store.project_root, owner=local.owner
-            )
-            if target.path not in state.registry.entities:
-                reject(
-                    "an Entity declared in the receiving Catalog",
-                    target.id,
-                    "Obtain an Entity from the receiving Session's loaded scope.",
-                    "frame.population",
-                )
-            target = resolver.entity(target.path)
-        elif isinstance(target, RowExpression):
-            target = bind_field_in_state(
-                target, state, project_root=local.store.project_root, owner=local.owner
-            )
-        index = frame._axis_index(axis)
+        target = _bind_population_target(local, state, resolver, target)
+        index = frame_axis_index(frame, axis)
         inputs = merge_frame_key_inputs(
-            inputs, (FrameKeyInput(axis._input_id, axis._frame),), owner=local.owner
+            inputs, (FrameKeyInput(axis_input_id(axis), axis_frame(axis)),), owner=local.owner
         )
         if index in selected:
             reject(
@@ -126,7 +145,7 @@ def population_from(
                 "frame.population",
             )
         selected.add(index)
-        captured = frame._schema.axes[index]
+        captured = frame_logical_schema(frame).axes[index]
         role = axis_role(captured)
         if role == "identity" and isinstance(target, Entity):
             if (
@@ -217,7 +236,7 @@ def population_from(
         targets.append(binding)
         bindings.append(FrameKeyAxis(axis.token, axis.key_names, binding))
     definition = PopulationProgram(
-        FrameKeys(frame._input_id, tuple(bindings)),
+        FrameKeys(frame_input_id(frame), tuple(bindings)),
         local.owner,
         tuple(binding.target for binding in bindings),
     )

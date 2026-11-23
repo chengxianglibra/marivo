@@ -17,6 +17,146 @@ from marivo.analysis.model.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 from marivo.semantic.spi import numeric_failure
 
 
+def _sample_total(items: list[object]) -> int | float | Decimal:
+    result: object = pc.sum(pa.array(items), min_count=0).as_py() if items else 0
+    if isinstance(result, (int, float, Decimal)):
+        return result
+    raise TypeError("native sum must return a numeric scalar")
+
+
+def _weighted_samples(
+    node: PerWeightedMean,
+    group: pd.DataFrame,
+    weight_name: str,
+    series: pd.Series,
+    missing: pd.Series,
+    record: dict[str, object],
+    exact_duration: bool,
+) -> object:
+    result: object = None
+    weight = group[weight_name]
+    weight_missing = typed_null_mask(weight)
+    record["sample.null"] = node.nulls == "error" and bool((missing | weight_missing).any())
+    # Validate both demanded inputs before the common pair mask.
+    # A missing counterpart cannot hide a valid nonfinite value.
+    pairs = [
+        (value, mass)
+        for value, mass, absent, mass_absent in zip(
+            series, weight, missing, weight_missing, strict=True
+        )
+        if not absent and not mass_absent
+    ]
+    denominator = _sample_total([mass for _, mass in pairs])
+    numerator = _sample_total(
+        [
+            float(value) * float(mass)
+            if isinstance(value, float) or isinstance(mass, float)
+            else value * mass
+            for value, mass in pairs
+        ]
+    )
+    if denominator != 0:
+        if exact_duration:
+            result = Fraction(numerator) / Fraction(denominator)
+        elif isinstance(numerator, float) or isinstance(denominator, float):
+            result = float(numerator) / float(denominator)
+        else:
+            result = numerator / denominator
+    return result
+
+
+def _present_samples(node: PerReduce, present: pd.Series, exact_duration: bool) -> object:
+    items = present.tolist()
+    if node.reducer == "mean":
+        result = (
+            Fraction(_sample_total(items)) / len(items)
+            if exact_duration
+            else pc.mean(pa.array(present)).as_py()
+        )
+    elif node.reducer in ("min", "max"):
+        result = min(items) if node.reducer == "min" else max(items)
+    elif node.reducer in ("approx_median", "approx_quantile"):
+        q = node.q if node.q is not None else 0.5
+        result = pc.tdigest(pa.array([float(value) for value in items]), q=q)[0].as_py()
+    else:
+        ordered_values = sorted(items)
+        q = node.q if node.q is not None else 0.5
+        position = (len(ordered_values) - 1) * Fraction(str(q))
+        low, high = math.floor(position), math.ceil(position)
+        fraction = (
+            Decimal((position - low).numerator) / Decimal((position - low).denominator)
+            if isinstance(ordered_values[low], Decimal)
+            else position - low
+            if exact_duration
+            else float(position - low)
+        )
+        result = ordered_values[low] + (ordered_values[high] - ordered_values[low]) * fraction
+    return result
+
+
+def _reduce_sample_group(
+    node: PerReduce | PerWeightedMean,
+    group: pd.DataFrame,
+    value_names: tuple[str, ...],
+    record: dict[str, object],
+    keys: tuple[str, ...],
+    order_key: str | None,
+    unique_keys: UniqueKeys,
+    exact_duration: bool,
+    output_type: DataType,
+) -> None:
+    series = group[value_names[0]]
+    missing = typed_null_mask(series)
+    record["sample.null"] = node.nulls == "error" and bool(missing.any())
+    present = series.loc[~missing]
+    result: object = None
+    try:
+        if isinstance(node, PerWeightedMean):
+            result = _weighted_samples(
+                node, group, value_names[1], series, missing, record, exact_duration
+            )
+        elif node.reducer == "sum":
+            result = _sample_total(present.tolist()) if not present.empty or group.empty else None
+        elif node.reducer in ("count", "count_distinct"):
+            result = len(present) if node.reducer == "count" else len(set(present.tolist()))
+        elif node.reducer == "approx_nunique":
+            numeric_failure(
+                "a qualified approximate internal distinct route",
+                "no qualified local approximate distinct kernel",
+            )
+        elif node.reducer in ("first", "last"):
+            assert order_key is not None
+            record["sample.order"] = not unique_keys.proves((*keys, order_key)) and bool(
+                group[order_key].duplicated().any()
+            )
+            ordered = group.sort_values(order_key, kind="stable")
+            if not node.include_null:
+                ordered = ordered.loc[~typed_null_mask(ordered[value_names[0]])]
+            if len(ordered):
+                result = ordered[value_names[0]].iloc[0 if node.reducer == "first" else -1]
+        elif not present.empty:
+            result = _present_samples(node, present, exact_duration)
+    except (ArithmeticError, TypeError, ValueError):
+        record["sample.numeric"] = True
+    if (
+        isinstance(output_type, DecimalDataType)
+        and result is not None
+        and not record["sample.numeric"]
+        and isinstance(node, PerReduce)
+        and node.reducer in ("median", "quantile")
+    ):
+        result = finish_decimal(pd.Series([result]), output_type.precision, output_type.scale).iloc[
+            0
+        ]
+    if (
+        exact_duration
+        and isinstance(result, (int, float, Decimal, Fraction))
+        and not -(2**63) <= round(result) < 2**63
+    ):
+        record["sample.numeric"] = True
+    record["value"] = None if record["sample.numeric"] else result
+
+
 def reduce_samples(
     node: PerReduce | PerWeightedMean,
     frame: pd.DataFrame,
@@ -45,12 +185,6 @@ def reduce_samples(
         ),
         ("sample.order", "one internal sample per time key", "first/last duplicate time keys"),
     )
-
-    def total(items: list[object]) -> int | float | Decimal:
-        result: object = pc.sum(pa.array(items), min_count=0).as_py() if items else 0
-        if isinstance(result, (int, float, Decimal)):
-            return result
-        raise TypeError("native sum must return a numeric scalar")
 
     records: list[dict[str, object]] = []
     # Build the complete-key index once. Arrow scalars retain exact integers,
@@ -84,111 +218,17 @@ def reduce_samples(
                 "sample.order": False,
             }
         )
-        series = group[value_names[0]]
-        missing = typed_null_mask(series)
-        record["sample.null"] = node.nulls == "error" and bool(missing.any())
-        present = series.loc[~missing].tolist()
-        result: object = None
-        try:
-            if isinstance(node, PerWeightedMean):
-                weight = group[value_names[1]]
-                weight_missing = typed_null_mask(weight)
-                record["sample.null"] = node.nulls == "error" and bool(
-                    (missing | weight_missing).any()
-                )
-                # Validate both demanded inputs before the common pair mask.
-                # A missing counterpart cannot hide a valid nonfinite value.
-                pairs = [
-                    (value, mass)
-                    for value, mass, absent, mass_absent in zip(
-                        series, weight, missing, weight_missing, strict=True
-                    )
-                    if not absent and not mass_absent
-                ]
-                denominator = total([mass for _, mass in pairs])
-                numerator = total(
-                    [
-                        float(value) * float(mass)
-                        if isinstance(value, float) or isinstance(mass, float)
-                        else value * mass
-                        for value, mass in pairs
-                    ]
-                )
-                if denominator != 0:
-                    if exact_duration:
-                        result = Fraction(numerator) / Fraction(denominator)
-                    elif isinstance(numerator, float) or isinstance(denominator, float):
-                        result = float(numerator) / float(denominator)
-                    else:
-                        result = numerator / denominator
-            elif node.reducer == "sum":
-                result = total(present) if present or group.empty else None
-            elif node.reducer in ("count", "count_distinct"):
-                result = len(present) if node.reducer == "count" else len(set(present))
-            elif node.reducer == "approx_nunique":
-                numeric_failure(
-                    "a qualified approximate internal distinct route",
-                    "no qualified local approximate distinct kernel",
-                )
-            elif node.reducer in ("first", "last"):
-                assert order_key is not None
-                record["sample.order"] = not unique_keys.proves((*keys, order_key)) and bool(
-                    group[order_key].duplicated().any()
-                )
-                ordered = group.sort_values(order_key, kind="stable")
-                if not node.include_null:
-                    ordered = ordered.loc[~typed_null_mask(ordered[value_names[0]])]
-                if len(ordered):
-                    result = ordered[value_names[0]].iloc[0 if node.reducer == "first" else -1]
-            elif present:
-                if node.reducer == "mean":
-                    result = (
-                        Fraction(total(present)) / len(present)
-                        if exact_duration
-                        else pc.mean(pa.array(series.loc[~missing])).as_py()
-                    )
-                elif node.reducer in ("min", "max"):
-                    result = min(present) if node.reducer == "min" else max(present)
-                elif node.reducer in ("approx_median", "approx_quantile"):
-                    q = node.q if node.q is not None else 0.5
-                    result = pc.tdigest(pa.array([float(value) for value in present]), q=q)[
-                        0
-                    ].as_py()
-                else:
-                    ordered_values = sorted(present)
-                    q = node.q if node.q is not None else 0.5
-                    position = (len(ordered_values) - 1) * Fraction(str(q))
-                    low, high = math.floor(position), math.ceil(position)
-                    fraction = (
-                        Decimal((position - low).numerator) / Decimal((position - low).denominator)
-                        if isinstance(ordered_values[low], Decimal)
-                        else position - low
-                        if exact_duration
-                        else float(position - low)
-                    )
-                    result = (
-                        ordered_values[low]
-                        + (ordered_values[high] - ordered_values[low]) * fraction
-                    )
-        except (ArithmeticError, TypeError, ValueError):
-            record["sample.numeric"] = True
-        if (
-            isinstance(output_type, DecimalDataType)
-            and result is not None
-            and not record["sample.numeric"]
-            and isinstance(node, PerReduce)
-            and node.reducer in ("median", "quantile")
-        ):
-            result = finish_decimal(
-                pd.Series([result]), output_type.precision, output_type.scale
-            ).iloc[0]
-        if (
-            exact_duration
-            and isinstance(result, (int, float, Decimal, Fraction))
-            and not -(2**63) <= round(result) < 2**63
-        ):
-            record["sample.numeric"] = True
-        record["value"] = None if record["sample.numeric"] else result
+        _reduce_sample_group(
+            node,
+            group,
+            value_names,
+            record,
+            keys,
+            order_key,
+            unique_keys,
+            exact_duration,
+            output_type,
+        )
         records.append(record)
     return pd.DataFrame(
         records, columns=[*keys, "value", *(name for name, _, _ in metadata)], dtype=object

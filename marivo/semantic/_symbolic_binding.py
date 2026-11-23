@@ -19,6 +19,7 @@ from ibis.common.deferred import (
 from ibis.common.deferred import (
     Sequence as RecipeSequence,
 )
+from typing_extensions import override
 
 from marivo._definition.deferred import (
     CapturedDefaultTimeResolver,
@@ -51,6 +52,8 @@ from marivo._definition.types import (
     RelationshipStepParameter,
     SumNone,
 )
+from marivo._kernel.input_context import captured_context
+from marivo._kernel.paths import path_parameter, relationship_binding
 from marivo._kernel.refs import (
     Ref,
     SemanticKind,
@@ -93,6 +96,7 @@ from marivo.semantic.errors import (
 from marivo.semantic.expressions.ir import CompiledExpressionSidecar
 from marivo.semantic.expressions.objects import _Entity as Entity
 from marivo.semantic.expressions.objects import _Relationship as Relationship
+from marivo.semantic.expressions.objects import entity_exact, expression_default_time
 from marivo.semantic.input_scope import validate_context
 from marivo.semantic.ir import SourceLocation
 from marivo.semantic.policies import AdditivityPolicy
@@ -116,12 +120,14 @@ class _PublicationResolver(_Resolver):
             del self._versions[ref]
         self._derived_versions.clear()
 
+    @override
     def exact(self, target: Ref[SemanticKindTag]) -> ExactRef:
         value = super().exact(target)
         if target not in self._physical:
             self._derived_versions.add(target)
         return value
 
+    @override
     def value(self, target: Ref[SemanticKindTag]) -> ResolvedValue:
         if target not in self._physical:
             return super().value(target)
@@ -151,6 +157,122 @@ def _children(recipe: Resolver) -> tuple[Resolver, ...]:
         if isinstance(indexer, Resolver):
             return (recipe.obj, indexer)
     return ()
+
+
+def _bind_named_recipe(
+    recipe: SymbolResolver | NamedResolver, lookup: Callable[[Ref[SemanticKindTag]], object]
+) -> Resolver:
+    value = lookup(recipe.reference if isinstance(recipe, SymbolResolver) else recipe.reference.ref)
+    if isinstance(value, Deferred):
+        return resolver_of(value)
+    if isinstance(value, Entity):
+        exact = entity_exact(value)
+        return SemanticResolver(
+            SemanticInput(exact, exact, "1", SumNone(), default_time=expression_default_time(value))
+        )
+    if isinstance(value, Relationship):
+        return Just(relationship_binding(value))
+    raise SemanticExpressionError(
+        kind=ErrorKind.INVALID_EXPRESSION_STAGE,
+        message="This identity symbol cannot be used as a computed expression.",
+        refs=(
+            (recipe.reference if isinstance(recipe, SymbolResolver) else recipe.reference.ref).key,
+        ),
+        expected="an Entity, field, Metric, or relationship parameter",
+        received=(
+            recipe.reference if isinstance(recipe, SymbolResolver) else recipe.reference.ref
+        ).kind.value,
+        action="Use this identity only in its matching declaration parameter.",
+    )
+
+
+def _bind_declaration_recipe(
+    recipe: DeclarationResolver,
+    declarations: dict[int, Deferred],
+    root: bool,
+    bind: Callable[[Resolver], Resolver],
+) -> Resolver:
+    if not root and id(recipe) in declarations:
+        return resolver_of(declarations[id(recipe)])
+    child = bind(recipe.recipe)
+    declaration = recipe.declaration
+    if declaration.pending_assertion:
+        policy = declaration.pending_additivity
+        additivity: AdditivityPolicy | None = None
+        if policy is not None:
+            mode, paths = policy
+            # The closed row owns the exact coordinate kinds; policy paths
+            # are deliberately not inferred from their spelling.
+            axes = {
+                axis.ref.path: axis.ref.kind for axis in consume_row(Deferred(child)).coordinates
+            }
+            coordinates = tuple(
+                symbol_factory.time_dimension(path)
+                if axes.get(path) is SemanticKind.TIME_DIMENSION
+                else symbol_factory.dimension(path)
+                for path in paths
+            )
+            if mode == "over":
+                additivity = additive_over(*coordinates)
+            elif mode == "all":
+                additivity = additive_except(*coordinates) if coordinates else additive_all()
+            else:
+                additivity = non_additive()
+        location = declaration.location
+        return resolver_of(
+            declare_measure(
+                Deferred(child),
+                name=declaration.name,
+                unit=declaration.unit,
+                additivity=additivity,
+                ai_context=declaration.ai_context,
+                location=SourceLocation(location.path, location.line)
+                if location is not None
+                else SourceLocation("<unknown>", 0),
+            )
+        )
+    return DeclarationResolver(child, replace(declaration, reference=None) if root else declaration)
+
+
+def _bind_composite_recipe(
+    recipe: Resolver,
+    lookup: Callable[[Ref[SemanticKindTag]], object],
+    bind: Callable[[Resolver], Resolver],
+) -> Resolver:
+    if isinstance(recipe, BinaryOperator):
+        return BinaryOperator(recipe.func, bind(recipe.left), bind(recipe.right))
+    if isinstance(recipe, UnaryOperator):
+        return UnaryOperator(recipe.func, bind(recipe.arg))
+    if isinstance(recipe, Call):
+        function = bind(recipe.func)
+        args = tuple(bind(arg) for arg in recipe.args)
+        kwargs = {key: bind(value) for key, value in recipe.kwargs.items()}
+        if isinstance(function, Attr) and "time" not in kwargs:
+            default = capture_source_time(function.obj, None, operation=attribute_name(function))
+            if default is not None:
+                kwargs["time"] = default
+        return Call(function, *args, **kwargs)
+    if isinstance(recipe, Attr):
+        return Attr(bind(recipe.obj), attribute_name(recipe))
+    if isinstance(recipe, RecipeSequence):
+        values = tuple(bind(value) for value in recipe.values)
+        return RecipeSequence(list(values) if recipe.typ is list else values)
+    relationship = relationship_carrier(recipe)
+    if relationship is not None:
+        value = relationship
+        if captured_context(value).project_root is not None:
+            target = lookup(relationship_binding(value).ref.ref)
+            if not isinstance(target, Relationship):
+                raise SemanticExpressionError(
+                    kind=ErrorKind.INVALID_EXPRESSION_STAGE,
+                    message="Relationship path requires a directed Relationship definition.",
+                    expected="a Relationship in the receiving scope",
+                    received=type(target).__name__,
+                    action="Choose a Relationship object from the receiving Catalog.",
+                )
+            return Just(relationship_binding(target))
+        return Just(relationship_binding(value))
+    return recipe
 
 
 def bind_recipe(
@@ -199,114 +321,14 @@ def bind_recipe(
         if parameter is not None:
             return parameter
     if isinstance(recipe, (SymbolResolver, NamedResolver)):
-        value = lookup(
-            recipe.reference if isinstance(recipe, SymbolResolver) else recipe.reference.ref
-        )
-        if isinstance(value, Deferred):
-            return resolver_of(value)
-        if isinstance(value, Entity):
-            exact = value._exact_ref
-            return SemanticResolver(
-                SemanticInput(exact, exact, "1", SumNone(), default_time=value._default_time)
-            )
-        if isinstance(value, Relationship):
-            return Just(value._parameter)
-        raise SemanticExpressionError(
-            kind=ErrorKind.INVALID_EXPRESSION_STAGE,
-            message="This identity symbol cannot be used as a computed expression.",
-            refs=(
-                (
-                    recipe.reference if isinstance(recipe, SymbolResolver) else recipe.reference.ref
-                ).key,
-            ),
-            expected="an Entity, field, Metric, or relationship parameter",
-            received=(
-                recipe.reference if isinstance(recipe, SymbolResolver) else recipe.reference.ref
-            ).kind.value,
-            action="Use this identity only in its matching declaration parameter.",
-        )
+        return _bind_named_recipe(recipe, lookup)
     if isinstance(recipe, Just) and isinstance(recipe.value, _PathValue):
-        return Just(recipe.value._parameter)
+        return Just(path_parameter(recipe.value))
     if isinstance(recipe, RescaleResolver):
         return RescaleResolver(bind(recipe.recipe), recipe.divisor, recipe.unit)
     if isinstance(recipe, DeclarationResolver):
-        if not root and id(recipe) in declarations:
-            return resolver_of(declarations[id(recipe)])
-        child = bind(recipe.recipe)
-        declaration = recipe.declaration
-        if declaration.pending_assertion:
-            policy = declaration.pending_additivity
-            additivity: AdditivityPolicy | None = None
-            if policy is not None:
-                mode, paths = policy
-                # The closed row owns the exact coordinate kinds; policy paths
-                # are deliberately not inferred from their spelling.
-                axes = {
-                    axis.ref.path: axis.ref.kind
-                    for axis in consume_row(Deferred(child)).coordinates
-                }
-                coordinates = tuple(
-                    symbol_factory.time_dimension(path)
-                    if axes.get(path) is SemanticKind.TIME_DIMENSION
-                    else symbol_factory.dimension(path)
-                    for path in paths
-                )
-                if mode == "over":
-                    additivity = additive_over(*coordinates)
-                elif mode == "all":
-                    additivity = additive_except(*coordinates) if coordinates else additive_all()
-                else:
-                    additivity = non_additive()
-            location = declaration.location
-            return resolver_of(
-                declare_measure(
-                    Deferred(child),
-                    name=declaration.name,
-                    unit=declaration.unit,
-                    additivity=additivity,
-                    ai_context=declaration.ai_context,
-                    location=SourceLocation(location.path, location.line)
-                    if location is not None
-                    else SourceLocation("<unknown>", 0),
-                )
-            )
-        return DeclarationResolver(
-            child, replace(declaration, reference=None) if root else declaration
-        )
-    if isinstance(recipe, BinaryOperator):
-        return BinaryOperator(recipe.func, bind(recipe.left), bind(recipe.right))
-    if isinstance(recipe, UnaryOperator):
-        return UnaryOperator(recipe.func, bind(recipe.arg))
-    if isinstance(recipe, Call):
-        function = bind(recipe.func)
-        args = tuple(bind(arg) for arg in recipe.args)
-        kwargs = {key: bind(value) for key, value in recipe.kwargs.items()}
-        if isinstance(function, Attr) and "time" not in kwargs:
-            default = capture_source_time(function.obj, None, operation=attribute_name(function))
-            if default is not None:
-                kwargs["time"] = default
-        return Call(function, *args, **kwargs)
-    if isinstance(recipe, Attr):
-        return Attr(bind(recipe.obj), attribute_name(recipe))
-    if isinstance(recipe, RecipeSequence):
-        values = tuple(bind(value) for value in recipe.values)
-        return RecipeSequence(list(values) if recipe.typ is list else values)
-    relationship = relationship_carrier(recipe)
-    if relationship is not None:
-        value = relationship
-        if value._context.project_root is not None:
-            target = lookup(value._parameter.ref.ref)
-            if not isinstance(target, Relationship):
-                raise SemanticExpressionError(
-                    kind=ErrorKind.INVALID_EXPRESSION_STAGE,
-                    message="Relationship path requires a directed Relationship definition.",
-                    expected="a Relationship in the receiving scope",
-                    received=type(target).__name__,
-                    action="Choose a Relationship object from the receiving Catalog.",
-                )
-            return Just(target._parameter)
-        return Just(value._parameter)
-    return recipe
+        return _bind_declaration_recipe(recipe, declarations, root, bind)
+    return _bind_composite_recipe(recipe, lookup, bind)
 
 
 def _row_roots(recipe: Resolver, registry: Registry) -> set[str]:
@@ -589,7 +611,7 @@ def publish_declarations(
                     action="Use a Measure lookup path matching the actual contribution Entity.",
                 )
 
-            captured = dict(facts._declared) if isinstance(facts, MetricFacts) else {}
+            captured = dict(facts.declared) if isinstance(facts, MetricFacts) else {}
             closure = walk((facts.node,), resolve=captured.get)
             if closure.owner is not None:
                 raise SemanticExpressionError(

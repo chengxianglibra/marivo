@@ -358,7 +358,7 @@ def _compose_metrics(
         MetricExpression(construct(tuple(captured_list)), tuple(operands)),
         tuple(dict.fromkeys(root for metric in metrics for root in metric.roots)),
         unit,
-        tuple(pair for metric in metrics for pair in metric._declared),
+        tuple(pair for metric in metrics for pair in metric.declared),
         boolean,
     )
 

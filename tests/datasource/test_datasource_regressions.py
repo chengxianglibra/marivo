@@ -9,6 +9,7 @@ from urllib.error import HTTPError
 import ibis
 import pytest
 from ibis.backends import BaseBackend
+from typing_extensions import override
 
 import marivo.datasource as md
 from marivo.datasource.engines import duckdb, postgres
@@ -58,6 +59,7 @@ def test_authenticated_get_does_not_follow_redirect(header: str) -> None:
                 self.end_headers()
                 self.wfile.write(b"[]")
 
+        @override
         def log_message(self, format: str, *args: object) -> None:
             pass
 

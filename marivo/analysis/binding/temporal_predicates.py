@@ -53,107 +53,126 @@ def _children(recipe: Resolver, visit: Callable[[Resolver], Resolver]) -> Resolv
     return recipe
 
 
-def _row(node: RowExpression, timezone: str, location: str) -> RowExpression:
-    inputs = list(node.inputs)
-    instant_slots: dict[str, str] = {}
-    changed = False
+class _TemporalPredicate:
+    def __init__(self, node: RowExpression, timezone: str, location: str) -> None:
+        self.inputs = list(node.inputs)
+        self.instant_slots: dict[str, str] = {}
+        self.changed = False
+        self.timezone = timezone
+        self.location = location
 
-    def time_slot(recipe: Variable) -> bool:
-        value = inputs[int(recipe.name.removeprefix("slot_"))]
+    def time_slot(self, recipe: Variable) -> bool:
+        value = self.inputs[int(recipe.name.removeprefix("slot_"))]
         return isinstance(value, RowField) and value.ref.ref.kind is SemanticKind.TIME_DIMENSION
 
-    def temporal(recipe: Resolver) -> bool:
+    def temporal(self, recipe: Resolver) -> bool:
         if isinstance(recipe, Variable):
-            return time_slot(recipe)
+            return self.time_slot(recipe)
         if isinstance(recipe, Call):
             if isinstance(recipe.func, Attr):
                 name = attribute_name(recipe.func)
                 if name in ("coalesce", "nullif", "name"):
-                    return temporal(recipe.func.obj)
+                    return self.temporal(recipe.func.obj)
                 if name == "ifelse":
-                    return any(temporal(arg) for arg in (*recipe.args, *recipe.kwargs.values()))
+                    return any(
+                        self.temporal(arg) for arg in (*recipe.args, *recipe.kwargs.values())
+                    )
                 if name != "cases":
                     return False
             return any(
-                isinstance(arg, Sequence) and len(arg.values) == 2 and temporal(arg.values[1])
+                isinstance(arg, Sequence) and len(arg.values) == 2 and self.temporal(arg.values[1])
                 for arg in recipe.args
-            ) or any(temporal(value) for value in recipe.kwargs.values())
+            ) or any(self.temporal(value) for value in recipe.kwargs.values())
         return False
 
-    def boundary(recipe: Just) -> Resolver:
-        nonlocal changed
+    def boundary(self, recipe: Just) -> Resolver:
         value = recipe.value
         if not isinstance(value, (str, date)):
             reject(
                 "an ISO boundary, date or aware datetime",
                 repr(value),
                 "Use the same boundary inputs as session.time_scope(...).",
-                location,
+                self.location,
                 canonical_id="session.instant",
             )
-        changed = True
-        return Just(exact_instant(value, timezone, location=location))
+        self.changed = True
+        return Just(exact_instant(value, self.timezone, location=self.location))
 
-    def visit(recipe: Resolver, as_time: bool = False) -> Resolver:
-        if as_time and isinstance(recipe, Just):
-            return recipe if recipe.value is None else boundary(recipe)
-        if as_time and isinstance(recipe, Variable) and time_slot(recipe):
-            original = inputs[int(recipe.name.removeprefix("slot_"))]
-            assert isinstance(original, RowField)
-            if isinstance(original.read, TimeInstantFieldRead):
-                return recipe
-            name = instant_slots.get(recipe.name)
-            if name is None:
-                read = original.read
-                instant_read = (
-                    TimeInstantFieldRead(original.ref, original.root)
-                    if read is None
-                    else TimeInstantFieldRead(read.field, read.entity, read.path, read.at)
+    def time_call(self, recipe: Call) -> Resolver:
+        name = attribute_name(recipe.func) if isinstance(recipe.func, Attr) else "cases"
+        receiver = recipe.func
+        if isinstance(receiver, Attr):
+            receiver = Attr(
+                self.visit(
+                    receiver.obj,
+                    name in ("coalesce", "nullif", "name", "cases") and self.temporal(receiver.obj),
+                ),
+                receiver.name,
+            )
+
+        def argument(arg: Resolver) -> Resolver:
+            if name == "cases" and isinstance(arg, Sequence) and len(arg.values) == 2:
+                match_time = isinstance(recipe.func, Attr) and self.temporal(recipe.func.obj)
+                return Sequence(
+                    (self.visit(arg.values[0], match_time), self.visit(arg.values[1], True))
                 )
-                name = f"slot_{len(inputs)}"
-                inputs.append(replace(original, read=instant_read))
-                instant_slots[recipe.name] = name
-            return Variable(name)
+            return self.visit(arg, name != "name")
+
+        return Call(
+            receiver,
+            *(argument(arg) for arg in recipe.args),
+            **{key: self.visit(value, name != "name") for key, value in recipe.kwargs.items()},
+        )
+
+    def instant_input(self, recipe: Variable) -> Resolver:
+        original = self.inputs[int(recipe.name.removeprefix("slot_"))]
+        assert isinstance(original, RowField)
+        if isinstance(original.read, TimeInstantFieldRead):
+            return recipe
+        name = self.instant_slots.get(recipe.name)
+        if name is None:
+            read = original.read
+            instant_read = (
+                TimeInstantFieldRead(original.ref, original.root)
+                if read is None
+                else TimeInstantFieldRead(read.field, read.entity, read.path, read.at)
+            )
+            name = f"slot_{len(self.inputs)}"
+            self.inputs.append(replace(original, read=instant_read))
+            self.instant_slots[recipe.name] = name
+        return Variable(name)
+
+    def visit(self, recipe: Resolver, as_time: bool = False) -> Resolver:
+        if as_time and isinstance(recipe, Just):
+            return recipe if recipe.value is None else self.boundary(recipe)
+        if as_time and isinstance(recipe, Variable) and self.time_slot(recipe):
+            return self.instant_input(recipe)
         if isinstance(recipe, BinaryOperator) and recipe.func in _COMPARISONS:
             if (
-                temporal(recipe.left)
+                self.temporal(recipe.left)
                 and isinstance(recipe.right, Just)
                 and recipe.right.value is not None
             ):
-                return BinaryOperator(recipe.func, visit(recipe.left, True), boundary(recipe.right))
+                return BinaryOperator(
+                    recipe.func, self.visit(recipe.left, True), self.boundary(recipe.right)
+                )
             if (
-                temporal(recipe.right)
+                self.temporal(recipe.right)
                 and isinstance(recipe.left, Just)
                 and recipe.left.value is not None
             ):
-                return BinaryOperator(recipe.func, boundary(recipe.left), visit(recipe.right, True))
-        if as_time and isinstance(recipe, Call):
-            name = attribute_name(recipe.func) if isinstance(recipe.func, Attr) else "cases"
-            receiver = recipe.func
-            if isinstance(receiver, Attr):
-                receiver = Attr(
-                    visit(
-                        receiver.obj,
-                        name in ("coalesce", "nullif", "name", "cases") and temporal(receiver.obj),
-                    ),
-                    receiver.name,
+                return BinaryOperator(
+                    recipe.func, self.boundary(recipe.left), self.visit(recipe.right, True)
                 )
+        if as_time and isinstance(recipe, Call):
+            return self.time_call(recipe)
+        return _children(recipe, self.visit)
 
-            def argument(arg: Resolver) -> Resolver:
-                if name == "cases" and isinstance(arg, Sequence) and len(arg.values) == 2:
-                    match_time = isinstance(recipe.func, Attr) and temporal(recipe.func.obj)
-                    return Sequence((visit(arg.values[0], match_time), visit(arg.values[1], True)))
-                return visit(arg, name != "name")
 
-            return Call(
-                receiver,
-                *(argument(arg) for arg in recipe.args),
-                **{key: visit(value, name != "name") for key, value in recipe.kwargs.items()},
-            )
-        return _children(recipe, visit)
-
-    recipe = visit(node.recipe)
-    if not changed:
+def _row(node: RowExpression, timezone: str, location: str) -> RowExpression:
+    normalizer = _TemporalPredicate(node, timezone, location)
+    recipe = normalizer.visit(node.recipe)
+    if not normalizer.changed:
         return node
     active: list[RowField | MeasureAssertion] = []
     names: dict[str, str] = {}
@@ -163,7 +182,7 @@ def _row(node: RowExpression, timezone: str, location: str) -> RowExpression:
             name = names.get(value.name)
             if name is None:
                 name = f"slot_{len(active)}"
-                active.append(inputs[int(value.name.removeprefix("slot_"))])
+                active.append(normalizer.inputs[int(value.name.removeprefix("slot_"))])
                 names[value.name] = name
             return Variable(name)
         return _children(value, compact)

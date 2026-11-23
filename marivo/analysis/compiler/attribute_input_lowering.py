@@ -120,6 +120,32 @@ def _union_attribute_relations(relations: tuple[ir.Table, ...]) -> ir.Table:
     return aligned[0].union(*aligned[1:], distinct=False) if len(aligned) > 1 else aligned[0]
 
 
+def _weighted_component(
+    node: SourceWeightedMean, role: str, local_fields: dict[str, ir.Value]
+) -> ir.Value:
+    value_item = lower_row(node.value, local_fields).value
+    weight = lower_row(node.weight, local_fields).value
+    pair = value_item.notnull() & weight.notnull()
+    if role == "pair_count":
+        value = pair.ifelse(1, ibis.null()).count()
+    elif role == "pair_negative_count":
+        value = (pair & (weight < 0)).ifelse(1, ibis.null()).count()
+    else:
+        item = (
+            numeric_binary(
+                "multiply",
+                lower_row(node.value, local_fields),
+                lower_row(node.weight, local_fields),
+            ).value
+            if role == "pair_product_sum"
+            else weight
+        )
+        if item.type().is_integer():
+            item = item.cast("decimal(38,0)")
+        value = pair.ifelse(item, ibis.null().cast(item.type())).sum().fill_null(0)
+    return value
+
+
 @dataclass(slots=True)
 class _FiberAggregation:
     layout: AttributeRootLayout
@@ -230,26 +256,7 @@ class _FiberAggregation:
                         )
                     )
             elif isinstance(node, SourceWeightedMean):
-                value_item = lower_row(node.value, local_fields).value
-                weight = lower_row(node.weight, local_fields).value
-                pair = value_item.notnull() & weight.notnull()
-                if role == "pair_count":
-                    value = pair.ifelse(1, ibis.null()).count()
-                elif role == "pair_negative_count":
-                    value = (pair & (weight < 0)).ifelse(1, ibis.null()).count()
-                else:
-                    item = (
-                        numeric_binary(
-                            "multiply",
-                            lower_row(node.value, local_fields),
-                            lower_row(node.weight, local_fields),
-                        ).value
-                        if role == "pair_product_sum"
-                        else weight
-                    )
-                    if item.type().is_integer():
-                        item = item.cast("decimal(38,0)")
-                    value = pair.ifelse(item, ibis.null().cast(item.type())).sum().fill_null(0)
+                value = _weighted_component(node, role, local_fields)
             else:
                 assert isinstance(node, EntityCount)
                 value = source.count()
@@ -433,6 +440,6 @@ def _partition_failure(
     assigned: ir.Table, keys: tuple[str, ...], groups: tuple[str, ...]
 ) -> ir.Table:
     counts = assigned.group_by(*keys).aggregate(__attribute_groups=assigned.count())
-    failed = _first_failure(counts.filter(counts.__attribute_groups > 1), keys)
+    failed = _first_failure(counts.filter(counts["__attribute_groups"] > 1), keys)
     samples = assigned.semi_join(failed, [assigned[key].identical_to(failed[key]) for key in keys])
     return samples.order_by(*(samples[key].asc(nulls_first=True) for key in groups)).limit(6)

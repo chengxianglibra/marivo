@@ -156,7 +156,7 @@ def test_exact_artifact_corruption_blocks_consumed_output_without_new_runs(
         # Metadata opening is lazy; consuming the saved output detects the missing file.
         reopened = case.session.persisted_frame(saved.artifact_id)
     else:
-        with store._write() as connection:
+        with store.write_transaction() as connection:
             row = connection.execute(
                 "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?",
                 (saved.artifact_id,),

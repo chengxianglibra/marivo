@@ -175,7 +175,7 @@ def calendar_constant(session: Session, calendar: mv.CalendarAxis) -> AnalysisFr
 
 def stored_frame(session: Session, artifact: AnalysisFrame) -> pd.DataFrame:
     store = session._runtime.store
-    with store._read() as conn:
+    with store.read_transaction() as conn:
         manifest = terminal_store.manifest(store, conn, artifact.artifact_id)
     assert manifest == committed(artifact)
     return read_output(store.project_root, manifest.data.schema, manifest.data.rows)
@@ -363,7 +363,7 @@ def test_faults_never_expose_partial_output_or_delete_prior_commit(
         assert len(new_runs) == 1 and new_runs[0].lifecycle == "failed"
         assert stored_frame(session, saved)["value.0"].tolist() == [7]
         pd.testing.assert_frame_equal(memory.to_pandas(), before)
-        with session._runtime.store._read() as conn:
+        with session._runtime.store.read_transaction() as conn:
             assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
         assert (
             len(list(session._runtime.store.layout.session_dir(session.id).glob("artifacts/*")))
@@ -494,7 +494,7 @@ from marivo.analysis.materialization import terminal_store, terminal_publication
 from marivo.analysis.materialization.graph_reading import read_output
 store = SessionStore.open_existing(Path(sys.argv[1]))
 for artifact_id in sys.argv[3:]:
-    with store._read() as conn:
+    with store.read_transaction() as conn:
         manifest = terminal_store.manifest(store, conn, artifact_id)
     attachment, = manifest.data.attachments
     zone = sys.argv[2]
@@ -572,7 +572,7 @@ from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization import terminal_store, terminal_publication
 from marivo.analysis.materialization.graph_reading import read_output
 store=SessionStore.open_existing(Path(sys.argv[1]))
-with store._read() as conn:
+with store.read_transaction() as conn:
     manifest=terminal_store.manifest(store,conn,sys.argv[2])
 assert read_output(store.project_root,manifest.data.schema,manifest.data.rows)["value.0"].tolist()==[7]
 assert manifest.metadata.source_reads==()
@@ -613,7 +613,7 @@ def test_process_loss_reconciles_original_without_replay(session: Session, point
         command, cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True
     )
     assert result.returncode == 37, result.stderr
-    with store._read() as conn:
+    with store.read_transaction() as conn:
         count_before = conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0]
     assert count_before == (2 if point == "after_commit" else 1)
     reopened = mv.session.resume(session.id)._runtime
@@ -622,7 +622,7 @@ def test_process_loss_reconciles_original_without_replay(session: Session, point
         "succeeded" if point == "after_commit" else "failed"
     )
     assert stored_frame(session, saved)["value.0"].tolist() == [7]
-    with store._read() as conn:
+    with store.read_transaction() as conn:
         assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == count_before
 
 
@@ -654,7 +654,7 @@ def test_unknown_commit_keeps_files_and_journal_until_reconciliation(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store = session._runtime.store
-    original_read = store._read
+    original_read = store.read_transaction
 
     def fail(point: str) -> None:
         if point == "before_commit":
@@ -662,14 +662,14 @@ def test_unknown_commit_keeps_files_and_journal_until_reconciliation(
             def unavailable() -> NoReturn:
                 raise OSError("read-back unavailable")
 
-            monkeypatch.setattr(store, "_read", unavailable)
+            monkeypatch.setattr(store, "read_transaction", unavailable)
             raise OSError("commit outcome unknown")
 
     monkeypatch.setattr(terminal_publication, "_event", fail)
     with pytest.raises(RecoveryPendingError) as caught:
         constant(session).persist()
     assert caught.value.stage == "terminal_commit_unknown"
-    monkeypatch.setattr(store, "_read", original_read)
+    monkeypatch.setattr(store, "read_transaction", original_read)
     monkeypatch.setattr(terminal_publication, "_event", lambda event: None)
     assert store.resources(session.id)
     assert len(list(store.layout.session_dir(session.id).glob("artifacts/*"))) == 1
@@ -757,7 +757,7 @@ def test_lost_ack_with_changed_source_metadata_is_recovery_pending(
 
     def corrupt(point: str) -> None:
         if point == "after_commit":
-            with store._write() as conn:
+            with store.write_transaction() as conn:
                 row = conn.execute(
                     "SELECT artifact_ref, descriptor_payload FROM dataset_artifacts"
                 ).fetchone()
@@ -832,7 +832,7 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     assert reopened.source_reads == artifact.source_reads
     assert reopened.source_reads
     with monkeypatch.context() as no_io:
-        no_io.setattr(SessionStore, "_read", forbidden)
+        no_io.setattr(SessionStore, "read_transaction", forbidden)
         assert reopened.source_reads == artifact.source_reads
     publishing = terminal_run(session, committed(artifact).run_id)
     assert publishing.lifecycle == "succeeded"

@@ -6,7 +6,7 @@ branch demand before a source backend or the local operation adapter consumes th
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 import ibis
 import ibis.expr.operations as ops
@@ -34,6 +34,42 @@ from marivo.semantic.numeric_operations import (
 )
 
 
+def _bind_recipe(item: Resolver, table: ir.Table) -> object:
+    def bind(child: Resolver) -> object:
+        return _bind_recipe(child, table)
+
+    if isinstance(item, RescaleResolver):
+        receiver = bind(item.recipe)
+        if not isinstance(receiver, ir.Value):
+            numeric_failure("a bound numeric rescale expression", type(receiver).__name__)
+        return receiver / item.divisor
+    if type(item) is Variable:
+        return table[item.name]
+    if type(item) is Just:
+        if type(item.value) is int and 2**63 <= item.value <= 2**64 - 1:
+            return ibis.literal(item.value, type="decimal(20,0)")
+        return item.value
+    if type(item) is Sequence:
+        return tuple(bind(value) for value in item.values)
+    if type(item) is BinaryOperator:
+        return item.func(bind(item.left), bind(item.right))
+    if type(item) is UnaryOperator:
+        return item.func(bind(item.arg))
+    if type(item) is Call:
+        args = tuple(bind(arg) for arg in item.args)
+        kwargs = {key: bind(value) for key, value in item.kwargs.items()}
+        if type(item.func) is Attr:
+            receiver = bind(item.func.obj)
+            name = attribute_name(item.func)
+            if not isinstance(receiver, ir.Value):
+                numeric_failure("an Ibis value receiver", type(receiver).__name__)
+            method = getattr(receiver, name)
+            return method(*args, **kwargs)
+        if type(item.func) is Just:
+            return item.func.value(*args, **kwargs)
+    numeric_failure("an admitted numeric recipe", type(item).__name__)
+
+
 def lower_recipe(
     recipe: Resolver,
     inputs: tuple[NumericValue, ...],
@@ -47,40 +83,8 @@ def lower_recipe(
         name="_numeric_recipe",
     )
 
-    def bind(item: Resolver) -> object:
-        if isinstance(item, RescaleResolver):
-            receiver = bind(item.recipe)
-            if not isinstance(receiver, ir.Value):
-                numeric_failure("a bound numeric rescale expression", type(receiver).__name__)
-            return receiver / item.divisor
-        if type(item) is Variable:
-            return table[item.name]
-        if type(item) is Just:
-            if type(item.value) is int and 2**63 <= item.value <= 2**64 - 1:
-                return ibis.literal(item.value, type="decimal(20,0)")
-            return item.value
-        if type(item) is Sequence:
-            return tuple(bind(value) for value in item.values)
-        if type(item) is BinaryOperator:
-            return item.func(bind(item.left), bind(item.right))
-        if type(item) is UnaryOperator:
-            return item.func(bind(item.arg))
-        if type(item) is Call:
-            args = tuple(bind(arg) for arg in item.args)
-            kwargs = {key: bind(value) for key, value in item.kwargs.items()}
-            if type(item.func) is Attr:
-                receiver = bind(item.func.obj)
-                name = attribute_name(item.func)
-                if not isinstance(receiver, ir.Value):
-                    numeric_failure("an Ibis value receiver", type(receiver).__name__)
-                method = getattr(receiver, name)
-                return method(*args, **kwargs)
-            if type(item.func) is Just:
-                return item.func.value(*args, **kwargs)
-        numeric_failure("an admitted numeric recipe", type(item).__name__)
-
     try:
-        expression = bind(recipe)
+        expression = _bind_recipe(recipe, table)
     except (TypeError, ValueError, AttributeError, SignatureValidationError) as error:
         numeric_failure(
             "physical types admitted by the numeric recipe", f"{type(error).__name__}: {error}"
@@ -103,6 +107,33 @@ def _masked(checks: tuple[NumericCheck, ...], demand: ir.Value) -> tuple[Numeric
         NumericCheck(demand.fill_null(False) & check.violation, check.expected, check.received)
         for check in checks
     )
+
+
+def _lower_math_domain(
+    node: ops.Sqrt | ops.Ln | ops.Log | ops.Log2 | ops.Log10,
+    visit: Callable[[ops.Value], NumericValue],
+) -> NumericValue:
+    item = visit(node.arg)
+    argument = item.value
+    violation = argument < 0 if isinstance(node, ops.Sqrt) else argument <= 0
+    safe = violation.ifelse(ibis.null().cast(argument.type()), argument)
+    checks = [
+        *item.checks,
+        NumericCheck(violation, "valid numeric function domains", type(node).__name__),
+    ]
+    kwargs: dict[str, object] = {"arg": safe.op()}
+    if isinstance(node, ops.Log) and node.base is not None:
+        base = visit(node.base)
+        bad_base = (base.value <= 0) | (base.value == 1)
+        kwargs["base"] = bad_base.ifelse(ibis.null().cast(base.value.type()), base.value).op()
+        checks.extend(
+            (
+                *base.checks,
+                NumericCheck(bad_base, "positive logarithm base other than one", "log"),
+            )
+        )
+    value = node.copy(**kwargs).to_expr()
+    return NumericValue(value, tuple(checks))
 
 
 def _lower_operation(node: ops.Value, slots: Mapping[str, NumericValue]) -> NumericValue:
@@ -168,30 +199,14 @@ def _lower_operation(node: ops.Value, slots: Mapping[str, NumericValue]) -> Nume
             items.append(item.value)
         return NumericValue(ibis.coalesce(*items), tuple(checks))
     if isinstance(node, (ops.Sqrt, ops.Ln, ops.Log, ops.Log2, ops.Log10)):
-        item = visit(node.arg)
-        argument = item.value
-        violation = argument < 0 if isinstance(node, ops.Sqrt) else argument <= 0
-        safe = violation.ifelse(ibis.null().cast(argument.type()), argument)
-        checks = [
-            *item.checks,
-            NumericCheck(violation, "valid numeric function domains", type(node).__name__),
-        ]
-        kwargs: dict[str, object] = {"arg": safe.op()}
-        if isinstance(node, ops.Log) and node.base is not None:
-            base = visit(node.base)
-            bad_base = (base.value <= 0) | (base.value == 1)
-            kwargs["base"] = bad_base.ifelse(ibis.null().cast(base.value.type()), base.value).op()
-            checks.extend(
-                (
-                    *base.checks,
-                    NumericCheck(bad_base, "positive logarithm base other than one", "log"),
-                )
-            )
-        value = node.copy(**kwargs).to_expr()
-        return NumericValue(value, tuple(checks))
+        return _lower_math_domain(node, visit)
     if isinstance(node, ops.Cast):
         item = visit(node.arg)
         return NumericValue(item.value.cast(node.to), item.checks)
+    return _copy_operation(node, visit)
+
+
+def _copy_operation(node: ops.Value, visit: Callable[[ops.Value], NumericValue]) -> NumericValue:
     allowed = (
         ops.Abs,
         ops.Exp,

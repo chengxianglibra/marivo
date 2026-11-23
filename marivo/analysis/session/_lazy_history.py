@@ -55,7 +55,7 @@ def not_found(
 
 
 def _summary(store: SessionStore, conn: sqlite3.Connection, row: sqlite3.Row) -> SessionSummary:
-    record = store._session(row)
+    record = store.decode_session(row)
     return SessionSummary(
         id=record.session_ref,
         name=record.name,
@@ -75,7 +75,7 @@ def _summary(store: SessionStore, conn: sqlite3.Connection, row: sqlite3.Row) ->
 def recent(
     store: SessionStore, *, limit: int = 20, after: tuple[str, str] | None
 ) -> SessionSummaryPage:
-    with store._read() as conn:
+    with store.read_transaction() as conn:
         rows = _rows(
             conn,
             "SELECT session_ref,updated_at FROM sessions "
@@ -108,7 +108,7 @@ def recent(
 
 
 def inspect(store: SessionStore, session_id: str) -> SessionSummary:
-    with store._read() as conn:
+    with store.read_transaction() as conn:
         row = _one(conn, "SELECT * FROM sessions WHERE session_ref=?", (session_id,))
         if row is None:
             names = _rows(

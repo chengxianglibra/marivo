@@ -7,6 +7,8 @@ from dataclasses import field as dataclass_field
 from datetime import datetime, timedelta
 from typing import Literal, TypeAlias
 
+from typing_extensions import override
+
 from marivo._kernel.render import Card
 from marivo._kernel.timezones import normalize_timezone, same_timezone
 from marivo.analysis.model.frame_facts import AxisRole, FrameField, _Fact, _instant, _invalid, _text
@@ -20,6 +22,7 @@ from marivo.analysis.model.time_authority import (
 
 
 class _TimeFact(_Fact):
+    @override
     def __post_init__(self) -> None:
         _Fact.__post_init__(self)
         _validate_contributions(self)
@@ -202,9 +205,11 @@ class FrameRowAttributeTime(_TimeFact):
     field: SemanticObjectIdentity
     kind: Literal["row"] = "row"
 
+    @override
     def __repr__(self) -> str:
         return f"<FrameRowAttributeTime kind=row field={self.field.path[:120]!r}; use .show()>"
 
+    @override
     def show(self, *, max_output_bytes: int | None = 8192) -> None:
         """Print the captured control-field identity.
 
@@ -226,10 +231,12 @@ class FrameAxisSchema(_TimeFact):
     keys: tuple[FrameField, ...]
     at: datetime | FrameRowAttributeTime | None = field(default=None, kw_only=True)
 
+    @override
     def render(self, *, max_output_bytes: int | None = 8192) -> str:
         """Return bounded captured axis facts without reading payloads."""
         return self._card().render(max_output_bytes=max_output_bytes)
 
+    @override
     def show(self, *, max_output_bytes: int | None = 8192) -> None:
         """Print captured axis facts. Args: max_output_bytes: Optional display budget.
 
@@ -279,6 +286,7 @@ class FrameFixedAxis(_TimeFact):
     key: tuple[FrameKeyScalar, ...]
     origins: tuple[SemanticObjectIdentity, ...]
 
+    @override
     def _identity_detail(self) -> str:
         return f"axis={self.axis.token[:40]}"
 
@@ -445,6 +453,7 @@ FrameTimeContribution: TypeAlias = FrameClockedContribution | FrameIndependentCo
 class _TimeSemantics(_TimeFact):
     contributions: tuple[FrameClockedContribution | FrameIndependentContribution, ...]
 
+    @override
     def _card(self) -> Card:
         card = Card(identity=self._repr_identity(), available=(".show()",))
         card.table(
@@ -505,6 +514,7 @@ class FrameObservationContext(_TimeFact):
     )
     kind: Literal["observation"] = field(default="observation")
 
+    @override
     def _identity_detail(self) -> str | None:
         return None if self.subject is None else f"subject={self.subject.path[:64]}"
 
@@ -532,48 +542,76 @@ def _validate_contributions(value: _TimeFact) -> None:
         ):
             _invalid("an explicit captured sample field")
     if isinstance(value, (FrameClockedContribution, FrameIndependentContribution)):
-        if value.window_endpoint is not None and type(value.window_endpoint) not in (
-            FrameReportWindowEndpoint,
-            FrameContributionSampleWindowEndpoint,
-            FrameFieldSampleWindowEndpoint,
-        ):
-            _invalid("a closed report or sample window endpoint")
-        if (value.window is None) != (value.window_endpoint is None):
-            _invalid("a window endpoint exactly when a window is captured")
-        _text(value.output)
-        if type(value.occurrence) is not tuple or any(
-            type(item) is not str for item in value.occurrence
-        ):
-            _invalid("an immutable contribution occurrence path")
-        if value.report is not None and type(value.report) is not FrameFixedTime:
-            _invalid("a captured report selection")
-        if value.report_axis is not None and type(value.report_axis) not in (
-            FrameCalendarEndpoint,
-            FrameIntervalEndpoint,
-        ):
-            _invalid("a captured report axis description")
-        if type(value.report_cells) is not tuple:
-            _invalid("immutable captured report cells")
-        for cell in value.report_cells:
-            if type(cell) is not tuple or len(cell) != 4:
-                _invalid("nominal and selected report bounds")
-            for bound in cell:
-                _instant(bound)
+        _validate_contribution(value)
 
-        if isinstance(value, FrameClockedContribution):
-            _instant(value.anchor)
-            if (
-                type(value.field) is not SemanticObjectIdentity
-                or value.source not in ("explicit", "entity_default")
-                or value.report_effect not in ("none", "range", "buckets")
-            ):
-                _invalid("a captured contribution clock and report effect")
-        elif value.source not in (
-            "explicit_none",
-            "no_entity_default",
-            "fixed_member_count",
-        ) or value.report_effect not in ("none", "range_ignored", "broadcast", "coordinate_match"):
-            _invalid("a report-independent contribution and its report effect")
+
+def _validate_contribution(value: FrameClockedContribution | FrameIndependentContribution) -> None:
+    if value.window_endpoint is not None and type(value.window_endpoint) not in (
+        FrameReportWindowEndpoint,
+        FrameContributionSampleWindowEndpoint,
+        FrameFieldSampleWindowEndpoint,
+    ):
+        _invalid("a closed report or sample window endpoint")
+    if (value.window is None) != (value.window_endpoint is None):
+        _invalid("a window endpoint exactly when a window is captured")
+    _text(value.output)
+    if type(value.occurrence) is not tuple or any(
+        type(item) is not str for item in value.occurrence
+    ):
+        _invalid("an immutable contribution occurrence path")
+    if value.report is not None and type(value.report) is not FrameFixedTime:
+        _invalid("a captured report selection")
+    if value.report_axis is not None and type(value.report_axis) not in (
+        FrameCalendarEndpoint,
+        FrameIntervalEndpoint,
+    ):
+        _invalid("a captured report axis description")
+    if type(value.report_cells) is not tuple:
+        _invalid("immutable captured report cells")
+    for cell in value.report_cells:
+        if type(cell) is not tuple or len(cell) != 4:
+            _invalid("nominal and selected report bounds")
+        for bound in cell:
+            _instant(bound)
+
+    if isinstance(value, FrameClockedContribution):
+        _instant(value.anchor)
+        if (
+            type(value.field) is not SemanticObjectIdentity
+            or value.source not in ("explicit", "entity_default")
+            or value.report_effect not in ("none", "range", "buckets")
+        ):
+            _invalid("a captured contribution clock and report effect")
+    elif value.source not in (
+        "explicit_none",
+        "no_entity_default",
+        "fixed_member_count",
+    ) or value.report_effect not in ("none", "range_ignored", "broadcast", "coordinate_match"):
+        _invalid("a report-independent contribution and its report effect")
+
+
+def _validate_axis_schema(value: FrameAxisSchema) -> None:
+    _text(value.token)
+    _text(value.name)
+    if not isinstance(value.at, FrameRowAttributeTime):
+        _instant(value.at)
+    elif not isinstance(value, FrameOrdinaryAxisSchema):
+        _invalid("row attribute time on an ordinary classification axis")
+    roles = {
+        FrameOrdinaryAxisSchema: ("field", "identity"),
+        FrameCalendarAxisSchema: ("calendar",),
+        FrameIntervalAxisSchema: ("interval",),
+        FramePairedAxisSchema: ("paired",),
+    }
+    if (
+        value.role not in roles.get(type(value), ())
+        or type(value.keys) is not tuple
+        or not value.keys
+        or any(type(k) is not FrameField for k in value.keys)
+    ):
+        _invalid("a closed axis variant and its complete immutable key")
+    if isinstance(value, (FrameCalendarAxisSchema, FrameIntervalAxisSchema)):
+        _text(value.timezone)
 
 
 def _validate_axis(value: _TimeFact) -> None:
@@ -601,27 +639,7 @@ def _validate_axis(value: _TimeFact) -> None:
         if isinstance(value, FrameWallClockSourceTime) and value.inherited_from is not None:
             _text(value.inherited_from)
     elif isinstance(value, FrameAxisSchema):
-        _text(value.token)
-        _text(value.name)
-        if not isinstance(value.at, FrameRowAttributeTime):
-            _instant(value.at)
-        elif not isinstance(value, FrameOrdinaryAxisSchema):
-            _invalid("row attribute time on an ordinary classification axis")
-        roles = {
-            FrameOrdinaryAxisSchema: ("field", "identity"),
-            FrameCalendarAxisSchema: ("calendar",),
-            FrameIntervalAxisSchema: ("interval",),
-            FramePairedAxisSchema: ("paired",),
-        }
-        if (
-            value.role not in roles.get(type(value), ())
-            or type(value.keys) is not tuple
-            or not value.keys
-            or any(type(k) is not FrameField for k in value.keys)
-        ):
-            _invalid("a closed axis variant and its complete immutable key")
-        if isinstance(value, (FrameCalendarAxisSchema, FrameIntervalAxisSchema)):
-            _text(value.timezone)
+        _validate_axis_schema(value)
     elif isinstance(value, FrameRowAttributeTime):
         if type(value.field) is not SemanticObjectIdentity or value.field.kind != "time_dimension":
             _invalid("a captured row-time TimeDimension identity")
@@ -648,17 +666,21 @@ def _validate_axis(value: _TimeFact) -> None:
         _invalid("two closed paired time endpoints of the same kind")
 
 
+def _validate_fixed_axis(value: FrameFixedAxis) -> None:
+    if (
+        type(value.axis) is not FrameOrdinaryAxisSchema
+        or type(value.key) is not tuple
+        or len(value.key) != len(value.axis.keys)
+        or value.origins != union(value.origins)
+    ):
+        _invalid("a complete ordered fixed ordinary key and captured origins")
+    if any(not is_frame_key_scalar(item) for item in value.key):
+        _invalid("typed exact fixed key scalars")
+
+
 def _validate_time(value: _TimeFact) -> None:
     if isinstance(value, FrameFixedAxis):
-        if (
-            type(value.axis) is not FrameOrdinaryAxisSchema
-            or type(value.key) is not tuple
-            or len(value.key) != len(value.axis.keys)
-            or value.origins != union(value.origins)
-        ):
-            _invalid("a complete ordered fixed ordinary key and captured origins")
-        if any(not is_frame_key_scalar(item) for item in value.key):
-            _invalid("typed exact fixed key scalars")
+        _validate_fixed_axis(value)
     elif isinstance(value, FrameAxisTime):
         _text(value.axis_token)
         if value.endpoint not in ("self", "left", "right"):
@@ -678,27 +700,32 @@ def _validate_time(value: _TimeFact) -> None:
     elif isinstance(value, FrameTrailingDurationWindow):
         if type(value.duration) is not timedelta or value.duration <= timedelta(0):
             _invalid("a positive elapsed window duration")
-    elif isinstance(value, FrameTrailingPeriodsWindow):
-        if type(value.count) is not int or value.count < 1:
-            _invalid("a positive number of trailing periods")
+    elif isinstance(value, FrameTrailingPeriodsWindow) and (
+        type(value.count) is not int or value.count < 1
+    ):
+        _invalid("a positive number of trailing periods")
     if isinstance(value, FrameObservationContext):
-        if value.subject is not None and (
-            type(value.subject) is not SemanticObjectIdentity or value.subject.kind != "metric"
-        ):
-            _invalid("a directly observed Metric identity or no named subject")
-        if value.time is not None and type(value.time) not in (
-            FrameAxisTime,
-            FrameComparedTime,
-            FrameFixedTime,
-        ):
-            _invalid("a closed captured observation time basis")
-        if value.window is not None and type(value.window) not in (
-            FrameAllHistoryWindow,
-            FrameSinceWindow,
-            FrameToDateWindow,
-            FrameTrailingDurationWindow,
-            FrameTrailingPeriodsWindow,
-        ):
-            _invalid("a closed captured explicit window")
-        if value.time is None and value.window is not None:
-            _invalid("a captured output time basis for an attached window")
+        _validate_observation_context(value)
+
+
+def _validate_observation_context(value: FrameObservationContext) -> None:
+    if value.subject is not None and (
+        type(value.subject) is not SemanticObjectIdentity or value.subject.kind != "metric"
+    ):
+        _invalid("a directly observed Metric identity or no named subject")
+    if value.time is not None and type(value.time) not in (
+        FrameAxisTime,
+        FrameComparedTime,
+        FrameFixedTime,
+    ):
+        _invalid("a closed captured observation time basis")
+    if value.window is not None and type(value.window) not in (
+        FrameAllHistoryWindow,
+        FrameSinceWindow,
+        FrameToDateWindow,
+        FrameTrailingDurationWindow,
+        FrameTrailingPeriodsWindow,
+    ):
+        _invalid("a closed captured explicit window")
+    if value.time is None and value.window is not None:
+        _invalid("a captured output time basis for an attached window")

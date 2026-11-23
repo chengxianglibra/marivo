@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from pydantic_core import CoreSchema, core_schema
+from typing_extensions import override
 
 _GRAIN_UNITS = frozenset({"second", "minute", "hour", "day", "week", "month", "quarter", "year"})
 
@@ -20,6 +21,7 @@ class InstantAnchor(datetime):
 
     __slots__ = ()
 
+    @override
     def __repr__(self) -> str:
         return f"<InstantAnchor {self.isoformat()}; use .show()>"
 
@@ -98,6 +100,7 @@ class Grain:
             )
         return self.count * widths[self.unit]
 
+    @override
     def __repr__(self) -> str:
         return f"Grain({grain_token(self)!r})"
 

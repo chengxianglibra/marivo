@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, model_validator
 from pydantic_core import CoreSchema, core_schema
+from typing_extensions import override
 
 from marivo._kernel.errors import invalid
 from marivo._kernel.grouping import Grouping
@@ -25,6 +26,7 @@ from marivo._kernel.time_types import civil_midnight_width_seconds as civil_midn
 from marivo._kernel.time_types import grain_nests as grain_nests
 from marivo._kernel.time_types import validate_subday_count as validate_subday_count
 from marivo._kernel.timezones import normalize_timezone
+from marivo._kernel.validation import is_instance
 
 _TIME_SCOPE_INTERNAL = ContextVar("marivo_time_scope_internal", default=False)
 
@@ -66,6 +68,7 @@ class CalendarCorrespondence:
         if type(self.by) is not int or (self.kind == "ordinal" and self.by != 0):
             invalid("offset requires a non-boolean integer; ordinal has no offset")
 
+    @override
     def __repr__(self) -> str:
         suffix = f" by={self.by}" if self.kind != "ordinal" else ""
         return f"<CalendarCorrespondence {self.kind}{suffix}; use .show()>"
@@ -110,11 +113,13 @@ class TimeScopeContractV1(BaseModel):
         """Display captured scope facts without source reads."""
         print(self.render(max_output_bytes=max_output_bytes))
 
+    @override
     def __repr__(self) -> str:
         return result_repr(
             f"TimeScopeContractV1 start={self.start.isoformat()} end={self.end.isoformat()}"
         )
 
+    @override
     def __str__(self) -> str:
         return self.render()
 
@@ -136,6 +141,7 @@ class TimeScope(BaseModel):
         super().__init__(**data)
 
     @classmethod
+    @override
     def __get_pydantic_core_schema__(
         cls, source: object, handler: GetCoreSchemaHandler
     ) -> CoreSchema:
@@ -196,12 +202,15 @@ class TimeScope(BaseModel):
     def _identity(self) -> tuple[InstantAnchor, InstantAnchor, str]:
         return self.start, self.end, self.boundary_timezone
 
+    @override
     def __eq__(self, other: object) -> bool:
         return isinstance(other, TimeScope) and self._identity() == other._identity()
 
+    @override
     def __hash__(self) -> int:
         return hash(self._identity())
 
+    @override
     def __repr__(self) -> str:
         return f"TimeScope([{self.start.isoformat()}, {self.end.isoformat()}), timezone={self.boundary_timezone}; use .show())"
 
@@ -216,15 +225,16 @@ class TimeScope(BaseModel):
         """Print the exact scope summary; use scope.show(). Returns None; no source reads."""
         print(self.render(max_output_bytes=max_output_bytes))
 
-    def _contract(self) -> TimeScopeContractV1:
-        return TimeScopeContractV1(
-            start=self.start, end=self.end, boundary_timezone=self.boundary_timezone
-        )
-
     def _model_dump(
         self, *, mode: Literal["python", "json"] = "python", exclude_none: bool = True
     ) -> dict[str, object]:
         return super().model_dump(mode=mode, exclude_none=exclude_none)
+
+
+def time_scope_contract(scope: TimeScope) -> TimeScopeContractV1:
+    return TimeScopeContractV1(
+        start=scope.start, end=scope.end, boundary_timezone=scope.boundary_timezone
+    )
 
 
 def session_time_scope(
@@ -271,6 +281,7 @@ class CalendarAxis(Grouping):
     )
 
     @property
+    @override
     def kind(self) -> Literal["calendar"]:
         """Return the calendar grouping kind without source access."""
         return "calendar"
@@ -298,9 +309,11 @@ class CalendarAxis(Grouping):
                 "Use a supported calendar domain and explicit intervals for ambiguous civil times."
             ) from error
 
+    @override
     def __repr__(self) -> str:
         return f"<CalendarAxis id={self.grid.identity[:16]} buckets={len(self.grid.cells)}; use .show()>"
 
+    @override
     def show(self) -> None:
         """Display a bounded calendar summary.
 
@@ -337,7 +350,7 @@ def calendar_axis(scope: TimeScope, grain: Grain) -> CalendarAxis:
 
 def bind_grid(during: TimeScope, grain: Grain) -> BoundTimeGrid:
     """Freeze a finite grid from a validated TimeScope and Grain."""
-    if not isinstance(during, TimeScope) or not isinstance(grain, Grain):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(during, TimeScope) or not isinstance(grain, Grain):
         raise ValueError(
             "Expected finite half-open time cells with exact timezone and calendar authority; "
             "received grid requires a TimeScope and Grain. "

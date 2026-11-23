@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from marivo._kernel.errors import invalid
 
@@ -22,6 +23,16 @@ class InputContext:
 
     project_root: Path | None = None
     owner: Owner | None = None
+
+
+class _CapturedInput(Protocol):
+    @property
+    def _context(self) -> InputContext: ...
+
+
+def captured_context(value: _CapturedInput) -> InputContext:
+    """Read an input's ownership before discarding its outer carrier."""
+    return value._context  # noqa: SLF001 - Shared capture protocol.
 
 
 def merge_input_contexts(*contexts: InputContext) -> InputContext:

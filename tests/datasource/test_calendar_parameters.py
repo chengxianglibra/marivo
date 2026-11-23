@@ -18,6 +18,7 @@ import pandas as pd
 import pytest
 from clickhouse_connect.driver.exceptions import DatabaseError
 from clickhouse_connect.driver.external import ExternalData
+from typing_extensions import override
 
 import marivo.analysis as mv
 from marivo.datasource.engines.calendar_relations import (
@@ -43,6 +44,7 @@ def no_multipart(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
     requests: list[str] = []
 
     class Handler(BaseHTTPRequestHandler):
+        @override
         def log_message(self, format: str, *args: object) -> None:
             pass
 

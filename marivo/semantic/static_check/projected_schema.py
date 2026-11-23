@@ -10,7 +10,6 @@ from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.spi import (
     CsvSourceIR,
     JsonSourceIR,
-    ParquetSourceIR,
     TableSourceIR,
 )
 from marivo.semantic.constraints import ConstraintId
@@ -51,6 +50,55 @@ def _expression_entity_ids(
     )
 
 
+def _projected_source_errors(
+    registry: Registry, missing_by_entity: dict[str, list[dict[str, object]]]
+) -> list[SemanticError]:
+    errors: list[SemanticError] = []
+    for entity_id, missing in missing_by_entity.items():
+        entity = registry.entities[entity_id]
+        source = entity.source
+        if isinstance(source, TableSourceIR | CsvSourceIR | JsonSourceIR):
+            aliases = tuple(output_name for output_name, _source in source.columns)
+        elif source.columns is not None:
+            aliases = source.columns
+        else:
+            continue
+        visible_missing = missing[:_PROJECTED_ALIAS_DISPLAY_LIMIT]
+        rendered_missing = ", ".join(
+            f"{item['object']}.{item['field']}={item['received_column']!r}"
+            for item in visible_missing
+        )
+        omitted_missing = len(missing) - len(visible_missing)
+        if omitted_missing:
+            rendered_missing += f", ... (+{omitted_missing} more)"
+        refs = tuple(dict.fromkeys((entity_id, *(str(item["object"]) for item in missing))))
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_REF,
+                message=(
+                    f"Projected entity {entity_id!r} is missing output aliases required by "
+                    f"semantic references: {rendered_missing}."
+                ),
+                refs=refs,
+                location=entity.location,
+                constraint_id=ConstraintId.REF_SHAPE,
+                expected="stable output aliases declared by md.table(columns=...)",
+                received=", ".join(str(item["received_column"]) for item in visible_missing),
+                hint=(
+                    "Add every missing logical output to the entity's columns= projection, "
+                    "or change each semantic column= to an exposed alias."
+                ),
+                details={
+                    "entity": entity_id,
+                    "missing_references": missing,
+                    "omitted_missing_reference_count": omitted_missing,
+                    "available_output_aliases": list(aliases),
+                },
+            )
+        )
+    return errors
+
+
 def _validate_projected_source_aliases(
     registry: Registry,
     sidecar: CompiledExpressionSidecar | None,
@@ -71,7 +119,7 @@ def _validate_projected_source_aliases(
         source = entity.source
         if isinstance(source, TableSourceIR | CsvSourceIR | JsonSourceIR):
             aliases = {output_name for output_name, _source in source.columns}
-        elif isinstance(source, ParquetSourceIR) and source.columns is not None:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        elif source.columns is not None:
             aliases = set(source.columns)
         else:
             return
@@ -124,50 +172,7 @@ def _validate_projected_source_aliases(
                 location=measure.location,
             )
 
-    errors: list[SemanticError] = []
-    for entity_id, missing in missing_by_entity.items():
-        entity = registry.entities[entity_id]
-        source = entity.source
-        if isinstance(source, TableSourceIR | CsvSourceIR | JsonSourceIR):
-            aliases = tuple(output_name for output_name, _source in source.columns)
-        elif isinstance(source, ParquetSourceIR) and source.columns is not None:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            aliases = source.columns
-        else:
-            continue
-        visible_missing = missing[:_PROJECTED_ALIAS_DISPLAY_LIMIT]
-        rendered_missing = ", ".join(
-            f"{item['object']}.{item['field']}={item['received_column']!r}"
-            for item in visible_missing
-        )
-        omitted_missing = len(missing) - len(visible_missing)
-        if omitted_missing:
-            rendered_missing += f", ... (+{omitted_missing} more)"
-        refs = tuple(dict.fromkeys((entity_id, *(str(item["object"]) for item in missing))))
-        errors.append(
-            SemanticLoadError(
-                kind=ErrorKind.INVALID_REF,
-                message=(
-                    f"Projected entity {entity_id!r} is missing output aliases required by "
-                    f"semantic references: {rendered_missing}."
-                ),
-                refs=refs,
-                location=entity.location,
-                constraint_id=ConstraintId.REF_SHAPE,
-                expected="stable output aliases declared by md.table(columns=...)",
-                received=", ".join(str(item["received_column"]) for item in visible_missing),
-                hint=(
-                    "Add every missing logical output to the entity's columns= projection, "
-                    "or change each semantic column= to an exposed alias."
-                ),
-                details={
-                    "entity": entity_id,
-                    "missing_references": missing,
-                    "omitted_missing_reference_count": omitted_missing,
-                    "available_output_aliases": list(aliases),
-                },
-            )
-        )
-    return errors
+    return _projected_source_errors(registry, missing_by_entity)
 
 
 def _render_column_list(columns: Sequence[str]) -> str:

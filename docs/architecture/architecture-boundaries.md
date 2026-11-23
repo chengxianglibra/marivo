@@ -45,8 +45,8 @@ Import Linter 锁定上表的相对依赖顺序，并从 `marivo` 根包递归�
 
 | 检查 | 覆盖内容 |
 | --- | --- |
-| Ruff | `PLC0415` 检查函数内导入。库和测试的可选依赖装载使用逐行理由。`PLR0915` 将单函数语句数限制为 80。`TID251` 检查受禁 API，`SLF001` 在 `_kernel`、Ontology 和 Server 生效。[Ruff 配置](../../pyproject.toml) |
-| Mypy | 对库和测试执行严格类型检查，并要求 `type: ignore` 指定错误码。[类型检查配置](../../pyproject.toml) |
+| Ruff | `C901`、`PLR0912`、`PLR0915` 将单函数的圈复杂度、分支数和语句数分别限制为 15、15、80。`SLF001` 覆盖整个发行库，测试与工程脚本可以读取内部状态。`TID251` 检查受禁 API，`PLC0415` 检查函数内导入，按需装载在使用处记录理由。[Ruff 配置](../../pyproject.toml) |
+| Mypy | 对库和测试执行严格类型检查，要求覆写方法显式标注 `@override`，并要求 `type: ignore` 指定错误码。架构棘轮要求库内忽略标注写明原因。[类型检查配置](../../pyproject.toml) · [架构检查脚本](../../scripts/check_architecture.py) |
 | Import Linter | 检查层级、同级无环范围、受保护 SPI、引擎隔离与重依赖边界。[导入契约](../../.importlinter) |
 | ARCH001–ARCH006 | 检查跨包私有导入、域外引擎判断、动态逃生点、两张导入图的循环边、结构与类型预算，以及独立进程的冷启动和 Help 装载范围。[架构检查脚本](../../scripts/check_architecture.py) |
 

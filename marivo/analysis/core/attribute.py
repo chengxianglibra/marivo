@@ -26,6 +26,12 @@ from marivo.analysis.binding.attribute_rules import (
     rule_effects,
 )
 from marivo.analysis.binding.attribute_units import ratio_component_units, rule_unit
+from marivo.analysis.core.attribute_input_error import (
+    AttributeInputError as AttributeInputError,
+)
+from marivo.analysis.core.attribute_input_error import (
+    AttributeInputReason as AttributeInputReason,
+)
 from marivo.analysis.core.frame_expression import _compare_type
 from marivo.analysis.core.frame_interpretation import decomposition_facts
 from marivo.analysis.core.frame_operations import (
@@ -37,7 +43,6 @@ from marivo.analysis.core.frame_operations import (
 from marivo.analysis.core.frame_value_analysis import expression_type
 from marivo.analysis.core.value_types import data_type
 from marivo.analysis.model.attribute_failures import (
-    AttributeFailureContext,
     AttributeUseContext,
     AttributeWindowInput,
 )
@@ -55,7 +60,7 @@ from marivo.analysis.model.data_types import (
     DurationDataType,
     ScalarDataType,
 )
-from marivo.analysis.model.errors import CoreRuleError, reject
+from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_structure import (
     PendingDataAxis,
     PendingDataColumn,
@@ -109,53 +114,6 @@ class AttributeFormulaContext:
     parent_columns: tuple[DataColumn, ...]
     fine_columns: tuple[DataColumn, ...]
     parent_mapping: tuple[tuple[FrozenKey, FrozenKey], ...]
-
-
-AttributeInputReason = Literal[
-    "missing_component_proof",
-    "unqualified_contribution_route",
-    "undefined_input",
-    "overlapping_groups",
-    "root_denominator_zero",
-    "closure_mismatch",
-    "invalid_rate_support",
-    "component_mismatch",
-]
-
-
-class AttributeInputError(CoreRuleError):
-    """An explicit contribution input lacks a captured or runtime premise."""
-
-    def __init__(
-        self,
-        *,
-        reason: AttributeInputReason,
-        received: str,
-        context: AttributeFailureContext | None = None,
-    ) -> None:
-        self.reason = reason
-        self.attribute_context = context
-        repairs = {
-            "invalid_rate_support": "Provide positive parent denominators, nonnegative group denominators and effective weights, and zero numerator mass wherever group support is zero; inspect a finer observe/compare to repair the Metric.",
-            "component_mismatch": "Inspect the original parent and fine Metric and its numerator, denominator and NULL masks; correct inconsistent definitions or changed source facts before rerunning attribution.",
-            "closure_mismatch": "Inspect the independent parent total and fine contributions, then explicitly rerun the request if the source facts changed.",
-            "unqualified_contribution_route": "Use qualified native physical tables with the captured complete parent parameter dependencies.",
-            "missing_component_proof": "Retain the exact component, complete parent mapping and qualified sample/window proof before requesting contribution.",
-            "undefined_input": "Cover every scoped root identity with a complete joint classification; restrict the endpoint with where or members when needed.",
-            "overlapping_groups": "Provide one joint classification tuple per counted identity inside each selected parent, or submit a new explicit finer observation.",
-            "root_denominator_zero": "Provide nonzero complete-parent denominators for both endpoints, or build a finer observation to inspect the original nullable Metric.",
-        }
-        super().__init__(
-            expected=(
-                "closure_mismatch: independent parent and fine final target values within the numeric closure policy"
-                if reason == "closure_mismatch"
-                else f"{reason}: a qualified complete Attribute input"
-            ),
-            received=received,
-            repair=repairs[reason],
-            location="frame.attribute",
-            canonical_id="analysis_frame.attribute",
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +195,32 @@ class AttributeProjectProgram:
     output_schema: DataSchema
 
 
+def _validate_fine_axes(
+    fine: tuple[PendingFrameAxis | DataAxis, ...],
+    right_fine: tuple[PendingFrameAxis | DataAxis, ...],
+) -> None:
+    for left_axis, right_axis in zip(fine, right_fine, strict=True):
+        if axis_role(left_axis) != axis_role(right_axis) or len(left_axis.columns) != len(
+            right_axis.columns
+        ):
+            reject(
+                "matching complete fine-axis roles",
+                repr((left_axis, right_axis)),
+                "Provide compatible shared classifications.",
+                "frame.attribute",
+                canonical_id="analysis_frame.attribute",
+            )
+        for x, y in zip(left_axis.columns, right_axis.columns, strict=True):
+            if isinstance(x, DataColumn) and isinstance(y, DataColumn) and x.dtype != y.dtype:
+                reject(
+                    "equal actual fine-key physical types",
+                    repr((x.dtype, y.dtype)),
+                    "Use compatible classifications on both endpoints.",
+                    "frame.attribute",
+                    canonical_id="analysis_frame.attribute",
+                )
+
+
 @overload
 def attribute_schema(
     left: DataSchema, right: DataSchema, parent: DataSchema, operation: AttributeFrameValues
@@ -278,26 +262,7 @@ def attribute_schema(
             "frame.attribute",
             canonical_id="analysis_frame.attribute",
         )
-    for left_axis, right_axis in zip(fine, right_fine, strict=True):
-        if axis_role(left_axis) != axis_role(right_axis) or len(left_axis.columns) != len(
-            right_axis.columns
-        ):
-            reject(
-                "matching complete fine-axis roles",
-                repr((left_axis, right_axis)),
-                "Provide compatible shared classifications.",
-                "frame.attribute",
-                canonical_id="analysis_frame.attribute",
-            )
-        for x, y in zip(left_axis.columns, right_axis.columns, strict=True):
-            if isinstance(x, DataColumn) and isinstance(y, DataColumn) and x.dtype != y.dtype:
-                reject(
-                    "equal actual fine-key physical types",
-                    repr((x.dtype, y.dtype)),
-                    "Use compatible classifications on both endpoints.",
-                    "frame.attribute",
-                    canonical_id="analysis_frame.attribute",
-                )
+    _validate_fine_axes(fine, right_fine)
     pending = any(isinstance(schema, PendingDataSchema) for schema in (left, right, parent))
     axes: list[PendingFrameAxis | DataAxis] = []
     offset = 0
@@ -767,30 +732,21 @@ def _common_report_type(columns: tuple[DataColumn, ...]) -> DataType:
     )
 
 
-def report_schema(
-    legacy: DataSchema | PendingDataSchema,
-    parent: DataSchema | PendingDataSchema,
-    operation: AttributeContributionValues,
+def _report_entries(
+    directory: dict[tuple[str, ...], DataColumn | PendingDataColumn],
+    source: DataColumn | PendingDataColumn,
+    observed: DataColumn | PendingDataColumn,
+    path: tuple[str, ...],
     *,
-    fresh: DataColumn | None = None,
-    parent_diagnostics: tuple[tuple[tuple[str, ...], DataColumn], ...] = (),
-) -> DataSchema | PendingDataSchema:
-    """Map one closed target to its report directory without parsing display names."""
-
-    target = operation.target
-    assert target is not None
-    directory: dict[tuple[str, ...], DataColumn | PendingDataColumn] = dict(
-        zip(legacy.value_paths, legacy.values, strict=True)
-    )
-    path = target.path
-    level = target.mode == "level"
-    source = directory[("left" if level else "contribution", "target")]
-    values: list[DataColumn | PendingDataColumn] = []
-    paths: list[tuple[str, ...]] = []
+    level: bool,
+    operation: AttributeContributionValues,
+) -> tuple[
+    list[tuple[tuple[str, ...], DataColumn | PendingDataColumn]], list[FrameDecompositionRole]
+]:
     entries: list[tuple[tuple[str, ...], DataColumn | PendingDataColumn]] = [
         (("contribution", *path), source),
         (("total", *path), source),
-        (("observed_total", *path), parent.values[target.observed]),
+        (("observed_total", *path), observed),
         (("contribution_share", *path), directory[("contribution_share", "target")]),
     ]
     roles: list[FrameDecompositionRole] = ["contribution", "total", "observed_total", "share"]
@@ -838,6 +794,32 @@ def report_schema(
                 "additive": "effect_additive",
             }
             roles.append(effect_roles[effect])
+    return entries, roles
+
+
+def report_schema(
+    legacy: DataSchema | PendingDataSchema,
+    parent: DataSchema | PendingDataSchema,
+    operation: AttributeContributionValues,
+    *,
+    fresh: DataColumn | None = None,
+    parent_diagnostics: tuple[tuple[tuple[str, ...], DataColumn], ...] = (),
+) -> DataSchema | PendingDataSchema:
+    """Map one closed target to its report directory without parsing display names."""
+
+    target = operation.target
+    assert target is not None
+    directory: dict[tuple[str, ...], DataColumn | PendingDataColumn] = dict(
+        zip(legacy.value_paths, legacy.values, strict=True)
+    )
+    path = target.path
+    level = target.mode == "level"
+    source = directory[("left" if level else "contribution", "target")]
+    values: list[DataColumn | PendingDataColumn] = []
+    paths: list[tuple[str, ...]] = []
+    entries, roles = _report_entries(
+        directory, source, parent.values[target.observed], path, level=level, operation=operation
+    )
     common: DataType | None = None
     observed = parent.values[target.observed]
     if (

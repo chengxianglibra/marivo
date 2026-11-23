@@ -165,6 +165,39 @@ def _neutral_date_clock(argument: ops.Value) -> ir.TimestampValue:
     return result
 
 
+def _lower_time_call(value: ops.Value, engine: str) -> ops.Node:
+    zone_node, argument = value.args
+    assert isinstance(zone_node, ops.Literal) and isinstance(zone_node.value, str)
+    assert isinstance(argument, ops.Value)
+    zone = zone_node.value
+    timestamp = argument.to_expr()
+    assert isinstance(timestamp, ir.TimestampValue)
+    localize = type(value) is _LOCALIZE
+    if engine == "mysql":
+        zone = "+00:00" if zone == "UTC" else zone
+        source, target = (zone, "+00:00") if localize else ("+00:00", zone)
+        convert = _mysql_localize if localize else _mysql_convert
+        return convert(timestamp, source, target).op()
+    if engine == "trino":
+        if localize:
+            instant = _trino_localize(timestamp, zone)
+            # Return the declared UTC carrier. A named-zone wire value can
+            # be reinterpreted by a client with different timezone rules.
+            return (instant if zone == "UTC" else _trino_render(instant, "UTC")).op()
+        return _trino_render(timestamp, zone).cast(dt.Timestamp(scale=6)).op()
+    if engine == "clickhouse":
+        if localize and any(cast.arg.dtype.is_date() for cast in argument.find(ops.Cast)):
+            timestamp = _neutral_date_clock(argument)
+        carrier = timestamp.cast(dt.Timestamp(timezone="UTC", scale=6))
+        assert isinstance(carrier, ir.TimestampValue)
+        text = _clickhouse_text(carrier, "UTC" if localize else zone)
+        converted = _clickhouse_clock(text, 6, zone if localize else "UTC")
+        result = clickhouse_zone(converted, "UTC")
+        # A naive DateTime64 adopts the ClickHouse server zone, so keep the UTC label.
+        return result.op()
+    return value
+
+
 def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
     """Lower shared native time operations without changing unrelated graphs."""
     if not needs_temporal_lowering(expression, engine):
@@ -222,35 +255,7 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
         ):
             return value.copy(dtype=value.dtype.copy(scale=6))
         if governed_temporal_operation(value):
-            zone_node, argument = value.args
-            assert isinstance(zone_node, ops.Literal) and isinstance(zone_node.value, str)
-            assert isinstance(argument, ops.Value)
-            zone = zone_node.value
-            timestamp = argument.to_expr()
-            assert isinstance(timestamp, ir.TimestampValue)
-            localize = type(value) is _LOCALIZE
-            if engine == "mysql":
-                zone = "+00:00" if zone == "UTC" else zone
-                source, target = (zone, "+00:00") if localize else ("+00:00", zone)
-                convert = _mysql_localize if localize else _mysql_convert
-                return convert(timestamp, source, target).op()
-            if engine == "trino":
-                if localize:
-                    instant = _trino_localize(timestamp, zone)
-                    # Return the declared UTC carrier. A named-zone wire value can
-                    # be reinterpreted by a client with different timezone rules.
-                    return (instant if zone == "UTC" else _trino_render(instant, "UTC")).op()
-                return _trino_render(timestamp, zone).cast(dt.Timestamp(scale=6)).op()
-            if engine == "clickhouse":
-                if localize and any(cast.arg.dtype.is_date() for cast in argument.find(ops.Cast)):
-                    timestamp = _neutral_date_clock(argument)
-                carrier = timestamp.cast(dt.Timestamp(timezone="UTC", scale=6))
-                assert isinstance(carrier, ir.TimestampValue)
-                text = _clickhouse_text(carrier, "UTC" if localize else zone)
-                converted = _clickhouse_clock(text, 6, zone if localize else "UTC")
-                result = clickhouse_zone(converted, "UTC")
-                # A naive DateTime64 adopts the ClickHouse server zone, so keep the UTC label.
-                return result.op()
+            return _lower_time_call(value, engine)
         if engine == "clickhouse" and isinstance(value, ops.TimestampTruncate):
             argument = value.arg
             if (

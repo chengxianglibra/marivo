@@ -53,6 +53,31 @@ PROBE_MODULES = (
 )
 
 
+def _local_imports(source: Path) -> set[str]:
+    pending: set[str] = set()
+    for node in ast.walk(ast.parse(source.read_text())):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            imported = (node.module, *(node.module + "." + a.name for a in node.names))
+        elif isinstance(node, ast.Import):
+            imported = tuple(a.name for a in node.names)
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.startswith(("tests.", "scripts."))
+            and all(part.isidentifier() for part in node.value.split("."))
+        ):
+            # Python -m helpers name their dependencies as module literals.
+            imported = (node.value,)
+        else:
+            continue
+        for module in imported:
+            if module.startswith(("tests.", "scripts.")):
+                path = PROJECT_ROOT.joinpath(*module.split("."))
+                if path.with_suffix(".py").is_file() or (path / "__init__.py").is_file():
+                    pending.add(module)
+    return pending
+
+
 def stage_inputs(destination: Path) -> None:
     """Copy only package probes and their imported helper dependencies."""
     pending = set(PROBE_MODULES)
@@ -75,26 +100,7 @@ def stage_inputs(destination: Path) -> None:
             if parent == destination:
                 break
             (parent / "__init__.py").touch()
-        for node in ast.walk(ast.parse(source.read_text())):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                imported = (node.module, *(node.module + "." + a.name for a in node.names))
-            elif isinstance(node, ast.Import):
-                imported = tuple(a.name for a in node.names)
-            elif (
-                isinstance(node, ast.Constant)
-                and isinstance(node.value, str)
-                and node.value.startswith(("tests.", "scripts."))
-                and all(part.isidentifier() for part in node.value.split("."))
-            ):
-                # Python -m helpers name their dependencies as module literals.
-                imported = (node.value,)
-            else:
-                continue
-            for module in imported:
-                if module.startswith(("tests.", "scripts.")):
-                    path = PROJECT_ROOT.joinpath(*module.split("."))
-                    if path.with_suffix(".py").is_file() or (path / "__init__.py").is_file():
-                        pending.add(module)
+        pending.update(_local_imports(source))
     for prefix in ("docs", "zh-cn/docs"):
         relative = Path(f"site/src/content/docs/{prefix}/latest")
         shutil.copytree(PROJECT_ROOT / relative, destination / relative)

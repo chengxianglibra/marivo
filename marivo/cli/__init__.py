@@ -123,6 +123,10 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
     else:
         print(f"  Warning: {STATE_DIR}/ already exists — skipping", file=sys.stderr)
 
+    _install_project_skills(project_dir, skills_src, force=force)
+
+
+def _install_project_skills(project_dir: Path, skills_src: Path, *, force: bool) -> None:
     for agent_dir_name, agent_label in [
         (AGENTS_SKILLS_DIR, "Agents"),
         (CLAUDE_SKILLS_DIR, "Claude Code"),

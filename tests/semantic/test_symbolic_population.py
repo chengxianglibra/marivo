@@ -54,7 +54,7 @@ def _catalog(factory: Callable[..., SemanticProject], helper: str) -> SemanticCa
 def _population(catalog: SemanticCatalog) -> PopulationParameter:
     metric = consume_metric(catalog_get(catalog, "metric:sales.selected_count", kind="metric"))
     body = next(
-        body for reference, body in metric._declared if reference.ref.path == "sales.selected_count"
+        body for reference, body in metric.declared if reference.ref.path == "sales.selected_count"
     )
     assert isinstance(body, MemberCount)
     return PopulationParameter(body.population)
@@ -209,7 +209,7 @@ def selected_count():
     expected = consume_metric(population.count().sqrt().abs()).node
     actual = consume_metric(catalog_get(catalog, "metric:sales.selected_count", kind="metric"))
     body = next(
-        body for reference, body in actual._declared if reference.ref.path == "sales.selected_count"
+        body for reference, body in actual.declared if reference.ref.path == "sales.selected_count"
     )
     assert body == expected
 

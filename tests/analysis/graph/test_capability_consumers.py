@@ -993,7 +993,7 @@ def test_native_observation_does_not_audit_wall_times_outside_its_scope(
         assert sorted(_value(result).tolist()) == [0, 2]
         run = terminal_runs(session)[-1]
         assert run.lifecycle == "succeeded"
-        with session._runtime.store._read() as connection:
+        with session._runtime.store.read_transaction() as connection:
             assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         product_owners = [owner for owner in source_trace.owners if owner is not case.session]

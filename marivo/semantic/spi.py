@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable
 
-from marivo._kernel.refs import ExactRef, Ref, SemanticKindTag
+from marivo._kernel.refs import ExactRef
 from marivo.semantic import Entity, SemanticCatalog, SemanticObject
 from marivo.semantic._compiled_state import build_compiled_state
 from marivo.semantic._consumption import (
@@ -23,6 +23,7 @@ from marivo.semantic._deferred_semantics import (
     consume_predicate,
 )
 from marivo.semantic._expression_binding import evaluate_expression_body
+from marivo.semantic._expression_carrier import expression_role
 from marivo.semantic._expression_values import (
     DimensionExpression,
     FieldExpression,
@@ -49,7 +50,10 @@ from marivo.semantic.catalog_entries import (
 from marivo.semantic.catalog_entries import (
     _json_value as serialize_catalog_json_value,
 )
+from marivo.semantic.catalog_model.inputs import require_catalog_index
+from marivo.semantic.catalog_model.objects import entry_value, lookup_state
 from marivo.semantic.catalog_model.refs import _make_ref as make_catalog_ref
+from marivo.semantic.catalog_previews import require_catalog_ref
 from marivo.semantic.check import (
     run_check,
 )
@@ -59,6 +63,7 @@ from marivo.semantic.compiled_types import (
 )
 from marivo.semantic.definition_resolution import _Resolver as DefinitionResolver
 from marivo.semantic.expressions.inputs import _as_deferred as as_deferred
+from marivo.semantic.expressions.inputs import expression_recipe
 from marivo.semantic.expressions.ir import CompiledExpressionSidecar
 from marivo.semantic.expressions.metric_time import (
     metric_time_occurrences,
@@ -75,6 +80,7 @@ from marivo.semantic.ir import (
     DateParse,
     HourPrefixParse,
     SampleIntervalIR,
+    SemanticParse,
     SnapshotVersioningIR,
     SourceLocation,
     StrptimeParse,
@@ -134,24 +140,19 @@ from marivo.semantic.unit_algebra import (
 
 
 def catalog_entity_identity(entry: Entity) -> ExactRef:
-    value = entry._catalog._resolved_value(entry._ref)
+    value = entry_value(entry)
     assert isinstance(value, ResolvedEntity)
     return entity_exact(value)
 
 
 def catalog_state(catalog: SemanticCatalog) -> CompiledSemanticState:
     """Return the compiled state captured when the Catalog was loaded."""
-    return catalog._state
+    return lookup_state(catalog)
 
 
 def iter_catalog_entries(catalog: SemanticCatalog) -> Iterable[SemanticObject]:
     """Visit the entries captured by this Catalog, in index order."""
-    return catalog._index.entries()
-
-
-def require_catalog_ref(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> None:
-    """Check an exact captured identity without reading a datasource."""
-    catalog._require_ref(ref)
+    return require_catalog_index(catalog).entries()
 
 
 __all__ = [
@@ -177,6 +178,7 @@ __all__ = [
     "RowPredicate",
     "SampleIntervalIR",
     "SearchDocument",
+    "SemanticParse",
     "SnapshotVersioningIR",
     "SourceLocation",
     "StrptimeParse",
@@ -209,6 +211,8 @@ __all__ = [
     "entity_exact",
     "evaluate_expression_body",
     "exact_identity_matches",
+    "expression_recipe",
+    "expression_role",
     "finish_nullable_sum",
     "force_cast",
     "is_time_bearing_format",

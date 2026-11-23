@@ -28,8 +28,14 @@ from marivo.analysis.core.frame_operations import (
 )
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.model.data_schema import DataSchema
-from marivo.analysis.model.frame_contracts import FrameKeyInput
-from marivo.analysis.model.lineage import directory
+from marivo.analysis.model.frame_contracts import (
+    FrameKeyInput,
+    frame_backing,
+    frame_derivation_of,
+    frame_local,
+    frame_logical_schema,
+)
+from marivo.analysis.model.lineage import directory, lineage_domain
 
 if TYPE_CHECKING:
     from marivo.analysis.core.frame_data import CompletedFrameData, FrameExpressionRoot
@@ -60,14 +66,14 @@ def derive_declaration(
         return None
     operation = root.operation
     inputs = root.inputs
-    declarations = tuple(frame._derivation for frame in inputs)
+    declarations = tuple(frame_derivation_of(frame) for frame in inputs)
     first = declarations[0]
     if isinstance(operation, FixFrameValues):
         return _fix(first, operation)
     if isinstance(operation, (FilterValues, TopValues)):
         return first
     if isinstance(operation, SelectValues):
-        return _select(first, inputs[0]._schema.value_paths, schema, operation)
+        return _select(first, frame_logical_schema(inputs[0]).value_paths, schema, operation)
     if isinstance(operation, CompareFrameValues):
         return _compare(first, declarations, operation)
     if isinstance(operation, AlignFrameValues):
@@ -301,10 +307,11 @@ def complete_declaration(
                 frozen.append(prior)
                 continue
             original = dependency.frame
-            assert isinstance(original._local, LocalFrameServices)
+            local = frame_local(original)
+            assert isinstance(local, LocalFrameServices)
             data = keys.get(dependency.input_id)
             if data is None:
-                backing = original._backing
+                backing = frame_backing(original)
                 if isinstance(backing, MemoryFrameBacking):
                     data = key_checkpoint(backing.data)
                 else:
@@ -314,10 +321,10 @@ def complete_declaration(
                 data.schema,
                 (),
                 tuple(original.lineage.axes.values()),
-                domain=original.lineage._domain,
+                domain=lineage_domain(original.lineage),
             )
             carrier = bind_key(
-                original._local,
+                local,
                 CompletedFrameResult(data, replace(metadata, lineage=lineage)),
                 dependency.input_id,
             )

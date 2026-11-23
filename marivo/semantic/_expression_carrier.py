@@ -16,6 +16,7 @@ from typing import (
 
 from ibis.common.deferred import Attr, BinaryOperator, Call, Deferred, Just, Resolver
 from ibis.common.deferred import Sequence as RecipeSequence
+from typing_extensions import override
 
 from marivo._definition.deferred import (
     NamedResolver,
@@ -32,7 +33,9 @@ from marivo._definition.types import (
 )
 from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
 from marivo._kernel.grouping import Grouping
+from marivo._kernel.input_context import captured_context
 from marivo._kernel.paths import _PathValue as Path
+from marivo._kernel.paths import path_parameter, relationship_binding
 from marivo._kernel.render import Card, RenderableResult
 from marivo._kernel.temporal import Grain, InstantAnchor, TimeScope
 from marivo.semantic._deferred_semantics import (
@@ -48,6 +51,7 @@ from marivo.semantic.expressions.inputs import (
     CatalogRelationshipInput,
     RecipeInput,
     _OmittedTime,
+    expression_recipe,
 )
 from marivo.semantic.metric_time_bindings import metric_time_bindings
 
@@ -65,6 +69,7 @@ Window: TypeAlias = AllHistory | Since | ToDate | TrailingDuration | TrailingPer
 
 
 class _GrainOmitted:
+    @override
     def __repr__(self) -> str:
         return "omitted"
 
@@ -85,13 +90,13 @@ def _source_arguments(receiver: Resolver, time: object, **kwargs: object) -> dic
 def _parameter(value: object) -> Resolver:
 
     if isinstance(value, _ExpressionCarrier):
-        return value._recipe
+        return expression_recipe(value)
     if isinstance(value, Deferred):
         return resolver_of(value)
     if isinstance(value, Path):
-        return Just(value._parameter)
+        return Just(path_parameter(value))
     if isinstance(value, CatalogRelationshipInput):
-        return NamedResolver(value._parameter.ref, Just(value._parameter))
+        return NamedResolver(relationship_binding(value).ref, Just(relationship_binding(value)))
     if isinstance(
         value,
         (
@@ -131,15 +136,15 @@ def _parameter(value: object) -> Resolver:
 def _contexts(value: object) -> tuple[InputContext, ...]:
 
     if isinstance(value, (Grouping, Path, PopulationParameter)):
-        return (value._context,)
+        return (captured_context(value),)
     if isinstance(value, CatalogInput):
-        return (value._context,)
+        return (captured_context(value),)
     if isinstance(value, InputContext):
         return (value,)
     if isinstance(value, Deferred):
         return (inspect_capture(value).context,)
     if isinstance(value, _ExpressionCarrier):
-        return (value._context,)
+        return (captured_context(value),)
     if isinstance(value, (tuple, list)):
         return tuple(context for item in value for context in _contexts(item))
     if isinstance(value, Mapping):
@@ -162,7 +167,8 @@ class _ExpressionCarrier(RenderableResult, RecipeInput):
     _captured_recipe: Resolver
     _captured_context: InputContext
     _captured_role: str
-    __hash__ = None  # type: ignore[assignment]  # Expressions define predicate equality and are never hash keys.
+    # Declaring identity equality keeps carriers without predicate operators unhashable.
+    __eq__ = object.__eq__
 
     def __init__(self, recipe: Resolver, context: InputContext, role: str) -> None:
         object.__setattr__(self, "_captured_recipe", recipe)
@@ -180,10 +186,12 @@ class _ExpressionCarrier(RenderableResult, RecipeInput):
                 error, operation="expression capture"
             ) from error
 
+    @override
     def __setattr__(self, name: str, value: object) -> NoReturn:
         raise AttributeError("Semantic expressions are immutable.")
 
     @property
+    @override
     def _recipe(self) -> Resolver:
         return self._captured_recipe
 
@@ -212,11 +220,11 @@ class _ExpressionCarrier(RenderableResult, RecipeInput):
         self._require("numeric")
         stage = "row" if self._carrier_stage == "row" else "metric"
         if isinstance(other, _ExpressionCarrier) and (
-            other._carrier_stage != stage or other._role != "numeric"
+            expression_stage(other) != stage or expression_role(other) != "numeric"
         ):
             _stage_error(
                 "Arithmetic requires numeric expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
+                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{expression_role(other)}]",
             )
 
     def _arithmetic_recipe(
@@ -239,9 +247,9 @@ class _ExpressionCarrier(RenderableResult, RecipeInput):
             return
         if (
             isinstance(other, _ExpressionCarrier)
-            and other._role == "boolean"
+            and expression_role(other) == "boolean"
             and self._carrier_stage in ("row", "metric")
-            and self._carrier_stage == other._carrier_stage
+            and self._carrier_stage == expression_stage(other)
         ):
             return
         stage = "row" if self._carrier_stage == "row" else "Metric"
@@ -250,7 +258,7 @@ class _ExpressionCarrier(RenderableResult, RecipeInput):
             message="Boolean composition requires predicates from the same stage or bool literals.",
             expected=f"a {stage}-stage predicate or bool literal",
             received=(
-                f"{type(other).__name__}[{other._role}]"
+                f"{type(other).__name__}[{expression_role(other)}]"
                 if isinstance(other, _ExpressionCarrier)
                 else type(other).__name__
             ),
@@ -280,9 +288,11 @@ class _ExpressionCarrier(RenderableResult, RecipeInput):
             **{key: _parameter(value) for key, value in parameters.items()},
         )
 
+    @override
     def _repr_identity(self) -> str:
         return f"{type(self).__name__} {self._role} expression"
 
+    @override
     def _card(self) -> Card:
         inspection = inspect_capture(Deferred(self._recipe))
         card = (
@@ -341,8 +351,18 @@ class _ExpressionCarrier(RenderableResult, RecipeInput):
                     )
         return card
 
+    @override
     def __repr__(self) -> str:
         return f"{self._repr_identity()} (use .show())"
+
+
+def expression_stage(value: _ExpressionCarrier) -> Literal["row", "metric", "sample"] | None:
+    return value._carrier_stage  # noqa: SLF001 - Restrict cross-stage composition at the carrier boundary.
+
+
+def expression_role(value: _ExpressionCarrier) -> str:
+    """Read the role checked when the expression was captured."""
+    return value._role  # noqa: SLF001 - Role inspection for typed Semantic consumers.
 
 
 class _RowCarrier(_ExpressionCarrier, Generic[_RowRoleT]):

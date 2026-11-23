@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
 import ibis.expr.schema as sch
+from typing_extensions import override
 
 from marivo._kernel.render import Card, RenderableResult
 
@@ -72,6 +73,11 @@ class ColumnMetadata:
             "comment": self.comment,
             "ordinal_position": self.ordinal_position,
         }
+
+
+def uses_ibis_column_type(column: ColumnMetadata) -> bool:
+    """Whether the stored column spelling came from Ibis rather than a provider."""
+    return column._type_is_ibis  # noqa: SLF001 - Preserve the physical metadata provenance.
 
 
 @dataclass(frozen=True)
@@ -180,11 +186,13 @@ class TableMetadata(RenderableResult):
         database = ".".join(self.database) if isinstance(self.database, tuple) else self.database
         return f"{self.datasource}.{database}.{self.table}"
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"TableMetadata ref={self.ref} backend={self.backend_type} columns={len(self.columns)}"
         )
 
+    @override
     def _card(self) -> Card:
         def column_rows() -> Iterable[Sequence[str]]:
             for c in self.columns:
@@ -356,7 +364,9 @@ def _merge_columns(
                 nullable=catalog.nullable,
                 comment=catalog.comment,
                 ordinal_position=catalog.ordinal_position or column.ordinal_position,
-                _type_is_ibis=catalog._type_is_ibis if catalog.type else column._type_is_ibis,
+                _type_is_ibis=uses_ibis_column_type(catalog)
+                if catalog.type
+                else uses_ibis_column_type(column),
             )
         )
     return tuple(out)

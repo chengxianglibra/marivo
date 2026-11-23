@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import closing, contextmanager
 from dataclasses import replace
@@ -42,6 +41,12 @@ from marivo.datasource.engines.statements import (
     register_provider_statements,
 )
 from marivo.datasource.engines.strptime import python_to_mysql_strptime
+from marivo.datasource.engines.trino_metadata import (
+    partitions_from_show_create as _trino_partitions_from_show_create,
+)
+from marivo.datasource.engines.trino_metadata import (
+    table_comment_from_show_create as _trino_table_comment_from_show_create,
+)
 from marivo.datasource.engines.trino_query import (
     _trino_namespace,
     inline_key_relation,
@@ -71,9 +76,6 @@ from marivo.datasource.metadata_types import (
 )
 from marivo.datasource.metadata_types import (
     MetadataWarning as _Warning,
-)
-from marivo.datasource.metadata_types import (
-    PartitionMetadata as _PartitionMetadata,
 )
 from marivo.datasource.metadata_types import (
     TablePhysicalProfile as _Profile,
@@ -361,18 +363,6 @@ def _trino_rows(
     )
 
 
-_TRINO_PARTITION_ARRAY_RE = re.compile(
-    r"\b(?:partitioned_by|partitioning)\s*=\s*ARRAY\s*\[(.*?)\]",
-    re.IGNORECASE | re.DOTALL,
-)
-_TRINO_ARRAY_STRING_RE = re.compile(r"'((?:[^']|'')*)'")
-_TRINO_PARTITION_TRANSFORM_RE = re.compile(r"^([A-Za-z_]\w*)\((.*)\)$")
-_TRINO_TABLE_COMMENT_RE = re.compile(
-    r"\)\s*COMMENT\s+'((?:[^']|'')*)'",
-    re.IGNORECASE | re.DOTALL,
-)
-
-
 def _trino_columns_from_rows(rows: Iterable[Mapping[str, object]]) -> dict[str, ColumnMetadata]:
 
     columns: dict[str, _ColumnMetadata] = {}
@@ -421,51 +411,6 @@ def _trino_columns_with_show_comments(
     return columns
 
 
-def _trino_partition_specs_from_show_create(create_sql: str) -> tuple[str, ...]:
-    match = _TRINO_PARTITION_ARRAY_RE.search(create_sql)
-    if not match:
-        return ()
-    return tuple(
-        value.replace("''", "'").strip() for value in _TRINO_ARRAY_STRING_RE.findall(match.group(1))
-    )
-
-
-def _trino_partition_from_spec(
-    spec: str,
-    catalog_columns: Mapping[str, ColumnMetadata],
-) -> PartitionMetadata | None:
-
-    transform: str | None = None
-    column_name = spec.strip()
-    transform_match = _TRINO_PARTITION_TRANSFORM_RE.match(column_name)
-    if transform_match:
-        transform = transform_match.group(1)
-        first_arg = transform_match.group(2).split(",", 1)[0].strip()
-        column_name = first_arg.strip('"')
-    column = catalog_columns.get(column_name)
-    if column is None:
-        return None
-    return _PartitionMetadata(
-        name=column_name,
-        type=column.type,
-        transform=transform,
-        comment=None,
-    )
-
-
-def _trino_partitions_from_show_create(
-    *,
-    create_sql: str,
-    catalog_columns: Mapping[str, ColumnMetadata],
-) -> tuple[PartitionMetadata, ...]:
-    partitions: list[PartitionMetadata] = []
-    for spec in _trino_partition_specs_from_show_create(create_sql):
-        partition = _trino_partition_from_spec(spec, catalog_columns)
-        if partition is not None:
-            partitions.append(partition)
-    return tuple(partitions)
-
-
 def _trino_show_create_table(
     *,
     backend: BaseBackend,
@@ -497,14 +442,6 @@ def _trino_show_create_table(
         if value is not None:
             return str(value)
     return None
-
-
-def _trino_table_comment_from_show_create(create_sql: str) -> str | None:
-
-    match = _TRINO_TABLE_COMMENT_RE.search(create_sql)
-    if match is None:
-        return None
-    return _empty_to_none(match.group(1).replace("''", "'"))
 
 
 def _trino_physical_profile(
@@ -558,6 +495,102 @@ def _trino_physical_profile(
     )
 
 
+def _trino_column_metadata(
+    backend: BaseBackend,
+    catalog_name: str,
+    schema_name: str,
+    table: str,
+    predicates: Mapping[str, object],
+    warnings: list[MetadataWarning],
+) -> dict[str, ColumnMetadata]:
+    catalog_columns: dict[str, ColumnMetadata] = {}
+    try:
+        column_rows = _trino_rows(backend, "trino.columns", values=predicates)
+        catalog_columns = _trino_columns_from_rows(column_rows)
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=(
+                    f"trino column metadata query failed: {_backend_failure_summary(exc).message}"
+                ),
+            )
+        )
+
+    if catalog_columns:
+        try:
+            show_column_rows = _trino_rows(
+                backend,
+                "trino.show_columns",
+                identifiers={"table_ref": (catalog_name, schema_name, table)},
+            )
+            catalog_columns = _trino_columns_with_show_comments(
+                catalog_columns,
+                show_column_rows,
+            )
+        except Exception as exc:
+            warnings.append(
+                MetadataWarning(
+                    kind="column_comments_unavailable",
+                    message=(
+                        "trino column comments are unavailable: "
+                        f"{_backend_failure_summary(exc).message}"
+                    ),
+                )
+            )
+
+    return catalog_columns
+
+
+def _trino_definition_metadata(
+    backend: BaseBackend,
+    catalog_name: str,
+    schema_name: str,
+    table: str,
+    columns: tuple[ColumnMetadata, ...],
+    is_view: bool | None,
+    include_partitions: bool,
+    warnings: list[MetadataWarning],
+) -> tuple[str | None, tuple[PartitionMetadata, ...]]:
+    table_comment: str | None = None
+    create_sql: str | None = None
+    if not is_view:
+        create_sql = _trino_show_create_table(
+            backend=backend,
+            table=table,
+            catalog=catalog_name,
+            schema_name=schema_name,
+            warnings=warnings,
+        )
+        if create_sql is not None:
+            table_comment = _trino_table_comment_from_show_create(create_sql)
+    if table_comment is None:
+        warnings.append(
+            MetadataWarning(
+                kind="table_comments_unavailable",
+                message="trino table comments are unavailable from SHOW CREATE TABLE",
+            )
+        )
+
+    partitions: tuple[PartitionMetadata, ...] = ()
+    if include_partitions and create_sql is not None:
+        partitions = _trino_partitions_from_show_create(
+            create_sql=create_sql,
+            catalog_columns={column.name: column for column in columns},
+        )
+    if include_partitions and not partitions:
+        warnings.append(
+            MetadataWarning(
+                kind="partitions_unavailable",
+                message=(
+                    "trino partition metadata is connector-specific and not exposed by this adapter"
+                ),
+            )
+        )
+
+    return table_comment, partitions
+
+
 def _inspect_trino(
     *,
     datasource: str,
@@ -595,46 +628,12 @@ def _inspect_trino(
             ),
         )
     warnings: list[MetadataWarning] = []
-    table_comment: str | None = None
     physical_profile: TablePhysicalProfile | None = None
     predicates = {"catalog": catalog_name, "schema": schema_name, "table": table}
 
-    catalog_columns: dict[str, ColumnMetadata] = {}
-    try:
-        column_rows = _trino_rows(backend, "trino.columns", values=predicates)
-        catalog_columns = _trino_columns_from_rows(column_rows)
-    except Exception as exc:
-        warnings.append(
-            MetadataWarning(
-                kind="metadata_query_failed",
-                message=(
-                    f"trino column metadata query failed: {_backend_failure_summary(exc).message}"
-                ),
-            )
-        )
-
-    if catalog_columns:
-        try:
-            show_column_rows = _trino_rows(
-                backend,
-                "trino.show_columns",
-                identifiers={"table_ref": (catalog_name, schema_name, table)},
-            )
-            catalog_columns = _trino_columns_with_show_comments(
-                catalog_columns,
-                show_column_rows,
-            )
-        except Exception as exc:
-            warnings.append(
-                MetadataWarning(
-                    kind="column_comments_unavailable",
-                    message=(
-                        "trino column comments are unavailable: "
-                        f"{_backend_failure_summary(exc).message}"
-                    ),
-                )
-            )
-
+    catalog_columns = _trino_column_metadata(
+        backend, catalog_name, schema_name, table, predicates, warnings
+    )
     is_view: bool | None = None
     view_definition: str | None = None
     try:
@@ -687,41 +686,9 @@ def _inspect_trino(
         )
 
     columns = _merge_columns(schema_columns, catalog_columns)
-    create_sql: str | None = None
-    if not is_view:
-        create_sql = _trino_show_create_table(
-            backend=backend,
-            table=table,
-            catalog=catalog_name,
-            schema_name=schema_name,
-            warnings=warnings,
-        )
-        if create_sql is not None:
-            table_comment = _trino_table_comment_from_show_create(create_sql)
-    if table_comment is None:
-        warnings.append(
-            MetadataWarning(
-                kind="table_comments_unavailable",
-                message="trino table comments are unavailable from SHOW CREATE TABLE",
-            )
-        )
-
-    partitions: tuple[PartitionMetadata, ...] = ()
-    if include_partitions and create_sql is not None:
-        partitions = _trino_partitions_from_show_create(
-            create_sql=create_sql,
-            catalog_columns={column.name: column for column in columns},
-        )
-    if include_partitions and not partitions:
-        warnings.append(
-            MetadataWarning(
-                kind="partitions_unavailable",
-                message=(
-                    "trino partition metadata is connector-specific and not exposed by this adapter"
-                ),
-            )
-        )
-
+    table_comment, partitions = _trino_definition_metadata(
+        backend, catalog_name, schema_name, table, columns, is_view, include_partitions, warnings
+    )
     if not is_view:
         physical_profile = _trino_physical_profile(
             backend=backend,

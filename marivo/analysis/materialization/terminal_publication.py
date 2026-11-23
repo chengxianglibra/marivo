@@ -66,7 +66,7 @@ def reconcile(store: SessionStore, session: str, event: Callable[[str], None]) -
     event("reconciliation")
     if store.session(session) is None:
         raise invalid("reconciliation Session is absent")
-    with store._read() as conn:
+    with store.read_transaction() as conn:
         refs = _rows(
             conn,
             "SELECT a.run_ref FROM analysis_action_runs a LEFT JOIN analysis_action_run_terminals t USING(run_ref) WHERE a.session_ref=? AND (t.run_ref IS NULL OR EXISTS (SELECT 1 FROM action_resource_journal j WHERE j.run_ref=a.run_ref)) ORDER BY a.admitted_at,a.run_ref",
@@ -149,14 +149,7 @@ def _write_supplemental_outputs(
     return tuple(attachments), tuple(saved_methods)
 
 
-def publish_completed(
-    store: SessionStore,
-    session: str,
-    result: CompletedFrameResult,
-    *,
-    description: str | None = None,
-) -> StoredFrameBacking:
-    """Publish independent checked output; no evaluation or source access is possible."""
+def _copy_publication_output(result: CompletedFrameResult) -> CompletedFrameData:
     if type(result) is not CompletedFrameResult:
         reject(
             "local Frame services and one completed result",
@@ -166,9 +159,20 @@ def publish_completed(
         )
     # Validate/copy before admission. Publication owns this snapshot even if an
     # invalid caller has retained a private pandas buffer.
-    data = CompletedFrameData(
+    return CompletedFrameData(
         result.data.schema, result.data.copy_rows(), result.data.copy_attachments()
     )
+
+
+def publish_completed(
+    store: SessionStore,
+    session: str,
+    result: CompletedFrameResult,
+    *,
+    description: str | None = None,
+) -> StoredFrameBacking:
+    """Publish independent checked output; no evaluation or source access is possible."""
+    data = _copy_publication_output(result)
     terminal_store.validate_result_metadata(data.schema, result.metadata)
     for facts in result.method_facts:
         validate_method_facts(facts)
@@ -233,7 +237,7 @@ def publish_completed(
         except BaseException as failure:
             if committing:
                 try:
-                    with store._read() as conn:
+                    with store.read_transaction() as conn:
                         original = load_run(conn, run_ref or "")
                         if original is None:
                             raise invalid("original publication Run is unavailable")
@@ -270,7 +274,7 @@ def publish_completed(
                     ) from error
             if run_ref is not None:
                 try:
-                    with store._read() as conn:
+                    with store.read_transaction() as conn:
                         original = load_run(conn, run_ref)
                     if original is not None and original.lifecycle == "incomplete":
                         owned = tuple(

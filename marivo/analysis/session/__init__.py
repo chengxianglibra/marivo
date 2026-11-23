@@ -8,7 +8,7 @@ from pathlib import Path
 from marivo._kernel.config import PROJECT_MANIFEST, load_project_config
 from marivo._kernel.project import resolve_project_root
 from marivo._kernel.timezones import same_timezone
-from marivo._kernel.validation import nonblank_text, trimmed_text
+from marivo._kernel.validation import is_instance, nonblank_text, trimmed_text
 from marivo.analysis.errors import (
     AnalysisRepair,
     SessionAlreadyExistsError,
@@ -24,7 +24,7 @@ from marivo.analysis.model.errors import DatasetConstructionError
 from marivo.analysis.session import _lazy_history
 from marivo.analysis.session._lazy_read_model import SessionSummary, SessionSummaryPage
 from marivo.analysis.session._lazy_runtime_reads import page_after
-from marivo.analysis.session.core import Session
+from marivo.analysis.session.core import Session, session_from_runtime
 from marivo.analysis.timezone import resolve_timezone
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.telemetry import traced
@@ -97,7 +97,7 @@ def get_or_create(
     if domains is not None:
         names = (domains,) if isinstance(domains, str) else domains
         if (
-            not isinstance(names, Sequence)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            not is_instance(names, Sequence)
             or not names
             or any(not trimmed_text(name) for name in names)
         ):
@@ -117,7 +117,7 @@ def get_or_create(
             runtime = DatasetRuntime.create(
                 root, name, question=question, timezone=timezone, domains=selected_domains
             )
-            return Session._from_runtime(runtime)
+            return session_from_runtime(runtime)
         except SessionAlreadyExistsError:
             # Another creator won the unique-name transaction; recover that identity.
             record = SessionStore.open_existing(root).session_by_name(name)
@@ -195,8 +195,8 @@ def _resume(session_id: str, *, help_target: str) -> Session:
     with session_writer_guard(
         store.layout.lock_path(session_id), session_ref=session_id, help_target=help_target
     ):
-        reconcile_session(store, session_id, event=runtime._event)
-    return Session._from_runtime(runtime)
+        reconcile_session(store, session_id, event=runtime.recovery_event)
+    return session_from_runtime(runtime)
 
 
 def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:

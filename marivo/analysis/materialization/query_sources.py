@@ -12,8 +12,10 @@ from uuid import uuid4
 
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+import pyarrow as pa
 
 from marivo._kernel.errors import MarivoError
+from marivo.analysis.materialization.prepared_fields import PreparedFields
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo
@@ -191,6 +193,63 @@ def _check_frame_parameter_types(
                     )
 
 
+def _physical_identity_bound(
+    relation: ir.Table,
+    name: str,
+    owner: SourceSession,
+    bounds: Mapping[str, BoundSource],
+    owners: Mapping[str, SourceSession],
+) -> bool:
+    origins = physical_fields(relation[name])
+    if len(origins) != 1:
+        return False
+    field = origins[0]
+    # Semantic primary_key owns non-null identity integrity. Physical
+    # nullable metadata does not prevent sharing this exact source binding.
+    return any(
+        field.rel == bound.relation.op() and owners[path] is owner for path, bound in bounds.items()
+    )
+
+
+def _contribution_fields(
+    prepared: PreparedFields,
+    schema: pa.Schema,
+    bounds: Mapping[str, BoundSource],
+) -> list[SourceField]:
+    fields: list[SourceField] = []
+    originals = dict(prepared.originals)
+    for path, column in prepared.columns:
+        admitted = _admitted(schema, path, column)
+        expression = originals[column]
+        duration = DurationDataType("us") if expression.type().is_interval() else None
+        for physical in physical_fields(expression):
+            for bound in bounds.values():
+                raw = _bound_physical_field(physical, bound)
+                if raw is not None:
+                    metadata = raw.metadata or {}
+                    if not (
+                        DURATION_UNIT_METADATA_KEY in metadata
+                        or TIMESTAMP_UNIT_METADATA_KEY in metadata
+                    ):
+                        continue
+                    if TIMESTAMP_UNIT_METADATA_KEY in metadata:
+                        _validate_timestamp_precision(raw, path)
+                    if DURATION_UNIT_METADATA_KEY not in metadata:
+                        continue
+                    dtype = admit_source_type(raw, path)
+                    if isinstance(dtype, DurationDataType):
+                        if duration is not None and duration != dtype:
+                            raise _preparation_error("one exact Duration unit", path)
+                        duration = dtype
+        if duration is not None and (
+            isinstance(admitted.dtype, DecimalDataType)
+            or admitted.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
+        ):
+            admitted = replace(admitted, dtype=duration)
+        fields.append(admitted)
+    return fields
+
+
 def _prepare_contribution_read(
     contribution: ContributionBinding,
     input_contract: SourceInputContract,
@@ -230,23 +289,11 @@ def _prepare_contribution_read(
     )
     schema = table.schema().to_pyarrow()
 
-    def physical_identity_bound(relation: ir.Table, name: str, owner: SourceSession) -> bool:
-        origins = physical_fields(relation[name])
-        if len(origins) != 1:
-            return False
-        field = origins[0]
-        # Semantic primary_key owns non-null identity integrity. Physical
-        # nullable metadata does not prevent sharing this exact source binding.
-        return any(
-            field.rel == bound.relation.op() and owners[path] is owner
-            for path, bound in bounds.items()
-        )
-
     logical_binding = owners[root].provider.query_policy.key_fusion == "local" or (
         owners[root].provider.query_policy.key_fusion != "none"
-        and owners[root]._backend.name == owners[root].provider.name
+        and owners[root].uses_native_provider()
         and all(
-            physical_identity_bound(table, name, owners[root])
+            _physical_identity_bound(table, name, owners[root], bounds, owners)
             for name in registry.entities[root].primary_key
         )
     )
@@ -256,37 +303,7 @@ def _prepare_contribution_read(
         else ""
     )
     keys = tuple(_admitted(schema, name, name) for name in registry.entities[root].primary_key)
-    fields = []
-    originals = dict(prepared.originals)
-    for path, column in prepared.columns:
-        admitted = _admitted(schema, path, column)
-        expression = originals[column]
-        duration = DurationDataType("us") if expression.type().is_interval() else None
-        for physical in physical_fields(expression):
-            for bound in bounds.values():
-                raw = _bound_physical_field(physical, bound)
-                if raw is not None:
-                    metadata = raw.metadata or {}
-                    if not (
-                        DURATION_UNIT_METADATA_KEY in metadata
-                        or TIMESTAMP_UNIT_METADATA_KEY in metadata
-                    ):
-                        continue
-                    if TIMESTAMP_UNIT_METADATA_KEY in metadata:
-                        _validate_timestamp_precision(raw, path)
-                    if DURATION_UNIT_METADATA_KEY not in metadata:
-                        continue
-                    dtype = admit_source_type(raw, path)
-                    if isinstance(dtype, DurationDataType):
-                        if duration is not None and duration != dtype:
-                            raise _preparation_error("one exact Duration unit", path)
-                        duration = dtype
-        if duration is not None and (
-            isinstance(admitted.dtype, DecimalDataType)
-            or admitted.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
-        ):
-            admitted = replace(admitted, dtype=duration)
-        fields.append(admitted)
+    fields = _contribution_fields(prepared, schema, bounds)
     schema_facts = SourceSchema(
         root,
         keys,

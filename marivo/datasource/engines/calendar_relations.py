@@ -6,10 +6,10 @@ import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
+from typing import TYPE_CHECKING
 
 import ibis
 import ibis.expr.datatypes as dt
-import ibis.expr.operations as ops
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
 import pyarrow as pa
@@ -17,19 +17,29 @@ import sqlglot as sg
 import sqlglot.expressions as sge
 from ibis.backends.sql.datatypes import ClickHouseType
 
+from marivo._definition._ibis_typing import PhysicalTableOperation
 
-class CalendarData(ops.PhysicalTable):  # type: ignore[misc]  # Ibis operation bases lack typing stubs.
+
+class CalendarData(PhysicalTableOperation):
     """A closed query literal, never an independently readable physical source."""
 
     schema: sch.Schema
     payload: str
 
+    if TYPE_CHECKING:
 
-class CalendarRange(ops.PhysicalTable):  # type: ignore[misc]  # Ibis operation bases lack typing stubs.
+        def __init__(self, name: str, schema: sch.Schema, payload: str) -> None: ...
+
+
+class CalendarRange(PhysicalTableOperation):
     """An invocation's finite output positions, never a source membership table."""
 
     schema: sch.Schema
     count: int
+
+    if TYPE_CHECKING:
+
+        def __init__(self, name: str, schema: sch.Schema, count: int) -> None: ...
 
 
 def calendar_range(count: int) -> ir.Table:

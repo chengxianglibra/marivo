@@ -10,6 +10,8 @@ from itertools import islice
 from math import isfinite
 from typing import NoReturn, TypeAlias
 
+from typing_extensions import override
+
 from marivo.analysis.model.data_types import (
     DataColumn,
     DurationDataType,
@@ -122,12 +124,12 @@ class _FactRecord:
             value = getattr(self, item.name)
             if isinstance(value, _FactRecord):
                 yield f"{item.name}: {value!r}"
-                yield from value._lines()
+                yield from fact_lines(value)
             elif isinstance(value, tuple):
                 for index, child in enumerate(value):
                     yield f"{item.name}[{index}]={_short(repr(child), 160)}"
                     if isinstance(child, _FactRecord):
-                        yield from child._lines()
+                        yield from fact_lines(child)
             else:
                 shown = (
                     _coefficient_text(value)
@@ -136,6 +138,7 @@ class _FactRecord:
                 )
                 yield f"{item.name}={_short(shown, 200)}"
 
+    @override
     def __repr__(self) -> str:
         return f"{type(self).__name__}({_short(self._summary(), 120)}; .show())"
 
@@ -164,6 +167,11 @@ class _FactRecord:
             print(_short(line, 240))
 
 
+def fact_lines(value: _FactRecord) -> Iterator[str]:
+    """Read typed fact lines within the shared bounded rendering path."""
+    return value._lines()  # noqa: SLF001 - The fact renderer owns the protected method.
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class FrameMethodValue(_FactRecord):
     """One exact physical value. Args: column and value; e.g. ``FrameMethodValue(c, 1)``.
@@ -181,8 +189,10 @@ class FrameMethodValue(_FactRecord):
     def __post_init__(self) -> None:
         _scalar(self.column, self.value)
 
+    @override
     def _summary(self) -> str:
         return f"kind=value, column={_short(self.column.name)!r}"
 
+    @override
     def _lines(self) -> Iterator[str]:
         yield f"{_short(self.column.name)} = {_cell(self.value)}; dtype={self.column.dtype!r}; unit={self.column.unit!r}"

@@ -10,8 +10,6 @@ from datetime import date, datetime, timedelta
 from math import isfinite
 from typing import Literal, TypeAlias, cast
 
-from typing_extensions import TypeAliasType
-
 from marivo._kernel.compat import UTC
 from marivo._kernel.refs import Ref, RefPayloadV1
 from marivo.datasource.ir import DatasourceIR, QueryParamScalar, QueryParamScalarList
@@ -20,6 +18,7 @@ from marivo.datasource.source import (
     PartitionScope,
     TableSource,
     UnprunedScope,
+    scope_time_range,
     time_range,
 )
 from marivo.datasource.store.evidence import (
@@ -32,10 +31,7 @@ from marivo.datasource.store.evidence import (
 EVIDENCE_FORMAT_VERSION = 4
 SNAPSHOT_TTL = timedelta(hours=24)
 
-JsonValue = TypeAliasType(  # type: ignore[misc]  # The recursive alias is a runtime type object.
-    "JsonValue",
-    str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None,  # type: ignore[misc]  # Recursive references are resolved by TypeAliasType.
-)
+JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 CacheMissStatus: TypeAlias = Literal["fresh", "stale", "mismatched"]
 
 
@@ -140,8 +136,8 @@ def datasource_spec_fingerprint(datasource: DatasourceIR) -> str:
 
 
 def _scope_payload(scope: AuthoringScope) -> dict[str, object]:
-    if isinstance(scope, PartitionScope) and scope._time_range is not None:
-        predicate = scope._time_range
+    predicate = scope_time_range(scope)
+    if predicate is not None:
         return {
             "kind": "time_range",
             "column": predicate.column,
@@ -467,44 +463,9 @@ def _coverage(value: object) -> SnapshotCoverage:
     return coverage
 
 
-def _validate_snapshot_consistency(
-    *,
-    scope: AuthoringScope,
-    columns: tuple[str, ...],
-    profiles: tuple[ColumnProfile, ...],
-    coverage: SnapshotCoverage,
+def _validate_profile_counts(
+    profiles: tuple[ColumnProfile, ...], coverage: SnapshotCoverage
 ) -> None:
-    if tuple(profile.name for profile in profiles) != columns:
-        raise ValueError("profile names and order must match selected columns")
-    expected_predicate: tuple[tuple[str, ...], ...]
-    if isinstance(scope, PartitionScope) and scope._time_range is not None:
-        predicate = scope._time_range
-        expected_predicate = (
-            (
-                "time_range",
-                predicate.column,
-                predicate.start.isoformat(),
-                predicate.end.isoformat(),
-            ),
-        )
-    elif isinstance(scope, PartitionScope):
-        expected_predicate = tuple(("eq", column, value) for column, value in scope.values)
-    else:
-        expected_predicate = ()
-    if coverage.pushed_predicate != expected_predicate:
-        raise ValueError("coverage predicate does not match scope")
-    expected_retained = min(coverage.observed_row_count, scope.max_rows)
-    if coverage.retained_row_count != expected_retained:
-        raise ValueError("coverage retained rows do not match observed rows and scope")
-    if coverage.observed_row_count > scope.max_rows + 1:
-        raise ValueError("coverage observed rows exceed the bounded acquisition")
-    truncated = coverage.observed_row_count == scope.max_rows + 1
-    if truncated != (coverage.scope_exhaustion == "truncated"):
-        raise ValueError("coverage exhaustion does not match observed rows")
-    expected_exactness = "sample_only" if truncated else "scope_exact"
-    if coverage.scope_exactness != expected_exactness:
-        raise ValueError("coverage exactness does not match exhaustion")
-
     retained = coverage.retained_row_count
     for profile in profiles:
         non_null = retained - profile.sample_null_count
@@ -568,6 +529,47 @@ def _retained_values(
         ):
             raise ValueError("retained row values must be JSON scalars")
     return tuple(normalized)
+
+
+def _validate_snapshot_consistency(
+    *,
+    scope: AuthoringScope,
+    columns: tuple[str, ...],
+    profiles: tuple[ColumnProfile, ...],
+    coverage: SnapshotCoverage,
+) -> None:
+    if tuple(profile.name for profile in profiles) != columns:
+        raise ValueError("profile names and order must match selected columns")
+    expected_predicate: tuple[tuple[str, ...], ...]
+    predicate = scope_time_range(scope)
+    if predicate is not None:
+        expected_predicate = (
+            (
+                "time_range",
+                predicate.column,
+                predicate.start.isoformat(),
+                predicate.end.isoformat(),
+            ),
+        )
+    elif isinstance(scope, PartitionScope):
+        expected_predicate = tuple(("eq", column, value) for column, value in scope.values)
+    else:
+        expected_predicate = ()
+    if coverage.pushed_predicate != expected_predicate:
+        raise ValueError("coverage predicate does not match scope")
+    expected_retained = min(coverage.observed_row_count, scope.max_rows)
+    if coverage.retained_row_count != expected_retained:
+        raise ValueError("coverage retained rows do not match observed rows and scope")
+    if coverage.observed_row_count > scope.max_rows + 1:
+        raise ValueError("coverage observed rows exceed the bounded acquisition")
+    truncated = coverage.observed_row_count == scope.max_rows + 1
+    if truncated != (coverage.scope_exhaustion == "truncated"):
+        raise ValueError("coverage exhaustion does not match observed rows")
+    expected_exactness = "sample_only" if truncated else "scope_exact"
+    if coverage.scope_exactness != expected_exactness:
+        raise ValueError("coverage exactness does not match exhaustion")
+
+    _validate_profile_counts(profiles, coverage)
 
 
 def authoring_scope_from_payload(value: object) -> AuthoringScope:

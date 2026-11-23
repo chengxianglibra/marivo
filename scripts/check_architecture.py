@@ -18,6 +18,7 @@ from tempfile import NamedTemporaryFile
 from typing import TypeAlias
 
 import grimp
+from typing_extensions import override
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE_PATH = ROOT / "scripts" / "architecture_baseline.json"
@@ -143,6 +144,7 @@ class ModuleScan(ast.NodeVisitor):
         self.names: Counter[str] = Counter()
         self.any_attributes: list[ast.Attribute] = []
 
+    @override
     def visit_Import(self, node: ast.Import | ast.ImportFrom) -> None:
         targets = tuple(import_targets(node, self.package))
         for target, alias in zip(targets, node.names, strict=True):
@@ -169,9 +171,11 @@ class ModuleScan(ast.NodeVisitor):
             and target == ("marivo.telemetry.sink", "emit_event")
         )
 
+    @override
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         self.visit_Import(node)
 
+    @override
     def visit_Compare(self, node: ast.Compare) -> None:
         if self.engine_scope and any(
             engine_literal(item) for item in (node.left, *node.comparators)
@@ -179,11 +183,13 @@ class ModuleScan(ast.NodeVisitor):
             self.findings["ARCH002"][self.path] += 1
         self.generic_visit(node)
 
+    @override
     def visit_MatchValue(self, node: ast.MatchValue) -> None:
         if self.engine_scope and engine_literal(node.value):
             self.findings["ARCH002"][self.path] += 1
         self.generic_visit(node)
 
+    @override
     def visit_Call(self, node: ast.Call) -> None:
         if isinstance(node.func, ast.Name) or (
             isinstance(node.func, ast.Attribute) and node.func.attr in CALL_ATTRIBUTES
@@ -191,15 +197,18 @@ class ModuleScan(ast.NodeVisitor):
             self.calls.append((".".join(self.scope) or "<module>", node))
         self.generic_visit(node)
 
+    @override
     def visit_Name(self, node: ast.Name) -> None:
         # Alias resolution happens after the module scan.
         self.names[node.id] += 1
 
+    @override
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if node.attr == "Any":
             self.any_attributes.append(node)
         self.generic_visit(node)
 
+    @override
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self.scope.append(node.name)
         lines = (node.end_lineno or node.lineno) - node.lineno + 1
@@ -208,9 +217,11 @@ class ModuleScan(ast.NodeVisitor):
         self.generic_visit(node)
         self.scope.pop()
 
+    @override
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self.visit_FunctionDef(node)
 
+    @override
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self.scope.append(node.name)
         methods = {

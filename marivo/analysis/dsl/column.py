@@ -7,6 +7,8 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, Protocol
 
+from typing_extensions import override
+
 from marivo._definition.query import (
     CoordinateSlot,
     PairStatistic,
@@ -24,6 +26,7 @@ from marivo.analysis.core.frame_value_analysis import expression_type, infer_fra
 from marivo.analysis.core.value_types import literal_kind
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import frame_local, frame_logical_schema
 from marivo.analysis.model.frame_structure import ValueKind as ValueKind
 from marivo.analysis.model.frame_structure import column_kind
 from marivo.telemetry import traced
@@ -39,8 +42,6 @@ class _ColumnFrame(FrameNode, Protocol):
     """The Frame-owned binding operations required by Columns."""
 
     @property
-    def _project_root(self) -> Path: ...
-    @property
     def session_id(self) -> str: ...
     @property
     def schema(self) -> FrameSchema: ...
@@ -53,6 +54,36 @@ class _ColumnFrame(FrameNode, Protocol):
         self, column: Column, *, location: str, canonical_id: str | None = None
     ) -> None: ...
     def over(self, statistic: _Statistic, *, by: tuple[FrameAxis, ...] = ()) -> Column: ...
+
+
+def _column_literal(other: LiteralValue, canonical_id: str) -> ValueLiteral:
+    try:
+        value = check_literal(other, role="Column literal")
+    except DefinitionGraphError as error:
+        reject(
+            "a finite immutable value literal",
+            str(error),
+            "Pass a finite typed literal or use is_null().",
+            "Column",
+            canonical_id=canonical_id,
+        )
+    if value is None:
+        reject(
+            "a non-null value literal",
+            "None",
+            "Use Column.is_null() for missing values.",
+            "Column",
+            canonical_id=canonical_id,
+        )
+    if isinstance(value, datetime) and (value.tzinfo is None or value.utcoffset() is None):
+        reject(
+            "a timezone-aware timestamp literal",
+            repr(value),
+            "Pass an aware datetime; use date for date-valued Columns.",
+            "Column",
+            canonical_id=canonical_id,
+        )
+    return ValueLiteral(value)
 
 
 @dataclass(frozen=True, slots=True, repr=False, eq=False)
@@ -73,12 +104,13 @@ class Column:
 
     @property
     def _project_root(self) -> Path | None:
-        return self._frame._project_root if self._frame is not None else None
+        return frame_local(self._frame).project_root if self._frame is not None else None
 
     @property
     def _session_id(self) -> str | None:
         return self._frame.session_id if self._frame is not None else None
 
+    @override
     def __repr__(self) -> str:
         return f"<Column input={self._input_id[:16]} kind={self._kind}; use .show()>"
 
@@ -129,7 +161,7 @@ class Column:
         reverse: bool = False,
     ) -> Column:
         if isinstance(other, Column):
-            if self._input_id != other._input_id:
+            if self._input_id != column_input_id(other):
                 reject(
                     "Columns bound to this exact Frame input",
                     "different Frame inputs",
@@ -137,35 +169,14 @@ class Column:
                     "Column",
                     canonical_id=canonical_id,
                 )
-            expression, unit, kind = other._expression, other._unit, other._kind
+            expression, unit, kind = (
+                column_expression(other),
+                column_unit(other),
+                column_value_kind(other),
+            )
         else:
-            try:
-                value = check_literal(other, role="Column literal")
-            except DefinitionGraphError as error:
-                reject(
-                    "a finite immutable value literal",
-                    str(error),
-                    "Pass a finite typed literal or use is_null().",
-                    "Column",
-                    canonical_id=canonical_id,
-                )
-            if value is None:
-                reject(
-                    "a non-null value literal",
-                    "None",
-                    "Use Column.is_null() for missing values.",
-                    "Column",
-                    canonical_id=canonical_id,
-                )
-            if isinstance(value, datetime) and (value.tzinfo is None or value.utcoffset() is None):
-                reject(
-                    "a timezone-aware timestamp literal",
-                    repr(value),
-                    "Pass an aware datetime; use date for date-valued Columns.",
-                    "Column",
-                    canonical_id=canonical_id,
-                )
-            expression, unit, kind = ValueLiteral(value), None, literal_kind(value)
+            expression = _column_literal(other, canonical_id)
+            unit, kind = None, literal_kind(expression.value)
         comparison = operation in ("eq", "ne", "lt", "le", "gt", "ge")
         if operation in ("and", "or"):
             if self._kind != "boolean" or kind != "boolean":
@@ -347,7 +358,8 @@ class Column:
 
     # DSL comparisons deliberately build predicates instead of Python booleans.
     @traced(surface="analysis", operation="column.__eq__", capture="short")
-    def __eq__(self, other: object) -> Column:  # type: ignore[override]  # Column equality builds an expression.
+    @override
+    def __eq__(self, other: object) -> Column:  # type: ignore[override]  # Column comparisons build expressions.
         """Compare compatible values for equality.
 
         Args: other: Same-input Column or compatible immutable literal.
@@ -357,7 +369,8 @@ class Column:
         return self._compare(other, "eq", canonical_id="column.__eq__")
 
     @traced(surface="analysis", operation="column.__ne__", capture="short")
-    def __ne__(self, other: object) -> Column:  # type: ignore[override]  # Column inequality builds an expression.
+    @override
+    def __ne__(self, other: object) -> Column:  # type: ignore[override]  # Column comparisons build expressions.
         """Compare compatible values for inequality.
 
         Args: other: Same-input Column or compatible immutable literal.
@@ -510,9 +523,9 @@ class Column:
                 "Column.share",
                 canonical_id="column.share",
             )
-        frame._require_column(self, location="Column.share", canonical_id="column.share")
+        require_frame_column(frame, self, location="Column.share", canonical_id="column.share")
         positions = tuple(
-            frame._axis_index(axis, location="Column.share", canonical_id="column.share")
+            frame_axis_index(frame, axis, location="Column.share", canonical_id="column.share")
             for axis in along
         )
         if len(set(positions)) != len(positions):
@@ -527,7 +540,9 @@ class Column:
         denominator = frame.over(self._statistic("sum", canonical_id="column.share"), by=partitions)
         self / denominator
         expression = ValueShare(self._expression, tuple(sorted(positions)))
-        schema = infer_frame_schema(frame._schema, SelectValues((("share", expression),)))
+        schema = infer_frame_schema(
+            frame_logical_schema(frame), SelectValues((("share", expression),))
+        )
         column = schema.values[0]
         return Column(self._input_id, expression, column.unit, column_kind(column), frame)
 
@@ -630,7 +645,7 @@ class Column:
             self._input_id != other._input_id
             or self._frame is None
             or other._frame is None
-            or self._frame._local.owner != other._frame._local.owner
+            or frame_local(self._frame).owner != frame_local(other._frame).owner
         ):
             reject(
                 "Columns from the same exact Store/Session/Frame input",
@@ -640,12 +655,14 @@ class Column:
                 canonical_id=canonical_id,
             )
         for side, column in (("left", self), ("right", other)):
-            if column._kind not in ("numeric", "unresolved"):
-                assert column._frame is not None
+            if column_value_kind(column) not in ("numeric", "unresolved"):
+                endpoint_frame = column_frame(column)
+                assert endpoint_frame is not None
+                schema = frame_logical_schema(endpoint_frame)
                 received = (
-                    repr(expression_type(column._frame._schema, column._expression))
-                    if isinstance(column._frame._schema, DataSchema)
-                    else column._kind
+                    repr(expression_type(schema, column_expression(column)))
+                    if isinstance(schema, DataSchema)
+                    else column_value_kind(column)
                 )
                 reject(
                     "a numeric Column (int64, float64 or Decimal)",
@@ -684,6 +701,57 @@ class Column:
         )
 
 
+def column_input_id(column: Column) -> str:
+    return column._input_id  # noqa: SLF001 - Exact Column binding, internal to Analysis.
+
+
+def column_expression(column: Column) -> ValueExpression:
+    return column._expression  # noqa: SLF001 - Argument capture keeps the existing value recipe.
+
+
+def column_value_kind(column: Column) -> ValueKind:
+    return column._kind  # noqa: SLF001 - Checked, possibly unresolved value kind.
+
+
+def column_unit(column: Column) -> str | None:
+    return column._unit  # noqa: SLF001 - Unit of the captured value slot.
+
+
+def column_frame(column: Column) -> _ColumnFrame | None:
+    return column._frame  # noqa: SLF001 - The exact input is required for operator binding.
+
+
+def column_pair_statistic(
+    column: Column,
+    other: Column,
+    method: Literal["pearson", "spearman", "pair_count"],
+    *,
+    location: str,
+    canonical_id: str,
+) -> _Statistic:
+    return column._pair_statistic(other, method, location=location, canonical_id=canonical_id)  # noqa: SLF001 - Owning Column validates both endpoints.
+
+
+def frame_axis_index(
+    frame: _ColumnFrame,
+    axis: FrameAxis,
+    *,
+    location: str = "frame.axis",
+    canonical_id: str | None = None,
+) -> int:
+    return frame._axis_index(axis, location=location, canonical_id=canonical_id)  # noqa: SLF001 - Exact axis binding belongs to the receiver.
+
+
+def require_frame_column(
+    frame: _ColumnFrame,
+    column: Column,
+    *,
+    location: str = "frame.column",
+    canonical_id: str | None = None,
+) -> None:
+    frame._require_column(column, location=location, canonical_id=canonical_id)  # noqa: SLF001 - Exact Column binding belongs to the receiver.
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class _Statistic:
     _input_id: str | None
@@ -691,11 +759,20 @@ class _Statistic:
     unit: str | None
     _frame: _ColumnFrame | None = None
 
+    @override
     def __repr__(self) -> str:
         unit = repr(self.unit)
         if len(unit) > 80:
             unit = unit[:77] + "..."
         return f"<ValueStatistic unit={unit}; use marivo.help('analysis.value_statistic')>"
+
+
+def statistic_definition(statistic: _Statistic) -> Statistic | PairStatistic:
+    return statistic._definition  # noqa: SLF001 - Consume the closed numeric request.
+
+
+def statistic_input(statistic: _Statistic) -> tuple[str | None, _ColumnFrame | None]:
+    return statistic._input_id, statistic._frame  # noqa: SLF001 - Validate the exact captured input.
 
 
 @traced(surface="analysis", operation="row_count", capture="short")

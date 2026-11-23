@@ -135,7 +135,7 @@ def average_sample():
     expected = revenue.per(argument_value).mean()
     body = next(
         body
-        for reference, body in consume_metric(declared)._declared
+        for reference, body in consume_metric(declared).declared
         if reference.ref.path == "sales.average_sample"
     )
     assert body == consume_metric(expected).node
@@ -243,7 +243,7 @@ def test_published_metric_rebinds_in_the_consumers_frozen_scope(
     assert current.kind == "metric"
     rebound = consume_metric(bind_metric(revenue, changed))
     assert rebound.node == consume_metric(current).node
-    assert rebound._declared == consume_metric(current)._declared
+    assert rebound.declared == consume_metric(current).declared
     revenue_declaration = root_declaration(_recipe(revenue))
     current_declaration = root_declaration(_recipe(current))
     assert revenue_declaration is not None and current_declaration is not None

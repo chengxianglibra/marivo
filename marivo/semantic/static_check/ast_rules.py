@@ -11,6 +11,8 @@ import textwrap
 from collections.abc import Callable, Mapping
 from typing import Literal, cast
 
+from typing_extensions import override
+
 from marivo.semantic.constraints import ASTSpec, ConstraintId, get_constraint
 from marivo.semantic.errors import (
     ErrorKind,
@@ -275,6 +277,67 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             )
         )
 
+    def _validate_local_statements(
+        self, node: ast.FunctionDef, leading_docstring: ast.stmt | None, symbols: frozenset[str]
+    ) -> None:
+        statements = [stmt for stmt in node.body if stmt is not leading_docstring]
+        if statements and not isinstance(statements[-1], ast.Return):
+            self._local_error(statements[-1], "a final return expression", "statement after return")
+        defined = set(self._param_names) | set(symbols)
+        for stmt in statements:
+            if isinstance(stmt, ast.Assign):
+                if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
+                    self._local_error(stmt, "one fresh local name", "non-name or multiple targets")
+                    continue
+                name = stmt.targets[0].id
+                if name in defined:
+                    self._local_error(
+                        stmt, "one fresh local name", f"reassignment or shadowing of {name!r}"
+                    )
+                self._validate_local_expression(stmt.value, defined)
+                defined.add(name)
+            elif isinstance(stmt, ast.Return):
+                if stmt.value is None:
+                    self._local_error(
+                        stmt,
+                        "a final stage-compatible return expression",
+                        "return without a value",
+                    )
+                else:
+                    self._validate_local_expression(stmt.value, defined)
+
+    def _validate_statements(
+        self, node: ast.FunctionDef, leading_docstring: ast.stmt | None
+    ) -> None:
+        for child in ast.walk(node):
+            if child is node:
+                continue
+            if not isinstance(child, ast.stmt):
+                continue
+            if child is leading_docstring:
+                continue
+            # Allow the single Return; every other statement violates the
+            # expression-body contract.
+            if isinstance(child, ast.Return):
+                continue
+            if self._symbols is not None and isinstance(child, ast.Assign) and child in node.body:
+                continue
+            for forbidden_type in (*_FORBIDDEN_STMT_TYPES, ast.Expr):
+                if isinstance(child, forbidden_type):
+                    # Every statement that reaches this loop is a forbidden
+                    # statement: returns are skipped above and wrong return
+                    # counts are handled separately (AST_SINGLE_RETURN). Classify
+                    # them uniformly so the hint can route the author to the
+                    # body-free constructors and ibis conditionals.
+                    self._add_error(
+                        ErrorKind.INVALID_COMPONENT_BODY,
+                        f"{self.body_label} of {self.fn_name!r} contains a forbidden "
+                        f"{type(child).__name__} statement.",
+                        constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
+                    )
+                    break
+
+    @override
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         if self._pure_declaration and (
             node.args.posonlyargs
@@ -315,64 +378,9 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             )
 
         leading_docstring = node.body[0] if node.body and _is_docstring_stmt(node.body[0]) else None
-        for child in ast.walk(node):
-            if child is node:
-                continue
-            if not isinstance(child, ast.stmt):
-                continue
-            if child is leading_docstring:
-                continue
-            # Allow the single Return; every other statement violates the
-            # expression-body contract.
-            if isinstance(child, ast.Return):
-                continue
-            if self._symbols is not None and isinstance(child, ast.Assign) and child in node.body:
-                continue
-            for forbidden_type in (*_FORBIDDEN_STMT_TYPES, ast.Expr):
-                if isinstance(child, forbidden_type):
-                    # Every statement that reaches this loop is a forbidden
-                    # statement: returns are skipped above and wrong return
-                    # counts are handled separately (AST_SINGLE_RETURN). Classify
-                    # them uniformly so the hint can route the author to the
-                    # body-free constructors and ibis conditionals.
-                    self._add_error(
-                        ErrorKind.INVALID_COMPONENT_BODY,
-                        f"{self.body_label} of {self.fn_name!r} contains a forbidden "
-                        f"{type(child).__name__} statement.",
-                        constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
-                    )
-                    break
-
+        self._validate_statements(node, leading_docstring)
         if self._symbols is not None:
-            statements = [stmt for stmt in node.body if stmt is not leading_docstring]
-            if statements and not isinstance(statements[-1], ast.Return):
-                self._local_error(
-                    statements[-1], "a final return expression", "statement after return"
-                )
-            defined = set(self._param_names) | set(self._symbols)
-            for stmt in statements:
-                if isinstance(stmt, ast.Assign):
-                    if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
-                        self._local_error(
-                            stmt, "one fresh local name", "non-name or multiple targets"
-                        )
-                        continue
-                    name = stmt.targets[0].id
-                    if name in defined:
-                        self._local_error(
-                            stmt, "one fresh local name", f"reassignment or shadowing of {name!r}"
-                        )
-                    self._validate_local_expression(stmt.value, defined)
-                    defined.add(name)
-                elif isinstance(stmt, ast.Return):
-                    if stmt.value is None:
-                        self._local_error(
-                            stmt,
-                            "a final stage-compatible return expression",
-                            "return without a value",
-                        )
-                    else:
-                        self._validate_local_expression(stmt.value, defined)
+            self._validate_local_statements(node, leading_docstring, self._symbols)
 
         # Walk only the function body for deeper AST checks. Decorator calls
         # are normal Python and are not part of the captured expression DSL.
@@ -454,6 +462,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         ):
             self._local_error(value, "an Ibis value expression", f"bare symbol {value.id!r}")
 
+    @override
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if self._pure_declaration:
             return
@@ -484,6 +493,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                 )
         self.generic_visit(node)
 
+    @override
     def visit_Call(self, node: ast.Call) -> None:
         if self._pure_declaration:
             return
@@ -503,6 +513,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             )
         self.generic_visit(node)
 
+    @override
     def visit_Lambda(self, node: ast.Lambda) -> None:
         self._add_error(
             ErrorKind.INVALID_COMPONENT_BODY,

@@ -21,7 +21,12 @@ from marivo.datasource.errors import (
     repair,
 )
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
-from marivo.datasource.store.authoring import DatasourceSpec, DuckDBSpec, _storage_name
+from marivo.datasource.store.authoring import (
+    DatasourceSpec,
+    DuckDBSpec,
+    _storage_name,
+    datasource_ir_from_spec,
+)
 from marivo.datasource.store.builtin import default_datasource, require_user_datasource_name
 from marivo.datasource.store.loader import _load_models_datasources, _models_root_errors
 
@@ -167,7 +172,7 @@ def save_one(spec: DatasourceSpec, project_root: Path | None = None) -> Datasour
         spec=spec,
         project_root=root,
     )
-    return spec._to_ir(location=location)
+    return datasource_ir_from_spec(spec, location=location)
 
 
 def delete_one(name: str, project_root: Path | None = None) -> bool:

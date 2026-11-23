@@ -294,43 +294,15 @@ def _postgres_view(
     return is_view, view_definition
 
 
-def _inspect_postgres(
-    *,
-    datasource: str,
+def _postgres_columns(
     backend: BaseBackend,
+    schema_name: str,
     table: str,
-    database: str | tuple[str, ...] | None,
-    table_expr: ir.Table,
-    include_partitions: bool,
-    default_schema: str | None,
-) -> TableMetadata:
-
-    schema_columns = _schema_columns(table_expr)
-    schema_name = _database_label(database) or default_schema or "public"
-    warnings: list[MetadataWarning] = []
-    comment_schema = _database_label(database) or default_schema
-    qualified = ".".join(
-        quote_identifier(part, PROFILE)
-        for part in ((comment_schema, table) if comment_schema else (table,))
-    )
-    table_comment: str | None = None
+    qualified: str,
+    schema_columns: tuple[ColumnMetadata, ...],
+    warnings: list[MetadataWarning],
+) -> dict[str, ColumnMetadata]:
     catalog_columns: dict[str, ColumnMetadata] = {}
-    physical_profile: TablePhysicalProfile | None = None
-
-    try:
-        table_rows = _postgres_rows(backend, "postgres.comment.table", {"qualified": qualified})
-        if table_rows:
-            table_comment = _empty_to_none(table_rows[0].get("comment"))
-    except Exception as exc:
-        warnings.append(
-            MetadataWarning(
-                kind="metadata_query_failed",
-                message=(
-                    f"postgres table comment query failed: {_backend_failure_summary(exc).message}"
-                ),
-            )
-        )
-
     try:
         column_rows = _postgres_rows(
             backend, "postgres.columns", {"schema": schema_name, "table": table}
@@ -389,6 +361,48 @@ def _inspect_postgres(
             )
         )
 
+    return catalog_columns
+
+
+def _inspect_postgres(
+    *,
+    datasource: str,
+    backend: BaseBackend,
+    table: str,
+    database: str | tuple[str, ...] | None,
+    table_expr: ir.Table,
+    include_partitions: bool,
+    default_schema: str | None,
+) -> TableMetadata:
+
+    schema_columns = _schema_columns(table_expr)
+    schema_name = _database_label(database) or default_schema or "public"
+    warnings: list[MetadataWarning] = []
+    comment_schema = _database_label(database) or default_schema
+    qualified = ".".join(
+        quote_identifier(part, PROFILE)
+        for part in ((comment_schema, table) if comment_schema else (table,))
+    )
+    table_comment: str | None = None
+    physical_profile: TablePhysicalProfile | None = None
+
+    try:
+        table_rows = _postgres_rows(backend, "postgres.comment.table", {"qualified": qualified})
+        if table_rows:
+            table_comment = _empty_to_none(table_rows[0].get("comment"))
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=(
+                    f"postgres table comment query failed: {_backend_failure_summary(exc).message}"
+                ),
+            )
+        )
+
+    catalog_columns = _postgres_columns(
+        backend, schema_name, table, qualified, schema_columns, warnings
+    )
     primary_keys: tuple[str, ...] = ()
     unique_constraints: list[UniqueConstraintMetadata] = []
     try:

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import ibis
 import pyarrow
+from typing_extensions import override
 
 import marivo.analysis as mv
 import marivo.datasource as md
@@ -120,6 +121,7 @@ class MissingBackend(importlib.abc.MetaPathFinder):
     def __init__(self, backend: str) -> None:
         self.module = DRIVERS[backend]
 
+    @override
     def find_spec(self, fullname: str, path: object = None, target: object = None) -> None:
         if fullname == self.module or fullname.startswith(self.module + "."):
             raise ModuleNotFoundError("selected backend unavailable", name=self.module)
@@ -166,7 +168,7 @@ def saved_read(project: Path) -> dict[str, object]:
 
     def run_count() -> int:
         local = session._runtime.local
-        with local.store._read() as connection:
+        with local.store.read_transaction() as connection:
             row = connection.execute(
                 "SELECT COUNT(*) FROM analysis_action_runs WHERE session_ref=?",
                 (local.session_ref,),

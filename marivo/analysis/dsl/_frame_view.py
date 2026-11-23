@@ -20,7 +20,7 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     StoredFrameBacking,
 )
-from marivo.analysis.dsl.frame_axis import FrameAxis
+from marivo.analysis.dsl.frame_axis import FrameAxis, axis_input_id
 from marivo.analysis.dsl.frame_disclosure import (
     _input_kind,
     _operation_summary,
@@ -32,6 +32,12 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.pandas_export import export_frame
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import (
+    frame_backing,
+    frame_derivation_of,
+    frame_input_id,
+    frame_logical_schema,
+)
 from marivo.analysis.model.frame_metadata import MemoryInput, SourceInput, StoredInput
 from marivo.analysis.model.frame_schema import column_type_summary
 from marivo.analysis.model.frame_structure import PendingDataSchema
@@ -63,7 +69,7 @@ def export_axis_names(
                 f"Choose a full name or token from {tuple((a.name, a.token) for a in axes)!r}."
             )
             if isinstance(selector, FrameAxis):
-                if selector._input_id == input_id:
+                if axis_input_id(selector) == input_id:
                     guidance = f"Pass axis_names={{{selector.token!r}: 'bucket'}}; use axis.token as the key."
                 else:
                     guidance = (
@@ -184,7 +190,12 @@ def _describe_pending(card: Card, frame: FrameNode, backing: ExpressionFrameBack
         card.field("operation", _operation_summary(root))
         card.field(
             "inputs",
-            repr(tuple((child._input_id, _input_kind(child._backing)) for child in root.inputs)),
+            repr(
+                tuple(
+                    (frame_input_id(child), _input_kind(frame_backing(child)))
+                    for child in root.inputs
+                )
+            ),
         )
     elif isinstance(root, SourceFrameBinding):
         node = root.graph.root
@@ -214,12 +225,12 @@ def _describe_pending(card: Card, frame: FrameNode, backing: ExpressionFrameBack
         )
         anchors = tuple(
             (
-                frame._input_id,
+                frame_input_id(frame),
                 axis.token,
                 axis.at.isoformat() if isinstance(axis.at, datetime) else repr(axis.at),
             )
             for frame, _ in sources
-            for axis in frame._schema.axes
+            for axis in frame_logical_schema(frame).axes
             if axis.at is not None
         )
         if anchors:
@@ -300,7 +311,7 @@ def _describe_complete(
 
 def show_frame(frame: FrameNode, local: LocalFrameServices, axes: tuple[FrameAxis, ...]) -> None:
     """Display captured facts and complete data at the original read boundary."""
-    backing = frame._backing
+    backing = frame_backing(frame)
     available = (
         (".compute()", ".to_pandas()", ".persist()")
         if isinstance(backing, ExpressionFrameBacking)
@@ -310,9 +321,12 @@ def show_frame(frame: FrameNode, local: LocalFrameServices, axes: tuple[FrameAxi
     )
     card = Card(
         identity=repr(frame),
-        available=(*available, *((".schema.alignments",) if frame._schema.alignments else ())),
+        available=(
+            *available,
+            *((".schema.alignments",) if frame_logical_schema(frame).alignments else ()),
+        ),
     )
-    _describe_schema(card, frame._schema, frame._derivation, axes)
+    _describe_schema(card, frame_logical_schema(frame), frame_derivation_of(frame), axes)
     if isinstance(backing, ExpressionFrameBacking):
         _describe_pending(card, frame, backing)
     else:
@@ -348,7 +362,7 @@ def read_fixed_page(
     axis_names: Mapping[str, str] | None,
     time_details: bool,
 ) -> FramePage:
-    backing = frame._backing
+    backing = frame_backing(frame)
     if isinstance(backing, ExpressionFrameBacking):
         reject(
             "a complete memory or stored Frame",
@@ -358,11 +372,12 @@ def read_fixed_page(
             canonical_id="analysis_frame.read_page",
         )
     validate_time_details(time_details, "read_page")
-    names = export_axis_names(axes, frame._input_id, axis_names, "read_page")
-    assert isinstance(frame._schema, DataSchema)
+    names = export_axis_names(axes, frame_input_id(frame), axis_names, "read_page")
+    schema = frame_logical_schema(frame)
+    assert isinstance(schema, DataSchema)
     return read_frame_page(
-        input_id=frame._input_id,
-        schema=frame._schema,
+        input_id=frame_input_id(frame),
+        schema=schema,
         backing=backing,
         local=local,
         columns=columns,

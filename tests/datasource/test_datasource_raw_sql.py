@@ -12,6 +12,7 @@ import pytest
 from requests.exceptions import ConnectionError as HttpConnectionError
 from requests.exceptions import InvalidHeader, ReadTimeout
 from trino.exceptions import TrinoConnectionError, TrinoUserError
+from typing_extensions import override
 
 import marivo.analysis as mv
 import marivo.datasource as md
@@ -753,6 +754,7 @@ def test_raw_sql_repairs_use_native_failure_evidence(
     )
 
     class FailingBackend(_RawSqlBackend):
+        @override
         def raw_sql(self, sql: str) -> _FakeCursor:
             self.calls.append(sql)
             raise failure

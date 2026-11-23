@@ -16,6 +16,7 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pyarrow as pa
 from ibis.backends import BaseBackend
+from typing_extensions import override
 
 from marivo.datasource.engines.statements import json_http_headers
 from marivo.datasource.ir import (
@@ -40,6 +41,7 @@ JsonResponseCache: TypeAlias = dict[
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
+    @override
     def redirect_request(
         self,
         req: Request,
@@ -344,7 +346,7 @@ def _arrow_table(
     # Register Arrow directly: CREATE TABLE rejects null-typed columns, while
     # DuckDB schema introspection assigns them an arbitrary integer type. Keep
     # the captured Arrow schema so consumers apply their normal type contracts.
-    backend._register_in_memory_table(memory.op())
+    backend._register_in_memory_table(memory.op())  # noqa: SLF001 - Ibis backend registration ABI for the captured JSON table.
     return ops.DatabaseTable(memory.op().name, schema=memory.schema(), source=backend).to_expr()
 
 
@@ -374,6 +376,39 @@ def _apply_path(value: ir.Table | ir.Value, segments: tuple[JsonPathStep, ...]) 
     return value
 
 
+def _inferred_projected_table(table: ir.Table, source: JsonSourceIR) -> ir.Table:
+    if not source.columns:
+        return table
+    parsed = [(output, _parse_json_path(path)) for output, path in source.columns]
+    traversal = next(
+        (segments for _output, segments in parsed if any(k == "traverse" for k, _ in segments)),
+        None,
+    )
+    element_name: str | None = None
+    if traversal is not None:
+        traverse_at = next(i for i, (kind, _arg) in enumerate(traversal) if kind == "traverse")
+        array = _apply_path(table, traversal[:traverse_at])
+        if not isinstance(array.type(), dt.Array):
+            raise ValueError("A traversed JSON field path did not resolve to an array.")
+        element_name = "__marivo_json_element"
+        while element_name in table.columns:
+            element_name = "_" + element_name
+        table = table.select(
+            *[table[name] for name in table.columns],
+            array.unnest().name(element_name),
+        )
+    fields: list[ir.Value] = []
+    for output, segments in parsed:
+        if any(kind == "traverse" for kind, _ in segments):
+            assert traversal is not None and element_name is not None
+            traverse_at = next(i for i, (kind, _arg) in enumerate(segments) if kind == "traverse")
+            value = _apply_path(table[element_name], segments[traverse_at + 1 :])
+        else:
+            value = _apply_path(table, segments)
+        fields.append(value.name(output))
+    return table.select(*fields)
+
+
 def _inferred_table(backend: object, source: JsonSourceIR) -> ir.Table:
     reader = getattr(backend, "read_json", None)
     if not callable(reader):
@@ -385,40 +420,13 @@ def _inferred_table(backend: object, source: JsonSourceIR) -> ir.Table:
     if not isinstance(table, ir.Table):
         raise TypeError("read_json() must return an Ibis table.")
     if source.records_path is None:
-        if not source.columns:
-            return table
-        parsed = [(output, _parse_json_path(path)) for output, path in source.columns]
-        traversal = next(
-            (segments for _output, segments in parsed if any(k == "traverse" for k, _ in segments)),
-            None,
-        )
-        element_name: str | None = None
-        if traversal is not None:
-            traverse_at = next(i for i, (kind, _arg) in enumerate(traversal) if kind == "traverse")
-            array = _apply_path(table, traversal[:traverse_at])
-            if not isinstance(array.type(), dt.Array):
-                raise ValueError("A traversed JSON field path did not resolve to an array.")
-            element_name = "__marivo_json_element"
-            while element_name in table.columns:
-                element_name = "_" + element_name
-            table = table.select(
-                *[table[name] for name in table.columns],
-                array.unnest().name(element_name),
-            )
-        fields: list[ir.Value] = []
-        for output, segments in parsed:
-            if any(kind == "traverse" for kind, _ in segments):
-                assert traversal is not None and element_name is not None
-                traverse_at = next(
-                    i for i, (kind, _arg) in enumerate(segments) if kind == "traverse"
-                )
-                value = _apply_path(table[element_name], segments[traverse_at + 1 :])
-            else:
-                value = _apply_path(table, segments)
-            fields.append(value.name(output))
-        return table.select(*fields)
+        return _inferred_projected_table(table, source)
 
-    record_path = _parse_json_path(source.records_path.removeprefix("$").removeprefix("."))
+    return _inferred_record_table(table, source, source.records_path)
+
+
+def _inferred_record_table(table: ir.Table, source: JsonSourceIR, path: str) -> ir.Table:
+    record_path = _parse_json_path(path.removeprefix("$").removeprefix("."))
     try:
         records_value = _apply_path(table, record_path)
     except ValueError as exc:

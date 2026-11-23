@@ -103,6 +103,63 @@ def load_datasources(root: Path) -> DatasourceLoadResult:
     )
 
 
+def _load_directory_file(
+    child: Path,
+    root: Path,
+    prefix: str,
+    ctx: DatasourceLoaderContext,
+    errors: list[Exception],
+    discarded: list[DatasourceIR],
+    isolate_failures: bool,
+) -> None:
+    module_name = f"{prefix}.{child.stem}"
+    if module_name in sys.modules:
+        return
+    before = (
+        {name for name in sys.modules.copy() if name.startswith(f"{prefix}.")}
+        if isolate_failures
+        else set()
+    )
+    start = len(ctx.pending_objects)
+    success = _execute_file(child, ctx, errors, module_name=module_name, package_name=prefix)
+    if isolate_failures and success and len(ctx.pending_objects) > start:
+        # Python removes a failed relative import even when its caller catches
+        # the exception. Its registered declarations must be discarded as well.
+        imported_files = {
+            getattr(module, "__file__", None)
+            for name, module in sys.modules.copy().items()
+            if name.startswith(f"{prefix}.")
+        }
+        for item in ctx.pending_objects[start:]:
+            file = item.location.file
+            if Path(file).is_relative_to(root) and file not in imported_files:
+                error = DatasourceLoadError(
+                    message="A relative import did not finish loading its datasource declarations.",
+                    location=file,
+                    repair=repair(
+                        kind="reload",
+                        canonical_id="load",
+                        action="Fix the failed import before loading its datasource declarations.",
+                    ),
+                )
+                error.source_location = item.location
+                errors.append(error)
+                success = False
+                break
+    if isolate_failures and not success:
+        discarded.extend(ctx.pending_objects[start:])
+        del ctx.pending_objects[start:]
+        # A relative import can retain objects from a partially initialized
+        # module in a cycle. Roll back the whole new import batch.
+        for name in sys.modules.copy():
+            if name.startswith(f"{prefix}.") and name not in before:
+                module = sys.modules.pop(name)
+                parent_name, _, attribute = name.rpartition(".")
+                parent = sys.modules.get(parent_name)
+                if parent is not None and vars(parent).get(attribute) is module:
+                    delattr(parent, attribute)
+
+
 def _load_datasource_directory(
     root: Path, *, isolate_failures: bool = False
 ) -> DatasourceLoadResult:
@@ -164,52 +221,7 @@ def _load_datasource_directory(
     for child in sorted(root.iterdir()):
         if not child.is_file() or child.suffix != ".py" or child.name.startswith("."):
             continue
-        module_name = f"{prefix}.{child.stem}"
-        if module_name in sys.modules:
-            continue
-        before = (
-            {name for name in sys.modules.copy() if name.startswith(f"{prefix}.")}
-            if isolate_failures
-            else set()
-        )
-        start = len(ctx.pending_objects)
-        success = _execute_file(child, ctx, errors, module_name=module_name, package_name=prefix)
-        if isolate_failures and success and len(ctx.pending_objects) > start:
-            # Python removes a failed relative import even when its caller catches
-            # the exception. Its registered declarations must be discarded as well.
-            imported_files = {
-                getattr(module, "__file__", None)
-                for name, module in sys.modules.copy().items()
-                if name.startswith(f"{prefix}.")
-            }
-            for item in ctx.pending_objects[start:]:
-                file = item.location.file
-                if Path(file).is_relative_to(root) and file not in imported_files:
-                    error = DatasourceLoadError(
-                        message="A relative import did not finish loading its datasource declarations.",
-                        location=file,
-                        repair=repair(
-                            kind="reload",
-                            canonical_id="load",
-                            action="Fix the failed import before loading its datasource declarations.",
-                        ),
-                    )
-                    error.source_location = item.location
-                    errors.append(error)
-                    success = False
-                    break
-        if isolate_failures and not success:
-            discarded.extend(ctx.pending_objects[start:])
-            del ctx.pending_objects[start:]
-            # A relative import can retain objects from a partially initialized
-            # module in a cycle. Roll back the whole new import batch.
-            for name in sys.modules.copy():
-                if name.startswith(f"{prefix}.") and name not in before:
-                    module = sys.modules.pop(name)
-                    parent_name, _, attribute = name.rpartition(".")
-                    parent = sys.modules.get(parent_name)
-                    if parent is not None and vars(parent).get(attribute) is module:
-                        delattr(parent, attribute)
+        _load_directory_file(child, root, prefix, ctx, errors, discarded, isolate_failures)
 
     accepted: list[DatasourceIR] = []
     for datasource in ctx.pending_objects:

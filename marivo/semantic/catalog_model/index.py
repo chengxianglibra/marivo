@@ -34,6 +34,8 @@ from marivo.semantic.catalog_model.objects import (
     Domain,
     SemanticObject,
     _SemanticObject,
+    entry_reference,
+    lookup_state,
 )
 from marivo.semantic.definition_resolution import (
     CatalogValues,
@@ -132,8 +134,8 @@ class _CatalogIndex:
         datasource_irs: tuple[DatasourceIR, ...],
         registry: Registry,
     ) -> None:
-        self.values = CatalogValues(catalog._state)
-        self._dependencies = catalog._state.dependencies
+        self.values = CatalogValues(lookup_state(catalog))
+        self._dependencies = lookup_state(catalog).dependencies
         build_index = _CatalogBuildIndex(registry)
         datasource_irs = datasource_irs or tuple(registry.datasources.values())
         entries: tuple[Domain | Datasource, ...] = (
@@ -144,21 +146,21 @@ class _CatalogIndex:
             *(_build_datasource_object(item, build_index, catalog) for item in datasource_irs),
         )
         self._entries: Mapping[Ref[SemanticKindTag], Domain | Datasource] = MappingProxyType(
-            {entry._ref: entry for entry in entries}
+            {entry_reference(entry): entry for entry in entries}
         )
-        self._refs: tuple[Ref[SemanticKindTag], ...] = tuple(
+        self.refs: tuple[Ref[SemanticKindTag], ...] = tuple(
             sorted((*self._entries, *self.values.refs), key=lambda ref: ref.key)
         )
-        known = frozenset(self._refs)
+        known = frozenset(self.refs)
         scopes: dict[Ref[SemanticKindTag], frozenset[Ref[SemanticKindTag]]] = {}
-        for ref in self._refs:
+        for ref in self.refs:
             owners: list[Ref[SemanticKindTag]] = []
             if ref.kind not in {SemanticKind.DOMAIN, SemanticKind.DATASOURCE}:
                 owners.append(ref_factory.domain(ref.path.split(".", 1)[0]))
             if ref.kind is SemanticKind.ENTITY:
                 owners.append(ref_factory.datasource(registry.entities[ref.path].datasource))
             scopes[ref] = frozenset(owner for owner in owners if owner in known)
-        self._scopes = MappingProxyType(scopes)
+        self.scopes = MappingProxyType(scopes)
         self._public_entries: Mapping[Ref[SemanticKindTag], SemanticObject] = MappingProxyType(
             {
                 ref: self._entries[ref]
@@ -167,7 +169,7 @@ class _CatalogIndex:
                     "SemanticObject",
                     _ENTRY_TYPE_BY_KIND[ref.kind](_ref=ref, _details=None, _catalog=catalog),
                 )
-                for ref in self._refs
+                for ref in self.refs
             }
         )
 
@@ -175,7 +177,7 @@ class _CatalogIndex:
         entry = self._entries.get(ref)
         if entry is not None:
             return entry
-        if ref in self._scopes:
+        if ref in self.scopes:
             return self.values.get(ref)
         return None
 
@@ -210,11 +212,11 @@ class _CatalogIndex:
     ) -> tuple[Ref[SemanticKindTag], ...]:
         return tuple(
             ref
-            for ref in self._refs
-            if ref.kind in kinds and (scope_ref is None or scope_ref in self._scopes[ref])
+            for ref in self.refs
+            if ref.kind in kinds and (scope_ref is None or scope_ref in self.scopes[ref])
         )
 
     def contains(
         self, ref: Ref[SemanticKindTag], *, scope_ref: Ref[SemanticKindTag] | None
     ) -> bool:
-        return scope_ref is None or scope_ref in self._scopes[ref]
+        return scope_ref is None or scope_ref in self.scopes[ref]

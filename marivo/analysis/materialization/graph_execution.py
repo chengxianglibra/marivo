@@ -70,47 +70,16 @@ def run_query_plan(
                 "Plan producers before their consumers.",
                 "analysis.query_schedule",
             )
-        if isinstance(stage, SourceReadStage):
-            if stage.inputs:
-                if dependent_read is None:
-                    reject(
-                        "a typed parameterized read consumer",
-                        stage.stage_id,
-                        "Use the planned dependency reader.",
-                        "analysis.query_schedule",
-                    )
-                output = dependent_read(stage, tuple(outputs[item] for item in stage.inputs))
-            else:
-                output = read(stage)
-        elif isinstance(stage, FrameKeysInput):
-            if frame_keys is None:
-                reject(
-                    "a fully composed Frame schedule",
-                    stage.stage_id,
-                    "Resolve Frame key inputs in the outer Frame plan before execution.",
-                    "frame.population",
-                )
-            output = frame_keys(stage)
-        elif isinstance(stage, FrameInput):
-            if fixed is None:
-                reject(
-                    "an invocation fixed-input reader",
-                    stage.input_id,
-                    "Bind the exact fixed input.",
-                    "analysis.query_schedule",
-                )
-            output = fixed(stage)
-        elif isinstance(stage, FrameCompute):
-            if frame is None:
-                reject(
-                    "a typed Frame kernel",
-                    stage.stage_id,
-                    "Use the Frame schedule runner.",
-                    "analysis.query_schedule",
-                )
-            output = frame(stage, tuple(outputs[item] for item in stage.inputs))
-        else:
-            output = local(stage, tuple(outputs[item] for item in stage.inputs))
+        output = _execute_stage(
+            stage,
+            tuple(outputs[item] for item in stage.inputs),
+            read=read,
+            dependent_read=dependent_read,
+            frame_keys=frame_keys,
+            fixed=fixed,
+            frame=frame,
+            local=local,
+        )
         if finish is not None:
             output = finish(stage, output)
         for item in stage.inputs:
@@ -119,3 +88,57 @@ def run_query_plan(
                 del outputs[item]
         outputs[stage.stage_id] = output
     return outputs[plan.publish]
+
+
+def _execute_stage(
+    stage: QueryStage,
+    inputs: tuple[StageValue, ...],
+    *,
+    read: Callable[[SourceReadStage], StageValue],
+    dependent_read: Callable[[SourceReadStage, tuple[StageValue, ...]], StageValue] | None,
+    frame_keys: Callable[[FrameKeysInput], StageValue] | None,
+    fixed: Callable[[FrameInput], StageValue] | None,
+    frame: Callable[[FrameCompute, tuple[StageValue, ...]], StageValue] | None,
+    local: Callable[[LocalCompute, tuple[StageValue, ...]], StageValue],
+) -> StageValue:
+    if isinstance(stage, SourceReadStage):
+        if stage.inputs:
+            if dependent_read is None:
+                reject(
+                    "a typed parameterized read consumer",
+                    stage.stage_id,
+                    "Use the planned dependency reader.",
+                    "analysis.query_schedule",
+                )
+            return dependent_read(stage, inputs)
+        else:
+            return read(stage)
+    elif isinstance(stage, FrameKeysInput):
+        if frame_keys is None:
+            reject(
+                "a fully composed Frame schedule",
+                stage.stage_id,
+                "Resolve Frame key inputs in the outer Frame plan before execution.",
+                "frame.population",
+            )
+        return frame_keys(stage)
+    elif isinstance(stage, FrameInput):
+        if fixed is None:
+            reject(
+                "an invocation fixed-input reader",
+                stage.input_id,
+                "Bind the exact fixed input.",
+                "analysis.query_schedule",
+            )
+        return fixed(stage)
+    elif isinstance(stage, FrameCompute):
+        if frame is None:
+            reject(
+                "a typed Frame kernel",
+                stage.stage_id,
+                "Use the Frame schedule runner.",
+                "analysis.query_schedule",
+            )
+        return frame(stage, inputs)
+    else:
+        return local(stage, inputs)

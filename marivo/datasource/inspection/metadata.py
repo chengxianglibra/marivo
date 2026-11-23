@@ -173,7 +173,7 @@ def _inspect_table_from_ir(
 
         try:
             table_expr = (
-                session._bind_source(
+                session.bind_source(
                     TableSourceIR(table, database=database),
                     source_identity=f"metadata:{datasource}:{database}:{table}",
                 ).relation

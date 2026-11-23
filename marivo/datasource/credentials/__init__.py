@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn, Protocol, SupportsIndex
 
+from typing_extensions import override
+
 from marivo._kernel.errors import MarivoError
 from marivo._kernel.project import resolve_project_root
 from marivo._kernel.validation import nonempty_text
@@ -60,11 +62,13 @@ class SecretValue:
         """
         return self.__value
 
+    @override
     def __repr__(self) -> str:
         return "SecretValue(<redacted>)"
 
     __str__ = __repr__
 
+    @override
     def __reduce_ex__(self, protocol: SupportsIndex) -> NoReturn:
         raise TypeError("SecretValue cannot be serialized or copied.")
 
@@ -90,6 +94,7 @@ class CredentialRequest:
     datasource: str
     fields: tuple[str, ...]
 
+    @override
     def __repr__(self) -> str:
         return (
             f"CredentialRequest reference={self.reference[:60]!r} "

@@ -9,6 +9,12 @@ from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
 
 from marivo._kernel.refs import EntityKind, Ref, SemanticKind, SemanticKindTag
 from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.validation import (
+    input_sequence,
+    is_exact_pair,
+    is_pair,
+    nonempty_text,
+)
 from marivo.datasource import spi as datasource_spi
 from marivo.datasource.spi import (
     AuthoringScope,
@@ -21,6 +27,7 @@ from marivo.datasource.spi import (
     normalize_json_source_params,
     operation_context,
     preflight_scope,
+    scope_time_range,
     validate_preview_limit,
 )
 from marivo.semantic._deferred_semantics import consume_metric
@@ -244,8 +251,8 @@ def _validate_scope(
             f"{scope_label} timeout_seconds must be a positive integer.",
             details={},
         )
-    if isinstance(scope, PartitionScope) and scope._time_range is not None:
-        predicate = scope._time_range
+    predicate = scope_time_range(scope)
+    if isinstance(scope, PartitionScope) and predicate is not None:
         invalid = (
             bool(scope.values)
             or not predicate.column
@@ -254,12 +261,7 @@ def _validate_scope(
         )
     elif isinstance(scope, PartitionScope):
         invalid = not scope.values or any(
-            type(entry) is not tuple
-            or len(entry) != 2  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or not isinstance(entry[0], str)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or not entry[0]
-            or not isinstance(entry[1], str)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or not entry[1]
+            not is_exact_pair(entry) or not nonempty_text(entry[0]) or not nonempty_text(entry[1])
             for entry in scope.values
         )
     else:
@@ -313,7 +315,7 @@ def _normalize_scopes(
         )
     by_entity: dict[str, AuthoringScope] = {}
     for pair in scope:
-        if not isinstance(pair, tuple) or len(pair) != 2:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not is_pair(pair):
             blocked(
                 preview_ref,
                 "Scope entries must be (Entity object, AuthoringScope) pairs.",
@@ -376,9 +378,7 @@ def _normalize_source_parameters(
             action="Pass each dependency Entity at most once in source_parameters with the parameter mapping declared by its JSON source; omit other sources.",
         )
 
-    if source_parameters is not None and (
-        not isinstance(source_parameters, Sequence) or isinstance(source_parameters, str | bytes)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-    ):
+    if source_parameters is not None and not input_sequence(source_parameters):
         blocked(
             preview_ref,
             f"catalog.{operation}(..., source_parameters=...) requires an Entity object/parameter mapping pair sequence.",
@@ -386,7 +386,7 @@ def _normalize_source_parameters(
         )
     supplied: dict[str, Mapping[str, QueryParamScalar | QueryParamScalarList]] = {}
     for pair in source_parameters or ():
-        if not isinstance(pair, tuple) or len(pair) != 2:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not is_pair(pair):
             blocked(
                 preview_ref,
                 "Source parameter entries must be (Entity object, parameter mapping) pairs.",

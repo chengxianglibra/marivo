@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
+from typing_extensions import override
+
 from marivo._authoring.model import AuthoringCapability
 from marivo.introspection.capabilities.registry import SurfaceRegistry
 from marivo.introspection.live.model import LiveHelpTarget
@@ -29,6 +31,7 @@ class DatasourceManifest(SurfaceRegistry[AuthoringCapability]):
     _groups: Mapping[DatasourceRootGroup, tuple[str, ...]]
     _navigation_routes: Mapping[str, tuple[DatasourceNavigationRoute, ...]]
 
+    @override
     def discovery_ids(self) -> tuple[str, ...]:
         return tuple(row.canonical_id for row in self.specs if row.kind != "method")
 

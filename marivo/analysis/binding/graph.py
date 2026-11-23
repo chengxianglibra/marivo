@@ -10,6 +10,7 @@ from marivo._definition.graph import computation_fingerprint, walk
 from marivo._definition.query import ResultQuery
 from marivo._definition.relations import ObserveQuery, QueryNode, ReadQuery
 from marivo._definition.types import DefinitionGraphError
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.signature import BoundQuantity, BoundSignature
 from marivo.analysis.model.errors import reject
 
@@ -23,7 +24,7 @@ class BoundGraph:
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.root, (ObserveQuery, ReadQuery, ResultQuery))  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            not is_instance(self.root, (ObserveQuery, ReadQuery, ResultQuery))
             or type(self.signature) is not BoundSignature
         ):
             _fail("an observation definition and multi-output signature", type(self).__name__)

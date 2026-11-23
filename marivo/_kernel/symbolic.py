@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, NewType, NoReturn, TypeAlias
 
 from ibis.common.bases import FrozenSlotted
 from ibis.common.deferred import Deferred, Resolver
+from typing_extensions import override
 
 from marivo._kernel.refs import DatasourceKind, Ref, SemanticKind, SemanticKindTag
 from marivo._kernel.refs import ref as ref_factory
@@ -87,6 +88,7 @@ class SymbolResolver(_FrozenResolver):
     def __init__(self, reference: Ref[SemanticKindTag]) -> None:
         super().__init__(reference=reference)
 
+    @override
     def resolve(self, context: dict[str, object]) -> NoReturn:
         raise TypeError("An unbound semantic symbol requires loader binding before analysis.")
 

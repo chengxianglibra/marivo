@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
+from typing_extensions import override
+
 from marivo._kernel.render import Card, RenderableResult
+from marivo._kernel.validation import has_exact_type
 from marivo.analysis.model.frame_schema import FrameSchema
 from marivo.analysis.model.pages import _BoundedPage
 from marivo.analysis.model.receipts import invalid
@@ -36,7 +39,7 @@ def _count(value: int) -> None:
 def _page_fields(items: tuple[object, ...], limit: int, has_more: bool, cursor: str | None) -> None:
     if type(items) is not tuple or type(limit) is not int or not 1 <= limit <= 100:
         raise invalid("invalid immutable page collection or limit")
-    if type(has_more) is not bool or len(items) > limit:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not has_exact_type(has_more, bool) or len(items) > limit:
         raise invalid("invalid bounded page state")
     if cursor is not None and (type(cursor) is not str or not cursor or len(cursor) > 16_384):
         raise invalid("invalid bounded page cursor")
@@ -65,9 +68,11 @@ class SessionSummary(RenderableResult):
         _aware(self.updated_at)
         _count(self.artifact_count)
 
+    @override
     def _repr_identity(self) -> str:
         return f"SessionSummary id={self.id} name={self.name}"[:256]
 
+    @override
     def _card(self) -> Card:
         return (
             Card(
@@ -93,6 +98,7 @@ class SessionSummary(RenderableResult):
 class SessionSummaryPage(_BoundedPage[SessionSummary]):
     """Bounded newest-updated-first Session summaries."""
 
+    @override
     def __post_init__(self) -> None:
         _page_fields(self.items, self.limit, self.has_more, self.next_cursor)
         if any(type(value) is not SessionSummary for value in self.items):
@@ -116,9 +122,11 @@ class PersistedFrameSummary(RenderableResult):
         ) is not FrameSchema:
             raise invalid("invalid saved Frame description or captured schema")
 
+    @override
     def _repr_identity(self) -> str:
         return f"PersistedFrameSummary artifact_id={self.artifact_id}"[:256]
 
+    @override
     def _card(self) -> Card:
         return (
             Card(identity=self._repr_identity(), available=(".schema", ".show()"))
@@ -136,11 +144,13 @@ class PersistedFrameSummary(RenderableResult):
 class PersistedFrameSummaryPage(_BoundedPage[PersistedFrameSummary]):
     """Bounded newest-committed-first Frame candidates with captured structure."""
 
+    @override
     def __post_init__(self) -> None:
         _page_fields(self.items, self.limit, self.has_more, self.next_cursor)
         if any(type(value) is not PersistedFrameSummary for value in self.items):
             raise invalid("Frame page contains an unregistered summary value")
 
+    @override
     def _card(self) -> Card:
         card = Card(identity=self._repr_identity(), available=(".items", ".next_cursor", ".show()"))
         for item in self.items:

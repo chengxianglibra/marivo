@@ -4,6 +4,8 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
 
+from ibis.common.deferred import Resolver
+from ibis.expr.types import Value
 from typing_extensions import assert_type
 
 import marivo.ontology as mo
@@ -32,6 +34,13 @@ def catalog_projection(semantic: ms.SemanticCatalog, provider: str) -> None:
     assert_type(semantic_spi.iter_catalog_entries(semantic), Iterable[ms.SemanticObject])
     assert_type(source_spi.query_dialect(provider), QueryDialectProfile)
     assert_type(source_spi.query_policy(provider), EngineQueryPolicy)
+
+
+def captured_source_and_expression(
+    session: source_spi.SourceSession, physical: Value, expression: semantic_spi.NumericMetric
+) -> None:
+    assert_type(source_spi.bound_duration_units(session, physical), tuple[str, ...])
+    assert_type(semantic_spi.expression_recipe(expression), Resolver)
 
 
 def stored_frames(root: Path, session_id: str, artifact_id: str) -> None:

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, TypeAlias, get_args
 
+from typing_extensions import override
+
 from marivo.analysis.model.frame_facts import _Fact, _invalid, _text
 from marivo.analysis.model.lineage import SemanticObjectIdentity, union
 from marivo.analysis.model.time_facts import (
@@ -16,6 +18,7 @@ from marivo.analysis.model.time_facts import (
 
 
 class _LayoutFact(_Fact):
+    @override
     def __post_init__(self) -> None:
         _Fact.__post_init__(self)
         _validate_groups(self)
@@ -37,6 +40,7 @@ class FrameFixedGroup(_LayoutFact):
     fixed: FrameFixedAxis
     kind: Literal["fixed"] = field(default="fixed")
 
+    @override
     def _identity_detail(self) -> str:
         return f"axis={self.fixed.axis.token[:40]}"
 
@@ -392,29 +396,37 @@ def _validate_groups(value: _LayoutFact) -> None:
         ):
             _invalid("stable sorted unique captured value origins")
     elif isinstance(value, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext)):
-        if value.row_scope not in ("complete", "restricted"):
-            _invalid("one closed represented row scope")
-        groups(value.groups)
-        if isinstance(value, FrameStatisticContext):
-            if value.statistic not in ("sum", "mean", "row_count"):
-                _invalid("one supported current-row statistic")
-        elif isinstance(value, FramePairStatisticContext):
-            if value.statistic not in ("pearson", "spearman", "pair_count"):
-                _invalid("one supported ordered pair statistic")
-            if any(
-                type(i) not in (FrameNamedValueInput, FrameDerivedValueInput)
-                for i in (value.x, value.y)
-            ):
-                _invalid("two closed captured value inputs")
-        else:
-            if type(value.numerator) not in (FrameNamedValueInput, FrameDerivedValueInput):
-                _invalid("one closed captured numerator input")
-            groups(value.along)
-            if not value.along or set(value.groups) & set(value.along):
-                _invalid("nonempty normalization axes disjoint from denominator groups")
+        _validate_statistic_context(value)
 
 
-def _validate_layout(value: _LayoutFact) -> None:
+def _validate_statistic_context(
+    value: FrameStatisticContext | FrameShareContext | FramePairStatisticContext,
+) -> None:
+    if value.row_scope not in ("complete", "restricted"):
+        _invalid("one closed represented row scope")
+    groups(value.groups)
+    if isinstance(value, FrameStatisticContext):
+        if value.statistic not in ("sum", "mean", "row_count"):
+            _invalid("one supported current-row statistic")
+    elif isinstance(value, FramePairStatisticContext):
+        if value.statistic not in ("pearson", "spearman", "pair_count"):
+            _invalid("one supported ordered pair statistic")
+        if any(
+            type(i) not in (FrameNamedValueInput, FrameDerivedValueInput)
+            for i in (value.x, value.y)
+        ):
+            _invalid("two closed captured value inputs")
+    else:
+        if type(value.numerator) not in (FrameNamedValueInput, FrameDerivedValueInput):
+            _invalid("one closed captured numerator input")
+        groups(value.along)
+        if not value.along or set(value.groups) & set(value.along):
+            _invalid("nonempty normalization axes disjoint from denominator groups")
+
+
+def _validate_alignment_layout(
+    value: FrameAlignmentAxis | FrameAlignmentSide | FrameAlignment,
+) -> None:
     if isinstance(value, FrameAlignmentAxis):
         _text(value.axis_token)
         if value.endpoint not in ("self", "left", "right"):
@@ -445,6 +457,11 @@ def _validate_layout(value: _LayoutFact) -> None:
             value.right.values
         ):
             _invalid("disjoint alignment values with at least one retained value")
+
+
+def _validate_layout(value: _LayoutFact) -> None:
+    if isinstance(value, (FrameAlignmentAxis, FrameAlignmentSide, FrameAlignment)):
+        _validate_alignment_layout(value)
     elif isinstance(value, FrameComparisonValue):
         _text(value.name)
         if value.role not in ("current", "baseline", "absolute", "relative"):
@@ -468,7 +485,12 @@ def _validate_layout(value: _LayoutFact) -> None:
         _text(value.comparison_id)
         if value.alias is not None:
             _text(value.alias)
-    elif isinstance(value, FrameLevelTarget):
+    else:
+        _validate_decomposition_layout(value)
+
+
+def _validate_decomposition_layout(value: _LayoutFact) -> None:
+    if isinstance(value, FrameLevelTarget):
         _text(value.name)
         context(value.context)
     elif isinstance(value, FrameChangeTarget):

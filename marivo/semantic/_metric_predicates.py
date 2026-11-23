@@ -5,87 +5,30 @@ from __future__ import annotations
 import operator
 from typing import Generic, Literal, TypeVar
 
-from ibis.common.deferred import BinaryOperator, Resolver, UnaryOperator
+from ibis.common.deferred import BinaryOperator, UnaryOperator
+from typing_extensions import override
 
-from marivo._definition.types import InputContext, LiteralValue
-from marivo.semantic._expression_carrier import _ExpressionCarrier, _merge, _MetricRoleT, _parameter
-from marivo.semantic.errors import _stage_error
+from marivo.semantic._comparison_operators import _ComparisonOperators
+from marivo.semantic._expression_carrier import (
+    _ExpressionCarrier,
+    _merge,
+    _MetricRoleT,
+    _parameter,
+    expression_stage,
+)
 
 _MetricT = TypeVar("_MetricT")
 _PredicateT = TypeVar("_PredicateT")
 
 
-class _MetricPredicates(_ExpressionCarrier, Generic[_MetricRoleT, _MetricT, _PredicateT]):
+class _MetricPredicates(
+    _ComparisonOperators[_MetricT, _PredicateT], Generic[_MetricRoleT, _MetricT, _PredicateT]
+):
     """Compose predicates with the owning Metric expression's constructor."""
 
-    def _new_predicate(self, recipe: Resolver, context: InputContext) -> _PredicateT:
-        raise NotImplementedError
-
-    def __eq__(self, other: _MetricT | LiteralValue) -> _PredicateT:  # type: ignore[override]  # Python equality constructs a typed predicate, never identity equality.
-        if isinstance(other, _ExpressionCarrier) and other._carrier_stage != "metric":
-            _stage_error(
-                "Comparison requires expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
-        return self._new_predicate(
-            BinaryOperator(operator.eq, self._recipe, _parameter(other)),
-            _merge(self, other),
-        )
-
-    def __ne__(self, other: _MetricT | LiteralValue) -> _PredicateT:  # type: ignore[override]  # Python equality constructs a typed predicate, never identity equality.
-        if isinstance(other, _ExpressionCarrier) and other._carrier_stage != "metric":
-            _stage_error(
-                "Comparison requires expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
-        return self._new_predicate(
-            BinaryOperator(operator.ne, self._recipe, _parameter(other)),
-            _merge(self, other),
-        )
-
-    def __lt__(self, other: _MetricT | LiteralValue) -> _PredicateT:
-        if isinstance(other, _ExpressionCarrier) and other._carrier_stage != "metric":
-            _stage_error(
-                "Comparison requires expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
-        return self._new_predicate(
-            BinaryOperator(operator.lt, self._recipe, _parameter(other)),
-            _merge(self, other),
-        )
-
-    def __le__(self, other: _MetricT | LiteralValue) -> _PredicateT:
-        if isinstance(other, _ExpressionCarrier) and other._carrier_stage != "metric":
-            _stage_error(
-                "Comparison requires expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
-        return self._new_predicate(
-            BinaryOperator(operator.le, self._recipe, _parameter(other)),
-            _merge(self, other),
-        )
-
-    def __gt__(self, other: _MetricT | LiteralValue) -> _PredicateT:
-        if isinstance(other, _ExpressionCarrier) and other._carrier_stage != "metric":
-            _stage_error(
-                "Comparison requires expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
-        return self._new_predicate(
-            BinaryOperator(operator.gt, self._recipe, _parameter(other)),
-            _merge(self, other),
-        )
-
-    def __ge__(self, other: _MetricT | LiteralValue) -> _PredicateT:
-        if isinstance(other, _ExpressionCarrier) and other._carrier_stage != "metric":
-            _stage_error(
-                "Comparison requires expressions from the same stage.",
-                received=f"{type(self).__name__}[{self._role}] and {type(other).__name__}[{other._role}]",
-            )
-        return self._new_predicate(
-            BinaryOperator(operator.ge, self._recipe, _parameter(other)),
-            _merge(self, other),
-        )
+    @override
+    def _comparison_accepts(self, other: _ExpressionCarrier) -> bool:
+        return expression_stage(other) == "metric"
 
     def __and__(
         self: _MetricPredicates[Literal["boolean"], _MetricT, _PredicateT],

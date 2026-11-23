@@ -13,6 +13,7 @@ import ibis.expr.types as ir
 
 from marivo._definition.expressions import BuiltinSampleCoordinate, PredicateExpression
 from marivo._definition.types import IntervalCoordinate
+from marivo._kernel.validation import is_instance
 from marivo.analysis.compiler.query_stages import (
     read_components,
 )
@@ -435,7 +436,7 @@ def _attribute_field_types(
         parameter
         for schema in prepared.schemas
         for parameter in schema.parameters
-        if isinstance(parameter, FrameParameter)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if is_instance(parameter, FrameParameter)
     )
     for parameter in parameters:
         relation = prepared.entities.get(

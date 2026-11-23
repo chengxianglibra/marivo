@@ -6,11 +6,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TypeAlias
 
+from typing_extensions import override
+
 from marivo._kernel.errors import invalid
 from marivo._kernel.time_types import Grain, grain_token
+from marivo._kernel.validation import is_instance
 
 
 class _Window:
+    @override
     def __repr__(self) -> str:
         return f"<ObservationWindow kind={type(self).__name__}; use .show()>"
 
@@ -74,7 +78,7 @@ def trailing_duration(*, duration: timedelta) -> ObservationWindow:
     Example: ``revenue.window(mv.trailing_duration(duration=timedelta(hours=24)))``.
     Constraints: Civil day lengths may differ across timezone transitions.
     """
-    if not isinstance(duration, timedelta) or duration <= timedelta(0):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(duration, timedelta) or duration <= timedelta(0):
         invalid(f"Expected a positive timedelta; received {duration!r}. Pass timedelta(hours=24).")
     return TrailingDuration(duration)
 
@@ -102,7 +106,7 @@ def since(*, start: datetime) -> ObservationWindow:
     Example: ``revenue.window(mv.since(start=session.instant('2026-01-01')))``.
     Constraints: Start must precede every consumed endpoint.
     """
-    if not isinstance(start, datetime) or start.utcoffset() is None:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(start, datetime) or start.utcoffset() is None:
         invalid(
             f"Expected an aware datetime or InstantAnchor; received {start!r}. Pass session.instant(...)."
         )

@@ -23,12 +23,20 @@ from marivo.analysis.core.frame_operations import (
     FixFrameValues,
     FrameExpression,
     FrameOperation,
+    FrameOperationKind,
     SourceFrameInput,
 )
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_attribute_merge import AttributeMergeValues
-from marivo.analysis.model.frame_contracts import FrameKeyInput, merge_frame_key_inputs
+from marivo.analysis.model.frame_contracts import (
+    FrameKeyInput,
+    frame_backing,
+    frame_input_id,
+    frame_local,
+    frame_logical_schema,
+    merge_frame_key_inputs,
+)
 from marivo.analysis.model.frame_metadata import (
     FrameOperationName,
 )
@@ -54,6 +62,26 @@ class CapturedFrameInputs:
     games: tuple[str, ...] = ()
 
 
+def _operation_name(operation: FrameOperationKind) -> FrameOperationName:
+    return (
+        "attribute"
+        if isinstance(operation, (AttributeMergeValues, AttributeGameValues))
+        else "align"
+        if isinstance(operation, AlignFrameValues)
+        else "compare"
+        if isinstance(operation, CompareFrameValues)
+        else "select"
+        if isinstance(operation, SelectValues)
+        else "where"
+        if isinstance(operation, FilterValues)
+        else "top"
+        if isinstance(operation, TopValues)
+        else "fix"
+        if isinstance(operation, FixFrameValues)
+        else "reduce"
+    )
+
+
 def capture_frame_inputs(
     frame: FrameNode, request: AttributeInputRequest | None = None
 ) -> CapturedFrameInputs:
@@ -70,54 +98,40 @@ def capture_frame_inputs(
     ] = {}
 
     def collect(current: FrameNode) -> FrameExpression:
-        if current._local.owner != frame._local.owner:
+        if frame_local(current).owner != frame_local(frame).owner:
             reject(
                 "explicit inputs from one Store and Session",
-                current._input_id,
+                frame_input_id(current),
                 "Use inputs owned by this Frame's Session.",
                 "frame.compute",
             )
-        previous = collected.get(current._input_id)
-        carrier = FrameKeyInput(current._input_id, current)
+        previous = collected.get(frame_input_id(current))
+        carrier = FrameKeyInput(frame_input_id(current), current)
         merge_frame_key_inputs(
-            () if previous is None else (previous,), (carrier,), owner=frame._local.owner
+            () if previous is None else (previous,), (carrier,), owner=frame_local(frame).owner
         )
-        collected.setdefault(current._input_id, carrier)
-        existing = expressions.get(current._input_id)
+        collected.setdefault(frame_input_id(current), carrier)
+        existing = expressions.get(frame_input_id(current))
         if existing is not None:
             return existing
-        backing = current._backing
+        backing = frame_backing(current)
         if isinstance(backing, ExpressionFrameBacking):
             root = backing.root
             if isinstance(root, OperationFrameBinding):
-                dependencies[current._input_id] = tuple(child._input_id for child in root.inputs)
+                dependencies[frame_input_id(current)] = tuple(
+                    frame_input_id(child) for child in root.inputs
+                )
                 inputs = tuple(collect(child) for child in root.inputs)
                 expression: FrameExpression = FrameOperation(
-                    inputs, root.operation, current._schema
+                    inputs, root.operation, frame_logical_schema(current)
                 )
-                operation: FrameOperationName = (
-                    "attribute"
-                    if isinstance(root.operation, (AttributeMergeValues, AttributeGameValues))
-                    else "align"
-                    if isinstance(root.operation, AlignFrameValues)
-                    else "compare"
-                    if isinstance(root.operation, CompareFrameValues)
-                    else "select"
-                    if isinstance(root.operation, SelectValues)
-                    else "where"
-                    if isinstance(root.operation, FilterValues)
-                    else "top"
-                    if isinstance(root.operation, TopValues)
-                    else "fix"
-                    if isinstance(root.operation, FixFrameValues)
-                    else "reduce"
-                )
+                operation = _operation_name(root.operation)
                 if isinstance(root.operation, AttributeGameValues):
-                    game_inputs.extend(endpoint._input_id for endpoint in root.inputs[1:])
+                    game_inputs.extend(frame_input_id(endpoint) for endpoint in root.inputs[1:])
                 if isinstance(root.operation, AttributeContributionValues):
                     operation = "attribute"
                     for side, endpoint_frame in enumerate(root.inputs[1:]):
-                        contribution_requests[endpoint_frame._input_id] = (
+                        contribution_requests[frame_input_id(endpoint_frame)] = (
                             side
                             if root.operation.source_sides is None
                             else root.operation.source_sides[side],
@@ -126,7 +140,7 @@ def capture_frame_inputs(
                         )
                 operations.append(operation)
             else:
-                dependencies[current._input_id] = (
+                dependencies[frame_input_id(current)] = (
                     tuple(item.input_id for item in root.frame_key_inputs)
                     if isinstance(root, SourceFrameBinding)
                     else ()
@@ -134,14 +148,15 @@ def capture_frame_inputs(
                 if isinstance(root, SourceFrameBinding):
                     for dependency in root.frame_key_inputs:
                         collect(dependency.frame)
-                source_frames[current._input_id] = current
-                expression = SourceFrameInput(current._input_id, root.graph)
+                source_frames[frame_input_id(current)] = current
+                expression = SourceFrameInput(frame_input_id(current), root.graph)
         else:
-            assert isinstance(current._schema, DataSchema)
-            dependencies[current._input_id] = ()
-            fixed_frames[current._input_id] = current
-            expression = FixedFrameInput(current._input_id, current._schema)
-        expressions[current._input_id] = expression
+            schema = frame_logical_schema(current)
+            assert isinstance(schema, DataSchema)
+            dependencies[frame_input_id(current)] = ()
+            fixed_frames[frame_input_id(current)] = current
+            expression = FixedFrameInput(frame_input_id(current), schema)
+        expressions[frame_input_id(current)] = expression
         return expression
 
     if request is None:
@@ -155,7 +170,7 @@ def capture_frame_inputs(
         {}
         if request is None
         else {
-            endpoint._input_id: (side, rules, request.operation)
+            frame_input_id(endpoint): (side, rules, request.operation)
             for side, (endpoint, rules) in enumerate(
                 zip(request.endpoints, request.rules, strict=True)
             )

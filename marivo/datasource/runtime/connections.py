@@ -35,6 +35,7 @@ from marivo.datasource.ir import (
 )
 from marivo.datasource.runtime import backends as backends
 from marivo.datasource.runtime.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.session_access import source_session_closed
 from marivo.datasource.store import declarations as store
 from marivo.datasource.store.authoring import _storage_name
 from marivo.introspection.live.model import LiveHelpTarget
@@ -442,7 +443,7 @@ class DatasourceConnectionService:
         sessions_by_datasource: dict[str, list[SourceSession]] = {}
         for (name, _), session in self._source_sessions.items():
             sessions_by_datasource.setdefault(name, []).append(session)
-            if session._closed:
+            if source_session_closed(session):
                 continue
             try:
                 session.close()

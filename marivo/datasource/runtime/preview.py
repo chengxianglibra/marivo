@@ -8,6 +8,8 @@ from datetime import date, datetime, time
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from zoneinfo import ZoneInfo
 
+from typing_extensions import override
+
 from marivo._kernel.data_render import _DataCard, _DataResult
 from marivo._kernel.validation import integer
 
@@ -150,12 +152,14 @@ class PreviewResult(_DataResult):
     )
     execution_limits: PreviewExecutionLimits | None = None
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"PreviewResult kind={self.kind} ref={self.ref} "
             f"rows={self.returned_row_count}/{self.requested_limit}"
         )
 
+    @override
     def _data_card(self) -> _DataCard:
         facts = [
             ("sample_policy", f"{self.sample_policy.method}(limit={self.sample_policy.limit})")

@@ -10,8 +10,9 @@ from hashlib import sha256
 import pandas as pd
 import pyarrow as pa
 
+from marivo._kernel.validation import is_instance
 from marivo.analysis.core.attachments import OutputAttachment
-from marivo.analysis.core.data_validation import normalize_complete_frame
+from marivo.analysis.core.data_validation import detached_rows, normalize_complete_frame
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     MemoryFrameBacking,
@@ -41,7 +42,6 @@ from marivo.analysis.materialization.carriers.frame_page import (
     FramePeriodItem,
     FramePeriodPage,
     FrameReadStats,
-    detached_rows,
 )
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_reading import (
@@ -121,7 +121,7 @@ def _memory_range(
     data: CompletedFrameData, start: int, limit: int, columns: tuple[DataColumn, ...]
 ) -> tuple[FramePreview, FrameReadStats]:
     names = [column.slot_id for column in columns]
-    rows = detached_rows(data._rows.iloc[start : start + limit].loc[:, names])
+    rows = data.selected_rows(start, limit, names)
     rows = normalize_complete_frame(
         rows,
         columns,
@@ -129,7 +129,7 @@ def _memory_range(
         unique_keys=data.unique_keys.project(tuple(c.slot_id for c in columns)),
     )
     coordinate_rows_read = 0
-    saved = {part.name: part for part in data._attachments}
+    saved = {part.name: part for part in data.borrowed_attachments()}
 
     def select(name: str, keys: set[FrozenKey]) -> OutputAttachment:
         nonlocal coordinate_rows_read
@@ -306,7 +306,9 @@ class _PeriodRead:
 
     def count(self, name: str) -> int:
         if isinstance(self.backing, MemoryFrameBacking):
-            part = next((p for p in self.backing.data._attachments if p.name == name), None)
+            part = next(
+                (p for p in self.backing.data.borrowed_attachments() if p.name == name), None
+            )
             if part is None:
                 raise invalid("required frozen coordinate attachment is missing")
             return len(part.rows)
@@ -322,7 +324,7 @@ class _PeriodRead:
             )
             self._add(stats)
             return result
-        part = next(p for p in self.backing.data._attachments if p.name == name)
+        part = next(p for p in self.backing.data.borrowed_attachments() if p.name == name)
         end = min(start + limit, len(part.rows))
         rows = detached_rows(part.rows.iloc[start:end])
         self._add(FrameReadStats(0, len(rows), 0))
@@ -336,7 +338,7 @@ class _PeriodRead:
             result, stats = self.reader.attachment_select(self.backing, name, keys)
             self._add(stats)
             return result
-        part = next((p for p in self.backing.data._attachments if p.name == name), None)
+        part = next((p for p in self.backing.data.borrowed_attachments() if p.name == name), None)
         if part is None:
             raise invalid("required frozen coordinate attachment is missing")
         columns = tuple(c for axis in part.schema.axes for c in axis.columns)
@@ -466,7 +468,7 @@ def read_frame_periods(
             )
         target_key = ("axis", target.token)
     elif (
-        isinstance(target, FrameComparison)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        is_instance(target, FrameComparison)
         and target.input_id == input_id
         and target in capture_comparisons(input_id, schema)
     ):

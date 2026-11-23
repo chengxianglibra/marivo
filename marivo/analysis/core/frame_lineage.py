@@ -43,6 +43,7 @@ from marivo.analysis.core.frame_operations import (
 )
 from marivo.analysis.core.source_lineage import definition_lineage
 from marivo.analysis.model.frame_attribute_merge import AttributeMergeValues
+from marivo.analysis.model.frame_contracts import frame_backing
 from marivo.analysis.model.lineage import (
     ColumnLineage,
     FrameLineage,
@@ -50,6 +51,7 @@ from marivo.analysis.model.lineage import (
     all_origins,
     directory,
     expression_lineage,
+    lineage_domain,
     merge,
     statistic_lineage,
     union,
@@ -66,11 +68,13 @@ def derive(
     operation: FrameOperationKind,
     inputs: tuple[FrameNode, ...],
 ) -> FrameLineage:
+    if isinstance(operation, CompareFrameValues):
+        return _comparison_lineage(schema, operation, inputs)
     first = inputs[0].lineage
     values = tuple(first.values.values())
     axes = tuple(first.axes.values())
     presence = tuple(first.presence.values())
-    domain = first._domain
+    domain = lineage_domain(first)
 
     def expression(value: ValueExpression) -> ColumnLineage:
         return expression_lineage(first, value)
@@ -99,38 +103,14 @@ def derive(
         right = inputs[1].lineage
         right_axes = tuple(right.axes.values())
         axes = tuple(merge(a, right_axes[dict(operation.pairs)[i]]) for i, a in enumerate(axes))
-        domain = union(domain, right._domain, *(all_origins(a) for a in axes))
+        domain = union(domain, lineage_domain(right), *(all_origins(a) for a in axes))
         values = (*values, *right.values.values())
         presence = (
-            ColumnLineage(context_origins=first._domain),
-            ColumnLineage(context_origins=right._domain),
+            ColumnLineage(context_origins=lineage_domain(first)),
+            ColumnLineage(context_origins=lineage_domain(right)),
             *presence,
             *right.presence.values(),
         )
-    elif isinstance(operation, CompareFrameValues):
-        by_path = dict(first.values)
-        present_by_path = {"current.present": ColumnLineage(context_origins=domain)}
-        present_by_path.update(("current.presence." + p, c) for p, c in first.presence.items())
-        for spec, frame in zip(operation.baselines, inputs[1:], strict=True):
-            other = frame.lineage
-            right_axes = tuple(other.axes.values())
-            matched = tuple(merge(a, right_axes[dict(spec.pairs)[i]]) for i, a in enumerate(axes))
-            axes = matched
-            domain = union(domain, other._domain, *(all_origins(a) for a in matched))
-            for path, current in first.values.items():
-                baseline = other.values[path]
-                for role, column in (
-                    ("baseline", baseline),
-                    ("absolute", merge(current, baseline)),
-                    ("relative", merge(current, baseline)),
-                ):
-                    by_path[spec.alias + "." + role + "." + path] = column
-            present_by_path[spec.alias + ".present"] = ColumnLineage(context_origins=other._domain)
-            present_by_path.update(
-                (spec.alias + ".presence." + p, c) for p, c in other.presence.items()
-            )
-        values = tuple(by_path[".".join(p)] for p in schema.value_paths)
-        presence = tuple(present_by_path[".".join(p)] for p in schema.presence_paths)
     elif isinstance(operation, AttributeMergeValues):
         values = tuple(c for frame in inputs for c in frame.lineage.values.values())
         presence = tuple(c for frame in inputs for c in frame.lineage.presence.values())
@@ -138,7 +118,7 @@ def derive(
             merge(*(tuple(frame.lineage.axes.values())[i] for frame in inputs))
             for i in range(len(schema.axes))
         )
-        domain = union(*(frame.lineage._domain for frame in inputs))
+        domain = union(*(lineage_domain(frame.lineage) for frame in inputs))
     elif isinstance(operation, AttributeProjectValues):
         positions = (
             *operation.ordinary,
@@ -159,6 +139,42 @@ def derive(
     return directory(schema, values, axes, presence, domain)
 
 
+def _comparison_lineage(
+    schema: DataSchema | PendingDataSchema,
+    operation: CompareFrameValues,
+    inputs: tuple[FrameNode, ...],
+) -> FrameLineage:
+    first = inputs[0].lineage
+    domain = lineage_domain(first)
+    axes = tuple(first.axes.values())
+    by_path = dict(first.values)
+    present_by_path = {"current.present": ColumnLineage(context_origins=domain)}
+    present_by_path.update(("current.presence." + p, c) for p, c in first.presence.items())
+    for spec, frame in zip(operation.baselines, inputs[1:], strict=True):
+        other = frame.lineage
+        right_axes = tuple(other.axes.values())
+        matched = tuple(merge(a, right_axes[dict(spec.pairs)[i]]) for i, a in enumerate(axes))
+        axes = matched
+        domain = union(domain, lineage_domain(other), *(all_origins(a) for a in matched))
+        for path, current in first.values.items():
+            baseline = other.values[path]
+            for role, column in (
+                ("baseline", baseline),
+                ("absolute", merge(current, baseline)),
+                ("relative", merge(current, baseline)),
+            ):
+                by_path[spec.alias + "." + role + "." + path] = column
+        present_by_path[spec.alias + ".present"] = ColumnLineage(
+            context_origins=lineage_domain(other)
+        )
+        present_by_path.update(
+            (spec.alias + ".presence." + p, c) for p, c in other.presence.items()
+        )
+    values = tuple(by_path[".".join(p)] for p in schema.value_paths)
+    presence = tuple(present_by_path[".".join(p)] for p in schema.presence_paths)
+    return directory(schema, values, axes, presence, domain)
+
+
 def _attribute_lineage(
     schema: DataSchema | PendingDataSchema,
     operation: AttributeContributionValues | AttributeInputsValues | AttributeGameValues,
@@ -167,7 +183,7 @@ def _attribute_lineage(
     first = inputs[0].lineage
     values = tuple(first.values.values())
     axes = tuple(first.axes.values())
-    domain = first._domain
+    domain = lineage_domain(first)
     mapping = operation.mapping
     endpoints = tuple(frame.lineage for frame in inputs[1:])
     left = endpoints[0]
@@ -178,7 +194,9 @@ def _attribute_lineage(
     fine = tuple(merge(a, b) for a, b in zip(left_fine, right_fine, strict=True))
     axes = (*axes, *fine)
     domain = union(
-        domain, *(endpoint._domain for endpoint in endpoints), *(all_origins(a) for a in axes)
+        domain,
+        *(lineage_domain(endpoint) for endpoint in endpoints),
+        *(all_origins(a) for a in axes),
     )
     indices = (
         tuple(game.target_slot for game in operation.games)
@@ -242,7 +260,7 @@ def _attribute_lineage(
 
         values = tuple(diagnostic(path) for path in schema.value_paths)
     presence = tuple(
-        ColumnLineage(context_origins=e._domain)
+        ColumnLineage(context_origins=lineage_domain(e))
         for e in ((left,) if len(schema.presence) == 1 else (left, right))
     )
     presence = presence[: len(schema.presence)]
@@ -258,7 +276,7 @@ def _attribute_component(
 ) -> ColumnLineage:
 
     frame = inputs[1 + min(side, len(inputs) - 2)]
-    backing = frame._backing
+    backing = frame_backing(frame)
     assert isinstance(backing, ExpressionFrameBacking) and isinstance(
         backing.root, SourceFrameBinding
     )

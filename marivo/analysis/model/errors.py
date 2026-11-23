@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import ClassVar, Literal, NoReturn, TypedDict, get_args
 
+from typing_extensions import override
+
 from marivo._kernel.errors import LiveHelpTarget, MarivoError, StructuredRepair
 from marivo.introspection.live.targets import canonical_target
 
@@ -75,6 +77,7 @@ class AnalysisError(MarivoError):
 
         return _DerivedFields()
 
+    @override
     def __str__(self) -> str:
         lines = [f"{type(self).__name__}: {self.message}"]
 

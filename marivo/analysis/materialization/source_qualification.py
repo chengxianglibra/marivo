@@ -8,6 +8,7 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pyarrow as pa
 
+from marivo._kernel.validation import is_instance
 from marivo.analysis.compiler.query_stages import (
     read_components,
     read_reduction,
@@ -169,7 +170,7 @@ def qualify_original_source(
         return _qualify_local_original(prepared, owner, raw)
     if (
         owner.provider.query_policy.key_fusion == "none"
-        or owner._backend.name != owner.provider.name
+        or not owner.uses_native_provider()
         or owner.datasource.backend_type != owner.provider.name
     ):
         return "original fiber has no qualified physical backend route"
@@ -204,70 +205,85 @@ def qualify_original_source(
     if issue is not None:
         return issue
     for read in reads:
-        reduction = read_reduction(read)
-        if (
-            reduction is None
-            or read_components(read) is None
-            or (not read.binding_id and not attribute)
-            or (reduction.duration is not None and not attribute)
-            or (
-                not sampled
-                and not attribute
-                and (
-                    reduction.calendar is not None
-                    or reduction.calendars
-                    or reduction.sampled
-                    or reduction.preserve_sample_presence
-                    or reduction.window_key is not None
-                )
+        issue = _qualify_original_read(
+            prepared, owner, read, raw, sampled=sampled, attribute=attribute
+        )
+        if issue is not None:
+            return issue
+    return None
+
+
+def _qualify_original_read(
+    prepared: PreparedSources,
+    owner: SourceSession,
+    read: SourceReadStage,
+    raw: ir.Table,
+    *,
+    sampled: bool,
+    attribute: bool,
+) -> str | None:
+    reduction = read_reduction(read)
+    if (
+        reduction is None
+        or read_components(read) is None
+        or (not read.binding_id and not attribute)
+        or (reduction.duration is not None and not attribute)
+        or (
+            not sampled
+            and not attribute
+            and (
+                reduction.calendar is not None
+                or reduction.calendars
+                or reduction.sampled
+                or reduction.preserve_sample_presence
+                or reduction.window_key is not None
             )
-            or prepared.sources.get(read.source_id, prepared.source) is not owner
+        )
+        or prepared.sources.get(read.source_id, prepared.source) is not owner
+    ):
+        return "Remote original fiber lacks an exact prepared physical binding"
+    fields = dict(read.field_columns)
+    if not attribute and any(
+        not raw[fields[path]].type().is_string() for _, path in reduction.axes
+    ):
+        return "Remote original numeric coordinates retain their pandas key boundary"
+    if any(
+        not _physical_value(prepared, owner, raw[name], role="identity")
+        for _, name in require_components(read).identity
+    ):
+        return "Remote original identity requires direct physical integer, string or date32 keys"
+    node = reduction.node
+    if isinstance(node, EntityCount):
+        return None
+    operands: tuple[RowNode, ...]
+    if isinstance(node, SourceWeightedMean):
+        operands = (node.value, node.weight)
+    elif is_instance(node, SourceAggregate) and (
+        node.reducer
+        in (
+            "sum",
+            "count",
+            "count_distinct",
+            "min",
+            "max",
+            "median",
+            "quantile",
+        )
+        or node.reducer == "mean"
+    ):
+        operands = (node.operand,)
+    else:
+        return "Remote original method retains its established host numeric finisher"
+    for operand in operands:
+        value = lower_row(operand, {path: raw[name] for path, name in read.field_columns}).value
+        if not value.type().is_numeric():
+            return "Remote original recipes require a numeric result"
+        origins = physical_fields(value)
+        if not origins or any(
+            not _physical_value(prepared, owner, field.to_expr(), role="recipe")
+            for field in origins
         ):
-            return "Remote original fiber lacks an exact prepared physical binding"
-        fields = dict(read.field_columns)
-        if not attribute and any(
-            not raw[fields[path]].type().is_string() for _, path in reduction.axes
-        ):
-            return "Remote original numeric coordinates retain their pandas key boundary"
-        if any(
-            not _physical_value(prepared, owner, raw[name], role="identity")
-            for _, name in require_components(read).identity
-        ):
-            return (
-                "Remote original identity requires direct physical integer, string or date32 keys"
-            )
-        node = reduction.node
-        if isinstance(node, EntityCount):
-            continue
-        operands: tuple[RowNode, ...]
-        if isinstance(node, SourceWeightedMean):
-            operands = (node.value, node.weight)
-        elif isinstance(node, SourceAggregate) and (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            node.reducer
-            in (
-                "sum",
-                "count",
-                "count_distinct",
-                "min",
-                "max",
-                "median",
-                "quantile",
-            )
-            or node.reducer == "mean"
-        ):
-            operands = (node.operand,)
-        else:
-            return "Remote original method retains its established host numeric finisher"
-        for operand in operands:
-            value = lower_row(operand, {path: raw[name] for path, name in read.field_columns}).value
-            if not value.type().is_numeric():
-                return "Remote original recipes require a numeric result"
-            origins = physical_fields(value)
-            if not origins or any(
-                not _physical_value(prepared, owner, field.to_expr(), role="recipe")
-                for field in origins
-            ):
-                return "Remote original recipes require typed physical inputs from one source owner"
+            return "Remote original recipes require typed physical inputs from one source owner"
     return None
 
 

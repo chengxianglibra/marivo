@@ -191,6 +191,47 @@ def expression_unit(schema: DataSchema | PendingDataSchema, value: ValueExpressi
     return None
 
 
+def _duration_expression_type(value: ValueBinary, left: DataType, right: DataType) -> DataType:
+    if (
+        isinstance(value.left, ValueLiteral)
+        and value.left.value == timedelta(0)
+        and isinstance(right, DurationDataType)
+    ):
+        left = right
+    if (
+        isinstance(value.right, ValueLiteral)
+        and value.right.value == timedelta(0)
+        and isinstance(left, DurationDataType)
+    ):
+        right = left
+
+    def numeric(dtype: DataType) -> bool:
+        return isinstance(dtype, DecimalDataType) or dtype in (
+            ScalarDataType("int64"),
+            ScalarDataType("float64"),
+        )
+
+    if isinstance(left, DurationDataType) and isinstance(right, DurationDataType) and left == right:
+        if value.operation in ("add", "sub"):
+            return left
+        if value.operation == "div":
+            return ScalarDataType("float64")
+        if value.operation in ("eq", "ne", "lt", "le", "gt", "ge"):
+            return ScalarDataType("boolean")
+    elif (
+        isinstance(left, DurationDataType) and numeric(right) and value.operation in ("mul", "div")
+    ):
+        return left
+    elif isinstance(right, DurationDataType) and numeric(left) and value.operation == "mul":
+        return right
+    reject(
+        "compatible exact Duration units and arithmetic",
+        repr((left, right, value.operation)),
+        "Use matching Duration units or a numeric scale.",
+        "frame.expression",
+    )
+
+
 def expression_type(schema: DataSchema, value: ValueExpression) -> DataType:
 
     admitted(value)
@@ -213,50 +254,7 @@ def expression_type(schema: DataSchema, value: ValueExpression) -> DataType:
     if isinstance(value, ValueBinary):
         left, right = expression_type(schema, value.left), expression_type(schema, value.right)
         if isinstance(left, DurationDataType) or isinstance(right, DurationDataType):
-            if (
-                isinstance(value.left, ValueLiteral)
-                and value.left.value == timedelta(0)
-                and isinstance(right, DurationDataType)
-            ):
-                left = right
-            if (
-                isinstance(value.right, ValueLiteral)
-                and value.right.value == timedelta(0)
-                and isinstance(left, DurationDataType)
-            ):
-                right = left
-
-            def numeric(dtype: DataType) -> bool:
-                return isinstance(dtype, DecimalDataType) or dtype in (
-                    ScalarDataType("int64"),
-                    ScalarDataType("float64"),
-                )
-
-            if (
-                isinstance(left, DurationDataType)
-                and isinstance(right, DurationDataType)
-                and left == right
-            ):
-                if value.operation in ("add", "sub"):
-                    return left
-                if value.operation == "div":
-                    return ScalarDataType("float64")
-                if value.operation in ("eq", "ne", "lt", "le", "gt", "ge"):
-                    return ScalarDataType("boolean")
-            elif (
-                isinstance(left, DurationDataType)
-                and numeric(right)
-                and value.operation in ("mul", "div")
-            ):
-                return left
-            elif isinstance(right, DurationDataType) and numeric(left) and value.operation == "mul":
-                return right
-            reject(
-                "compatible exact Duration units and arithmetic",
-                repr((left, right, value.operation)),
-                "Use matching Duration units or a numeric scale.",
-                "frame.expression",
-            )
+            return _duration_expression_type(value, left, right)
     if isinstance(value, ValueBinary) and value.operation in ("add", "sub", "mul"):
         left, right = expression_type(schema, value.left), expression_type(schema, value.right)
         if isinstance(left, DecimalDataType) or isinstance(right, DecimalDataType):

@@ -29,6 +29,7 @@ from marivo.datasource.metadata_types import (
     PartitionMetadata,
     TableMetadata,
     UniqueConstraintMetadata,
+    uses_ibis_column_type,
 )
 
 
@@ -185,7 +186,7 @@ def _project_table_metadata(metadata: TableMetadata, source: TableSourceIR) -> T
 
         observed_type = (
             catalog_column.type
-            if catalog_column._type_is_ibis
+            if uses_ibis_column_type(catalog_column)
             else _canonical_catalog_type(
                 catalog_column.type,
                 backend_type=metadata.backend_type,

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import random
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
@@ -67,6 +67,7 @@ from marivo.datasource.runtime.read_types import (
     SourceIR,
     SourceSubmission,
     _IssuedRead,
+    issued_by,
 )
 from marivo.datasource.runtime.string_facts import SourceStringFacts
 from marivo.datasource.runtime.table_source import table_source_expression
@@ -116,6 +117,42 @@ def provider_for(backend: str) -> EngineProfile:
 
 def provider_names() -> tuple[str, ...]:
     return SUPPORTED_BACKEND_TYPES
+
+
+def _parquet_physical_schema(source: ParquetSourceIR, physical_schema: pa.Schema) -> pa.Schema:
+    # Arrow's fixed Duration logical metadata survives Parquet even though
+    # DuckDB presents its lossless tick carrier as BIGINT.
+    arrow_schema = pq.read_schema(source.path)
+    fields = []
+    for field in physical_schema:
+        index = arrow_schema.get_field_index(field.name)
+        original = arrow_schema.field(index).type if index >= 0 else None
+        if original is not None and pa.types.is_duration(original):
+            if field.type != pa.int64():
+                raise _invalid("int64 Parquet duration ticks", str(field.type))
+            field = field.with_metadata(
+                {
+                    **(field.metadata or {}),
+                    DURATION_UNIT_METADATA_KEY: original.unit.encode("ascii"),
+                }
+            )
+        if original is not None and pa.types.is_timestamp(original):
+            if not pa.types.is_timestamp(field.type):
+                raise _invalid("timestamp Parquet carrier", str(field.type))
+            field = field.with_metadata(
+                {
+                    **(field.metadata or {}),
+                    TIMESTAMP_UNIT_METADATA_KEY: original.unit.encode("ascii"),
+                }
+            )
+        fields.append(field)
+    return pa.schema(fields, metadata=physical_schema.metadata)
+
+
+def expression_backend_name(expression: ir.Expr) -> str:
+    """Identify the backend actually bound to an Ibis expression."""
+    name: str = expression._find_backend().name  # noqa: SLF001 - Ibis's public lookup may choose a default backend.
+    return name
 
 
 class SourceSession:
@@ -258,11 +295,11 @@ class SourceSession:
     ) -> BoundSource:
         """Bind through the provider while sanitizing injected credential failures."""
         with cr.backend_errors(self._backend):
-            return self._bind_source(
+            return self.bind_source(
                 source, source_identity=source_identity, source_params=source_params
             )
 
-    def _bind_source(
+    def bind_source(
         self,
         source: SourceIR,
         *,
@@ -288,16 +325,7 @@ class SourceSession:
         elif isinstance(source, CsvSourceIR) and self.provider.name == "duckdb":
             if source_params:
                 raise _invalid("no runtime parameters for a CSV source", repr(tuple(source_params)))
-            csv_options: dict[str, object] = {}
-            if not source.header:
-                csv_options["header"] = False
-            if source.delimiter != ",":
-                csv_options["delim"] = source.delimiter
-            relation = self._backend.read_csv(source.path, **csv_options)
-            if source.columns:
-                relation = relation.select(
-                    *(relation[physical].name(output) for output, physical in source.columns)
-                )
+            relation = self._read_csv(source)
         elif isinstance(source, ParquetSourceIR) and self.provider.name == "duckdb":
             if source_params:
                 raise _invalid(
@@ -318,33 +346,7 @@ class SourceSession:
             raise _invalid("an Ibis table relation", type(relation).__name__)
         physical_schema = relation.schema().to_pyarrow()
         if isinstance(source, ParquetSourceIR) and Path(source.path).is_file():
-            # Arrow's fixed Duration logical metadata survives Parquet even though
-            # DuckDB presents its lossless tick carrier as BIGINT.
-            arrow_schema = pq.read_schema(source.path)
-            fields = []
-            for field in physical_schema:
-                index = arrow_schema.get_field_index(field.name)
-                original = arrow_schema.field(index).type if index >= 0 else None
-                if original is not None and pa.types.is_duration(original):
-                    if field.type != pa.int64():
-                        raise _invalid("int64 Parquet duration ticks", str(field.type))
-                    field = field.with_metadata(
-                        {
-                            **(field.metadata or {}),
-                            DURATION_UNIT_METADATA_KEY: original.unit.encode("ascii"),
-                        }
-                    )
-                if original is not None and pa.types.is_timestamp(original):
-                    if not pa.types.is_timestamp(field.type):
-                        raise _invalid("timestamp Parquet carrier", str(field.type))
-                    field = field.with_metadata(
-                        {
-                            **(field.metadata or {}),
-                            TIMESTAMP_UNIT_METADATA_KEY: original.unit.encode("ascii"),
-                        }
-                    )
-                fields.append(field)
-            physical_schema = pa.schema(fields, metadata=physical_schema.metadata)
+            physical_schema = _parquet_physical_schema(source, physical_schema)
         binding = BoundSource(
             source,
             relation,
@@ -355,18 +357,25 @@ class SourceSession:
         self._bound_sources[source_identity] = binding
         return binding
 
-    def duration_units(self, value: ir.Value) -> tuple[str, ...]:
-        """Recover fixed Duration units from consumed, already-bound source fields."""
-        origins = set(physical_fields(value))
-        units: set[str] = set()
-        for bound in self._bound_sources.values():
-            for field in bound.facts.schema:
-                unit = (field.metadata or {}).get(DURATION_UNIT_METADATA_KEY)
-                if unit is not None and origins.intersection(
-                    physical_fields(bound.relation[field.name])
-                ):
-                    units.add(unit.decode("ascii"))
-        return tuple(sorted(units))
+    def _read_csv(self, source: CsvSourceIR) -> ir.Table:
+        csv_options: dict[str, object] = {}
+        if not source.header:
+            csv_options["header"] = False
+        if source.delimiter != ",":
+            csv_options["delim"] = source.delimiter
+        relation = self._backend.read_csv(source.path, **csv_options)
+        if source.columns:
+            relation = relation.select(
+                *(relation[physical].name(output) for output, physical in source.columns)
+            )
+        return relation
+
+    def uses_native_provider(self) -> bool:
+        backend_name: str = self._backend.name
+        return backend_name == self.provider.name
+
+    def bindings(self) -> Iterable[BoundSource]:
+        return self._bound_sources.values()
 
     def binding_for(self, source_identity: str) -> BoundSource:
         """Return this session's exact typed binding for a governed consumer."""
@@ -379,7 +388,7 @@ class SourceSession:
     def qualify(self, binding: BoundSource, need: PhysicalRequirement) -> QualifiedSource:
         """Make the single physical qualification decision for basic reads."""
         self._ensure_open()
-        if binding._owner is not self._token:
+        if not issued_by(binding, self._token):
             raise _invalid("a source bound by this session", "foreign source binding")
         if not isinstance(self._backend, BaseBackend):
             raise _invalid(
@@ -405,7 +414,7 @@ class SourceSession:
     def table_engine(self, binding: BoundSource) -> str | None:
         """Inspect the physical engine of this session's named ClickHouse source."""
         self._ensure_open()
-        if binding._owner is not self._token:
+        if not issued_by(binding, self._token):
             raise _invalid("a source bound by this session", "foreign source binding")
         table_engine = self.provider.table_engine
         if table_engine is None or not isinstance(binding.source, TableSourceIR):
@@ -422,7 +431,7 @@ class SourceSession:
     def table_join_issue(self, binding: BoundSource) -> str | None:
         """Reuse invocation-owned physical topology facts for this exact binding."""
         self._ensure_open()
-        if binding._owner is not self._token:
+        if not issued_by(binding, self._token):
             raise _invalid("a source bound by this session", "foreign source binding")
         table_join_issue = self.provider.table_join_issue
         if table_join_issue is None or not isinstance(binding.source, TableSourceIR):
@@ -468,7 +477,7 @@ class SourceSession:
         self._ensure_open()
         sources = (qualified,) if isinstance(qualified, QualifiedSource) else tuple(qualified)
         if any(
-            item._owner is not self._token or item.binding._owner is not self._token
+            not issued_by(item, self._token) or not issued_by(item.binding, self._token)
             for item in sources
         ):
             raise _invalid("this session's qualified sources", "empty or foreign qualification")
@@ -592,7 +601,7 @@ class SourceSession:
     def _issued_read(self, read: CompiledRead) -> _IssuedRead:
         self._ensure_open()
         stored = self._issued.get(id(read))
-        if read._owner is not self._token or stored is None or stored[0] is not read:
+        if not issued_by(read, self._token) or stored is None or stored[0] is not read:
             raise _invalid("a compiled read issued by this session", "foreign or fabricated read")
         proof = stored[1]
         if (

@@ -12,6 +12,7 @@ from threading import Thread
 from urllib.error import HTTPError
 
 import pytest
+from typing_extensions import override
 
 import marivo.analysis as mv
 import marivo.datasource as md
@@ -59,6 +60,7 @@ def _api_server() -> Iterator[tuple[str, _Api]]:
             self.end_headers()
             self.wfile.write(payload)
 
+        @override
         def log_message(self, format: str, *args: object) -> None:
             pass
 

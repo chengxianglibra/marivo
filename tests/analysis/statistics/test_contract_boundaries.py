@@ -21,14 +21,14 @@ def test_artifact_rejects_unknown_evidence_without_source_replay(
     case = analysis_dsl_case_factory("j2")
     artifact = orders(case).persist()
     store, ref = case.session._runtime.store, artifact.artifact_id
-    with store._read() as connection:
+    with store.read_transaction() as connection:
         saved = connection.execute(
             "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?", (ref,)
         ).fetchone()[0]
     before = run_ids(case.session)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     payload = {**json.loads(saved), "unowned_evidence": {"kind": "unknown"}}
-    with store._write() as connection:
+    with store.write_transaction() as connection:
         connection.execute(
             "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
             (canonical_json(payload), ref),
@@ -39,7 +39,7 @@ def test_artifact_rejects_unknown_evidence_without_source_replay(
         assert "non-canonical" not in str(caught.value.received)
         assert run_ids(case.session) == before
     finally:
-        with store._write() as connection:
+        with store.write_transaction() as connection:
             connection.execute(
                 "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
                 (saved, ref),

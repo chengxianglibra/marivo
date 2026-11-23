@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.dsl.column import column_value_kind
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_get, catalog_value
 
@@ -46,7 +47,7 @@ def test_boolean_operations_return_plain_columns_and_select_only_true(
         region >= "east",
     ):
         assert type(column) is mv.Column
-        assert column._kind == "boolean"
+        assert column_value_kind(column) == "boolean"
 
     rows = frame.to_pandas()
     key = ordinary_columns(frame)[0]
@@ -86,7 +87,7 @@ def test_presence_and_nullable_boolean_filtering_survive_storage(
     joined = frame.align(right, on=tuple(zip(frame.axes, right.axes, strict=True)))
     for name in joined.presence_names:
         assert type(joined[name]) is mv.Column
-        assert joined[name]._kind == "boolean"
+        assert column_value_kind(joined[name]) == "boolean"
     original = joined.compute()
     rows = original.to_pandas()
     key = ordinary_columns(original)[0]

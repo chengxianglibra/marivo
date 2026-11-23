@@ -9,6 +9,7 @@ import pandas as pd
 
 from marivo._definition.types import LiteralValue
 from marivo._kernel.input_context import Owner
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.core import data_validation
 from marivo.analysis.core.attachments import OutputAttachment
@@ -39,6 +40,8 @@ from marivo.analysis.model.lineage import FrameLineage, empty, validate
 from marivo.analysis.model.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from marivo.datasource.spi import DatasourceConnectionConfig
     from marivo.semantic.spi import CompiledSemanticState
 
@@ -46,7 +49,7 @@ if TYPE_CHECKING:
 def _table(
     schema: DataSchema, rows: pd.DataFrame, unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS
 ) -> pd.DataFrame:
-    if not isinstance(rows, pd.DataFrame) or tuple(rows.columns) != tuple(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(rows, pd.DataFrame) or tuple(rows.columns) != tuple(
         column.slot_id for column in schema.columns
     ):
         reject(
@@ -189,6 +192,13 @@ class CompletedFrameData:
 
     def preview_rows(self, n: int) -> pd.DataFrame:
         return self._rows.iloc[:n].copy(deep=True)
+
+    def selected_rows(self, start: int, limit: int, names: list[str]) -> pd.DataFrame:
+        return data_validation.detached_rows(self._rows.iloc[start : start + limit].loc[:, names])
+
+    def borrowed_attachments(self) -> tuple[OutputAttachment, ...]:
+        """Internal read-only coordinate directories for bounded materialization."""
+        return self._attachments
 
     def copy_attachments(self) -> tuple[OutputAttachment, ...]:
         return tuple(
@@ -344,6 +354,8 @@ class FrameLocalRead(Protocol):
 
     @property
     def owner(self) -> Owner: ...
+    @property
+    def project_root(self) -> Path: ...
     @property
     def report_timezone_name(self) -> str: ...
     def read_complete(self, backing: StoredFrameBacking) -> CompletedFrameResult: ...

@@ -121,10 +121,8 @@ def _metric_scope_summary(method: str) -> str:
     return summary
 
 
-def _reduction_summary(prefix: str, method: str) -> str:
+def _operation_summary(prefix: str, method: str) -> str:
     summary = ""
-    if prefix == "Metric":
-        return _metric_scope_summary(method)
     if method in {"first", "last"}:
         summary += (
             f"Select the {method} internal sample. "
@@ -205,6 +203,13 @@ def _reduction_summary(prefix: str, method: str) -> str:
             + ("median (q=0.5). " if method.endswith("median") else "quantile; pass q in [0, 1]. ")
             + "Empty/all-NULL inputs return NA; no exact/approximate substitution is inferred."
         )
+    return summary
+
+
+def _reduction_summary(prefix: str, method: str) -> str:
+    if prefix == "Metric":
+        return _metric_scope_summary(method)
+    summary = _operation_summary(prefix, method)
     if prefix == "MetricSamples":
         summary += (
             " Time samples use represented values without scheduled coverage or implicit fill, "

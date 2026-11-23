@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from marivo._kernel.validation import trimmed_text
+
 _LOCALTIME_PATH = Path("/etc/localtime")
 _SYSTEM_PLATFORM = sys.platform
 _UTC_NAMES = frozenset(
@@ -67,13 +69,7 @@ def normalize_timezone(value: str) -> NormalizedTimezone:
     UTC links and fixed-offset spellings share one identity. Other IANA links
     retain their given names; no host clock or source data is consulted.
     """
-    if (
-        not isinstance(value, str)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        or not value
-        or value != value.strip()
-        or value == "localtime"
-        or value.startswith(("/", ":"))
-    ):
+    if not trimmed_text(value) or value == "localtime" or value.startswith(("/", ":")):
         raise ValueError("expected an IANA timezone name or explicit UTC offset")
     offset = value[3:] if value.startswith("UTC") else value
     if re.fullmatch(r"[+-]\d{2}:\d{2}(?::\d{2})?", offset):

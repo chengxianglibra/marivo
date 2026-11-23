@@ -35,8 +35,8 @@ class LoaderContext:
     declarations: list[Deferred] = field(default_factory=list)
     declaration_contexts: dict[int, InputContext] = field(default_factory=dict)
     project_root: Path | None = None
-    _model_package: str | None = field(default=None, repr=False, compare=False)
-    _sources: _ModelSources = field(default_factory=_ModelSources, repr=False, compare=False)
+    model_package: str | None = field(default=None, repr=False, compare=False)
+    sources: _ModelSources = field(default_factory=_ModelSources, repr=False, compare=False)
 
 
 _LOADER_CTX: ContextVar[LoaderContext | None] = ContextVar(

@@ -13,7 +13,7 @@ from ibis.common.deferred import Deferred
 
 from marivo._kernel.ai_context import AiContextValue, InvalidAiContextError, capture_ai_context
 from marivo._kernel.refs import SemanticKind
-from marivo._kernel.validation import nonblank_text
+from marivo._kernel.validation import is_instance, nonblank_text
 from marivo.semantic.authoring.additivity import CoordinateInput
 from marivo.semantic.authoring.additivity import additive_all as _additive_all
 from marivo.semantic.authoring.additivity import additive_except as _additive_except
@@ -145,7 +145,7 @@ def ai_context(
     location = _caller_location()
 
     if aliases is not None and (
-        not isinstance(aliases, _Sequence)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        not is_instance(aliases, _Sequence)
         or isinstance(aliases, str | bytes | bytearray)
         or not all(nonblank_text(item) for item in aliases)
     ):

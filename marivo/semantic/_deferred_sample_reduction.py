@@ -51,7 +51,7 @@ def _reduce_samples(
             node,
             tuple(dict.fromkeys((*metric.roots, *weight.roots))),
             metric.unit,
-            tuple(dict((*metric._declared, *weight._declared)).items()),
+            tuple(dict((*metric.declared, *weight.declared)).items()),
         )
     order_by: ExactRef | None = None
     include_null = _constant(kwargs.get("include_null", Just(False)))
@@ -84,7 +84,7 @@ def _reduce_samples(
                     expected="resolved TimeField",
                     received=type(ordering).__name__,
                 )
-            assert isinstance(ordering, RowFacts) and ordering.field is not None  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            assert ordering.field is not None
             order_by = ordering.field.reference
         else:
             times = tuple(
@@ -120,5 +120,5 @@ def _reduce_samples(
         node,
         metric.roots,
         "1" if name in {"count", "count_distinct", "approx_nunique"} else metric.unit,
-        metric._declared,
+        metric.declared,
     )

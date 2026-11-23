@@ -6,7 +6,8 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
-from marivo.analysis.core.frozen_calendar import _arrow_type, frozen_key_rows
+from marivo.analysis.core.frozen_arrays import coordinate_arrow_type as _arrow_type
+from marivo.analysis.core.frozen_calendar import frozen_key_rows
 from marivo.analysis.core.value_types import literal_kind
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.model.data_schema import DataAxis

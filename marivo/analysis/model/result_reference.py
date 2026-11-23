@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, TypedDict
 
+from typing_extensions import override
+
 from marivo._kernel.render import Card, RenderableResult
 
 
@@ -38,14 +40,6 @@ class FrameReference(RenderableResult):
     def __new__(cls) -> FrameReference:
         raise TypeError("Acquire a FrameReference from a persisted AnalysisFrame.ref.")
 
-    @classmethod
-    def _create(cls, store_id: str, session_id: str, artifact_id: str) -> FrameReference:
-        value = object.__new__(cls)
-        object.__setattr__(value, "store_id", store_id)
-        object.__setattr__(value, "session_id", session_id)
-        object.__setattr__(value, "artifact_id", artifact_id)
-        return value
-
     @property
     def kind(self) -> Literal["analysis_frame"]:
         """The fixed result kind. Example: ``saved.ref.kind``. Reads no data."""
@@ -65,9 +59,11 @@ class FrameReference(RenderableResult):
             "artifact_id": self.artifact_id,
         }
 
+    @override
     def _repr_identity(self) -> str:
         return f"FrameReference kind={self.kind} artifact_id={self.artifact_id!r}"
 
+    @override
     def _card(self) -> Card:
         card = Card(identity=self._repr_identity(), available=("to_dict()",))
         for name, value in self.to_dict().items():
@@ -92,13 +88,6 @@ class DataFrameReference(RenderableResult):
     def __new__(cls) -> DataFrameReference:
         raise TypeError("Acquire a DataFrameReference from persist_dataframe().")
 
-    @classmethod
-    def _create(cls, project_root: Path, result_id: str) -> DataFrameReference:
-        value = object.__new__(cls)
-        object.__setattr__(value, "project_root", project_root)
-        object.__setattr__(value, "result_id", result_id)
-        return value
-
     @property
     def kind(self) -> Literal["dataframe"]:
         """The fixed result kind. Example: ``reference.kind``. Reads no data."""
@@ -117,11 +106,28 @@ class DataFrameReference(RenderableResult):
             "result_id": self.result_id,
         }
 
+    @override
     def _repr_identity(self) -> str:
         return f"DataFrameReference kind={self.kind} result_id={self.result_id!r}"
 
+    @override
     def _card(self) -> Card:
         card = Card(identity=self._repr_identity(), available=("to_dict()",))
         for name, value in self.to_dict().items():
             card.field(name, str(value))
         return card
+
+
+def make_frame_reference(store_id: str, session_id: str, artifact_id: str) -> FrameReference:
+    value = object.__new__(FrameReference)
+    object.__setattr__(value, "store_id", store_id)
+    object.__setattr__(value, "session_id", session_id)
+    object.__setattr__(value, "artifact_id", artifact_id)
+    return value
+
+
+def make_dataframe_reference(project_root: Path, result_id: str) -> DataFrameReference:
+    value = object.__new__(DataFrameReference)
+    object.__setattr__(value, "project_root", project_root)
+    object.__setattr__(value, "result_id", result_id)
+    return value

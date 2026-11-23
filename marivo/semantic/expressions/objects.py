@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, cast
 
 from ibis.common.deferred import Deferred
+from typing_extensions import override
 
 from marivo._definition.deferred import (
     RelationshipParameter,
@@ -22,6 +23,7 @@ from marivo._definition.types import (
     SumNone,
     SumPermission,
 )
+from marivo._kernel.paths import relationship_binding
 from marivo._kernel.refs import (
     Ref,
     SemanticKindTag,
@@ -130,10 +132,12 @@ class ExpressionContract(RenderableResult):
         """Return the captured definition dependencies as lookup symbols."""
         return tuple(symbol_from_ref(reference) for reference in self._reads)
 
+    @override
     def _repr_identity(self) -> str:
         identity = self._ref.ref.key if self._ref is not None else (self.name or "anonymous")
         return f"ExpressionContract {self.stage} {identity}"
 
+    @override
     def _card(self) -> Card:
         card = Card(identity=self._repr_identity(), available=(".show()",))
         card = card.field("stage", self.stage)
@@ -239,13 +243,14 @@ class _Entity(_ExpressionDisplay):
             "Deferred", value.count() if isinstance(time, _OmittedTime) else value.count(time=time)
         )
 
+    @override
     def __repr__(self) -> str:
         return f"Entity {self._exact_ref.ref.path}@{self._exact_ref.version[:19]} (use .show())"
 
 
 def entity_exact(value: _Entity) -> ExactRef:
     """Consume the closed Entity identity without entering Deferred navigation."""
-    return value._exact_ref
+    return value._exact_ref  # noqa: SLF001 - Nominal Entity identity bridge.
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,6 +280,7 @@ class _Relationship(_RelationshipValue, _ExpressionDisplay):
         """Return the captured relationship cardinality."""
         return self._parameter.cardinality
 
+    @override
     def __repr__(self) -> str:
         exact = self._parameter.ref
         return f"Relationship {exact.ref.path}@{exact.version[:19]} (use .show())"
@@ -282,7 +288,7 @@ class _Relationship(_RelationshipValue, _ExpressionDisplay):
 
 def relationship_parameter(value: _Relationship) -> RelationshipParameter:
     """Consume the immutable internal relationship facts."""
-    return value._parameter
+    return relationship_binding(value)
 
 
 class _FieldMetadata(_ExpressionDisplay):
@@ -292,7 +298,7 @@ class _FieldMetadata(_ExpressionDisplay):
     anchor: InstantAnchor | None
     _default_time: ExactRef | None
 
-    def _require_native(self, *, operation: str) -> None:
+    def require_native(self, *, operation: str) -> None:
         if self.path or self.anchor is not None:
             _fail(
                 ErrorKind.INVALID_TIME_PATH,
@@ -343,15 +349,15 @@ def _expression_contract(value: object) -> ExpressionContract:
     """Bounded metadata disclosure; numerical definitions belong to Catalog/Query."""
     if not isinstance(value, (_Entity, _Relationship, Dimension, TimeField, Measure)):
         raise TypeError(f"no physical definition contract for {type(value).__name__}")
-    facts = value._facts
+    facts = value._facts  # noqa: SLF001 - Closed physical expression metadata.
     if isinstance(value, _Entity):
         stage: ExpressionStage = "entity"
-        roots: tuple[ExactRef, ...] = (value._exact_ref,)
+        roots: tuple[ExactRef, ...] = (entity_exact(value),)
         operations: tuple[str, ...] = ("count",)
     elif isinstance(value, _Relationship):
         stage, roots, operations = (
             "relationship",
-            (value._parameter.from_entity, value._parameter.to_entity),
+            (relationship_binding(value).from_entity, relationship_binding(value).to_entity),
             ("via",),
         )
     else:
@@ -366,16 +372,16 @@ def _expression_contract(value: object) -> ExpressionContract:
     details = facts.details if facts else ()
     if isinstance(value, _Relationship):
         details = (
-            ("from", value._parameter.from_entity.ref.key),
-            ("to", value._parameter.to_entity.ref.key),
+            ("from", relationship_binding(value).from_entity.ref.key),
+            ("to", relationship_binding(value).to_entity.ref.key),
             ("cardinality", value.cardinality),
             *details,
         )
     return ExpressionContract(
         stage=stage,
-        _ref=value._exact_ref
+        _ref=entity_exact(value)
         if isinstance(value, _Entity)
-        else value._parameter.ref
+        else relationship_binding(value).ref
         if isinstance(value, _Relationship)
         else value.ref,
         _roots=roots,
@@ -386,9 +392,9 @@ def _expression_contract(value: object) -> ExpressionContract:
         name=facts.name
         if facts
         else (
-            value._exact_ref
+            entity_exact(value)
             if isinstance(value, _Entity)
-            else value._parameter.ref
+            else relationship_binding(value).ref
             if isinstance(value, _Relationship)
             else value.ref
         ).ref.name,
@@ -400,3 +406,11 @@ def _expression_contract(value: object) -> ExpressionContract:
         facts=details,
         operations=operations,
     )
+
+
+def expression_default_time(value: _Entity | _FieldMetadata) -> ExactRef | None:
+    return value._default_time  # noqa: SLF001 - Captured native contribution clock.
+
+
+def field_is_versioned(value: Dimension | TimeField | Measure) -> bool:
+    return value._versioned  # noqa: SLF001 - Physical identity version facts of the field.

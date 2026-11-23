@@ -11,6 +11,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, NoReturn
 
+from typing_extensions import override
+
 from marivo._authoring.errors import ContractScopeErrorPayload
 from marivo._authoring.model import AuthoringRepair
 from marivo._definition.types import DefinitionGraphError
@@ -273,6 +275,7 @@ class SemanticError(MarivoError):
         self.traceback = traceback
         super().__init__(str(self))
 
+    @override
     def __str__(self) -> str:
         lines: list[str] = [f"[{self.kind}] {self.message}"]
         if self.semantic_refs:
@@ -561,6 +564,7 @@ class SemanticLoadFailed(SemanticError):  # noqa: N818
             message=f"Semantic project failed to load ({count} errors).{first}{remaining}",
         )
 
+    @override
     def __str__(self) -> str:
         return self.message
 
@@ -593,6 +597,7 @@ class StructuredWarning:
     refs: tuple[str, ...]
     location: SourceLocation | None
 
+    @override
     def __str__(self) -> str:
         lines: list[str] = [f"[{self.kind}] {self.message}"]
         if self.refs:
@@ -601,6 +606,7 @@ class StructuredWarning:
             lines.append(f"  at: {self.location.file}:{self.location.line}")
         return "\n".join(lines)
 
+    @override
     def __repr__(self) -> str:
         return (
             f"StructuredWarning(kind={self.kind!r}, message={self.message!r}, "

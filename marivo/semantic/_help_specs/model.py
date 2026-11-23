@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal
 
+from typing_extensions import override
+
 from marivo._authoring.model import AuthoringCapability
 from marivo._kernel.refs import SemanticKind
 from marivo.introspection.capabilities.registry import SurfaceRegistry
@@ -255,6 +257,7 @@ class SemanticManifest(SurfaceRegistry[SemanticHelpDescriptor]):
                 return contract
         raise KeyError(kind)
 
+    @override
     def discovery_ids(self) -> tuple[str, ...]:
         """Return public capabilities that are not receiver-member drill-downs."""
         return tuple(

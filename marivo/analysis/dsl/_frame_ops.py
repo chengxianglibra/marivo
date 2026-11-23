@@ -18,10 +18,24 @@ from marivo._definition.query import (
     ValueSlot,
 )
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
+from marivo._kernel.validation import is_instance
 from marivo.analysis.core.frame_value_analysis import infer_frame_schema
-from marivo.analysis.dsl.column import Column, _ColumnFrame, _Statistic
-from marivo.analysis.dsl.frame_axis import FrameAxis
+from marivo.analysis.dsl.column import (
+    Column,
+    _ColumnFrame,
+    _Statistic,
+    column_expression,
+    column_frame,
+    column_input_id,
+    column_pair_statistic,
+    frame_axis_index,
+    require_frame_column,
+    statistic_definition,
+    statistic_input,
+)
+from marivo.analysis.dsl.frame_axis import FrameAxis, axis_frame, axis_input_id
 from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import frame_input_id, frame_local, frame_logical_schema
 from marivo.analysis.model.frame_structure import column_kind
 from marivo.analysis.model.value_names import value_name
 
@@ -166,21 +180,23 @@ def bind_statistic(
             location,
             canonical_id=canonical_id,
         )
+    input_id, bound_frame = statistic_input(statistic)
+    definition = statistic_definition(statistic)
     if (
-        statistic._input_id is None
-        and isinstance(statistic._definition, Statistic)
-        and statistic._definition.method == "row_count"
-        and statistic._definition.value is None
+        input_id is None
+        and isinstance(definition, Statistic)
+        and definition.method == "row_count"
+        and definition.value is None
     ):
-        return _Statistic(frame._input_id, statistic._definition, statistic.unit, frame)
+        return _Statistic(frame_input_id(frame), definition, statistic.unit, frame)
     if (
-        statistic._input_id != frame._input_id
-        or statistic._frame is None
-        or statistic._frame._local.owner != frame._local.owner
+        input_id != frame_input_id(frame)
+        or bound_frame is None
+        or frame_local(bound_frame).owner != frame_local(frame).owner
     ):
         reject(
             "a statistic from this exact Frame input",
-            repr(statistic._input_id),
+            repr(input_id),
             "Reacquire the Column on this Frame before constructing the statistic.",
             location,
             canonical_id=canonical_id,
@@ -203,10 +219,10 @@ def bind_selection(
     for name, value in values.items():
         value_name(name, location="frame.select", canonical_id="analysis_frame.select")
         if isinstance(value, Column):
-            frame._require_column(
-                value, location="frame.select", canonical_id="analysis_frame.select"
+            require_frame_column(
+                frame, value, location="frame.select", canonical_id="analysis_frame.select"
             )
-            expression = value._expression
+            expression = column_expression(value)
         else:
             try:
                 literal = check_literal(value, role="Frame select value")
@@ -272,7 +288,7 @@ def bind_reduction(
             canonical_id="analysis_frame.reduce",
         )
     positions = tuple(
-        frame._axis_index(axis, location="frame.reduce", canonical_id="analysis_frame.reduce")
+        frame_axis_index(frame, axis, location="frame.reduce", canonical_id="analysis_frame.reduce")
         for axis in by
     )
     if len(set(positions)) != len(positions):
@@ -291,12 +307,12 @@ def bind_reduction(
         bound = bind_statistic(
             frame, value, location="frame.reduce", canonical_id="analysis_frame.reduce"
         )
+        definition = statistic_definition(bound)
         if not named:
-            definition = bound._definition
             if isinstance(definition, Statistic) and definition.method == "row_count":
                 name = "row_count"
             elif isinstance(definition, Statistic) and isinstance(definition.value, ValueSlot):
-                path = frame._schema.value_paths[definition.value.index]
+                path = frame_logical_schema(frame).value_paths[definition.value.index]
                 if len(path) != 1:
                     reject(
                         "a direct single-segment value path for an automatic statistic name",
@@ -325,7 +341,7 @@ def bind_reduction(
                 canonical_id="analysis_frame.reduce",
             )
         candidates[name] = position
-        statistics.append((name, bound._definition))
+        statistics.append((name, definition))
     return ReduceValues(tuple(statistics), positions)
 
 
@@ -339,7 +355,7 @@ def bind_partition(frame: _ColumnFrame, statistic: _Statistic, by: tuple[FrameAx
             canonical_id="analysis_frame.over",
         )
     requested = tuple(
-        frame._axis_index(axis, location="frame.over", canonical_id="analysis_frame.over")
+        frame_axis_index(frame, axis, location="frame.over", canonical_id="analysis_frame.over")
         for axis in by
     )
     if len(set(requested)) != len(requested):
@@ -354,12 +370,13 @@ def bind_partition(frame: _ColumnFrame, statistic: _Statistic, by: tuple[FrameAx
     bound = bind_statistic(
         frame, statistic, location="frame.over", canonical_id="analysis_frame.over"
     )
+    definition = statistic_definition(bound)
     schema = infer_frame_schema(
-        frame._schema, ReduceValues((("statistic", bound._definition),), positions)
+        frame_logical_schema(frame), ReduceValues((("statistic", definition),), positions)
     )
     return Column(
-        frame._input_id,
-        ValuePartition(bound._definition, positions),
+        frame_input_id(frame),
+        ValuePartition(definition, positions),
         bound.unit,
         column_kind(schema.values[0]),
         frame,
@@ -382,10 +399,11 @@ def bind_correlation(
             canonical_id="analysis_frame.correlate",
         )
     for label, column in (("x", x), ("y", y)):
-        if not isinstance(column, Column) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            column._input_id != frame._input_id
-            or column._frame is None
-            or column._frame._local.owner != frame._local.owner
+        bound_frame = column_frame(column) if is_instance(column, Column) else None
+        if not is_instance(column, Column) or (
+            column_input_id(column) != frame_input_id(frame)
+            or bound_frame is None
+            or frame_local(bound_frame).owner != frame_local(frame).owner
         ):
             reject(
                 f"{label}: a Column from this exact Store/Session/Frame input",
@@ -403,8 +421,9 @@ def bind_correlation(
             canonical_id="analysis_frame.correlate",
         )
     for axis in by:
-        if not isinstance(axis, FrameAxis) or (  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            axis._input_id != frame._input_id or axis._frame._local.owner != frame._local.owner
+        if not is_instance(axis, FrameAxis) or (
+            axis_input_id(axis) != frame_input_id(frame)
+            or frame_local(axis_frame(axis)).owner != frame_local(frame).owner
         ):
             reject(
                 "complete axes from this exact Frame/Session input",
@@ -414,7 +433,9 @@ def bind_correlation(
                 canonical_id="analysis_frame.correlate",
             )
     positions = tuple(
-        frame._axis_index(axis, location="frame.correlate", canonical_id="analysis_frame.correlate")
+        frame_axis_index(
+            frame, axis, location="frame.correlate", canonical_id="analysis_frame.correlate"
+        )
         for axis in by
     )
     if len(set(positions)) != len(positions):
@@ -425,14 +446,17 @@ def bind_correlation(
             "frame.correlate",
             canonical_id="analysis_frame.correlate",
         )
-    coefficient = x._pair_statistic(
-        y, method, location="frame.correlate", canonical_id="analysis_frame.correlate"
+    coefficient = column_pair_statistic(
+        x, y, method, location="frame.correlate", canonical_id="analysis_frame.correlate"
     )
-    count = x._pair_statistic(
-        y, "pair_count", location="frame.correlate", canonical_id="analysis_frame.correlate"
+    count = column_pair_statistic(
+        x, y, "pair_count", location="frame.correlate", canonical_id="analysis_frame.correlate"
     )
     return ReduceValues(
-        (("coefficient", coefficient._definition), ("n_pairs", count._definition)),
+        (
+            ("coefficient", statistic_definition(coefficient)),
+            ("n_pairs", statistic_definition(count)),
+        ),
         positions,
     )
 
@@ -448,8 +472,8 @@ def bind_axis_pairs(
     on = pair_axes(frame.axes, other.axes, on, location=location, canonical_id=canonical_id)
     return tuple(
         (
-            frame._axis_index(a, location=location, canonical_id=canonical_id),
-            other._axis_index(b, location=location, canonical_id=canonical_id),
+            frame_axis_index(frame, a, location=location, canonical_id=canonical_id),
+            frame_axis_index(other, b, location=location, canonical_id=canonical_id),
         )
         for a, b in on
     )

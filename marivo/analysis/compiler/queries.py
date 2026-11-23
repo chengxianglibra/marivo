@@ -176,6 +176,83 @@ def plan_read(graph: BoundGraph, source_graph: BoundGraph, plan: QueryPlan) -> Q
     )
 
 
+def _infer_literal_type(values: tuple[LiteralValue, ...]) -> DataType:
+    try:
+        present = tuple(value for value in values if value is not None)
+        if present and all(isinstance(value, timedelta) for value in present):
+            nonzero = tuple(value for value in present if value != timedelta(0))
+            if not nonzero:
+                return DurationDataType("us")
+            return data_type(dt.highest_precedence(dt.infer(value) for value in nonzero))
+        decimals = tuple(value for value in values if isinstance(value, Decimal))
+        if decimals:
+            scales: list[int] = []
+            for value in decimals:
+                exponent = value.as_tuple().exponent
+                assert isinstance(exponent, int)
+                scales.append(max(0, -exponent))
+            scale = max(scales)
+            precision = max(1, max(max(0, value.adjusted() + 1) for value in decimals) + scale)
+            if precision > 38:
+                raise ValueError(f"Decimal literal precision {precision} exceeds 38")
+            return DecimalDataType(precision, scale)
+        return data_type(
+            dt.highest_precedence(dt.infer(value) for value in values if value is not None)
+        )
+    except (TypeError, ValueError) as error:
+        reject(
+            "losslessly representable finite literal values",
+            str(error),
+            "Use compatible values within the admitted numeric precision.",
+            "Session.values",
+        )
+
+
+def _check_literal_key(value: LiteralValue, column: SourceField) -> None:
+    dtype = column.dtype
+    valid = (
+        column.nullable
+        if value is None
+        else (
+            type(value) is int and -(2**63) <= value < 2**63
+            if dtype == ScalarDataType("int64")
+            else type(value) is float
+            if dtype == ScalarDataType("float64")
+            else type(value) is bool
+            if dtype == ScalarDataType("boolean")
+            else type(value) is str
+            if dtype == ScalarDataType("string")
+            else isinstance(value, date) and not isinstance(value, datetime)
+            if dtype == ScalarDataType("date")
+            else isinstance(value, datetime)
+            and value.tzinfo is not None
+            and value.utcoffset() is not None
+            if isinstance(dtype, TimestampDataType)
+            else isinstance(value, timedelta)
+            if isinstance(dtype, DurationDataType)
+            else isinstance(value, Decimal)
+        )
+    )
+    if (
+        valid
+        and value is not None
+        and isinstance(dtype, DecimalDataType)
+        and isinstance(value, Decimal)
+    ):
+        with localcontext() as context:
+            context.prec = 120
+            valid = value == value.quantize(Decimal(1).scaleb(-dtype.scale)) and abs(
+                value
+            ) < Decimal(10) ** (dtype.precision - dtype.scale)
+    if not valid:
+        reject(
+            f"{column.field}: a lossless {dtype!r} coordinate",
+            repr(value),
+            "Use the declared Field kind or every complete identity key component.",
+            "Session.values",
+        )
+
+
 def plan_literal(
     graph: BoundGraph, operation: LiteralValues, schemas: tuple[SourceSchema, ...] = ()
 ) -> QueryPlan:
@@ -215,82 +292,6 @@ def plan_literal(
         ),
     )
 
-    def inferred(values: tuple[LiteralValue, ...]) -> DataType:
-        try:
-            present = tuple(value for value in values if value is not None)
-            if present and all(isinstance(value, timedelta) for value in present):
-                nonzero = tuple(value for value in present if value != timedelta(0))
-                if not nonzero:
-                    return DurationDataType("us")
-                return data_type(dt.highest_precedence(dt.infer(value) for value in nonzero))
-            decimals = tuple(value for value in values if isinstance(value, Decimal))
-            if decimals:
-                scales: list[int] = []
-                for value in decimals:
-                    exponent = value.as_tuple().exponent
-                    assert isinstance(exponent, int)
-                    scales.append(max(0, -exponent))
-                scale = max(scales)
-                precision = max(1, max(max(0, value.adjusted() + 1) for value in decimals) + scale)
-                if precision > 38:
-                    raise ValueError(f"Decimal literal precision {precision} exceeds 38")
-                return DecimalDataType(precision, scale)
-            return data_type(
-                dt.highest_precedence(dt.infer(value) for value in values if value is not None)
-            )
-        except (TypeError, ValueError) as error:
-            reject(
-                "losslessly representable finite literal values",
-                str(error),
-                "Use compatible values within the admitted numeric precision.",
-                "Session.values",
-            )
-
-    def check_key(value: LiteralValue, column: SourceField) -> None:
-
-        dtype = column.dtype
-        valid = (
-            column.nullable
-            if value is None
-            else (
-                type(value) is int and -(2**63) <= value < 2**63
-                if dtype == ScalarDataType("int64")
-                else type(value) is float
-                if dtype == ScalarDataType("float64")
-                else type(value) is bool
-                if dtype == ScalarDataType("boolean")
-                else type(value) is str
-                if dtype == ScalarDataType("string")
-                else isinstance(value, date) and not isinstance(value, datetime)
-                if dtype == ScalarDataType("date")
-                else isinstance(value, datetime)
-                and value.tzinfo is not None
-                and value.utcoffset() is not None
-                if isinstance(dtype, TimestampDataType)
-                else isinstance(value, timedelta)
-                if isinstance(dtype, DurationDataType)
-                else isinstance(value, Decimal)
-            )
-        )
-        if (
-            valid
-            and value is not None
-            and isinstance(dtype, DecimalDataType)
-            and isinstance(value, Decimal)
-        ):
-            with localcontext() as context:
-                context.prec = 120
-                valid = value == value.quantize(Decimal(1).scaleb(-dtype.scale)) and abs(
-                    value
-                ) < Decimal(10) ** (dtype.precision - dtype.scale)
-        if not valid:
-            reject(
-                f"{column.field}: a lossless {dtype!r} coordinate",
-                repr(value),
-                "Use the declared Field kind or every complete identity key component.",
-                "Session.values",
-            )
-
     source_id = "literal:" + graph.fingerprint
     schema = next((item for item in schemas if item.source_id == source_id), None)
     groups: list[tuple[str, ...]] = []
@@ -315,7 +316,7 @@ def plan_literal(
                 samples_list.append(value[component] if isinstance(value, tuple) else value)
             samples = tuple(samples_list)
             for value in samples:
-                check_key(value, schema.keys[len(columns)])
+                _check_literal_key(value, schema.keys[len(columns)])
             columns.append(
                 DataColumn(
                     slot,
@@ -331,7 +332,7 @@ def plan_literal(
         DataColumn(
             f"value.{index}",
             name,
-            inferred(tuple(values[index] for _, values in operation.rows)),
+            _infer_literal_type(tuple(values[index] for _, values in operation.rows)),
             False,
             quantity.unit,
         )

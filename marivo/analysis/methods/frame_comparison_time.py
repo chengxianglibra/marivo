@@ -9,6 +9,7 @@ import pandas as pd
 
 from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._kernel.temporal_grid import CivilShiftAbsent
+from marivo._kernel.validation import is_instance
 from marivo.analysis.core.attachments import OutputAttachment
 from marivo.analysis.core.frame_operations import NamedFrameComparison
 from marivo.analysis.core.frozen_calendar import (
@@ -194,7 +195,7 @@ def _unmapped_time_details(
         definition = frozen.definition
         grain = (
             f"{definition.unit} step={definition.step}"
-            if isinstance(definition, BuiltinCalendarData)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            if is_instance(definition, BuiltinCalendarData)
             else "calendar"
         )
         timezone = baseline.axis.timezone

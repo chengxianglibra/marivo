@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 from marivo._kernel.compat import UTC
+from marivo._kernel.input_context import captured_context
 from marivo._kernel.refs import (
     Ref,
     SemanticKind,
@@ -14,10 +15,14 @@ from marivo._kernel.refs import (
 )
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.validation import input_sequence
+from marivo.semantic.catalog_model.inputs import catalog_entry_dependencies
+from marivo.semantic.catalog_model.objects import lookup_registry
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 from marivo.semantic.runtime_check.context import (
     ValidationLookup,
     _field_owner,
+    validation_connections,
+    validation_resolver,
 )
 from marivo.semantic.runtime_check.data_checks import (
     _execute_field_check,
@@ -40,9 +45,12 @@ from marivo.semantic.runtime_check.source_checks import (
     SourceCheck,
     UniqueSourceCheck,
     ValidationStatus,
+    source_check_field,
+    source_check_relationship,
 )
 
 if TYPE_CHECKING:
+    from marivo.datasource.spi import AuthoringScope, DatasourceConnectionService, SourceInspection
     from marivo.semantic.static_check.registry import Registry
 
 
@@ -58,8 +66,8 @@ def _check_entities(check: SourceCheck, registry: Registry) -> tuple[str, ...]:
     if isinstance(check, UniqueSourceCheck):
         return tuple(dict.fromkeys(_field_owner(registry, field) for field in check._fields))
     if isinstance(check, NotNullSourceCheck | AllowedValuesSourceCheck | FreshnessSourceCheck):
-        return (_field_owner(registry, check._field),)
-    relationship = registry.relationships[check._relationship.path]
+        return (_field_owner(registry, source_check_field(check)),)
+    relationship = registry.relationships[source_check_relationship(check).path]
     return tuple(dict.fromkeys((relationship.from_entity, relationship.to_entity)))
 
 
@@ -111,15 +119,15 @@ def _normalize_checks(
                 ),
             )
         if (
-            check._context.project_root is not None
-            and check._context.project_root != catalog.workspace_dir.resolve()
+            captured_context(check).project_root is not None
+            and captured_context(check).project_root != catalog.workspace_dir.resolve()
         ):
             _raise(
                 ErrorKind.INVALID_REF,
                 "The source check belongs to another project.",
                 cls=SemanticRuntimeError,
                 expected=f"a source check from {catalog.workspace_dir}",
-                received=str(check._context.project_root),
+                received=str(captured_context(check).project_root),
                 details={"parameter": "checks", "query_executed": False},
                 repair_value=repair(
                     kind="inspect",
@@ -131,12 +139,12 @@ def _normalize_checks(
             check._fields
             if isinstance(check, UniqueSourceCheck)
             else (
-                (check._field,)
+                (source_check_field(check),)
                 if isinstance(
                     check,
                     NotNullSourceCheck | AllowedValuesSourceCheck | FreshnessSourceCheck,
                 )
-                else (check._relationship,)
+                else (source_check_relationship(check),)
             )
         )
         for target in target_refs:
@@ -193,8 +201,42 @@ def _dependency_entities(
         if ref in checked:
             continue
         checked.add(ref)
-        pending.extend(catalog._entry_dependencies(ref))
+        pending.extend(catalog_entry_dependencies(catalog, ref))
     return tuple(sorted(ref.path for ref in checked if ref.kind is SemanticKind.ENTITY))
+
+
+def _run_source_checks(
+    catalog: ValidationLookup,
+    checks: tuple[SourceCheck, ...],
+    normalized_scopes: Mapping[str, AuthoringScope],
+    inspections: Mapping[str, SourceInspection | None],
+    connections: DatasourceConnectionService,
+    checked_at: str,
+) -> Iterator[ValidationCheckResult]:
+    resolver = validation_resolver(
+        catalog,
+        connections=connections,
+        entity_scopes=normalized_scopes,
+    )
+    for check in checks:
+        if isinstance(check, RelationshipMatchesSourceCheck | RelationshipCardinalitySourceCheck):
+            yield _execute_relationship_check(
+                catalog=catalog,
+                check=check,
+                scopes=normalized_scopes,
+                inspections=inspections,
+                resolver=resolver,
+                checked_at=checked_at,
+            )
+        else:
+            yield _execute_field_check(
+                catalog=catalog,
+                check=check,
+                scopes=normalized_scopes,
+                inspections=inspections,
+                resolver=resolver,
+                checked_at=checked_at,
+            )
 
 
 def run_validation(
@@ -205,7 +247,7 @@ def run_validation(
     scope: PreviewScope | None,
 ) -> ValidationReport:
     """Run metadata checks and explicitly requested bounded data checks."""
-    registry = catalog._reg
+    registry = lookup_registry(catalog)
     selected_entities = _dependency_entities(catalog, refs)
     if not selected_entities:
         _raise(
@@ -273,7 +315,7 @@ def run_validation(
         if scope is not None
         else {}
     )
-    with catalog._connection_operation() as connections:
+    with validation_connections(catalog) as connections:
         checked_at = datetime.now(tz=UTC).isoformat()
         results, inspections = _metadata_checks(
             catalog,
@@ -282,35 +324,16 @@ def run_validation(
             checked_at=checked_at,
         )
         if normalized_checks:
-            resolver = catalog._semantic_resolver(
-                connections=connections,
-                entity_scopes=normalized_scopes,
+            results.extend(
+                _run_source_checks(
+                    catalog,
+                    normalized_checks,
+                    normalized_scopes,
+                    inspections,
+                    connections,
+                    checked_at,
+                )
             )
-            for check in normalized_checks:
-                if isinstance(
-                    check, RelationshipMatchesSourceCheck | RelationshipCardinalitySourceCheck
-                ):
-                    results.append(
-                        _execute_relationship_check(
-                            catalog=catalog,
-                            check=check,
-                            scopes=normalized_scopes,
-                            inspections=inspections,
-                            resolver=resolver,
-                            checked_at=checked_at,
-                        )
-                    )
-                else:
-                    results.append(
-                        _execute_field_check(
-                            catalog=catalog,
-                            check=check,
-                            scopes=normalized_scopes,
-                            inspections=inspections,
-                            resolver=resolver,
-                            checked_at=checked_at,
-                        )
-                    )
         return ValidationReport(
             status=_overall_status(results),
             checks=tuple(results),

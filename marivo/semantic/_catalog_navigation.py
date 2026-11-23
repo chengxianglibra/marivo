@@ -38,11 +38,16 @@ from marivo.semantic.catalog_model.index import (
 )
 from marivo.semantic.catalog_model.inputs import (
     _physical_dependencies,
+    catalog_entry_dependencies,
+    require_catalog_index,
 )
 from marivo.semantic.catalog_model.objects import (
     RelatedRelation,
     SemanticObject,
     _SemanticObject,
+    entry_reference,
+    lookup_registry,
+    lookup_state,
 )
 from marivo.semantic.definition_resolution import _Resolver
 from marivo.semantic.errors import (
@@ -78,10 +83,10 @@ def _related_refs(
     ref: Ref[SemanticKindTag],
     relation: RelatedRelation,
 ) -> set[Ref[SemanticKindTag]]:
-    dependencies = catalog._state.dependencies
+    dependencies = lookup_state(catalog).dependencies
     selected: set[Ref[SemanticKindTag]] = set()
     if relation == "dependencies":
-        selected.update(catalog._entry_dependencies(ref))
+        selected.update(catalog_entry_dependencies(catalog, ref))
     elif relation == "dependents":
         selected.update(index.dependents.get(ref, ()))
     else:
@@ -109,7 +114,7 @@ def _related_refs(
         if relation == "fields":
             selected.update(
                 item
-                for item in index._refs
+                for item in index.refs
                 if item.kind
                 in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION, SemanticKind.MEASURE}
                 and item.path.rsplit(".", 1)[0] in owners
@@ -117,7 +122,7 @@ def _related_refs(
         elif relation == "metrics":
             selected.update(
                 item
-                for item in index._refs
+                for item in index.refs
                 if item.kind is SemanticKind.METRIC
                 and (
                     ref in dependencies.get(item, ())
@@ -135,20 +140,20 @@ def _related_refs(
         elif relation == "relationships":
             selected.update(
                 ref_factory.relationship(item.semantic_id)
-                for item in catalog._reg.relationships.values()
+                for item in lookup_registry(catalog).relationships.values()
                 if item.from_entity in owners or item.to_entity in owners
             )
         elif ref.kind is SemanticKind.DOMAIN:
             selected.update(
                 item
-                for item in index._refs
+                for item in index.refs
                 if item.kind not in {SemanticKind.DOMAIN, SemanticKind.DATASOURCE}
                 and item.path.split(".")[0] == ref.path
             )
         elif ref.kind is SemanticKind.DATASOURCE:
             selected.update(
                 ref_factory.entity(item.semantic_id)
-                for item in catalog._reg.entities.values()
+                for item in lookup_registry(catalog).entities.values()
                 if item.datasource == ref.path
             )
     return selected
@@ -182,8 +187,8 @@ def related_page(
             received=str(limit),
             hint="Pass limit=10.",
         )
-    index = catalog._require_index()
-    selected = _related_refs(catalog, index, entry._ref, relation)
+    index = require_catalog_index(catalog)
+    selected = _related_refs(catalog, index, entry_reference(entry), relation)
     loaded = tuple(sorted((item for item in selected if item in index), key=lambda item: item.key))
     outside = tuple(sorted(item.key for item in selected if item not in index))
     token = f"{entry.id}:{relation}"
@@ -223,7 +228,7 @@ def build_search_documents(
     catalog: DefinitionLookup, index: _CatalogIndex
 ) -> tuple[SearchDocument, ...]:
     documents: list[SearchDocument] = []
-    for ref in index._refs:
+    for ref in index.refs:
         entry = index.entry(ref)
         assert entry is not None
         definition = entry.definition
@@ -250,7 +255,7 @@ def build_search_documents(
             fields.append(("expression", definition.expression))
         elif isinstance(definition, FieldDefinition):
             fields.extend((("expression", definition.expression), ("unit", definition.unit or "")))
-        for dependency in catalog._state.dependencies.get(ref, ()):
+        for dependency in lookup_state(catalog).dependencies.get(ref, ()):
             if dependency in index:
                 inherited = _catalog_definition.context_for(catalog, dependency)
                 fields.append(

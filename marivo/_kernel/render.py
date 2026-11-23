@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from itertools import islice
 from typing import Protocol, runtime_checkable
 
+from typing_extensions import override
+
 _DEFAULT_MAX_OUTPUT_BYTES = 8192
 _OMISSION_RECOVERY = "pass max_output_bytes=None for full output"
 
@@ -23,6 +25,7 @@ class AgentResult(Protocol):
 
     def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None: ...
 
+    @override
     def __repr__(self) -> str: ...
 
 
@@ -105,9 +108,11 @@ class RenderableResult:
     def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
         print(self.render(max_output_bytes=max_output_bytes))
 
+    @override
     def __repr__(self) -> str:
         return result_repr(self._repr_identity())
 
+    @override
     def __dir__(self) -> list[str]:
         """Return public members plus Python protocol dunders."""
 

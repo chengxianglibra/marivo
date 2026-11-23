@@ -30,7 +30,7 @@ def test_terminal_schema_and_manifest_authority_rejects_damage(
     saved = artifact.to_pandas()
     artifact_id = artifact.artifact_id
     store = case.session._runtime.store
-    with store._read() as connection:
+    with store.read_transaction() as connection:
         payload = connection.execute(
             "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?",
             (artifact_id,),
@@ -49,7 +49,7 @@ def test_terminal_schema_and_manifest_authority_rejects_damage(
         missing_value,
         foreign_key,
     ):
-        with store._write() as connection:
+        with store.write_transaction() as connection:
             connection.execute(
                 "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
                 (canonical_json(damaged), artifact_id),
@@ -59,7 +59,7 @@ def test_terminal_schema_and_manifest_authority_rejects_damage(
                 case.session.persisted_frame(artifact_id).to_pandas()
             assert "non-canonical" not in str(caught.value.received)
         finally:
-            with store._write() as connection:
+            with store.write_transaction() as connection:
                 connection.execute(
                     "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
                     (payload, artifact_id),

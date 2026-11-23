@@ -13,6 +13,7 @@ from marivo._kernel.symbolic import (
     DatasourceSymbol,
     native_symbol_ref,
 )
+from marivo._kernel.validation import has_exact_type
 from marivo.datasource import credentials as cr
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
@@ -202,7 +203,7 @@ def _inspect_bound_source(
     connections: DatasourceConnectionService,
 ) -> SourceInspection:
     """Inspect one source against an already-resolved project root."""
-    if type(datasource) is not Ref or datasource.kind is not SemanticKind.DATASOURCE:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not has_exact_type(datasource, Ref) or datasource.kind is not SemanticKind.DATASOURCE:
         received = type(datasource).__name__
         if isinstance(datasource, str):
             raise TypeError(

@@ -114,8 +114,7 @@ class SavedFrameMethodFacts:
             self.coordinate_row_count,
         )
         if (
-            type(self.kind) is not str
-            or self.kind != "attribute"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            (type(self.kind), self.kind) != (str, "attribute")
             or type(self.output_schema) is not DataSchema
             or any(type(value) is not int or value < 0 for value in counts)
             or type(self.payload) is not SavedAttachment
@@ -217,10 +216,9 @@ class ArtifactManifest:
         for name in ("store_id", "artifact_id", "session_id", "run_id"):
             require_data_text(getattr(self, name), f"artifact.{name}")
         if (
-            type(self.data) is not ArtifactData
+            (type(self.data), self.semantics_version) != (ArtifactData, "frame.v17")
             or type(self.metadata) is not StoredFrameMetadata
             or (self.description is not None and type(self.description) is not str)
-            or self.semantics_version != "frame.v17"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             or type(self.method_facts) is not tuple
             or any(type(item) is not SavedFrameMethodFacts for item in self.method_facts)
         ):

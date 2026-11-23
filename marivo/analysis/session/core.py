@@ -10,11 +10,15 @@ from threading import Lock
 from typing import TYPE_CHECKING, Literal
 
 from ibis.common.deferred import Deferred
+from typing_extensions import override
 
+from marivo._definition.population_types import population_definition, population_identity_keys
 from marivo._definition.relations import PopulationProgram, SourceIdentities
 from marivo._definition.types import AxisBinding, InputContext, Owner
 from marivo._kernel.grouping import Grouping
+from marivo._kernel.input_context import captured_context
 from marivo._kernel.temporal import InstantAnchor, TimeScope
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.observation import ObservationOwner
 from marivo.analysis.binding.temporal_predicates import normalize_temporal_predicate
 from marivo.analysis.dsl import frame_sources
@@ -34,6 +38,7 @@ from marivo.analysis.dsl.source_capture import _metric_inputs
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.materialization.contracts import SessionRecord, parse_timestamp
 from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import frame_local
 from marivo.analysis.model.time_grid import exact_instant
 from marivo.analysis.session._lazy_frames import persisted_frames
 from marivo.analysis.session._lazy_history import inspect
@@ -50,6 +55,7 @@ from marivo.semantic.spi import (
     catalog_state,
     consume_predicate,
     entity_exact,
+    expression_role,
     validate_context,
 )
 from marivo.telemetry import traced
@@ -101,6 +107,7 @@ class Session:
                 self._sources_value = sources
             return self._sources_value
 
+    @override
     def __dir__(self) -> list[str]:
         return sorted(name for name in type(self).__dict__ if not name.startswith("_"))
 
@@ -218,7 +225,7 @@ class Session:
                 "Use a field condition from the identity Entity.",
                 "session.members",
             )
-        if at is not None and (not isinstance(at, InstantAnchor) or at.utcoffset() is None):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if at is not None and (not is_instance(at, InstantAnchor) or at.utcoffset() is None):
             reject(
                 "an exact InstantAnchor",
                 type(at).__name__,
@@ -383,7 +390,7 @@ class Session:
                     canonical_id="session.observe",
                 )
         for name, metric in selected_metrics:
-            if metric._context.owner not in (None, owner):
+            if captured_context(metric).owner not in (None, owner):
                 reject(
                     "a Metric expression owned by this Session",
                     "another Store or Session",
@@ -405,7 +412,7 @@ class Session:
                         canonical_id="session.observe",
                     )
                 scope = term
-            elif isinstance(term, RowExpression) and term._role == "boolean":  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            elif is_instance(term, RowExpression) and expression_role(term) == "boolean":
                 predicates.append(term)
             else:
                 reject(
@@ -466,7 +473,7 @@ class Session:
                 "Construct a Population with members, coordinates or population_from.",
                 "session.frame",
             )
-        owner = _owner(population._definition)
+        owner = _owner(population_definition(population))
         if owner not in (None, self._runtime.local.owner):
             reject(
                 "a Population from this Store and Session",
@@ -476,10 +483,12 @@ class Session:
             )
 
         validate_context(
-            population._context, project_root=self.project_root, owner=self._runtime.local.owner
+            captured_context(population),
+            project_root=self.project_root,
+            owner=self._runtime.local.owner,
         )
-        if population._identity_keys:
-            validate_identity_keys(population._identity_keys, self.catalog)
+        if population_identity_keys(population):
+            validate_identity_keys(population_identity_keys(population), self.catalog)
         needs_semantic_state = frame_sources.population_needs_state(population)
         state = catalog_state(self.catalog) if needs_semantic_state else None
         return frame_sources.frame(
@@ -522,7 +531,7 @@ class Session:
                 "Session.read.population",
                 canonical_id="session.read",
             )
-        if not isinstance(fields, Mapping) or not fields:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not is_instance(fields, Mapping) or not fields:
             reject(
                 "a nonempty named Field mapping",
                 type(fields).__name__,
@@ -684,20 +693,16 @@ class Session:
                 "Pass a Frame returned by this Session's constructors or operators.",
                 "session.population_from",
             )
-        if frame._local.owner != self._runtime.local.owner:
+        if frame_local(frame).owner != self._runtime.local.owner:
             reject(
                 "an AnalysisFrame from the receiving Store and Session",
-                repr(frame._local.owner),
+                repr(frame_local(frame).owner),
                 "Build the Population in the selected Frame's owning Session.",
                 "session.population_from",
             )
 
-        if not isinstance(on, tuple) or any(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            (
-                not isinstance(pair, tuple)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                or len(pair) != 2
-            )
-            for pair in on
+        if not is_instance(on, tuple) or any(
+            (not is_instance(pair, tuple) or len(pair) != 2) for pair in on
         ):
             reject(
                 "a tuple of (FrameAxis, semantic field or Entity) pairs",
@@ -744,9 +749,14 @@ class Session:
         """
         print(self.render(max_output_bytes=max_output_bytes))
 
+    @override
     def __repr__(self) -> str:
         record = self._record()
         return (
             f"<Session id={self.id} timezone={record.report_timezone_name} "
             f"({record.report_timezone_origin}); use .show()>"
         )
+
+
+def session_from_runtime(runtime: DatasetRuntime) -> Session:
+    return Session._from_runtime(runtime)  # noqa: SLF001 - Session creation is owned by the runtime.

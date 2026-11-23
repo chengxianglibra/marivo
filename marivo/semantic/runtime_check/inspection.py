@@ -30,6 +30,7 @@ from marivo.datasource.spi import (
     inspect_in_project,
     probe_backend,
 )
+from marivo.semantic.catalog_model.objects import lookup_registry, lookup_state
 from marivo.semantic.errors import SemanticError, repair
 from marivo.semantic.ir import EntityIR
 from marivo.semantic.runtime_check.context import (
@@ -158,14 +159,14 @@ def _fields_with_unavailable_types(
 ) -> tuple[Ref[FieldKind], ...]:
     unavailable_roots = tuple(
         field_ref
-        for field_ref, owner in catalog._state.sidecar.field_owners.items()
+        for field_ref, owner in lookup_state(catalog).sidecar.field_owners.items()
         if owner.path == entity_id
         and unavailable_columns
         and (
             output is None
             or any(
                 column in unavailable_columns
-                for column in catalog._state.sidecar.bodies[field_ref].source_columns
+                for column in lookup_state(catalog).sidecar.bodies[field_ref].source_columns
             )
         )
     )
@@ -175,7 +176,7 @@ def _fields_with_unavailable_types(
     return tuple(
         field_ref
         for field_ref, owner in sorted(
-            catalog._state.sidecar.field_owners.items(), key=lambda item: item[0].key
+            lookup_state(catalog).sidecar.field_owners.items(), key=lambda item: item[0].key
         )
         if owner.path == entity_id and field_ref in unavailable_dependents
     )
@@ -192,7 +193,7 @@ def _inspected_schema_result(
     checked_at: str,
 ) -> ValidationCheckResult:
     entity_id = entity.semantic_id
-    has_expression_body = catalog._state.sidecar.bodies.get(entity_ref) is not None
+    has_expression_body = lookup_state(catalog).sidecar.bodies.get(entity_ref) is not None
     output, output_reason, unavailable_columns = _inspected_entity_output(
         catalog, entity_id=entity_id, inspection=inspection
     )
@@ -303,7 +304,7 @@ def _metadata_checks(
     connections: DatasourceConnectionService,
     checked_at: str,
 ) -> tuple[list[ValidationCheckResult], dict[str, SourceInspection | None]]:
-    registry = catalog._reg
+    registry = lookup_registry(catalog)
     results: list[ValidationCheckResult] = []
     inspections: dict[str, SourceInspection | None] = {}
     connectivity: dict[str, tuple[ValidationStatus, Mapping[str, object]]] = {}

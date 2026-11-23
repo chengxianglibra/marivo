@@ -6,11 +6,12 @@ import math
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 import numpy.typing as npt
 
+from marivo._kernel.validation import is_instance
 from marivo.semantic.errors import CatalogSearchError
 from marivo.semantic.search.cache import (
     _atomic_json,
@@ -112,12 +113,14 @@ def _failure(stage: str, config: HybridSearchConfig, received: str) -> CatalogSe
 @lru_cache(maxsize=4)
 def _load_encoder(model: str, revision: str) -> _Encoder:
     _hub_model_id(model)
-    from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]  # Optional semantic-search runtime.  # noqa: PLC0415
+    if TYPE_CHECKING:
+        encoder: _EncoderFactory
+    else:
+        from sentence_transformers import SentenceTransformer  # noqa: PLC0415 - Optional semantic-search runtime.
 
-    # The optional third-party package has no stable typing boundary. This cast
-    # narrows only its constructor to the exact operations consumed below.
-    constructor = cast("_EncoderFactory", SentenceTransformer)
-    return constructor(
+        encoder = SentenceTransformer
+
+    return encoder(
         model, revision=revision, local_files_only=True, trust_remote_code=False, device="cpu"
     )
 
@@ -125,11 +128,14 @@ def _load_encoder(model: str, revision: str) -> _Encoder:
 @lru_cache(maxsize=2)
 def _load_reranker(model: str, revision: str, max_tokens: int) -> _CrossEncoder:
     _hub_model_id(model)
-    from sentence_transformers import CrossEncoder  # noqa: PLC0415 - Optional semantic-search runtime.
+    if TYPE_CHECKING:
+        reranker: _CrossEncoderFactory
+    else:
+        from sentence_transformers import CrossEncoder  # noqa: PLC0415 - Optional semantic-search runtime.
 
-    # Same explicit optional-runtime constructor boundary as the embedding model.
-    constructor = cast("_CrossEncoderFactory", CrossEncoder)
-    return constructor(
+        reranker = CrossEncoder
+
+    return reranker(
         model,
         revision=revision,
         local_files_only=True,
@@ -378,7 +384,7 @@ def rerank_documents(
             [[query, text] for text in texts], convert_to_numpy=True, show_progress_bar=False
         )
         if (
-            not isinstance(raw, np.ndarray)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            not is_instance(raw, np.ndarray)
             or raw.shape != (len(documents),)
             or not np.isfinite(raw).all()
         ):

@@ -982,7 +982,7 @@ def test_missing_store_wrong_identity_and_corruption(tmp_path: Path) -> None:
     with server(project) as request:
         _error(request(_path({**ids, "artifact_id": "artifact_missing"})), 404, "not_found")
         store = SessionStore.open_existing(project)
-        with store._read() as conn:
+        with store.read_transaction() as conn:
             artifact = manifest(store, conn, ids["artifact_id"])
         assert artifact is not None
         receipt_path = artifact.data.rows.receipt.project_relative_path
@@ -1195,7 +1195,7 @@ print(source.compute().persist(description="next commit").artifact_id, flush=Tru
 def test_read_report_with_missing_method_payload(tmp_path: Path) -> None:
     local = DatasetRuntime.create(tmp_path, "method", timezone="UTC").local
     saved = AnalysisFrame._from_memory(local, method_result(current=240, baseline=200)).persist()
-    with local.store._read() as conn:
+    with local.store.read_transaction() as conn:
         artifact = manifest(local.store, conn, saved.artifact_id)
     assert artifact is not None
     directory = tmp_path / artifact.method_facts[0].payload.rows.receipt.project_relative_path

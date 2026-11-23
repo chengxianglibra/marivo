@@ -17,6 +17,8 @@ from marivo.analysis.model.errors import reject
 from marivo.analysis.model.receipts import invalid
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from marivo.analysis.core.frame_data import (
         CompletedFrameData,
         CompletedFrameResult,
@@ -45,6 +47,10 @@ class LocalFrameServices:
         return Owner(self.session_ref, self.store.store_id)
 
     @property
+    def project_root(self) -> Path:
+        return self.store.project_root
+
+    @property
     def report_timezone_name(self) -> str:
         return self.record().report_timezone_name
 
@@ -71,7 +77,7 @@ class LocalFrameServices:
     def committed_at(self, backing: StoredFrameBacking) -> datetime:
         """Read the validated commit time without result payload reads."""
         manifest = self._manifest(backing)
-        with self.store._read() as conn:
+        with self.store.read_transaction() as conn:
             producer = load_run(conn, manifest.run_id)
         assert producer is not None and producer.terminal_at is not None
         return parse_timestamp(producer.terminal_at)

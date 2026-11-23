@@ -15,7 +15,6 @@ from typing import (
     TYPE_CHECKING,
     Literal,
     NoReturn,
-    Protocol,
     TypeAlias,
     TypeVar,
     cast,
@@ -23,6 +22,7 @@ from typing import (
 )
 
 from ibis.common.deferred import Resolver
+from typing_extensions import override
 
 from marivo._kernel.config import AUTHORED_DIR, load_semantic_layer_paths
 from marivo._kernel.refs import (
@@ -47,7 +47,6 @@ from marivo.datasource.spi import (
     AiContextIR,
     AuthoringScope,
     DatasourceConnectionService,
-    DatasourceIR,
     PreviewResult,
     QueryParamScalar,
     QueryParamScalarList,
@@ -97,6 +96,13 @@ from marivo.semantic.catalog_model.refs import (
     _make_ref,
 )
 from marivo.semantic.catalog_previews import CatalogPreviewer
+from marivo.semantic.catalog_project import CatalogProject as CatalogProject
+from marivo.semantic.catalog_project import (
+    project_connections,
+    project_excluded_refs,
+    project_filtered_domains,
+    project_readiness,
+)
 from marivo.semantic.definition_resolution import ResolvedValue
 from marivo.semantic.dtos import PreviewBatchResult
 from marivo.semantic.errors import (
@@ -115,7 +121,12 @@ from marivo.semantic.ir import (
     SnapshotVersioningIR,
     ValidityVersioningIR,
 )
-from marivo.semantic.runtime_check.materializer import MaterializerProject
+from marivo.semantic.project_view import (
+    project_compiled_state,
+    project_datasources,
+    project_expression_sidecar,
+)
+from marivo.semantic.readiness import ready_input_refs
 from marivo.semantic.runtime_check.preview_scope import (
     PreviewScope,
     PreviewSourceParameters,
@@ -230,17 +241,20 @@ class SemanticCatalog(RenderableResult):
     _excluded_refs: tuple[str, ...]
 
     def __init__(self, project: CatalogProject) -> None:
-        if project._compiled_state is None:
+        state = project_compiled_state(project)
+        if state is None:
             raise SemanticLoadFailed(project.errors())
         object.__setattr__(self, "_project", project)
-        object.__setattr__(self, "_state", project._compiled_state)
+        object.__setattr__(self, "_state", state)
         object.__setattr__(self, "_reg", self._state.registry)
         object.__setattr__(self, "_load_errors", project.errors())
-        object.__setattr__(self, "_excluded_refs", project._excluded_refs)
+        object.__setattr__(self, "_excluded_refs", project_excluded_refs(project))
         object.__setattr__(self, "_definitions", {})
         object.__setattr__(self, "_documents", None)
         object.__setattr__(self, "_documents_lock", Lock())
-        object.__setattr__(self, "_index", _CatalogIndex(self, project._datasource_irs, self._reg))
+        object.__setattr__(
+            self, "_index", _CatalogIndex(self, project_datasources(project), self._reg)
+        )
 
         object.__setattr__(self, "_search_config", load_search_config(self.workspace_dir))
         object.__setattr__(
@@ -263,6 +277,7 @@ class SemanticCatalog(RenderableResult):
             ),
         )
 
+    @override
     def __setattr__(self, name: str, value: object) -> NoReturn:
         del name, value
         raise AttributeError("SemanticCatalog instances are immutable; call ms.load() again")
@@ -314,16 +329,16 @@ class SemanticCatalog(RenderableResult):
     def _require_index(self) -> _CatalogIndex:
         return self._index
 
+    @override
     def _repr_identity(self) -> str:
         fingerprint = self.definition_fingerprint[:12]
         partial = " partial" if self._load_errors else ""
-        return (
-            f"SemanticCatalog{partial} fingerprint={fingerprint} objects={len(self._index._refs)}"
-        )
+        return f"SemanticCatalog{partial} fingerprint={fingerprint} objects={len(self._index.refs)}"
 
+    @override
     def _card(self) -> Card:
         counts = tuple(
-            (kind.value, str(sum(ref.kind is kind for ref in self._index._refs)))
+            (kind.value, str(sum(ref.kind is kind for ref in self._index.refs)))
             for kind in SemanticKind
         )
         card = (
@@ -426,7 +441,7 @@ class SemanticCatalog(RenderableResult):
                     action="Inspect catalog.load_errors, fix the failed declarations, and reload.",
                 ),
             )
-        known_outside = any(ref in self._entry_dependencies(item) for item in self._index._refs)
+        known_outside = any(ref in self._entry_dependencies(item) for item in self._index.refs)
         if known_outside:
             _raise(
                 ErrorKind.NOT_FOUND,
@@ -444,11 +459,11 @@ class SemanticCatalog(RenderableResult):
                 ),
                 details={"reason": "outside_scope", "loaded_domains": self._scope.domains},
             )
-        same_path = tuple(item.key for item in self._index._refs if item.path == ref.path)
+        same_path = tuple(item.key for item in self._index.refs if item.path == ref.path)
         candidates = tuple(
             item.key
             for item in sorted(
-                (item for item in self._index._refs if item.kind is ref.kind),
+                (item for item in self._index.refs if item.kind is ref.kind),
                 key=lambda item: (-SequenceMatcher(None, ref.path, item.path).ratio(), item.key),
             )[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
         )
@@ -711,7 +726,7 @@ class SemanticCatalog(RenderableResult):
         if exact_ref in index:
             return
 
-        candidates = tuple(item.key for item in index._refs if item.kind is exact_ref.kind)[
+        candidates = tuple(item.key for item in index.refs if item.kind is exact_ref.kind)[
             :_SEMANTIC_INPUT_CANDIDATE_LIMIT
         ]
         _raise(
@@ -730,7 +745,7 @@ class SemanticCatalog(RenderableResult):
             ),
             details={
                 "catalog_definition_fingerprint": self.definition_fingerprint,
-                "filtered_domains": self._project._filtered_domains,
+                "filtered_domains": project_filtered_domains(self._project),
                 "candidates": candidates,
             },
         )
@@ -769,10 +784,10 @@ class SemanticCatalog(RenderableResult):
         """
         self._require_ready()
         if refs is None:
-            report = self._project._readiness(refs=None)
+            report = project_readiness(self._project, refs=None)
             return replace(
                 report,
-                _resolved_inputs=tuple(self.get(ref.key) for ref in report._analysis_ready_inputs),
+                _resolved_inputs=tuple(self.get(ref.key) for ref in ready_input_refs(report)),
             )
         values = _freeze_semantic_inputs(refs, operation="readiness")
         inputs = tuple(_require_readiness_input(self, value) for value in values)
@@ -809,8 +824,8 @@ class SemanticCatalog(RenderableResult):
             for dependency in self._entry_dependencies(item)
             if dependency not in self._index
         }
-        report = self._project._readiness(
-            refs=(*physical, *sorted(outside, key=lambda item: item.key))
+        report = project_readiness(
+            self._project, refs=(*physical, *sorted(outside, key=lambda item: item.key))
         )
         checked: set[Ref[SemanticKindTag]] = set()
         pending = list(physical)
@@ -822,16 +837,14 @@ class SemanticCatalog(RenderableResult):
             pending.extend(self._entry_dependencies(current) if current in self._index else ())
             if current.kind in {SemanticKind.DOMAIN, SemanticKind.DATASOURCE}:
                 pending.extend(
-                    item for item, scopes in self._index._scopes.items() if current in scopes
+                    item for item, scopes in self._index.scopes.items() if current in scopes
                 )
         return replace(
             report,
             # Expanded dependencies are diagnostics, not directly requested inputs.
-            _analysis_ready_inputs=tuple(
-                ref for ref in report._analysis_ready_inputs if ref in inputs
-            ),
+            _analysis_ready_inputs=tuple(ref for ref in ready_input_refs(report) if ref in inputs),
             _resolved_inputs=tuple(
-                self.get(ref.key) for ref in report._analysis_ready_inputs if ref in inputs
+                self.get(ref.key) for ref in ready_input_refs(report) if ref in inputs
             ),
             requested_ids=tuple(item.key for item in inputs),
             checked_ids=tuple(sorted(item.key for item in checked)),
@@ -914,7 +927,7 @@ class SemanticCatalog(RenderableResult):
         )
 
     def _connection_operation(self) -> AbstractContextManager[DatasourceConnectionService]:
-        return self._project._connection_operation()
+        return project_connections(self._project)
 
     def _semantic_resolver(
         self,
@@ -1008,7 +1021,7 @@ class SemanticCatalog(RenderableResult):
             registry=self._require_ready(),
             catalog=self,
         )
-        with self._project._connection_operation() as connections:
+        with project_connections(self._project) as connections:
             return CatalogPreviewer(self).one(
                 target,
                 bindings=bindings,
@@ -1124,7 +1137,7 @@ class SemanticCatalog(RenderableResult):
                 )
             resolved.append((ref_obj.path, kind))
 
-        sidecar = self._project._expression_sidecar
+        sidecar = project_expression_sidecar(self._project)
         if sidecar is None:
             _raise(
                 ErrorKind.PROJECT_NOT_LOADED,
@@ -1140,7 +1153,7 @@ class SemanticCatalog(RenderableResult):
             registry=reg,
             catalog=self,
         )
-        with self._project._connection_operation() as connections, ExitStack() as stack:
+        with project_connections(self._project) as connections, ExitStack() as stack:
             return CatalogPreviewer(self).batch(
                 normalized_refs,
                 normalized=normalized,
@@ -1149,30 +1162,3 @@ class SemanticCatalog(RenderableResult):
                 limit=limit,
                 include_types=include_types,
             )
-
-
-class CatalogProject(MaterializerProject, Protocol):
-    @property
-    def semantic_root(self) -> Path: ...
-
-    @property
-    def workspace_dir(self) -> Path: ...
-
-    @property
-    def _datasource_irs(self) -> tuple[DatasourceIR, ...]: ...
-
-    @property
-    def _filtered_domains(self) -> tuple[str, ...]: ...
-
-    @property
-    def _excluded_refs(self) -> tuple[str, ...]: ...
-
-    def is_ready(self) -> bool: ...
-
-    def errors(self) -> tuple[SemanticError, ...]: ...
-
-    def _readiness(
-        self, *, refs: Iterable[Ref[SemanticKindTag] | str] | None = None
-    ) -> ReadinessReport: ...
-
-    def _connection_operation(self) -> AbstractContextManager[DatasourceConnectionService]: ...

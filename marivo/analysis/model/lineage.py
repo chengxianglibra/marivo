@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Protocol
 
-from typing_extensions import assert_never
+from typing_extensions import assert_never, override
 
 from marivo._definition.value_ir import (
     CoordinateSlot,
@@ -23,6 +23,7 @@ from marivo._definition.value_ir import (
     ValueUnary,
 )
 from marivo._kernel.refs import SemanticKind
+from marivo._kernel.validation import is_exact_pair
 from marivo.analysis.model.errors import reject
 
 
@@ -65,6 +66,7 @@ class SemanticObjectIdentity:
         ):
             _fail("invalid semantic object identity")
 
+    @override
     def __repr__(self) -> str:
         return f"<SemanticObjectIdentity kind={self.kind} path={self.path[:80]!r}; use .show()>"
 
@@ -106,6 +108,7 @@ class ColumnLineage:
             ):
                 _fail("origins must be unique, sorted identities")
 
+    @override
     def __repr__(self) -> str:
         return f"<ColumnLineage values={len(self.value_origins)} context={len(self.context_origins)}; use .show()>"
 
@@ -149,8 +152,7 @@ class FrameLineage:
             if (
                 type(entries) is not tuple
                 or any(
-                    type(entry) is not tuple
-                    or len(entry) != 2  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+                    not is_exact_pair(entry)
                     or type(entry[0]) is not str
                     or not entry[0]
                     or type(entry[1]) is not ColumnLineage
@@ -188,6 +190,7 @@ class FrameLineage:
         """
         return MappingProxyType(dict(self._presence))
 
+    @override
     def __repr__(self) -> str:
         return f"<FrameLineage input={self.input_id[:64]!r} values={len(self._values)} axes={len(self._axes)} presence={len(self._presence)}; use .show()>"
 
@@ -209,6 +212,11 @@ class FrameLineage:
                 )
             if len(entries) > 20:
                 print(f"{role}: {len(entries) - 20} omitted; read typed directories")
+
+
+def lineage_domain(value: FrameLineage) -> Origins:
+    """Read the shared origin context attached to a Frame's row domain."""
+    return value._domain  # noqa: SLF001 - Keep the internal domain out of the public directories.
 
 
 def directory(
@@ -273,7 +281,9 @@ def statistic_lineage(lineage: FrameLineage, value: Statistic | PairStatistic) -
         if isinstance(value, PairStatistic)
         else (() if value.value is None else (value.value,))
     )
-    return merge(*(expression_lineage(lineage, e) for e in operands), context=lineage._domain)
+    return merge(
+        *(expression_lineage(lineage, e) for e in operands), context=lineage_domain(lineage)
+    )
 
 
 def expression_lineage(lineage: FrameLineage, value: ValueExpression) -> ColumnLineage:
@@ -283,11 +293,11 @@ def expression_lineage(lineage: FrameLineage, value: ValueExpression) -> ColumnL
     if isinstance(value, ValueSlot):
         return values[value.index]
     if isinstance(value, CoordinateSlot):
-        return merge(axes[value.index], context=lineage._domain)
+        return merge(axes[value.index], context=lineage_domain(lineage))
     if isinstance(value, PresenceSlot):
         return lineage.presence[".".join(value.path)]
     if isinstance(value, ValueLiteral):
-        return ColumnLineage(context_origins=lineage._domain)
+        return ColumnLineage(context_origins=lineage_domain(lineage))
     if isinstance(value, ValueUnary):
         return expression_lineage(lineage, value.operand)
     if isinstance(value, ValueBinary):
@@ -298,7 +308,7 @@ def expression_lineage(lineage: FrameLineage, value: ValueExpression) -> ColumnL
         return merge(
             expression_lineage(lineage, value.value),
             context=union(
-                lineage._domain,
+                lineage_domain(lineage),
                 *(all_origins(a) for p, a in enumerate(axes) if p not in value.positions),
             ),
         )

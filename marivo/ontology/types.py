@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal, SupportsIndex, TypeAlias, cast, final
 
 from pydantic_core import CoreSchema, core_schema
+from typing_extensions import override
 
 from marivo._kernel.ai_context import AiContextIR
 from marivo._kernel.compat import Never, Self
@@ -36,10 +37,12 @@ class SemanticEdgeRef:
     def __init__(self, _sealed: Never, /) -> None:
         raise AssertionError("SemanticEdgeRef initialization is unreachable")
 
+    @override
     def __init_subclass__(cls, **kwargs: object) -> Never:
         del cls, kwargs
         raise TypeError("SemanticEdgeRef is sealed and cannot be subclassed")
 
+    @override
     def __setattr__(self, name: str, value: object) -> Never:
         del name, value
         raise AttributeError("SemanticEdgeRef instances are immutable")
@@ -56,15 +59,19 @@ class SemanticEdgeRef:
             "path": self.path,
         }
 
+    @override
     def __str__(self) -> str:
         return self.key
 
+    @override
     def __repr__(self) -> str:
         return f"SemanticEdgeRef({self.key})"
 
+    @override
     def __eq__(self, other: object) -> bool:
         return type(other) is SemanticEdgeRef and self.path == other.path
 
+    @override
     def __hash__(self) -> int:
         return hash(("semantic_edge", self.path))
 
@@ -75,6 +82,7 @@ class SemanticEdgeRef:
         memo[id(self)] = self
         return self
 
+    @override
     def __reduce_ex__(self, protocol: SupportsIndex) -> tuple[object, tuple[object, ...]]:
         del protocol
         return (_restore_semantic_edge_ref, (self.to_dict(),))

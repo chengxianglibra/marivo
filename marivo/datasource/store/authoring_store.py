@@ -23,6 +23,7 @@ from marivo.datasource.source import (
 )
 from marivo.datasource.store.evidence import (
     DiscoveryEvidence,
+    evidence_datasource,
 )
 from marivo.datasource.store.evidence_payload import (
     _SNAPSHOT_PAYLOAD_FIELDS,
@@ -397,7 +398,7 @@ class AuthoringStore:
         payload = {
             **self._metadata(
                 snapshot_id=snapshot.id,
-                datasource=snapshot._datasource,
+                datasource=evidence_datasource(snapshot),
                 datasource_fingerprint=datasource_fingerprint,
                 source=snapshot.source,
                 scope=snapshot.scope,

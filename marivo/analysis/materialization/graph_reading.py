@@ -14,7 +14,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from marivo.analysis.core.attachments import OutputAttachment
-from marivo.analysis.core.data_validation import normalize_complete_frame
+from marivo.analysis.core.data_validation import detached_rows, normalize_complete_frame
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -38,7 +38,7 @@ from marivo.analysis.core.frozen_calendar import (
 )
 from marivo.analysis.errors import ArtifactNotFoundError
 from marivo.analysis.materialization import terminal_store
-from marivo.analysis.materialization.carriers.frame_page import FrameReadStats, detached_rows
+from marivo.analysis.materialization.carriers.frame_page import FrameReadStats
 from marivo.analysis.materialization.frame_method_facts import decode_method_payload
 from marivo.analysis.materialization.sqlite_values import _one, _text
 from marivo.analysis.materialization.storage import (
@@ -319,7 +319,7 @@ def read_output(root: Path, schema: DataSchema, handle: ParquetHandle) -> pd.Dat
 
 
 def selected_manifest(store: SessionStore, value: ArtifactManifest) -> ArtifactManifest:
-    with store._read() as conn:
+    with store.read_transaction() as conn:
         saved = terminal_store.manifest(store, conn, value.artifact_id)
         if saved != value:
             raise invalid("selected Frame commit metadata changed or disappeared")
@@ -334,7 +334,7 @@ def open_manifest(store: SessionStore, session_id: str, artifact_id: str) -> Art
             "Pass the exact saved Artifact ID.",
             "session.persisted_frame",
         )
-    with store._read() as conn:
+    with store.read_transaction() as conn:
         row = _one(
             conn, "SELECT session_ref FROM dataset_artifacts WHERE artifact_ref=?", (artifact_id,)
         )

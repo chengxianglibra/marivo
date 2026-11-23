@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Literal, TypeAlias
 
+from marivo._kernel.validation import has_exact_type
 from marivo.analysis.model.data_schema import (
     CalendarComparisonBinding,
     CalendarDataAxis,
@@ -71,7 +72,7 @@ class PendingDataColumn:
             or not self.name
             or self.kind
             not in ("numeric", "boolean", "string", "date", "timestamp", "duration", "unresolved")
-            or (self.nullable is not None and type(self.nullable) is not bool)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            or (self.nullable is not None and not has_exact_type(self.nullable, bool))
             or (self.unit is not None and (type(self.unit) is not str or not self.unit))
         ):
             reject(

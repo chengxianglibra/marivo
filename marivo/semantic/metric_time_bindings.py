@@ -17,7 +17,7 @@ def metric_time_bindings(
     """Project each captured contribution occurrence without consulting a Catalog."""
     display = display or FormulaDisplay()
     bindings: list[MetricContributionClockBinding | MetricNoContributionClockBinding] = []
-    for occurrence in metric_time_occurrences(metric.node, dict(metric._declared)):
+    for occurrence in metric_time_occurrences(metric.node, dict(metric.declared)):
         branch = display.formula(occurrence.node)
         if occurrence.path:
             branch = f"{' / '.join(occurrence.path)}: {branch}"

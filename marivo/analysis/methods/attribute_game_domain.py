@@ -407,6 +407,113 @@ def _conditional_domain(
     return Domain.null() if coalesced is None else replace(coalesced, nullable=True)
 
 
+def _cast_domain(node: ops.Cast | ops.TryCast, arg: Domain) -> Domain:
+    if arg.only_null:
+        return arg
+    if node.to.is_integer() or node.to.is_decimal():
+        scale = node.to.scale if node.to.is_decimal() else 0
+        quantum = Fraction(1, 10 ** (scale or 0))
+        if arg.low is not None and arg.high is not None and arg.low != arg.high:
+            return replace(
+                arg,
+                low=arg.low - quantum,
+                high=arg.high + quantum,
+                low_open=False,
+                high_open=False,
+            )
+    return arg
+
+
+def _null_test_domain(
+    node: ops.IsNull | ops.NotNull | ops.IsNan | ops.IsInf, arg: Domain
+) -> Domain:
+    if not arg.finite:
+        return Domain(Fraction(0), Fraction(1), finite=False)
+    if isinstance(node, (ops.IsNan, ops.IsInf)):
+        return Domain.constant(False)
+    possibilities = (
+        frozenset((True,))
+        if arg.only_null
+        else frozenset((False, True))
+        if arg.nullable
+        else frozenset((False,))
+    )
+    if isinstance(node, ops.NotNull):
+        possibilities = frozenset(not item for item in possibilities)
+    return _boolean(possibilities)
+
+
+def _signed_domain(node: ops.Negate | ops.Abs, a: Domain) -> Domain:
+    if a.only_null:
+        return a
+    if not a.finite:
+        return Domain(None, None, a.nullable, finite=False)
+    if isinstance(node, ops.Negate):
+        return Domain(
+            None if a.high is None else -a.high,
+            None if a.low is None else -a.low,
+            a.nullable,
+            a.high_open,
+            a.low_open,
+        )
+    if a.low is None or a.high is None:
+        return Domain(Fraction(0), None, a.nullable)
+    return Domain(
+        Fraction(0) if a.low <= 0 <= a.high else min(abs(a.low), abs(a.high)),
+        max(abs(a.low), abs(a.high)),
+        a.nullable,
+    )
+
+
+def _clip_domain(node: ops.Clip, visit: Callable[[ops.Value], Domain]) -> Domain:
+    result = visit(node.arg)
+    if node.lower is not None:
+        bound = visit(node.lower)
+        if bound.low is not None:
+            result = replace(
+                result, low=bound.low if result.low is None else max(result.low, bound.low)
+            )
+    if node.upper is not None:
+        bound = visit(node.upper)
+        if bound.high is not None:
+            result = replace(
+                result, high=bound.high if result.high is None else min(result.high, bound.high)
+            )
+    return result
+
+
+def _logical_domain(
+    node: ops.And | ops.Or, fields: dict[str, Domain], assumptions: dict[ops.Value, Domain]
+) -> Domain:
+    def visit(child: ops.Value, state: dict[ops.Value, Domain] = assumptions) -> Domain:
+        return evaluate_domain(child, fields, state)
+
+    combined_truths: set[bool] = set()
+    for left in _truth(visit(node.left)):
+        if (isinstance(node, ops.And) and not left) or (isinstance(node, ops.Or) and left):
+            combined_truths.add(left)
+        else:
+            combined_truths.update(
+                _truth(visit(node.right, _assume(node.left, left, assumptions, fields)))
+            )
+    return _boolean(frozenset(combined_truths))
+
+
+def _remaining_domain(node: ops.Value, visit: Callable[[ops.Value], Domain]) -> Domain:
+    if isinstance(node, (ops.Sqrt, ops.Ln, ops.Log, ops.Log2, ops.Log10, ops.Exp, ops.Round)):
+        return _math_domain(node, visit(node.arg), visit)
+    if isinstance(node, ops.NullIf):
+        return replace(visit(node.arg), nullable=True)
+    if isinstance(node, (ops.Least, ops.Greatest)):
+        result = visit(node.arg[0])
+        for child in node.arg[1:]:
+            result = _union(result, visit(child))
+        return result
+    if isinstance(node, ops.Clip):
+        return _clip_domain(node, visit)
+    raise DomainProofError(f"no fixed-state interval proof for {type(node).__name__}")
+
+
 def _evaluate_domain(
     node: ops.Value, fields: dict[str, Domain], assumptions: dict[ops.Value, Domain] | None = None
 ) -> Domain:
@@ -424,51 +531,15 @@ def _evaluate_domain(
     if isinstance(node, ops.Alias):
         return visit(node.arg)
     if isinstance(node, (ops.Cast, ops.TryCast)):
-        arg = visit(node.arg)
-        if arg.only_null:
-            return arg
-        if node.to.is_integer() or node.to.is_decimal():
-            scale = node.to.scale if node.to.is_decimal() else 0
-            quantum = Fraction(1, 10 ** (scale or 0))
-            if arg.low is not None and arg.high is not None and arg.low != arg.high:
-                return replace(
-                    arg,
-                    low=arg.low - quantum,
-                    high=arg.high + quantum,
-                    low_open=False,
-                    high_open=False,
-                )
-        return arg
+        return _cast_domain(node, visit(node.arg))
     if isinstance(node, (ops.IfElse, ops.SearchedCase, ops.Coalesce)):
         return _conditional_domain(node, fields, assumptions)
     if isinstance(node, (ops.IsNull, ops.NotNull, ops.IsNan, ops.IsInf)):
-        arg = visit(node.arg)
-        if not arg.finite:
-            return Domain(Fraction(0), Fraction(1), finite=False)
-        if isinstance(node, (ops.IsNan, ops.IsInf)):
-            return Domain.constant(False)
-        possibilities = (
-            frozenset((True,))
-            if arg.only_null
-            else frozenset((False, True))
-            if arg.nullable
-            else frozenset((False,))
-        )
-        if isinstance(node, ops.NotNull):
-            possibilities = frozenset(not item for item in possibilities)
-        return _boolean(possibilities)
+        return _null_test_domain(node, visit(node.arg))
     if isinstance(node, ops.Not):
         return _boolean(frozenset(not item for item in _truth(visit(node.arg))))
     if isinstance(node, (ops.And, ops.Or)):
-        combined_truths: set[bool] = set()
-        for left in _truth(visit(node.left)):
-            if (isinstance(node, ops.And) and not left) or (isinstance(node, ops.Or) and left):
-                combined_truths.add(left)
-            else:
-                combined_truths.update(
-                    _truth(visit(node.right, _assume(node.left, left, assumptions, fields)))
-                )
-        return _boolean(frozenset(combined_truths))
+        return _logical_domain(node, fields, assumptions)
     if isinstance(
         node, (ops.Equals, ops.NotEquals, ops.Greater, ops.GreaterEqual, ops.Less, ops.LessEqual)
     ):
@@ -476,51 +547,8 @@ def _evaluate_domain(
     if isinstance(node, (ops.Add, ops.Subtract, ops.Multiply, ops.Divide)):
         return _binary_domain(node, visit(node.left), visit(node.right))
     if isinstance(node, (ops.Negate, ops.Abs)):
-        a = visit(node.arg)
-        if a.only_null:
-            return a
-        if not a.finite:
-            return Domain(None, None, a.nullable, finite=False)
-        if isinstance(node, ops.Negate):
-            return Domain(
-                None if a.high is None else -a.high,
-                None if a.low is None else -a.low,
-                a.nullable,
-                a.high_open,
-                a.low_open,
-            )
-        if a.low is None or a.high is None:
-            return Domain(Fraction(0), None, a.nullable)
-        return Domain(
-            Fraction(0) if a.low <= 0 <= a.high else min(abs(a.low), abs(a.high)),
-            max(abs(a.low), abs(a.high)),
-            a.nullable,
-        )
-    if isinstance(node, (ops.Sqrt, ops.Ln, ops.Log, ops.Log2, ops.Log10, ops.Exp, ops.Round)):
-        return _math_domain(node, visit(node.arg), visit)
-    if isinstance(node, ops.NullIf):
-        return replace(visit(node.arg), nullable=True)
-    if isinstance(node, (ops.Least, ops.Greatest)):
-        result = visit(node.arg[0])
-        for child in node.arg[1:]:
-            result = _union(result, visit(child))
-        return result
-    if isinstance(node, ops.Clip):
-        result = visit(node.arg)
-        if node.lower is not None:
-            bound = visit(node.lower)
-            if bound.low is not None:
-                result = replace(
-                    result, low=bound.low if result.low is None else max(result.low, bound.low)
-                )
-        if node.upper is not None:
-            bound = visit(node.upper)
-            if bound.high is not None:
-                result = replace(
-                    result, high=bound.high if result.high is None else min(result.high, bound.high)
-                )
-        return result
-    raise DomainProofError(f"no fixed-state interval proof for {type(node).__name__}")
+        return _signed_domain(node, visit(node.arg))
+    return _remaining_domain(node, visit)
 
 
 def prove_domain(

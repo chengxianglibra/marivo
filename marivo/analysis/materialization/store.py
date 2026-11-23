@@ -183,44 +183,45 @@ class SessionStore:
             raise invalid("unsupported Store generation")
         return conn
 
+    def _validate_existing_store(self) -> None:
+        uri, immutable = self._readonly_uri()
+        read = sqlite3.connect(uri, uri=True)
+        try:
+            read.execute("PRAGMA foreign_keys=ON")
+            read.execute("BEGIN")
+            version: object = read.execute("PRAGMA user_version").fetchone()[0]
+            tables = read.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            ).fetchall()
+            if version != self.layout.generation:
+                raise _generation_error(version, self.layout.generation)
+            expected = {
+                "sessions",
+                "analysis_action_runs",
+                "analysis_action_run_terminals",
+                "dataset_artifacts",
+                "action_resource_journal",
+            }
+            if {row[0] for row in tables} != expected:
+                raise invalid(f"incomplete v{self.layout.generation} schema")
+            if immutable:
+                # Immutable SQLite reports its local journal mode as delete.
+                # The durable header remains the authority for a clean WAL Store.
+                with self.db_path.open("rb") as source:
+                    wal_header = source.read(20)[18:20]
+                if wal_header != b"\x02\x02":
+                    raise invalid("Store 28 requires WAL durability")
+            else:
+                journal: object = read.execute("PRAGMA journal_mode").fetchone()[0]
+                if journal != "wal":
+                    raise invalid("Store 28 requires WAL durability")
+        finally:
+            read.close()
+
     def _initialize(self, *, existing_only: bool = False) -> None:
         if os.path.lexists(self.db_path):
-            uri, immutable = self._readonly_uri()
-            read = sqlite3.connect(uri, uri=True)
-            try:
-                read.execute("PRAGMA foreign_keys=ON")
-                read.execute("BEGIN")
-                version: object = read.execute("PRAGMA user_version").fetchone()[0]
-                tables = read.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-                ).fetchall()
-                if version != self.layout.generation:
-                    raise _generation_error(version, self.layout.generation)
-                if version == self.layout.generation:
-                    expected = {
-                        "sessions",
-                        "analysis_action_runs",
-                        "analysis_action_run_terminals",
-                        "dataset_artifacts",
-                        "action_resource_journal",
-                    }
-                    if {row[0] for row in tables} != expected:
-                        raise invalid(f"incomplete v{self.layout.generation} schema")
-                    if immutable:
-                        # Immutable SQLite reports its local journal mode as delete.
-                        # The durable header remains the authority for a clean WAL Store.
-                        with self.db_path.open("rb") as source:
-                            wal_header = source.read(20)[18:20]
-                        if wal_header != b"\x02\x02":
-                            raise invalid("Store 28 requires WAL durability")
-                    else:
-                        journal: object = read.execute("PRAGMA journal_mode").fetchone()[0]
-                        if journal != "wal":
-                            raise invalid("Store 28 requires WAL durability")
-            finally:
-                read.close()
-            if version == self.layout.generation:
-                return
+            self._validate_existing_store()
+            return
         if existing_only:
             raise invalid(f"selected v{self.layout.generation} Store is absent")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -255,7 +256,7 @@ class SessionStore:
                     os.close(directory_fd)
 
     @contextmanager
-    def _read(self) -> Iterator[sqlite3.Connection]:
+    def read_transaction(self) -> Iterator[sqlite3.Connection]:
         conn = self._connection(readonly=True)
         try:
             conn.execute("BEGIN")
@@ -264,7 +265,7 @@ class SessionStore:
             conn.close()
 
     @contextmanager
-    def _write(self) -> Iterator[sqlite3.Connection]:
+    def write_transaction(self) -> Iterator[sqlite3.Connection]:
         conn = self._connection()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -278,7 +279,7 @@ class SessionStore:
             conn.close()
 
     @staticmethod
-    def _session(row: sqlite3.Row) -> SessionRecord:
+    def decode_session(row: sqlite3.Row) -> SessionRecord:
         if parse_timestamp(_text(row, "updated_at")) < parse_timestamp(_text(row, "created_at")):
             raise invalid("Session update predates creation")
         resolution = _text(row, "report_timezone_resolution")
@@ -329,14 +330,14 @@ class SessionStore:
         )
 
     def session(self, session_ref: str) -> SessionRecord | None:
-        with self._read() as conn:
+        with self.read_transaction() as conn:
             row = _one(conn, "SELECT * FROM sessions WHERE session_ref=?", (session_ref,))
-            return None if row is None else self._session(row)
+            return None if row is None else self.decode_session(row)
 
     def session_by_name(self, name: str) -> SessionRecord | None:
-        with self._read() as conn:
+        with self.read_transaction() as conn:
             row = _one(conn, "SELECT * FROM sessions WHERE name=?", (name,))
-            return None if row is None else self._session(row)
+            return None if row is None else self.decode_session(row)
 
     def create_session(
         self,
@@ -349,10 +350,10 @@ class SessionStore:
         report_timezone_origin: Literal["explicit", "system"],
         domains: tuple[str, ...] | None = None,
     ) -> SessionRecord:
-        with self._write() as conn:
+        with self.write_transaction() as conn:
             row = _one(conn, "SELECT * FROM sessions WHERE name=?", (name,))
             if row is not None:
-                existing = self._session(row)
+                existing = self.decode_session(row)
                 raise SessionAlreadyExistsError(
                     message="A Session with this exact name already exists.",
                     expected="a unique project-local Session name",
@@ -388,15 +389,15 @@ class SessionStore:
             row = _one(conn, "SELECT * FROM sessions WHERE session_ref=?", (ref,))
             if row is None:
                 raise invalid("created Session is absent")
-            result = self._session(row)
+            result = self.decode_session(row)
         return result
 
-    def _resource_run(self, run_ref: str) -> TerminalRun | None:
-        with self._read() as conn:
+    def resource_run(self, run_ref: str) -> TerminalRun | None:
+        with self.read_transaction() as conn:
             return load_run(conn, run_ref)
 
     def reserve(self, resource: ResourceRecord) -> None:
-        with self._write() as conn:
+        with self.write_transaction() as conn:
             run = load_run(conn, resource.run_ref)
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("resource reservation requires incomplete admission")
@@ -413,11 +414,13 @@ class SessionStore:
             )
 
     def resources(self, session_ref: str) -> tuple[ResourceRecord, ...]:
-        with self._read() as conn:
-            return self._resources(conn, session_ref)
+        with self.read_transaction() as conn:
+            return self.resources_in_transaction(conn, session_ref)
 
     @staticmethod
-    def _resources(conn: sqlite3.Connection, session_ref: str) -> tuple[ResourceRecord, ...]:
+    def resources_in_transaction(
+        conn: sqlite3.Connection, session_ref: str
+    ) -> tuple[ResourceRecord, ...]:
         rows = _rows(
             conn,
             "SELECT j.* FROM action_resource_journal j JOIN analysis_action_runs a USING(run_ref) WHERE a.session_ref=? ORDER BY j.run_ref,j.resource_kind,j.execution_domain_id,j.safe_locator",
@@ -436,7 +439,7 @@ class SessionStore:
         )
 
     @staticmethod
-    def _delete_resources(
+    def delete_resources_in_transaction(
         conn: sqlite3.Connection, run_ref: str, resources: tuple[ResourceRecord, ...]
     ) -> None:
         for resource in resources:
@@ -457,8 +460,8 @@ class SessionStore:
                 raise invalid("unmatched exact resource obligation")
 
     def discharge(self, resource: ResourceRecord) -> None:
-        with self._write() as conn:
-            self._delete_resources(conn, resource.run_ref, (resource,))
+        with self.write_transaction() as conn:
+            self.delete_resources_in_transaction(conn, resource.run_ref, (resource,))
             conn.execute(
                 "UPDATE sessions SET updated_at=? WHERE session_ref=(SELECT session_ref FROM analysis_action_runs WHERE run_ref=?)",
                 (_now(), resource.run_ref),
@@ -473,7 +476,7 @@ class SessionStore:
     ) -> None:
         payload = canonical_json(failure_payload(failure))
         decode_failure(payload)
-        with self._write() as conn:
+        with self.write_transaction() as conn:
             run = load_run(conn, run_ref)
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("terminal history cannot be rewritten")
@@ -482,7 +485,7 @@ class SessionStore:
                 "INSERT INTO analysis_action_run_terminals VALUES(?,?,?,?,?,?)",
                 (run_ref, run.session_ref, "failed", now, None, payload),
             )
-            self._delete_resources(conn, run_ref, resolved_resources)
+            self.delete_resources_in_transaction(conn, run_ref, resolved_resources)
             conn.execute(
                 "UPDATE sessions SET updated_at=? WHERE session_ref=?", (now, run.session_ref)
             )

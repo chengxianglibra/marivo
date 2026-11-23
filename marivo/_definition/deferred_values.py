@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal, NoReturn
 from ibis.common.bases import FrozenSlotted
 from ibis.common.deferred import Attr, Deferred, Just, JustUnhashable, Resolver
 from ibis.util import PseudoHashable
+from typing_extensions import override
 
 from marivo._definition.population_types import PopulationParameter
 from marivo._definition.types import (
@@ -89,6 +90,7 @@ class CapturedDefaultTimeResolver(_FrozenResolver):
     def __init__(self, field: ExactRef | None) -> None:
         super().__init__(field=field)
 
+    @override
     def resolve(self, context: dict[str, object]) -> NoReturn:
         invalid("A captured default is a semantic contribution-time fact.")
 
@@ -102,6 +104,7 @@ class SemanticResolver(_FrozenResolver):
     def __init__(self, value: SemanticInput) -> None:
         super().__init__(input=value)
 
+    @override
     def resolve(self, context: dict[str, object]) -> NoReturn:
         invalid("Semantic inputs require Marivo binding; use the semantic consumer.")
 
@@ -116,6 +119,7 @@ class DeclarationResolver(_FrozenResolver):
     def __init__(self, recipe: Resolver, declaration: DeclarationRecord) -> None:
         super().__init__(recipe=recipe, declaration=declaration)
 
+    @override
     def resolve(self, context: dict[str, object]) -> NoReturn:
         invalid("Semantic declarations require Marivo binding; use the semantic consumer.")
 
@@ -130,6 +134,7 @@ class NamedResolver(_FrozenResolver):
     def __init__(self, reference: ExactRef, recipe: Resolver) -> None:
         super().__init__(reference=reference, recipe=recipe)
 
+    @override
     def resolve(self, context: dict[str, object]) -> NoReturn:
         invalid("Named semantic inputs require the receiving Marivo scope.")
 
@@ -145,6 +150,7 @@ class RescaleResolver(_FrozenResolver):
     def __init__(self, recipe: Resolver, divisor: int | float | Decimal, unit: str) -> None:
         super().__init__(recipe=recipe, divisor=divisor, unit=unit)
 
+    @override
     def resolve(self, context: dict[str, object]) -> NoReturn:
         invalid("Rescale expressions require Marivo semantic binding.")
 
@@ -158,6 +164,7 @@ class PopulationCountResolver(_FrozenResolver):
     def __init__(self, population: PopulationParameter) -> None:
         super().__init__(population=population)
 
+    @override
     def resolve(self, context: dict[str, object]) -> NoReturn:
         invalid("Population counts require Marivo semantic binding.")
 
@@ -171,6 +178,7 @@ class PopulationContainsResolver(_FrozenResolver):
     def __init__(self, population: PopulationParameter) -> None:
         super().__init__(population=population)
 
+    @override
     def resolve(self, context: dict[str, object]) -> NoReturn:
         invalid("Population membership requires Marivo predicate binding.")
 
@@ -189,7 +197,7 @@ def attribute_name(attribute: Attr) -> str:
 
 
 def resolver_of(value: Deferred) -> Resolver:
-    recipe: object = value._resolver
+    recipe: object = value._resolver  # noqa: SLF001 - Read the Ibis Deferred adapter payload.
     if not isinstance(recipe, Resolver):
         invalid("Expected an Ibis deferred recipe; received an invalid carrier.")
     return recipe

@@ -6,6 +6,7 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import EntityCount, SourceAggregate, SourceWeightedMean
+from marivo._kernel.validation import is_instance
 from marivo.analysis.compiler.lowered_query import LoweredRead
 from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.compiler.query_stages import SourceReadStage, read_reduction, require_reduction
@@ -16,6 +17,35 @@ from marivo.datasource.spi import SourceSession, physical_fields
 def qualified_query_provider(owner: SourceSession) -> bool:
     """Recognize providers with an implemented relation route, not all shapes."""
     return owner.provider.query_policy.key_fusion != "none"
+
+
+def _qualify_clickhouse_strings(
+    owner: SourceSession, stage: SourceReadStage, read: LoweredRead
+) -> str | None:
+    leaves = set(read.expression.op().find(ops.DatabaseTable))
+    matched: set[ops.Node] = set()
+    for bound in owner.bindings():
+        if bound.relation.op() not in leaves:
+            continue
+        try:
+            issue = owner.table_join_issue(bound)
+        except Exception:
+            return "ClickHouse Query fusion requires visible system.tables topology metadata"
+        if issue is not None:
+            return issue
+        decoded = owner.string_facts.query_string_columns(bound)
+        for column in stage.columns:
+            if column.dtype != ScalarDataType("string"):
+                continue
+            if any(
+                physical.rel == bound.relation.op() and physical.name not in decoded
+                for physical in physical_fields(read.expression[column.slot_id])
+            ):
+                return "ClickHouse encoded string carriers retain their typed reader boundary"
+        matched.add(bound.relation.op())
+    if not leaves or not leaves <= matched:
+        return "ClickHouse Query fusion has an unqualified physical table"
+    return None
 
 
 def qualify_query_source(
@@ -30,29 +60,9 @@ def qualify_query_source(
     if not policy.needs_remote_carrier_qualification:
         return "this remote provider has no qualified Query relation route"
     if owner.provider.dialect.query_string_columns is not None:
-        leaves = set(read.expression.op().find(ops.DatabaseTable))
-        matched: set[ops.Node] = set()
-        for bound in owner._bound_sources.values():
-            if bound.relation.op() not in leaves:
-                continue
-            try:
-                issue = owner.table_join_issue(bound)
-            except Exception:
-                return "ClickHouse Query fusion requires visible system.tables topology metadata"
-            if issue is not None:
-                return issue
-            decoded = owner.string_facts.query_string_columns(bound)
-            for column in stage.columns:
-                if column.dtype != ScalarDataType("string"):
-                    continue
-                if any(
-                    physical.rel == bound.relation.op() and physical.name not in decoded
-                    for physical in physical_fields(read.expression[column.slot_id])
-                ):
-                    return "ClickHouse encoded string carriers retain their typed reader boundary"
-            matched.add(bound.relation.op())
-        if not leaves or not leaves <= matched:
-            return "ClickHouse Query fusion has an unqualified physical table"
+        issue = _qualify_clickhouse_strings(owner, stage, read)
+        if issue is not None:
+            return issue
     if read_reduction(stage) is None:
         if any(
             column.dtype != ScalarDataType("string")
@@ -83,7 +93,7 @@ def qualify_query_source(
             and (
                 isinstance(node, SourceWeightedMean)
                 or (
-                    isinstance(node, SourceAggregate)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+                    is_instance(node, SourceAggregate)
                     and node.reducer in ("sum", "min", "max", "mean")
                 )
             )
@@ -97,22 +107,27 @@ def qualify_query_source(
     ):
         return "remote aggregate producer numeric coordinates retain their pandas key boundary"
     if policy.key_fusion == "collated" and stage.keys:
-        for key in stage.keys:
-            fields = physical_fields(read.expression[key])
-            if not fields:
-                return "MySQL aggregate keys require a physical binary NO PAD collation"
-            for physical in fields:
-                found_owner = False
-                for bound in owner._bound_sources.values():
-                    if physical.rel != bound.relation.op():
-                        continue
-                    found_owner = True
-                    if not owner.string_facts.original_key_string(bound, physical.name):
-                        return (
-                            "MySQL aggregate keys retain their native collation grouping boundary"
-                        )
-                if not found_owner:
-                    return "MySQL aggregate key collation has no physical source owner"
+        return _aggregate_key_collation(owner, stage, read)
+    return None
+
+
+def _aggregate_key_collation(
+    owner: SourceSession, stage: SourceReadStage, read: LoweredRead
+) -> str | None:
+    for key in stage.keys:
+        fields = physical_fields(read.expression[key])
+        if not fields:
+            return "MySQL aggregate keys require a physical binary NO PAD collation"
+        for physical in fields:
+            found_owner = False
+            for bound in owner.bindings():
+                if physical.rel != bound.relation.op():
+                    continue
+                found_owner = True
+                if not owner.string_facts.original_key_string(bound, physical.name):
+                    return "MySQL aggregate keys retain their native collation grouping boundary"
+            if not found_owner:
+                return "MySQL aggregate key collation has no physical source owner"
     return None
 
 

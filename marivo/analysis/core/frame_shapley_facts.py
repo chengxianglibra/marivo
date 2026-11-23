@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from math import isfinite
 from typing import Literal, TypeAlias
 
+from typing_extensions import override
+
 from marivo.analysis.model.data_types import (
     DataColumn,
     DataType,
@@ -26,6 +28,10 @@ from marivo.analysis.model.method_values import (
 _StateRoute: TypeAlias = Literal[
     "typed_sufficient_state/v1", "typed_value_frequency/v1", "typed_sufficient_frequency/v1"
 ]
+
+
+def _reducer_kind(kind: str, expected: str, reducer: str, allowed: tuple[str, ...]) -> bool:
+    return kind == expected and reducer in allowed
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -50,15 +56,22 @@ class FrameShapleyGame(_FactRecord):
     closure_policy: Literal["typed_marginal_float64_sum/v1"]
 
     def __post_init__(self) -> None:
-        if (
-            self.kind != "group_replacement"  # type: ignore[redundant-expr]  # Preserve the runtime check.
-            or self.semantics_version != "group_replacement/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.player_domain != "joint_key_union/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.domain_policy != "finite_interval_demand/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.metric_approximation not in ("exact_metric/v1", "summary_reconstruction/v1")
-            or self.standard_error != "permutation_mean/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.closure_policy != "typed_marginal_float64_sum/v1"
-        ):
+        policies = (
+            self.kind,
+            self.semantics_version,
+            self.player_domain,
+            self.domain_policy,
+            self.standard_error,
+            self.closure_policy,
+        )
+        if policies != (
+            "group_replacement",
+            "group_replacement/v1",
+            "joint_key_union/v1",
+            "finite_interval_demand/v1",
+            "permutation_mean/v1",
+            "typed_marginal_float64_sum/v1",
+        ) or self.metric_approximation not in ("exact_metric/v1", "summary_reconstruction/v1"):
             _fail(
                 "closed replacement, domain, approximation, error and closure policies",
                 repr(self.kind),
@@ -70,6 +83,7 @@ class FrameShapleyGame(_FactRecord):
         for clause in self.domain_proof:
             _text(clause)
 
+    @override
     def _summary(self) -> str:
         return f"kind=group_replacement, formula={self.current_formula_id[:12]}, proof_clauses={len(self.domain_proof)}"
 
@@ -95,22 +109,31 @@ class FrameShapleyQueryGame(_FactRecord):
     closure_policy: Literal["typed_marginal_float64_sum/v1"]
 
     def __post_init__(self) -> None:
-        if (
-            self.kind != "group_replacement"  # type: ignore[redundant-expr]  # Preserve the runtime check.
-            or self.semantics_version != "group_replacement/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.player_domain != "joint_key_union/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.input_consistency != "independent_reads/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.domain_policy != "evaluated_coalitions/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.metric_approximation not in ("exact_metric/v1", "native_approximate_metric/v1")
-            or self.standard_error != "observed_marginal_mean/v1"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or self.closure_policy != "typed_marginal_float64_sum/v1"
-        ):
+        policies = (
+            self.kind,
+            self.semantics_version,
+            self.player_domain,
+            self.input_consistency,
+            self.domain_policy,
+            self.standard_error,
+            self.closure_policy,
+        )
+        if policies != (
+            "group_replacement",
+            "group_replacement/v1",
+            "joint_key_union/v1",
+            "independent_reads/v1",
+            "evaluated_coalitions/v1",
+            "observed_marginal_mean/v1",
+            "typed_marginal_float64_sum/v1",
+        ) or self.metric_approximation not in ("exact_metric/v1", "native_approximate_metric/v1"):
             _fail(
                 "closed native query game, consistency, domain and error policies", repr(self.kind)
             )
         _digest_identity(self.current_formula_id)
         _digest_identity(self.baseline_formula_id)
 
+    @override
     def _summary(self) -> str:
         return f"kind=group_replacement, formula={self.current_formula_id[:12]}, input=independent_reads/v1, domain=evaluated_coalitions/v1"
 
@@ -133,19 +156,25 @@ class FrameShapleyReduction(_FactRecord):
     ]
 
     def __post_init__(self) -> None:
-        if self.kind != "aggregate" or self.reducer not in (  # type: ignore[redundant-expr]  # Preserve the runtime check.
-            "sum",
-            "count",
-            "entity_count",
-            "count_distinct",
-            "approx_nunique",
-            "mean",
-            "weighted_mean",
-            "min",
-            "max",
+        if not _reducer_kind(
+            self.kind,
+            "aggregate",
+            self.reducer,
+            (
+                "sum",
+                "count",
+                "entity_count",
+                "count_distinct",
+                "approx_nunique",
+                "mean",
+                "weighted_mean",
+                "min",
+                "max",
+            ),
         ):
             _fail("a closed original reducer identity", repr(self.reducer))
 
+    @override
     def _summary(self) -> str:
         return f"kind=aggregate, reducer={self.reducer}"
 
@@ -164,7 +193,7 @@ class FrameShapleyQuantile(_FactRecord):
     finisher: Literal["rank_bounds", "duckdb_native", "postgres_native"]
 
     def __post_init__(self) -> None:
-        if self.kind != "quantile" or self.reducer not in ("median", "quantile"):  # type: ignore[redundant-expr]  # Preserve the runtime check.
+        if not _reducer_kind(self.kind, "quantile", self.reducer, ("median", "quantile")):
             _fail("an exact median or quantile reducer", repr(self.reducer))
         if type(self.q) is not float or not isfinite(self.q) or not 0 <= self.q <= 1:
             _fail("a finite captured Float64 quantile in [0, 1]", repr(self.q))
@@ -173,6 +202,7 @@ class FrameShapleyQuantile(_FactRecord):
         if self.finisher not in ("rank_bounds", "duckdb_native", "postgres_native"):
             _fail("the closed original quantile finishing recipe", repr(self.finisher))
 
+    @override
     def _summary(self) -> str:
         return f"kind=quantile, reducer={self.reducer}, q={self.q!r}, finisher={self.finisher}"
 
@@ -191,11 +221,16 @@ class FrameShapleyNativeQuantile(_FactRecord):
     algorithm_version: Literal["original_native_reducer/v1"]
 
     def __post_init__(self) -> None:
-        if self.kind != "native_quantile" or self.reducer not in (  # type: ignore[redundant-expr]  # Preserve the runtime check.
-            "median",
-            "quantile",
-            "approx_median",
-            "approx_quantile",
+        if not _reducer_kind(
+            self.kind,
+            "native_quantile",
+            self.reducer,
+            (
+                "median",
+                "quantile",
+                "approx_median",
+                "approx_quantile",
+            ),
         ):
             _fail("an original native exact or approximate quantile reducer", repr(self.reducer))
         if type(self.q) is not float or not isfinite(self.q) or not 0 <= self.q <= 1:
@@ -205,6 +240,7 @@ class FrameShapleyNativeQuantile(_FactRecord):
         if self.algorithm_version != "original_native_reducer/v1":
             _fail("the versioned original backend-native reducer", repr(self.algorithm_version))
 
+    @override
     def _summary(self) -> str:
         return f"kind=native_quantile, reducer={self.reducer}, q={self.q!r}, algorithm={self.algorithm_version}"
 
@@ -285,6 +321,7 @@ class FrameShapleyLeaf(_FactRecord):
                 repr(self.weight_null_policy),
             )
 
+    @override
     def _summary(self) -> str:
         return f"kind=leaf, occurrence={self.occurrence}, reducer={self.reduction.reducer}, output={_short(self.output.name)!r}"
 
@@ -365,6 +402,7 @@ class FrameShapleyCapture(_FactRecord):
             if optional is not None:
                 _count(optional)
 
+    @override
     def _summary(self) -> str:
         return f"kind=capture, input={_short(self.capture_id)!r}, endpoint={self.endpoint}, route={self.state_route}"
 
@@ -419,5 +457,63 @@ class FrameShapleyQuery(_FactRecord):
             if optional is not None:
                 _count(optional)
 
+    @override
     def _summary(self) -> str:
         return f"kind=native_query, input={_short(self.capture_id)!r}, endpoint={self.endpoint}, purpose={self.purpose}"
+
+
+def validate_shapley_leaves(
+    leaves: tuple[FrameShapleyLeaf, ...],
+    captures: tuple[FrameShapleyCapture | FrameShapleyQuery, ...],
+    *,
+    native: bool,
+    column: str,
+) -> None:
+    directory = {capture.capture_id: capture for capture in captures}
+    if len(directory) != len(captures) or len({leaf.occurrence for leaf in leaves}) != len(leaves):
+        _fail("unique capture identities and original leaf occurrences", column)
+    for leaf in leaves:
+        if (
+            not native
+            and isinstance(leaf.reduction, FrameShapleyReduction)
+            and leaf.reduction.reducer == "approx_nunique"
+        ):
+            _fail(
+                "original approximate distinct through native queries without merged estimates",
+                repr(leaf.occurrence),
+            )
+        if (native and isinstance(leaf.reduction, FrameShapleyQuantile)) or (
+            not native and isinstance(leaf.reduction, FrameShapleyNativeQuantile)
+        ):
+            _fail(
+                "original quantile metadata matching the state or native query route",
+                repr(leaf.occurrence),
+            )
+        for capture_ids, endpoint in (
+            (leaf.current_capture_ids, "current"),
+            (leaf.baseline_capture_ids, "baseline"),
+        ):
+            resolved = tuple(directory.get(capture_id) for capture_id in capture_ids)
+            for capture_id, capture in zip(capture_ids, resolved, strict=True):
+                if capture is None or capture.endpoint not in (endpoint, "both"):
+                    _fail(
+                        "original leaves resolving to the correct fixed endpoint captures",
+                        capture_id,
+                    )
+            if (
+                not native
+                and (
+                    isinstance(leaf.reduction, FrameShapleyQuantile)
+                    or leaf.reduction.reducer == "count_distinct"
+                )
+                and not any(
+                    isinstance(capture, FrameShapleyCapture)
+                    and capture.state_route
+                    in ("typed_value_frequency/v1", "typed_sufficient_frequency/v1")
+                    for capture in resolved
+                )
+            ):
+                _fail(
+                    "an exact frequency input among the original leaf's captured components",
+                    repr(capture_ids),
+                )

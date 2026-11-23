@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -18,7 +19,14 @@ from marivo._kernel.temporal_grid import (
     builtin_nominal_ordinal,
     civil_shift,
 )
+from marivo._kernel.validation import is_instance
 from marivo.analysis.core.arrow_keys import FrameKeyScalar
+from marivo.analysis.core.frozen_arrays import (
+    coordinate_array as _array,
+)
+from marivo.analysis.core.frozen_arrays import (
+    coordinate_arrow_type as _arrow_type,
+)
 from marivo.analysis.model.coordinate_schema import (
     calendar_directory_schema,
     comparison_mapping_schema,
@@ -41,8 +49,6 @@ from marivo.analysis.model.data_schema import (
 from marivo.analysis.model.data_schema import calendar_failure as _fail
 from marivo.analysis.model.data_types import (
     DataColumn,
-    DataType,
-    DecimalDataType,
     DurationDataType,
     ScalarDataType,
     TimestampDataType,
@@ -299,54 +305,8 @@ def merge_equal_interval_directories(
     return FrozenIntervalDirectory(output_axis, tuple(buckets))
 
 
-def _arrow_type(dtype: DataType) -> pa.DataType:
-    if isinstance(dtype, ScalarDataType):
-        return {
-            "boolean": pa.bool_(),
-            "string": pa.string(),
-            "int64": pa.int64(),
-            "float64": pa.float64(),
-            "date": pa.date32(),
-        }[dtype.name]
-    if isinstance(dtype, DecimalDataType):
-        return pa.decimal128(dtype.precision, dtype.scale)
-    if isinstance(dtype, TimestampDataType):
-        return pa.timestamp(dtype.unit, dtype.timezone)
-    return pa.duration(dtype.unit)
-
-
-def _array(rows: pd.DataFrame, column: DataColumn) -> pa.Array:
-    try:
-        series = rows[column.slot_id]
-        expected = _arrow_type(column.dtype)
-        arrow_values = getattr(series, "array", None)
-        values: pa.Array
-        if isinstance(arrow_values, pd.arrays.ArrowExtensionArray):
-            arrow = arrow_values.__arrow_array__()
-            candidate = arrow.combine_chunks() if isinstance(arrow, pa.ChunkedArray) else arrow
-            if candidate.type == pa.large_string() and expected == pa.string():
-                candidate = candidate.cast(expected)
-            values = candidate if candidate.type == expected else pa.array(series, from_pandas=True)
-        else:
-            values = pa.array(series, from_pandas=True)
-        # pandas' Arrow string extension uses large_string for the same string
-        # type. No other physical conversion may erase exact units or precision.
-        if values.type == pa.large_string() and expected == pa.string():
-            values = values.cast(expected)
-        if values.type != expected:
-            _fail(
-                "exact declared physical column type",
-                f"{column.slot_id}: {values.type} != {expected}",
-            )
-        if values.null_count and not column.nullable:
-            _fail("nonnull declared coordinate cells", column.slot_id)
-        return values
-    except (pa.ArrowException, TypeError, ValueError, OverflowError) as error:
-        _fail("exact typed coordinate cells", f"{column.slot_id}: {error}")
-
-
 def _layout(schema: DataSchema, rows: pd.DataFrame) -> None:
-    if not isinstance(rows, pd.DataFrame) or tuple(rows.columns) != tuple(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(rows, pd.DataFrame) or tuple(rows.columns) != tuple(
         column.slot_id for column in schema.columns
     ):
         _fail("complete coordinate table in exact slot order", repr(tuple(rows.columns)))
@@ -510,7 +470,7 @@ def read_calendar_records(
         _label(label, axis)
         assert axis.frozen is not None
         definition = axis.frozen.definition
-        if isinstance(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if is_instance(
             definition, BuiltinCalendarData
         ) and nominal_ordinal != builtin_nominal_ordinal(
             definition.unit, definition.step, datetime.fromisoformat(label)
@@ -660,6 +620,43 @@ def validate_presence(schema: DataSchema, rows: pd.DataFrame) -> None:
                     )
 
 
+def _validate_comparison_presence(
+    schema: DataSchema,
+    rows: pd.DataFrame,
+    tables: dict[str, FrozenAttachment],
+    primary_keys: dict[str, tuple[FrozenKey, ...]],
+    read: Callable[
+        [CalendarDataAxis | IntervalDataAxis], FrozenCalendarDirectory | FrozenIntervalDirectory
+    ],
+) -> None:
+    for fact in schema.comparisons:
+        binding = fact.binding
+        if isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
+            current = next(axis for axis in schema.axes if axis.token == binding.current_axis_token)
+            assert isinstance(current, (CalendarDataAxis, IntervalDataAxis))
+            table = tables[binding.mapping_name]
+            entries = read_comparison_mapping(
+                binding, table.schema, table.rows, read(current), read(binding.baseline)
+            )
+            absent = {
+                entry.current_key for entry in entries if isinstance(entry, FrozenComparisonAbsent)
+            }
+            if fact.baseline_presence is None:
+                continue
+            present = _array(
+                rows,
+                schema.presence[schema.presence_paths.index(fact.baseline_presence.path)],
+            )
+            if any(
+                key in absent and present[index].as_py() is True
+                for index, key in enumerate(primary_keys[current.token])
+            ):
+                _fail(
+                    "row presence consistent with absent comparison endpoints",
+                    repr((*fact.namespace, fact.alias, fact.baseline_presence.path)),
+                )
+
+
 def validate_frozen_coordinates(
     schema: DataSchema,
     rows: pd.DataFrame,
@@ -733,32 +730,7 @@ def validate_frozen_coordinates(
         if isinstance(axis, PairedDataAxis):
             table = tables[axis.mapping_name]
             validate_paired_presence(axis, schema, rows, table.schema, table.rows)
-    for fact in schema.comparisons:
-        binding = fact.binding
-        if isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
-            current = next(axis for axis in schema.axes if axis.token == binding.current_axis_token)
-            assert isinstance(current, (CalendarDataAxis, IntervalDataAxis))
-            table = tables[binding.mapping_name]
-            entries = read_comparison_mapping(
-                binding, table.schema, table.rows, read(current), read(binding.baseline)
-            )
-            absent = {
-                entry.current_key for entry in entries if isinstance(entry, FrozenComparisonAbsent)
-            }
-            if fact.baseline_presence is None:
-                continue
-            present = _array(
-                rows,
-                schema.presence[schema.presence_paths.index(fact.baseline_presence.path)],
-            )
-            if any(
-                key in absent and present[index].as_py() is True
-                for index, key in enumerate(primary_keys[current.token])
-            ):
-                _fail(
-                    "row presence consistent with absent comparison endpoints",
-                    repr((*fact.namespace, fact.alias, fact.baseline_presence.path)),
-                )
+    _validate_comparison_presence(schema, rows, tables, primary_keys, read)
     return complete_keys
 
 
@@ -777,7 +749,7 @@ def require_calendar_match_rule(axis: CalendarDataAxis, rule: CalendarCorrespond
     if type(rule) is not CalendarCorrespondence:
         _fail("a closed calendar correspondence rule", repr(rule), match=True)
     if rule.kind != "ordinal" and (
-        not isinstance(definition, BuiltinCalendarData)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        not is_instance(definition, BuiltinCalendarData)
         or definition.unit not in ("day", "week", "month", "quarter", "year")
     ):
         _fail("supported builtin civil grains for this match rule", repr(definition), match=True)

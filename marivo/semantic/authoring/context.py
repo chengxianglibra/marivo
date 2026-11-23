@@ -10,6 +10,7 @@ from types import FrameType
 
 from ibis.common.deferred import Deferred
 
+from marivo._kernel.paths import relationship_binding
 from marivo._kernel.refs import (
     EntityKind,
     Ref,
@@ -32,7 +33,7 @@ from marivo.semantic.errors import (
     _raise,
 )
 from marivo.semantic.expressions.ir import ExpressionBody
-from marivo.semantic.expressions.objects import Dimension, Measure, TimeField
+from marivo.semantic.expressions.objects import Dimension, Measure, TimeField, entity_exact
 from marivo.semantic.expressions.objects import _Entity as Entity
 from marivo.semantic.expressions.objects import _Relationship as Relationship
 from marivo.semantic.ir import (
@@ -68,12 +69,12 @@ def _value_ref(value: object) -> Ref[SemanticKindTag] | None:
         return field.reference.ref
 
     if isinstance(value, (Dimension, TimeField, Measure)):
-        value._require_native(operation="a source declaration lookup")
+        value.require_native(operation="a source declaration lookup")
     if isinstance(value, (Dimension, Entity, Measure, Relationship, TimeField)):
         return (
-            value._exact_ref.ref
+            entity_exact(value).ref
             if isinstance(value, Entity)
-            else value._parameter.ref.ref
+            else relationship_binding(value).ref.ref
             if isinstance(value, Relationship)
             else value.ref.ref
         )

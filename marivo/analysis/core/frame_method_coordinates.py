@@ -9,6 +9,7 @@ from decimal import Decimal
 
 import pandas as pd
 import pyarrow as pa
+from typing_extensions import override
 
 from marivo.analysis.model.data_schema import (
     DataSchema,
@@ -55,9 +56,11 @@ class FrameMethodCoordinate(_FactRecord):
             for column, value in zip(self.schema.columns, row, strict=True):
                 _scalar(column, value)
 
+    @override
     def _summary(self) -> str:
         return f"kind=coordinate, name={_short(self.name)!r}, rows={len(self.rows)}, columns={len(self.schema.columns)}"
 
+    @override
     def _lines(self) -> Iterator[str]:
         for row in self.rows:
             yield " | ".join(_cell(value) for value in row)

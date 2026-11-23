@@ -29,11 +29,8 @@ from marivo._definition.query import (
     ValueLiteral,
     ValueSlot,
 )
-from marivo._definition.relations import (
-    AttributeKeys,
-    PopulationProgram,
-)
 from marivo._definition.types import AxisBinding
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.programs import FormulaProgram, PopulationInput
 from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.native_formula import lower_native_formula
@@ -59,6 +56,12 @@ from marivo.analysis.compiler.source_predicates import (
 from marivo.analysis.core.value_types import ibis_type
 from marivo.analysis.materialization.native_query_checks import (
     NativeQueryRelation,
+)
+from marivo.analysis.materialization.native_query_inputs import (
+    field_inputs as _field_inputs,
+)
+from marivo.analysis.materialization.native_query_inputs import (
+    terminal_attribute_inputs as _terminal_attribute_inputs,
 )
 from marivo.analysis.materialization.source_query_policy import (
     qualified_query_provider,
@@ -247,7 +250,7 @@ def _lower_native_operation(
     else:
         coordinates = tuple(expression[group[0]] for group in program.key_groups)
     if isinstance(operation, FilterValues):
-        if not isinstance(operation.predicate, ValueExpression) or not _safe_expression(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not is_instance(operation.predicate, ValueExpression) or not _safe_expression(
             operation.predicate,
             native_float=owner.provider.query_policy.supports_fused_arithmetic,
             native_arithmetic=arithmetic,
@@ -292,6 +295,73 @@ def _lower_native_operation(
         expression, top_checks = qualified
         checks = (*checks, *top_checks)
     return expression, checks
+
+
+def _native_local_projection(
+    expression: ir.Table,
+    stage: LocalCompute,
+    program: ResultProgram,
+    owner: SourceSession,
+    checks: tuple[NumericCheck, ...],
+) -> tuple[ir.Table, tuple[NumericCheck, ...]] | str:
+    operation = program.operation
+    if isinstance(operation, ReadFields):
+        columns = (
+            *(slot for group in program.key_groups[: len(program.output_groups)] for slot in group),
+            *(program.key_groups[i][0] for i in operation.positions),
+        )
+        expression = expression.select(
+            **dict(
+                zip(
+                    (column.slot_id for column in stage.columns),
+                    (expression[name] for name in columns),
+                    strict=True,
+                )
+            )
+        )
+    elif isinstance(operation, KeyImage):
+        expression = expression.select(
+            **dict(
+                zip(
+                    (column.slot_id for column in stage.columns),
+                    (expression[name] for name in program.keys),
+                    strict=True,
+                )
+            )
+        )
+    elif isinstance(operation, (FilterValues, SelectValues, TopValues)):
+        selected = _lower_native_operation(expression, stage, program, operation, owner, checks)
+        if isinstance(selected, str):
+            return selected
+        expression, checks = selected
+    else:
+        return "producer operation is outside the admitted field relation grammar"
+    return expression, checks
+
+
+def _common_read_issue(
+    owner: SourceSession, stage: SourceReadStage, read: LoweredRead
+) -> str | None:
+    if read_members(stage):
+        if not owner.provider.query_policy.supports_fused_arithmetic or any(
+            read_reduction(member) is None
+            or read_components(member) is not None
+            or read_finish(member) is not None
+            or require_reduction(member).duration is not None
+            or require_reduction(member).calendar is not None
+            or require_reduction(member).calendars
+            or require_reduction(member).sampled
+            or require_reduction(member).window_key is not None
+            or require_reduction(member).preserve_sample_presence
+            for member in read_members(stage)
+        ):
+            return "common producer retains its original component or sample finish"
+        if owner.provider.query_policy.key_fusion != "local":
+            for member in read_members(stage):
+                issue = qualify_query_source(owner, member, read, frozenset())
+                if issue is not None:
+                    return issue
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -409,25 +479,9 @@ class _NativeRelationLowerer:
             return "producer physical inputs do not belong to the consumer SourceSession"
         if read_finish(stage) is not None:
             return "producer retains a governed host finish"
-        if read_members(stage):
-            if not owner.provider.query_policy.supports_fused_arithmetic or any(
-                read_reduction(member) is None
-                or read_components(member) is not None
-                or read_finish(member) is not None
-                or require_reduction(member).duration is not None
-                or require_reduction(member).calendar is not None
-                or require_reduction(member).calendars
-                or require_reduction(member).sampled
-                or require_reduction(member).window_key is not None
-                or require_reduction(member).preserve_sample_presence
-                for member in read_members(stage)
-            ):
-                return "common producer retains its original component or sample finish"
-            if owner.provider.query_policy.key_fusion != "local":
-                for member in read_members(stage):
-                    issue = qualify_query_source(owner, member, read, frozenset())
-                    if issue is not None:
-                        return issue
+        common_issue = _common_read_issue(owner, stage, read)
+        if common_issue is not None:
+            return common_issue
         if owner.provider.query_policy.needs_remote_carrier_qualification:
             issue = qualify_query_source(
                 owner,
@@ -534,43 +588,10 @@ class _NativeRelationLowerer:
             return NativeQueryRelation(expression, members, sources, checks, parameters)
         if program is None or len(inputs) != 1 or program.duration_operations:
             return "producer is outside the admitted field relation grammar"
-        expression = inputs[0].expression
-        operation = program.operation
-        if isinstance(operation, ReadFields):
-            columns = (
-                *(
-                    slot
-                    for group in program.key_groups[: len(program.output_groups)]
-                    for slot in group
-                ),
-                *(program.key_groups[i][0] for i in operation.positions),
-            )
-            expression = expression.select(
-                **dict(
-                    zip(
-                        (column.slot_id for column in stage.columns),
-                        (expression[name] for name in columns),
-                        strict=True,
-                    )
-                )
-            )
-        elif isinstance(operation, KeyImage):
-            expression = expression.select(
-                **dict(
-                    zip(
-                        (column.slot_id for column in stage.columns),
-                        (expression[name] for name in program.keys),
-                        strict=True,
-                    )
-                )
-            )
-        elif isinstance(operation, (FilterValues, SelectValues, TopValues)):
-            selected = _lower_native_operation(expression, stage, program, operation, owner, checks)
-            if isinstance(selected, str):
-                return selected
-            expression, checks = selected
-        else:
-            return "producer operation is outside the admitted field relation grammar"
+        selected = _native_local_projection(inputs[0].expression, stage, program, owner, checks)
+        if isinstance(selected, str):
+            return selected
+        expression, checks = selected
         return NativeQueryRelation(expression, members, sources, checks, parameters)
 
     def _formula(
@@ -686,71 +707,8 @@ def native_query_relation(
 
     include(producer)
     allowed_consumers = frozenset(internal)
-    attribute_parent: PopulationInput | None = None
-    attribute_leaf: FrameKeysInput | None = None
-    endpoint = by_id[producer]
-    if (
-        terminal
-        and isinstance(endpoint, LocalCompute)
-        and isinstance(endpoint.program, FormulaProgram)
-    ):
-        formula = endpoint.program
-        scope = formula.parent_scope
-        if (
-            formula.values
-            and formula.calendar is None
-            and not formula.counts
-            and formula.output_population is None
-            and isinstance(scope, PopulationProgram)
-            and isinstance(scope.root, AttributeKeys)
-            and scope.root.calendar_token is None
-            and len(formula.populations) == 1
-            and formula.populations[0].definition == scope
-        ):
-            binding = formula.populations[0]
-            projected = by_id[binding.stage_id]
-            if (
-                isinstance(projected, LocalCompute)
-                and isinstance(projected.program, ResultProgram)
-                and len(projected.inputs) == 1
-                and isinstance(leaf := by_id[projected.inputs[0]], FrameKeysInput)
-                and leaf.parameter.definition == scope
-                and projected.keys == binding.keys
-                and tuple(column.slot_id for column in projected.columns) == binding.keys
-            ):
-                result = projected.program
-                direct_image = (
-                    isinstance(result.operation, KeyImage)
-                    and result.keys == leaf.keys
-                    and result.columns == leaf.columns
-                )
-                direct_population = (
-                    isinstance(result.operation, PopulationValues)
-                    and result.operation.definition == scope
-                    and result.population_inputs == (scope,)
-                    and len(result.population_layouts) == 1
-                    and tuple(key for group in result.population_layouts[0] for key in group)
-                    == leaf.keys
-                    and tuple(key for group in result.output_groups for key in group)
-                    == binding.keys
-                )
-                if direct_image or direct_population:
-                    attribute_parent, attribute_leaf = binding, leaf
-    field_inputs: set[str] = set()
-    for item in plan.stages:
-        if (
-            item.stage_id not in internal
-            or not isinstance(item, LocalCompute)
-            or not isinstance(item.program, ResultProgram)
-            or not isinstance(item.program.operation, ReadFields)
-        ):
-            continue
-        pending = list(item.inputs)
-        while pending:
-            identifier = pending.pop()
-            if identifier not in field_inputs:
-                field_inputs.add(identifier)
-                pending.extend(by_id[identifier].inputs)
+    attribute_parent, attribute_leaf = _terminal_attribute_inputs(by_id[producer], by_id, terminal)
+    field_inputs = _field_inputs(by_id, internal)
     integer_identities: dict[str, set[str]] = {}
     if owner.provider.query_policy.key_fusion != "local":
         for item in plan.stages:

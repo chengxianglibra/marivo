@@ -12,7 +12,6 @@ import hashlib
 import inspect
 import json
 import operator
-from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Final, NoReturn
@@ -34,6 +33,16 @@ from ibis.common.deferred import (
     Variable,
 )
 
+from marivo._definition.deferred_inspection import (
+    SEMANTIC_METHODS as SEMANTIC_METHODS,
+)
+from marivo._definition.deferred_inspection import (
+    DeferredInspection as DeferredInspection,
+)
+from marivo._definition.deferred_inspection import (
+    RecipeUse,
+    SemanticUse,
+)
 from marivo._definition.deferred_sample_validation import (
     capture_sample,
     captured_field_kind,
@@ -94,7 +103,12 @@ from marivo._definition.parameter_recipes import (
     validate_parameter,
     validate_parameter_call,
 )
-from marivo._definition.population_types import MembershipBinding, PopulationParameter
+from marivo._definition.population_types import (
+    MembershipBinding,
+    PopulationParameter,
+    population_definition,
+    population_identity_keys,
+)
 from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
@@ -110,14 +124,17 @@ from marivo._definition.types import (
 )
 from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
 from marivo._kernel.errors import invalid
-from marivo._kernel.grouping import Grouping
+from marivo._kernel.grouping import Grouping, grouping_identity_keys
 from marivo._kernel.input_context import (
     InputContext,
+    captured_context,
     merge_input_contexts,
 )
 from marivo._kernel.paths import (
     PathParameter,
     RelationshipStepParameter,
+    path_parameter,
+    relationship_binding,
 )
 from marivo._kernel.paths import (
     RelationshipParameter as RelationshipParameter,
@@ -130,7 +147,7 @@ from marivo._kernel.paths import (
 )
 from marivo._kernel.refs import ExactRef, Ref, SemanticKind, SemanticKindTag
 from marivo._kernel.symbolic import SymbolResolver
-from marivo._kernel.temporal import Grain, InstantAnchor, TimeScope
+from marivo._kernel.temporal import Grain, InstantAnchor, TimeScope, time_scope_contract
 
 RECIPE_RULE_VERSION: Final = 2
 _LITERAL_TYPES: Final = (str, bool, int, float, Decimal, date, datetime, InstantAnchor)
@@ -165,30 +182,6 @@ NATIVE_METHODS: Final = frozenset(
         "isin",
     }
 )
-SEMANTIC_METHODS: Final = frozenset(
-    {
-        "sum",
-        "mean",
-        "min",
-        "max",
-        "median",
-        "quantile",
-        "count",
-        "count_distinct",
-        "first",
-        "last",
-        "approx_median",
-        "approx_nunique",
-        "weighted_mean",
-        "approx_quantile",
-        "via",
-        "at",
-        "within",
-        "where",
-        "per",
-        "window",
-    }
-)
 _TOP_FUNCTIONS: Final = (
     (ibis.ifelse, inspect.unwrap(ibis.ifelse), "ifelse"),
     (ibis.coalesce, inspect.unwrap(ibis.coalesce), "coalesce"),
@@ -215,43 +208,6 @@ _BINARY_SYMBOLS: Final = (
     (operator.or_, "or"),
     (operator.xor, "xor"),
 )
-
-
-@dataclass(frozen=True, slots=True)
-class SemanticUse:
-    """One captured input occurrence, including repeated shared inputs."""
-
-    path: tuple[str, ...]
-    input: SemanticInput
-
-
-@dataclass(frozen=True, slots=True)
-class RecipeUse:
-    """One operation occurrence with its original Ibis resolver and role path."""
-
-    path: tuple[str, ...]
-    symbol: str
-    recipe: Resolver
-
-
-@dataclass(frozen=True, slots=True)
-class DeferredInspection:
-    """Source-free capture evidence; this does not certify execution eligibility."""
-
-    recipe: Resolver
-    declaration: DeclarationRecord | None
-    dependencies: tuple[ExactRef, ...]
-    uses: tuple[SemanticUse, ...]
-    operations: tuple[RecipeUse, ...]
-    declarations: tuple[DeclarationRecord, ...]
-    fingerprint: str
-    symbols: tuple[Ref[SemanticKindTag], ...] = ()
-    context: InputContext = field(default_factory=InputContext)
-    identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = ()
-
-    @property
-    def semantic_calls(self) -> tuple[RecipeUse, ...]:
-        return tuple(use for use in self.operations if use.symbol in SEMANTIC_METHODS)
 
 
 def admitted_function(value: object) -> bool:
@@ -370,9 +326,9 @@ class _Inspector:
             self.token("end_assertion")
 
     def _visit_parameter(self, recipe: ParameterResolver, path: tuple[str, ...]) -> None:
-        self.contexts.append(recipe.parameter._context)
+        self.contexts.append(captured_context(recipe.parameter))
         if isinstance(recipe.parameter, CoordinatesParameter):
-            self.capture_identity_keys(recipe.parameter._identity_keys)
+            self.capture_identity_keys(grouping_identity_keys(recipe.parameter))
         self.token("parameter", type(recipe.parameter).__name__)
         if isinstance(recipe.parameter, PathRecipe):
             self.token("source_at", attribute_time_key(recipe.parameter.source_at))
@@ -404,22 +360,24 @@ class _Inspector:
             self.symbols[recipe.reference.key] = recipe.reference
             self.token("symbol", recipe.reference.key)
         elif type(recipe) is PopulationContainsResolver:
-            self.contexts.append(recipe.population._context)
-            self.capture_identity_keys(recipe.population._identity_keys)
+            self.contexts.append(captured_context(recipe.population))
+            self.capture_identity_keys(population_identity_keys(recipe.population))
             self.has_population_contains = True
-            definition = recipe.population._definition
+            definition = population_definition(recipe.population)
             self.token(
                 "population_contains", DefinitionEncoder(canonical_recipe).fingerprint(definition)
             )
             for reference in direct_refs(definition):
                 self.dependency(reference)
         elif type(recipe) is PopulationCountResolver:
-            self.contexts.append(recipe.population._context)
-            self.capture_identity_keys(recipe.population._identity_keys)
+            self.contexts.append(captured_context(recipe.population))
+            self.capture_identity_keys(population_identity_keys(recipe.population))
             self.has_population_count = True
             self.token(
                 "population_count",
-                DefinitionEncoder(canonical_recipe).fingerprint(recipe.population._definition),
+                DefinitionEncoder(canonical_recipe).fingerprint(
+                    population_definition(recipe.population)
+                ),
             )
         elif type(recipe) is CapturedDefaultTimeResolver:
             if not path or path[-1] != "parameter:time":
@@ -497,14 +455,14 @@ class _Inspector:
 
     def literal(self, value: object, path: tuple[str, ...]) -> None:
         if isinstance(value, _RelationshipValue):
-            self.contexts.append(value._context)
-            value = value._parameter
+            self.contexts.append(captured_context(value))
+            value = relationship_binding(value)
         if isinstance(value, _PathValue):
-            value = value._parameter
+            value = path_parameter(value)
 
         if isinstance(value, Grouping):
-            self.contexts.append(value._context)
-            self.capture_identity_keys(value._identity_keys)
+            self.contexts.append(captured_context(value))
+            self.capture_identity_keys(grouping_identity_keys(value))
             value = grouping_binding(value)
             if isinstance(value, (AxisBinding, CalendarCoordinate)):
                 self.token(
@@ -519,12 +477,13 @@ class _Inspector:
         if isinstance(value, (MembershipBinding, PopulationParameter)):
             refs: set[ExactRef] = set()
             if isinstance(value, PopulationParameter):
-                self.contexts.append(value._context)
-                self.capture_identity_keys(value._identity_keys)
+                self.contexts.append(captured_context(value))
+                self.capture_identity_keys(population_identity_keys(value))
                 self.token(
-                    "population", DefinitionEncoder(canonical_recipe).fingerprint(value._definition)
+                    "population",
+                    DefinitionEncoder(canonical_recipe).fingerprint(population_definition(value)),
                 )
-                refs.update(direct_refs(value._definition))
+                refs.update(direct_refs(population_definition(value)))
             else:
                 self.token(
                     "membership", fingerprint(DefinitionEncoder(canonical_recipe).encode(value))
@@ -537,13 +496,18 @@ class _Inspector:
             self.token(
                 "time_scope",
                 json.dumps(
-                    value._contract().model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+                    time_scope_contract(value).model_dump(mode="json"),
+                    sort_keys=True,
+                    separators=(",", ":"),
                 ),
             )
             return
         if isinstance(value, Grain):
             self.token("grain", value.unit, str(value.count))
             return
+        self._literal_token(value, path)
+
+    def _window_token(self, value: object) -> bool:
         if type(value) is AllHistory:
             self.token("window", "all_history")
         elif isinstance(value, TrailingDuration) and type(value) is TrailingDuration:
@@ -562,8 +526,15 @@ class _Inspector:
             grain = value.grain
             if isinstance(grain, Grain):
                 self.token("window", "to_date", grain.unit, str(grain.count))
-        elif isinstance(value, PathParameter):
-            self.contexts.append(value._context)
+        else:
+            return False
+        return True
+
+    def _literal_token(self, value: object, path: tuple[str, ...]) -> None:
+        if self._window_token(value):
+            return
+        if isinstance(value, PathParameter):
+            self.contexts.append(captured_context(value))
             self.token("path", attribute_time_key(value.source_at))
             for index, step in enumerate(value.steps):
                 self.literal(step, (*path, f"step:{index}"))
@@ -728,95 +699,7 @@ class _Inspector:
                     path=path,
                 )
         if not population:
-            positional_names = {
-                "round": ("digits",),
-                "clip": ("lower", "upper"),
-                "log": ("base",),
-                "quantile": ("q",),
-                "approx_quantile": ("q",),
-            }.get(symbol, ())
-            duplicate = set(positional_names[: len(recipe.args)]) & set(recipe.kwargs)
-            if duplicate:
-                invalid(
-                    f"{symbol} assigns these parameters more than once: {', '.join(sorted(duplicate))}.",
-                    path=path,
-                )
-            if symbol in {"quantile", "approx_quantile"}:
-                if (not recipe.args and "q" not in recipe.kwargs) or (
-                    recipe.args and "q" in recipe.kwargs
-                ):
-                    invalid(f"{symbol} requires exactly one q parameter.", path=path)
-                q = recipe.args[0] if recipe.args else recipe.kwargs["q"]
-                if (
-                    not isinstance(q, Just)
-                    or type(q.value) not in {int, float}
-                    or not 0 <= q.value <= 1
-                ):
-                    invalid("quantile requires one finite numeric q in [0, 1].", path=path)
-            if symbol == "weighted_mean" and "weight" not in recipe.kwargs:
-                invalid("weighted_mean requires an explicit weight expression.", path=path)
-            nulls = recipe.kwargs.get("nulls")
-            if nulls is not None and (
-                not isinstance(nulls, Just)
-                or type(nulls.value) is not str
-                or nulls.value not in {"ignore", "error"}
-            ):
-                invalid('nulls requires "ignore" or "error".', path=(*path, "parameter:nulls"))
-            include_null = recipe.kwargs.get("include_null")
-            if include_null is not None and (
-                not isinstance(include_null, Just) or type(include_null.value) is not bool
-            ):
-                invalid(
-                    "include_null requires a boolean literal.",
-                    path=(*path, "parameter:include_null"),
-                )
-            if symbol == "round":
-                digits = recipe.args[0] if recipe.args else recipe.kwargs.get("digits")
-                if digits is not None and (
-                    not isinstance(digits, Just) or type(digits.value) is not int
-                ):
-                    invalid("round digits requires an integer literal.", path=path)
-            if symbol == "cast" and (
-                not isinstance(recipe.args[0], Just) or type(recipe.args[0].value) is not str
-            ):
-                invalid("cast requires one immutable dtype string.", path=path)
-            if symbol == "via" and parameter_role(recipe.args[0]) != "path":
-                invalid("via requires a Path constructed with mv.path(...).", path=path)
-            for parameter in ("time", "order_by"):
-                value = recipe.kwargs.get(parameter)
-                if (
-                    value is not None
-                    and not (
-                        parameter == "time"
-                        and (
-                            isinstance(value, CapturedDefaultTimeResolver)
-                            or (isinstance(value, Just) and value.value is None)
-                        )
-                    )
-                    and captured_field_kind(value) is not SemanticKind.TIME_DIMENSION
-                ):
-                    invalid(
-                        f"{parameter} requires a native or closed TimeDimension field, including supported field paths.",
-                        path=(*path, f"parameter:{parameter}"),
-                    )
-            self._temporal_arguments(symbol, recipe, path)
-            weight = recipe.kwargs.get("weight")
-            if weight is not None and (
-                (
-                    isinstance(weight, SymbolResolver)
-                    and weight.reference.kind not in {SemanticKind.MEASURE, SemanticKind.METRIC}
-                )
-                or isinstance(weight, Just)
-            ):
-                invalid(
-                    "weight requires a numeric row or Metric expression.",
-                    path=(*path, "parameter:weight"),
-                )
-            if symbol == "cases" and any(
-                not isinstance(branch, Sequence) or len(branch.values) != 2
-                for branch in recipe.args
-            ):
-                invalid("cases requires immutable (match, value) branch pairs.", path=path)
+            self._expression_signature(symbol, recipe, path)
         receiver = recipe.func.obj if isinstance(recipe.func, Attr) else None
         if receiver is not None and symbol == "at" and captured_relationship(receiver):
             return
@@ -842,6 +725,99 @@ class _Inspector:
                     f"A {kind.value} symbol is an identity parameter and cannot receive {symbol}().",
                     path=path,
                 )
+
+    def _expression_signature(self, symbol: str, recipe: Call, path: tuple[str, ...]) -> None:
+        positional_names = {
+            "round": ("digits",),
+            "clip": ("lower", "upper"),
+            "log": ("base",),
+            "quantile": ("q",),
+            "approx_quantile": ("q",),
+        }.get(symbol, ())
+        duplicate = set(positional_names[: len(recipe.args)]) & set(recipe.kwargs)
+        if duplicate:
+            invalid(
+                f"{symbol} assigns these parameters more than once: {', '.join(sorted(duplicate))}.",
+                path=path,
+            )
+        if symbol in {"quantile", "approx_quantile"}:
+            if (not recipe.args and "q" not in recipe.kwargs) or (
+                recipe.args and "q" in recipe.kwargs
+            ):
+                invalid(f"{symbol} requires exactly one q parameter.", path=path)
+            q = recipe.args[0] if recipe.args else recipe.kwargs["q"]
+            if (
+                not isinstance(q, Just)
+                or type(q.value) not in {int, float}
+                or not 0 <= q.value <= 1
+            ):
+                invalid("quantile requires one finite numeric q in [0, 1].", path=path)
+        if symbol == "weighted_mean" and "weight" not in recipe.kwargs:
+            invalid("weighted_mean requires an explicit weight expression.", path=path)
+        nulls = recipe.kwargs.get("nulls")
+        if nulls is not None and (
+            not isinstance(nulls, Just)
+            or type(nulls.value) is not str
+            or nulls.value not in {"ignore", "error"}
+        ):
+            invalid('nulls requires "ignore" or "error".', path=(*path, "parameter:nulls"))
+        include_null = recipe.kwargs.get("include_null")
+        if include_null is not None and (
+            not isinstance(include_null, Just) or type(include_null.value) is not bool
+        ):
+            invalid(
+                "include_null requires a boolean literal.",
+                path=(*path, "parameter:include_null"),
+            )
+        if symbol == "round":
+            digits = recipe.args[0] if recipe.args else recipe.kwargs.get("digits")
+            if digits is not None and (
+                not isinstance(digits, Just) or type(digits.value) is not int
+            ):
+                invalid("round digits requires an integer literal.", path=path)
+        if symbol == "cast" and (
+            not isinstance(recipe.args[0], Just) or type(recipe.args[0].value) is not str
+        ):
+            invalid("cast requires one immutable dtype string.", path=path)
+        if symbol == "via" and parameter_role(recipe.args[0]) != "path":
+            invalid("via requires a Path constructed with mv.path(...).", path=path)
+        self._semantic_keywords(symbol, recipe, path)
+
+    def _semantic_keywords(self, symbol: str, recipe: Call, path: tuple[str, ...]) -> None:
+        for parameter in ("time", "order_by"):
+            value = recipe.kwargs.get(parameter)
+            if (
+                value is not None
+                and not (
+                    parameter == "time"
+                    and (
+                        isinstance(value, CapturedDefaultTimeResolver)
+                        or (isinstance(value, Just) and value.value is None)
+                    )
+                )
+                and captured_field_kind(value) is not SemanticKind.TIME_DIMENSION
+            ):
+                invalid(
+                    f"{parameter} requires a native or closed TimeDimension field, including supported field paths.",
+                    path=(*path, f"parameter:{parameter}"),
+                )
+        self._temporal_arguments(symbol, recipe, path)
+        weight = recipe.kwargs.get("weight")
+        if weight is not None and (
+            (
+                isinstance(weight, SymbolResolver)
+                and weight.reference.kind not in {SemanticKind.MEASURE, SemanticKind.METRIC}
+            )
+            or isinstance(weight, Just)
+        ):
+            invalid(
+                "weight requires a numeric row or Metric expression.",
+                path=(*path, "parameter:weight"),
+            )
+        if symbol == "cases" and any(
+            not isinstance(branch, Sequence) or len(branch.values) != 2 for branch in recipe.args
+        ):
+            invalid("cases requires immutable (match, value) branch pairs.", path=path)
 
     def _temporal_arguments(self, symbol: str, recipe: Call, path: tuple[str, ...]) -> None:
         if symbol == "per":

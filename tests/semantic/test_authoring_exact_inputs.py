@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Callable
 from typing import TypeVar
 
 import ibis.expr.types as ibis_ir
@@ -127,6 +128,91 @@ def _dependencies(*, changed: str | None = None, skip_entity: str | None = None)
         )
 
 
+def _measure(
+    family: str,
+    orders: Entity | EntitySymbol,
+    dimension: Callable[[str], Deferred],
+    time: Callable[[str], Deferred],
+    helper_copy: str | None,
+) -> Deferred:
+    status = time("sales.orders.sample_at") if family == "status_time" else None
+    policy = (
+        ms.additive_over(dimension("sales.orders.region"))
+        if family == "additive_over"
+        else ms.additive_except(dimension("sales.orders.region"))
+        if family == "additive_except"
+        else ms.additive_except(status)
+        if status is not None
+        else ms.additive_all()
+    )
+    return ms.measure_column(
+        name="probe",
+        entity=orders,
+        column="probe",
+        additivity=_copy_helper(policy, helper_copy),
+        status_time_dimension=status,
+    )
+
+
+def _versioned_entity(
+    family: str, time: Callable[[str], Deferred], helper_copy: str | None
+) -> Deferred:
+    if family == "snapshot":
+        versioning = ms.snapshot(partition_field=time("sales.snapshot_orders.day"), timezone="UTC")
+        return ms.entity(
+            name="snapshot_orders",
+            datasource=ms.ref.datasource("warehouse"),
+            source=md.table("snapshot_orders"),
+            primary_key=["id"],
+            versioning=_copy_helper(versioning, helper_copy),
+        )
+    else:
+        validity_versioning = ms.validity(
+            valid_from=time("sales.validity_orders.start"),
+            valid_to=time("sales.validity_orders.end"),
+            interval="closed_open",
+            open_end=(None,),
+        )
+        return ms.entity(
+            name="validity_orders",
+            datasource=ms.ref.datasource("warehouse"),
+            source=md.table("validity_orders"),
+            primary_key=["id"],
+            versioning=_copy_helper(validity_versioning, helper_copy),
+        )
+
+
+class _InputSelection:
+    def __init__(self, selected: str, old: SemanticCatalog, lookup: bool) -> None:
+        self.selected = selected
+        self.old = old
+        self.lookup = lookup
+
+    def entity(self, path: str) -> Entity | EntitySymbol:
+        ref = ms.ref.entity(path)
+        if path == self.selected and not self.lookup:
+            value = resolve(self.old, ref)
+            assert isinstance(value, Entity)
+            return value
+        return ref
+
+    def dimension(self, path: str) -> Deferred:
+        ref = ms.ref.dimension(path)
+        if path == self.selected and not self.lookup:
+            value = resolve(self.old, ref)
+            assert isinstance(value, Deferred)
+            return value
+        return ref
+
+    def time(self, path: str) -> Deferred:
+        ref = ms.ref.time_dimension(path)
+        if path == self.selected and not self.lookup:
+            value = resolve(self.old, ref)
+            assert isinstance(value, Deferred)
+            return value
+        return ref
+
+
 def _consume(
     family: str,
     selected: str,
@@ -135,29 +221,8 @@ def _consume(
     lookup: bool,
     helper_copy: str | None = None,
 ) -> Deferred:
-    def entity(path: str) -> Entity | EntitySymbol:
-        ref = ms.ref.entity(path)
-        if path == selected and not lookup:
-            value = resolve(old, ref)
-            assert isinstance(value, Entity)
-            return value
-        return ref
-
-    def dimension(path: str) -> Deferred:
-        ref = ms.ref.dimension(path)
-        if path == selected and not lookup:
-            value = resolve(old, ref)
-            assert isinstance(value, Deferred)
-            return value
-        return ref
-
-    def time(path: str) -> Deferred:
-        ref = ms.ref.time_dimension(path)
-        if path == selected and not lookup:
-            value = resolve(old, ref)
-            assert isinstance(value, Deferred)
-            return value
-        return ref
+    selection = _InputSelection(selected, old, lookup)
+    entity, dimension, time = selection.entity, selection.dimension, selection.time
 
     orders = entity("sales.orders")
     if family == "dimension_column":
@@ -187,23 +252,7 @@ def _consume(
             keys=[_copy_helper(key, helper_copy)],
         )
     if family in {"measure_column", "status_time", "additive_over", "additive_except"}:
-        status = time("sales.orders.sample_at") if family == "status_time" else None
-        policy = (
-            ms.additive_over(dimension("sales.orders.region"))
-            if family == "additive_over"
-            else ms.additive_except(dimension("sales.orders.region"))
-            if family == "additive_except"
-            else ms.additive_except(status)
-            if status is not None
-            else ms.additive_all()
-        )
-        return ms.measure_column(
-            name="probe",
-            entity=orders,
-            column="probe",
-            additivity=_copy_helper(policy, helper_copy),
-            status_time_dimension=status,
-        )
+        return _measure(family, orders, dimension, time, helper_copy)
     if family == "hour_prefix":
         parse = ms.hour_prefix(time("sales.orders.day"))
         return ms.time_dimension_column(
@@ -212,29 +261,8 @@ def _consume(
             column="hour",
             parse=_copy_helper(parse, helper_copy),
         )
-    if family == "snapshot":
-        versioning = ms.snapshot(partition_field=time("sales.snapshot_orders.day"), timezone="UTC")
-        return ms.entity(
-            name="snapshot_orders",
-            datasource=ms.ref.datasource("warehouse"),
-            source=md.table("snapshot_orders"),
-            primary_key=["id"],
-            versioning=_copy_helper(versioning, helper_copy),
-        )
-    if family.startswith("validity_"):
-        validity_versioning = ms.validity(
-            valid_from=time("sales.validity_orders.start"),
-            valid_to=time("sales.validity_orders.end"),
-            interval="closed_open",
-            open_end=(None,),
-        )
-        return ms.entity(
-            name="validity_orders",
-            datasource=ms.ref.datasource("warehouse"),
-            source=md.table("validity_orders"),
-            primary_key=["id"],
-            versioning=_copy_helper(validity_versioning, helper_copy),
-        )
+    if family == "snapshot" or family.startswith("validity_"):
+        return _versioned_entity(family, time, helper_copy)
     raise AssertionError(f"Unsupported family {family}")
 
 

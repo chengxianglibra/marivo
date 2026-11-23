@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 import ibis
 import ibis.expr.types as ir
@@ -28,8 +28,11 @@ from marivo._definition.relations import (
 )
 from marivo._definition.types import (
     AxisBinding,
+    EntityIdentityRead,
+    FieldRead,
     IntervalCoordinate,
 )
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.observe import bind_observation
 from marivo.analysis.compiler.lowered_query import PopulationCheck
 from marivo.analysis.compiler.member_version import prepare_version_filter
@@ -57,62 +60,72 @@ from marivo.semantic.spi import (
 )
 
 
+def _include_read_entities(
+    entities: set[str],
+    reads: Iterable[FieldRead | EntityIdentityRead],
+    state: CompiledSemanticState | None,
+) -> None:
+    for read in reads:
+        entities.add(read.entity.ref.path)
+        if state is not None:
+            for step in read.path:
+                relation = state.registry.relationships[step.ref.path]
+                entities.update((relation.from_entity, relation.to_entity))
+
+
+def _include_identity_entities(
+    entities: set[str], node: SourceIdentities, state: CompiledSemanticState | None
+) -> None:
+    entities.add(node.entity.ref.path)
+    if node.predicate is not None:
+        for domain in condition_populations(node.predicate):
+            entities.update(population_entities(domain, state))
+        if state is not None:
+            contribution = _identity_condition(node, state)
+            _include_read_entities(
+                entities,
+                (*contribution.reads, *(read for _, read in contribution.population_reads)),
+                state,
+            )
+
+
 def population_entities(
     definition: PopulationDependency, state: CompiledSemanticState | None = None
 ) -> tuple[str, ...]:
     """Return the declared source closure needed for domain schema and reads."""
-    entities = (
-        {axis.entity.ref.path for axis in definition.axes if isinstance(axis, AxisBinding)}  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        if not isinstance(definition, PopulationProgram)
-        else set()
-    )
-    if isinstance(definition, PopulationProgram):
-        node = definition.root
-        if isinstance(node, SourceIdentities):
-            entities.add(node.entity.ref.path)
-            if node.predicate is not None:
-                for domain in condition_populations(node.predicate):
-                    entities.update(population_entities(domain, state))
-                if state is not None:
-                    contribution = _identity_condition(node, state)
-                    for read in (
-                        *contribution.reads,
-                        *(read for _, read in contribution.population_reads),
-                    ):
-                        entities.add(read.entity.ref.path)
-                        for identity_step in read.path:
-                            lookup_relation = state.registry.relationships[identity_step.ref.path]
-                            entities.update(
-                                (lookup_relation.from_entity, lookup_relation.to_entity)
-                            )
-        elif isinstance(node, PopulationSet):
-            entities.update(population_entities(node.left, state))
-            entities.update(population_entities(node.right, state))
-        elif isinstance(node, (PopulationProject, PopulationClassify)):
-            entities.update(population_entities(node.operand, state))
-            if isinstance(node, PopulationClassify):
-                subject = node.operand.axes[node.subject]
-                assert isinstance(subject, AxisBinding)
-                entities.add(subject.entity.ref.path)
-                for read in node.reads:
-                    entities.add(read.entity.ref.path)
-                    if state is not None:
-                        for field_step in read.path:
-                            relation = state.registry.relationships[field_step.ref.path]
-                            entities.update((relation.from_entity, relation.to_entity))
-        elif isinstance(node, PopulationFilter):
-            entities.update(population_entities(node.operand, state))
-            for domain in condition_populations(node.predicate):
-                entities.update(population_entities(domain, state))
-        elif isinstance(node, (PopulationImage, PopulationPreimage)):
-            entities.update(population_entities(node.operand, state))
-            for step in node.path.relationships:
-                entities.update((step.from_entity.ref.path, step.to_entity.ref.path))
-            if isinstance(node, PopulationPreimage):
-                entities.update(population_entities(node.targets, state))
-        elif isinstance(node, PopulationProduct):
-            for factor in node.factors:
-                entities.update(population_entities(factor, state))
+    if not isinstance(definition, PopulationProgram):
+        return tuple(
+            sorted(
+                {axis.entity.ref.path for axis in definition.axes if is_instance(axis, AxisBinding)}
+            )
+        )
+    entities: set[str] = set()
+    node = definition.root
+    if isinstance(node, SourceIdentities):
+        _include_identity_entities(entities, node, state)
+    elif isinstance(node, PopulationSet):
+        entities.update(population_entities(node.left, state))
+        entities.update(population_entities(node.right, state))
+    elif isinstance(node, (PopulationProject, PopulationClassify)):
+        entities.update(population_entities(node.operand, state))
+        if isinstance(node, PopulationClassify):
+            subject = node.operand.axes[node.subject]
+            assert isinstance(subject, AxisBinding)
+            entities.add(subject.entity.ref.path)
+            _include_read_entities(entities, node.reads, state)
+    elif isinstance(node, PopulationFilter):
+        entities.update(population_entities(node.operand, state))
+        for domain in condition_populations(node.predicate):
+            entities.update(population_entities(domain, state))
+    elif isinstance(node, (PopulationImage, PopulationPreimage)):
+        entities.update(population_entities(node.operand, state))
+        for step in node.path.relationships:
+            entities.update((step.from_entity.ref.path, step.to_entity.ref.path))
+        if isinstance(node, PopulationPreimage):
+            entities.update(population_entities(node.targets, state))
+    elif isinstance(node, PopulationProduct):
+        for factor in node.factors:
+            entities.update(population_entities(factor, state))
     return tuple(sorted(entities))
 
 

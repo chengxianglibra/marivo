@@ -8,6 +8,7 @@ from datetime import timedelta
 from typing import Literal, TypeAlias
 
 from marivo._definition.types import DefinitionGraphError, InputContext, merge_input_contexts
+from marivo._kernel.input_context import captured_context
 from marivo._kernel.refs import (
     DimensionKind,
     FieldKind,
@@ -31,6 +32,7 @@ from marivo.semantic.catalog_model.objects import (
     Measure,
     Relationship,
     TimeDimension,
+    entry_reference,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 from marivo.telemetry import traced
@@ -72,7 +74,7 @@ def _require_ref(
 ) -> Ref[SemanticKindTag]:
 
     reference = (
-        value._ref
+        entry_reference(value)
         if isinstance(value, Dimension | TimeDimension | Measure | Relationship)
         else native_symbol_ref(value)
     )
@@ -108,7 +110,7 @@ RelationshipInput: TypeAlias = "RelationshipSymbol | Relationship"
 def _source_input_context(value: object) -> InputContext:
 
     if isinstance(value, Dimension | TimeDimension | Measure | Relationship):
-        return InputContext(project_root=value._catalog.workspace_dir.resolve())
+        return captured_context(value)
     return InputContext()
 
 
@@ -447,3 +449,15 @@ class SourceCheckNamespace:
 
 
 source_check = SourceCheckNamespace()
+
+
+def source_check_field(
+    check: NotNullSourceCheck | AllowedValuesSourceCheck | FreshnessSourceCheck,
+) -> Ref[FieldKind]:
+    return check._field  # noqa: SLF001 - Exact field admitted by the check factory.
+
+
+def source_check_relationship(
+    check: RelationshipMatchesSourceCheck | RelationshipCardinalitySourceCheck,
+) -> Ref[RelationshipKind]:
+    return check._relationship  # noqa: SLF001 - Exact relationship admitted by the check factory.

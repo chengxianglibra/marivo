@@ -23,6 +23,7 @@ from marivo.semantic.errors import (
 from marivo.semantic.ir import (
     DateParse,
     HourPrefixParse,
+    RelationshipIR,
     StrptimeParse,
     TimestampParse,
     is_time_bearing_format,
@@ -288,6 +289,49 @@ def _validate_entities(errors: list[SemanticError], registry: Registry) -> None:
             _validate_entity_versioning(errors, ds_id, registry)
 
 
+def _validate_relationship_keys(
+    errors: list[SemanticError],
+    warnings: list[StructuredWarning],
+    registry: Registry,
+    loaded_models: set[str] | None,
+    r_id: str,
+    r_ir: RelationshipIR,
+) -> None:
+    for join_key in r_ir.keys:
+        ff = join_key.from_key
+        if ff not in registry.dimensions:
+            if _is_filtered_domain_ref(ff, loaded_models):
+                warnings.append(_filtered_domain_ref_warning(r_id, ff, "Relationship"))
+            else:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.MISSING_DIMENSION_REF,
+                        message=f"Relationship {r_id!r} references unknown from_key {ff!r}.",
+                        refs=(r_id, ff),
+                        details={
+                            "missing_ref": ff,
+                            "did_you_mean": did_you_mean(ff, sorted(registry.dimensions.keys())),
+                        },
+                    )
+                )
+        tf = join_key.to_key
+        if tf not in registry.dimensions:
+            if _is_filtered_domain_ref(tf, loaded_models):
+                warnings.append(_filtered_domain_ref_warning(r_id, tf, "Relationship"))
+            else:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.MISSING_DIMENSION_REF,
+                        message=f"Relationship {r_id!r} references unknown to_key {tf!r}.",
+                        refs=(r_id, tf),
+                        details={
+                            "missing_ref": tf,
+                            "did_you_mean": did_you_mean(tf, sorted(registry.dimensions.keys())),
+                        },
+                    )
+                )
+
+
 def _validate_relationships(
     errors: list[SemanticError],
     warnings: list[StructuredWarning],
@@ -322,43 +366,7 @@ def _validate_relationships(
                         refs=(r_id, r_ir.to_entity),
                     )
                 )
-        for join_key in r_ir.keys:
-            ff = join_key.from_key
-            if ff not in registry.dimensions:
-                if _is_filtered_domain_ref(ff, loaded_models):
-                    warnings.append(_filtered_domain_ref_warning(r_id, ff, "Relationship"))
-                else:
-                    errors.append(
-                        SemanticLoadError(
-                            kind=ErrorKind.MISSING_DIMENSION_REF,
-                            message=f"Relationship {r_id!r} references unknown from_key {ff!r}.",
-                            refs=(r_id, ff),
-                            details={
-                                "missing_ref": ff,
-                                "did_you_mean": did_you_mean(
-                                    ff, sorted(registry.dimensions.keys())
-                                ),
-                            },
-                        )
-                    )
-            tf = join_key.to_key
-            if tf not in registry.dimensions:
-                if _is_filtered_domain_ref(tf, loaded_models):
-                    warnings.append(_filtered_domain_ref_warning(r_id, tf, "Relationship"))
-                else:
-                    errors.append(
-                        SemanticLoadError(
-                            kind=ErrorKind.MISSING_DIMENSION_REF,
-                            message=f"Relationship {r_id!r} references unknown to_key {tf!r}.",
-                            refs=(r_id, tf),
-                            details={
-                                "missing_ref": tf,
-                                "did_you_mean": did_you_mean(
-                                    tf, sorted(registry.dimensions.keys())
-                                ),
-                            },
-                        )
-                    )
+        _validate_relationship_keys(errors, warnings, registry, loaded_models, r_id, r_ir)
 
         if (
             len(errors) == error_count
@@ -442,7 +450,7 @@ def _validate_time_advisories(
         if _time_dimension_pushdown_advisory(
             f_ir,
             None if body is None else body.callable,
-            None if body is None else body._function_ast,
+            None if body is None else body.syntax_tree,
         ):
             warnings.append(
                 StructuredWarning(
@@ -469,7 +477,7 @@ def _validate_time_advisories(
         inferred = _time_dimension_dtype_advisory(
             f_ir,
             None if body is None else body.callable,
-            None if body is None else body._function_ast,
+            None if body is None else body.syntax_tree,
         )
         if inferred is not None:
             compatible = sorted(_CAST_TARGET_TO_DECLARED.get(inferred, set()))

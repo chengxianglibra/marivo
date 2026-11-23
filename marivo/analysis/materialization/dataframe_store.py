@@ -15,13 +15,16 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from marivo._kernel.validation import nonempty_text
-from marivo.analysis.materialization.carriers.dataframe_result import DataFrameResult
+from marivo.analysis.materialization.carriers.dataframe_result import (
+    DataFrameResult,
+    make_dataframe_result,
+)
 from marivo.analysis.materialization.result_files import (
     ResultStorageError,
     publication_file,
     state_path,
 )
-from marivo.analysis.model.result_reference import DataFrameReference
+from marivo.analysis.model.result_reference import DataFrameReference, make_dataframe_reference
 
 JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 _METADATA = b"marivo.dataframe"
@@ -100,7 +103,7 @@ def _table(frame: pd.DataFrame) -> pa.Table:
 
 def publish(root: Path, frame: pd.DataFrame) -> DataFrameReference:
     table = _table(frame)
-    reference = DataFrameReference._create(root, "df_" + uuid4().hex)
+    reference = make_dataframe_reference(root, "df_" + uuid4().hex)
     metadata: dict[str, JsonValue] = {
         "schema": _FORMAT,
         "result_id": reference.result_id,
@@ -212,4 +215,4 @@ def read(root: Path, reference: DataFrameReference) -> DataFrameResult:
         if len(schema) and table.num_rows != count:
             raise _corrupt("dataframe.row_count", "decoded row count differs from saved metadata")
         table = pa.Table.from_arrays(table.columns, schema=schema)
-        return DataFrameResult._create(reference, datetime.fromisoformat(committed), count, table)
+        return make_dataframe_result(reference, datetime.fromisoformat(committed), count, table)

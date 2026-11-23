@@ -20,6 +20,7 @@ import ibis
 import pytest
 from ibis.backends import BaseBackend
 from ibis.backends.duckdb import Backend
+from typing_extensions import override
 
 import marivo
 import marivo.analysis as mv
@@ -604,6 +605,7 @@ def test_real_http_authentication(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         def do_HEAD(self) -> None:
             self.do_GET()
 
+        @override
         def log_message(self, format: str, *args: object) -> None:
             pass
 
@@ -644,6 +646,7 @@ def test_concurrent_contexts_keep_resolvers_separate(
     barrier = threading.Barrier(2)
 
     class Resolver(HostResolver):
+        @override
         def resolve(self, request: md.CredentialRequest) -> md.SecretValue:
             barrier.wait(timeout=5)
             return super().resolve(request)

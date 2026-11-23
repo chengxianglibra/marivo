@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from typing_extensions import override
+
 from marivo._kernel.render import Card, RenderableResult
 from marivo.analysis.model.errors import reject
 
@@ -66,9 +68,11 @@ class FrameSourceReadPeriod(RenderableResult):
                 "frame.source_reads",
             )
 
+    @override
     def _repr_identity(self) -> str:
         return f"FrameSourceReadPeriod end={self.end.isoformat()} timezone={self.timezone[:48]}"
 
+    @override
     def _card(self) -> Card:
         return (
             Card(identity=self._repr_identity(), available=(".start", ".end", ".timezone"))
@@ -107,9 +111,11 @@ class FrameSourceReadScope(RenderableResult):
                 "frame.source_reads",
             )
 
+    @override
     def _repr_identity(self) -> str:
         return f"FrameSourceReadScope source={self.source[:100]!r}"
 
+    @override
     def _card(self) -> Card:
         return (
             Card(identity=self._repr_identity(), available=(".source", ".period"))
@@ -173,9 +179,11 @@ class FrameSourceRead(RenderableResult):
                 "frame.source_reads",
             )
 
+    @override
     def _repr_identity(self) -> str:
         return f"FrameSourceRead read_id={self.read_id[:100]!r} scopes={len(self.scopes)}"
 
+    @override
     def _card(self) -> Card:
         return (
             Card(

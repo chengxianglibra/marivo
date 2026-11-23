@@ -24,6 +24,7 @@ from marivo._kernel.errors import MarivoError
 from marivo._kernel.temporal import Grain, anchor_from_datetime
 from marivo._kernel.temporal_grid import TimeShiftAbsent, TimeShiftMatch
 from marivo._kernel.timezones import normalize_timezone
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.calendar_keys import require_window_endpoints, window_endpoint_keys
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.windows import bind_windows
@@ -103,7 +104,7 @@ def _actual_positions(
             ),
         )
         for slot, rule in native_windows.items()
-        if isinstance(rule, (TrailingPeriods, ToDate))  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if is_instance(rule, (TrailingPeriods, ToDate))
     }
     expression = lower_temporal(
         keys.select(
@@ -139,6 +140,28 @@ def _actual_positions(
         ),
         native_starts,
     )
+
+
+def _native_calendar_windows(
+    windows: tuple[ObservationWindow, ...],
+    start: ir.Value,
+    interval: ir.IntervalScalar,
+    zone: str,
+    provider: str,
+) -> tuple[dict[str, ir.Value], dict[str, ObservationWindow]]:
+    window_columns: dict[str, ir.Value] = {}
+    window_rules: dict[str, ObservationWindow] = {}
+    for index, rule in enumerate(windows):
+        wall_start: ir.Value | None = None
+        if isinstance(rule, ToDate):
+            wall_start = builtin_wall_key(timestamp(start), rule.grain, engine=provider)
+        elif isinstance(rule, TrailingPeriods):
+            wall_start = start - (rule.count - 1) * interval
+        if wall_start is not None:
+            name = f"window_{index}"
+            window_columns[name] = localize(zone, timestamp(wall_start))
+            window_rules[name] = rule
+    return window_columns, window_rules
 
 
 def _source_output_calendar(
@@ -204,18 +227,9 @@ def _source_output_calendar(
     requested_end = max(cell[3] for cell in coordinate.cells)
     lower = ibis.greatest(key, ibis.literal(requested_start))
     upper = ibis.least(finish, ibis.literal(requested_end))
-    window_columns: dict[str, ir.Value] = {}
-    window_rules: dict[str, ObservationWindow] = {}
-    for index, rule in enumerate(windows):
-        wall_start: ir.Value | None = None
-        if isinstance(rule, ToDate):
-            wall_start = builtin_wall_key(timestamp(start), rule.grain, engine=source.provider.name)
-        elif isinstance(rule, TrailingPeriods):
-            wall_start = start - (rule.count - 1) * interval
-        if wall_start is not None:
-            name = f"window_{index}"
-            window_columns[name] = localize(coordinate.timezone, timestamp(wall_start))
-            window_rules[name] = rule
+    window_columns, window_rules = _native_calendar_windows(
+        windows, start, interval, coordinate.timezone, source.provider.name
+    )
     expression = positions.select(
         key=key,
         finish=finish,

@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfoNotFoundError
 
 from marivo._kernel.ai_context import AiContextIR
 from marivo._kernel.timezones import normalize_timezone
+from marivo._kernel.validation import is_instance, is_pair
 from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceObservedEffects, repair
 from marivo.datasource.locations import DatasourceSourceLocation as DatasourceSourceLocation
 
@@ -580,6 +581,10 @@ class JsonSourceIR:
             raise ValueError("JsonSourceIR.method='POST' requires an HTTP(S) path.")
         if self.method == "POST" and self.format != "auto":
             raise ValueError("JsonSourceIR.method='POST' only supports format='auto'.")
+        self._validate_body()
+        _require_kind(self.kind, field_name="JsonSourceIR.kind", expected="json")
+
+    def _validate_body(self) -> None:
         if self.body_json is not None:
             if not isinstance(self.body_json, str):
                 raise TypeError("JsonSourceIR.body_json must be str | None.")
@@ -591,12 +596,12 @@ class JsonSourceIR:
                 raise ValueError("JsonSourceIR.body_json must contain a JSON object.")
             seen_paths: set[tuple[JsonBodyPathPart, ...]] = set()
             for entry in self.body_params:
-                if not isinstance(entry, tuple) or len(entry) != 2:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+                if not is_pair(entry):
                     raise TypeError(
                         "JsonSourceIR.body_params entries must be (path, SourceParamIR) tuples."
                     )
                 path, param = entry
-                if not isinstance(path, tuple) or not path:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+                if not is_instance(path, tuple) or not path:
                     raise TypeError("JsonSourceIR.body_params paths must be non-empty tuples.")
                 if path in seen_paths:
                     raise ValueError(f"JsonSourceIR.body_params contains duplicate path {path!r}.")
@@ -629,7 +634,6 @@ class JsonSourceIR:
                     )
         elif self.body_params:
             raise ValueError("JsonSourceIR.body_params require body_json.")
-        _require_kind(self.kind, field_name="JsonSourceIR.kind", expected="json")
 
     def to_dict(self) -> dict[str, object]:
         result: dict[str, object] = {

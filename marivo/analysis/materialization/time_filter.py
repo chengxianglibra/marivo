@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date, datetime, time, timedelta, timezone
 
 import ibis
@@ -153,6 +153,55 @@ def _bound(node: ops.Value) -> datetime | None:
     return None
 
 
+def _exact_encoded(
+    node: ops.Value,
+    encoded: EncodedTime,
+    encoded_bound: datetime,
+    parent: ops.Relation,
+    engine: str,
+    reverse_encoded: bool,
+) -> ir.BooleanValue | None:
+    raw = _raw_for(encoded.raw, parent)
+    if (
+        raw is None
+        or not _raw_lineage(raw)
+        or not endpoint_rewrite_safe(encoded_bound, encoded.timezone, engine)
+    ):
+        return None
+    parse = StrptimeParse(encoded.format)
+    operation = type(node)
+    if reverse_encoded:
+        operation = {
+            ops.Greater: ops.Less,
+            ops.GreaterEqual: ops.LessEqual,
+            ops.Less: ops.Greater,
+            ops.LessEqual: ops.GreaterEqual,
+        }.get(operation, operation)
+    try:
+        point = encoded_bound.astimezone(normalize_timezone(encoded.timezone).tz).replace(
+            tzinfo=None
+        )
+        if operation in (ops.GreaterEqual, ops.Less, ops.Greater, ops.LessEqual):
+            cutoff = _encoded_cutoff(
+                raw, point, parse, inclusive=operation in (ops.GreaterEqual, ops.Less)
+            )
+            return (
+                None
+                if cutoff is None
+                else _complement(cutoff)
+                if operation in (ops.Less, ops.LessEqual)
+                else cutoff
+            )
+        first = _encoded_cutoff(raw, point, parse, inclusive=True)
+        last = _encoded_cutoff(raw, point, parse, inclusive=False)
+        if first is None or last is None:
+            return None
+        equal = first & ~last
+        return equal if operation is ops.Equals else ~equal
+    except OverflowError:
+        return None
+
+
 def _exact(node: ops.Value, parent: ops.Relation, engine: str) -> ir.BooleanValue | None:
     """Translate only compiler-owned clocks with a retained physical field."""
     if not isinstance(node, _COMPARISONS):
@@ -165,45 +214,7 @@ def _exact(node: ops.Value, parent: ops.Relation, engine: str) -> ir.BooleanValu
         encoded_bound = _bound(node.left)
         reverse_encoded = True
     if isinstance(encoded, EncodedTime) and encoded_bound is not None:
-        raw = _raw_for(encoded.raw, parent)
-        if (
-            raw is None
-            or not _raw_lineage(raw)
-            or not endpoint_rewrite_safe(encoded_bound, encoded.timezone, engine)
-        ):
-            return None
-        parse = StrptimeParse(encoded.format)
-        operation = type(node)
-        if reverse_encoded:
-            operation = {
-                ops.Greater: ops.Less,
-                ops.GreaterEqual: ops.LessEqual,
-                ops.Less: ops.Greater,
-                ops.LessEqual: ops.GreaterEqual,
-            }.get(operation, operation)
-        try:
-            point = encoded_bound.astimezone(normalize_timezone(encoded.timezone).tz).replace(
-                tzinfo=None
-            )
-            if operation in (ops.GreaterEqual, ops.Less, ops.Greater, ops.LessEqual):
-                cutoff = _encoded_cutoff(
-                    raw, point, parse, inclusive=operation in (ops.GreaterEqual, ops.Less)
-                )
-                return (
-                    None
-                    if cutoff is None
-                    else _complement(cutoff)
-                    if operation in (ops.Less, ops.LessEqual)
-                    else cutoff
-                )
-            first = _encoded_cutoff(raw, point, parse, inclusive=True)
-            last = _encoded_cutoff(raw, point, parse, inclusive=False)
-            if first is None or last is None:
-                return None
-            equal = first & ~last
-            return equal if operation is ops.Equals else ~equal
-        except OverflowError:
-            return None
+        return _exact_encoded(node, encoded, encoded_bound, parent, engine, reverse_encoded)
     clock, bound_node, reverse = _clock(node.left), node.right, False
     if clock is None:
         clock, bound_node, reverse = _clock(node.right), node.left, True
@@ -253,6 +264,12 @@ def _exact(node: ops.Value, parent: ops.Relation, engine: str) -> ir.BooleanValu
             engine=engine,
         )
 
+    return _cutoff_comparison(operation, lower)
+
+
+def _cutoff_comparison(
+    operation: type[ops.Value], lower: Callable[[bool], ir.BooleanValue | None]
+) -> ir.BooleanValue | None:
     try:
         if operation in (ops.GreaterEqual, ops.Less):
             result = lower(False)
@@ -281,21 +298,25 @@ def _exact(node: ops.Value, parent: ops.Relation, engine: str) -> ir.BooleanValu
         return None
 
 
+def _scan_boolean(node: ops.And | ops.Or, parent: ops.Relation) -> ir.BooleanValue:
+    left, right = (
+        _scan(node.left, parent),
+        _scan(node.right, parent),
+    )
+    for value, other in ((left, right), (right, left)):
+        constant = value.op()
+        if isinstance(constant, ops.Literal) and isinstance(constant.value, bool):
+            if isinstance(node, ops.And):
+                return other if constant.value else value
+            return value if constant.value else other
+    return left & right if isinstance(node, ops.And) else left | right
+
+
 def _scan(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue:
     if isinstance(node, ops.Literal) and isinstance(node.value, bool):
         return ibis.literal(node.value)
     if isinstance(node, (ops.And, ops.Or)):
-        left, right = (
-            _scan(node.left, parent),
-            _scan(node.right, parent),
-        )
-        for value, other in ((left, right), (right, left)):
-            constant = value.op()
-            if isinstance(constant, ops.Literal) and isinstance(constant.value, bool):
-                if isinstance(node, ops.And):
-                    return other if constant.value else value
-                return value if constant.value else other
-        return left & right if isinstance(node, ops.And) else left | right
+        return _scan_boolean(node, parent)
     if not isinstance(node, _COMPARISONS):
         return ibis.literal(True)
     clock, bound, reverse = _clock(node.left), _bound(node.right), False

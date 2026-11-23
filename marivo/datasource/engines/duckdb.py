@@ -451,47 +451,11 @@ def uncollated_original_input(
     return len(rows) == 1 and rows[0].get("qualified") is True
 
 
-def _inspect_duckdb(
-    *,
-    datasource: str,
-    backend: BaseBackend,
-    table: str,
-    database: str | tuple[str, ...] | None,
-    table_expr: ir.Table,
-    include_partitions: bool,
-) -> TableMetadata:
-
-    schema_columns = _schema_columns(table_expr)
-    warnings: list[MetadataWarning] = []
+def _duckdb_table_profile(
+    backend: BaseBackend, facts: Mapping[str, object], warnings: list[MetadataWarning]
+) -> tuple[str | None, TablePhysicalProfile | None]:
     table_comment: str | None = None
-    catalog_columns: dict[str, ColumnMetadata] = {}
-    is_view: bool | None = None
-    view_definition: str | None = None
     physical_profile: TablePhysicalProfile | None = None
-
-    namespace = table_expr.op().namespace
-    try:
-        current = _duckdb_rows(backend, "duckdb.namespace.current")[0]
-        facts = {
-            "database": namespace.catalog or current["database_name"],
-            "schema": namespace.database or current["schema_name"],
-            "table": table,
-        }
-    except Exception as exc:
-        return schema_only_metadata(
-            datasource=datasource,
-            table=table,
-            database=database,
-            backend_type="duckdb",
-            table_expr=table_expr,
-            warnings=(
-                MetadataWarning(
-                    kind="metadata_query_failed",
-                    message=f"duckdb namespace metadata unavailable: {_backend_failure_summary(exc).message}",
-                ),
-            ),
-        )
-
     try:
         table_rows = _duckdb_rows(backend, "duckdb.tables.comment_size", facts)
         if table_rows:
@@ -531,6 +495,49 @@ def _inspect_duckdb(
                 )
             )
 
+    return table_comment, physical_profile
+
+
+def _inspect_duckdb(
+    *,
+    datasource: str,
+    backend: BaseBackend,
+    table: str,
+    database: str | tuple[str, ...] | None,
+    table_expr: ir.Table,
+    include_partitions: bool,
+) -> TableMetadata:
+
+    schema_columns = _schema_columns(table_expr)
+    warnings: list[MetadataWarning] = []
+    catalog_columns: dict[str, ColumnMetadata] = {}
+    is_view: bool | None = None
+    view_definition: str | None = None
+
+    namespace = table_expr.op().namespace
+    try:
+        current = _duckdb_rows(backend, "duckdb.namespace.current")[0]
+        facts = {
+            "database": namespace.catalog or current["database_name"],
+            "schema": namespace.database or current["schema_name"],
+            "table": table,
+        }
+    except Exception as exc:
+        return schema_only_metadata(
+            datasource=datasource,
+            table=table,
+            database=database,
+            backend_type="duckdb",
+            table_expr=table_expr,
+            warnings=(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"duckdb namespace metadata unavailable: {_backend_failure_summary(exc).message}",
+                ),
+            ),
+        )
+
+    table_comment, physical_profile = _duckdb_table_profile(backend, facts, warnings)
     try:
         column_rows = _duckdb_rows(backend, "duckdb.tables.columns", facts)
         for index, row in enumerate(column_rows, start=1):

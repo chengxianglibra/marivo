@@ -8,11 +8,14 @@ from pathlib import Path
 from ibis.common.deferred import Deferred
 
 from marivo._definition.graph import direct_refs
+from marivo._definition.population_types import population_definition
 from marivo._definition.types import (
     Owner,
 )
-from marivo._kernel.grouping import Grouping
+from marivo._kernel.grouping import Grouping, grouping_identity_keys
+from marivo._kernel.input_context import captured_context
 from marivo._kernel.temporal import TimeScope
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.time_guidance import (
     REPORT_CLOCK_GUIDANCE,
@@ -25,8 +28,9 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
 )
 from marivo.analysis.core.source_frame_schema import pending_schema
-from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
+from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs, population_frame_inputs
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame_factory import frame_from_expression
 from marivo.analysis.dsl.population import (
     Population,
 )
@@ -60,6 +64,7 @@ from marivo.semantic.spi import (
     bind_metric_in_state,
     bind_predicate_in_state,
     build_compiled_state,
+    expression_role,
     validate_context,
 )
 
@@ -72,7 +77,7 @@ def _capture(
     frame_key_inputs: tuple[FrameKeyDependency, ...] = (),
 ) -> AnalysisFrame:
     schema = pending_schema(graph, state)
-    return AnalysisFrame._from_expression(
+    return frame_from_expression(
         local,
         schema,
         SourceFrameBinding(
@@ -82,6 +87,12 @@ def _capture(
             merge_frame_key_inputs(frame_key_inputs, owner=local.owner),
         ),
     )
+
+
+def _partition_clock_candidates(registry: Registry, value: object) -> tuple[str, ...]:
+    if isinstance(value, TimeDimension):
+        return partition_hour_candidates(registry, value.path)
+    return ()
 
 
 def _source_by(
@@ -104,14 +115,10 @@ def _source_by(
     result: list[Deferred | Grouping] = []
     for value in values:
         if isinstance(value, RowExpression):
-            if value._role != "dimension":
-                candidates = (
-                    partition_hour_candidates(state.registry, value.path)
-                    if isinstance(value, TimeDimension)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                    else ()
-                )
+            if expression_role(value) != "dimension":
+                candidates = _partition_clock_candidates(state.registry, value)
                 repair = "Use a Dimension for classification or scope.by(grain) for report time."
-                if value._role == "time":
+                if expression_role(value) == "time":
                     repair += (
                         " A TimeDimension supplies time= on a source reduction or a field predicate; "
                         "it is not an ordinary classification. "
@@ -128,8 +135,8 @@ def _source_by(
                 )
             result.append(bind_field_in_state(value, state, project_root=project_root, owner=owner))
         elif isinstance(value, Grouping) or (isinstance(value, Population) and value is by):
-            validate_context(value._context, project_root=project_root, owner=owner)
-            for identity, keys in value._identity_keys:
+            validate_context(captured_context(value), project_root=project_root, owner=owner)
+            for identity, keys in grouping_identity_keys(value):
                 entity = state.registry.entities.get(identity.removeprefix("entity:"))
                 if entity is None or tuple(entity.primary_key) != keys:
                     reject(
@@ -224,9 +231,13 @@ def read(
     *,
     on: Grouping | None = None,
 ) -> AnalysisFrame:
-    validate_context(population._context, project_root=connection.project_root, owner=local.owner)
+    validate_context(
+        captured_context(population), project_root=connection.project_root, owner=local.owner
+    )
     if isinstance(on, Grouping):
-        validate_context(on._context, project_root=connection.project_root, owner=local.owner)
+        validate_context(
+            captured_context(on), project_root=connection.project_root, owner=local.owner
+        )
     bound_fields = {
         name: bind_field_in_state(
             value, state, project_root=connection.project_root, owner=local.owner
@@ -243,14 +254,14 @@ def read(
         graph,
         state,
         connection,
-        population._frame_inputs,
+        population_frame_inputs(population),
     )
 
 
 def population_needs_state(population: Population) -> bool:
     """Resolve a Catalog only when the captured domain consumes definitions."""
 
-    return bool(direct_refs(population._definition))
+    return bool(direct_refs(population_definition(population)))
 
 
 def frame(
@@ -259,7 +270,9 @@ def frame(
     connection: DatasourceConnectionConfig,
     population: Population,
 ) -> AnalysisFrame:
-    validate_context(population._context, project_root=connection.project_root, owner=local.owner)
+    validate_context(
+        captured_context(population), project_root=connection.project_root, owner=local.owner
+    )
     if state is None:
         state = build_compiled_state(
             registry=Registry(),
@@ -272,12 +285,12 @@ def frame(
         capture_population(population, local.owner),
         state,
         connection,
-        population._frame_inputs,
+        population_frame_inputs(population),
     )
 
 
 def _validate_value_columns(columns: Mapping[str, str | None], rows: tuple[ValueRow, ...]) -> None:
-    if not isinstance(columns, Mapping) or not columns:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(columns, Mapping) or not columns:
         reject(
             "named columns and finite typed literal rows",
             repr((columns, rows)),
@@ -295,7 +308,7 @@ def values(
     _validate_value_columns(columns, rows)
     graph = capture_values(by=(), columns=columns, rows=rows, owner=local.owner)
     schema = pending_schema(graph, None)
-    return AnalysisFrame._from_expression(local, schema, LiteralFrameBinding(graph))
+    return frame_from_expression(local, schema, LiteralFrameBinding(graph))
 
 
 def coordinate_values(

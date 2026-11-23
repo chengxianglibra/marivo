@@ -20,6 +20,7 @@ from marivo.datasource.spi import (
     DatasourceConnectionService,
 )
 from marivo.semantic.catalog_model.inputs import CatalogInputLookup
+from marivo.semantic.catalog_model.objects import lookup_state
 
 if TYPE_CHECKING:
     from marivo.semantic.runtime_check.resolver import SemanticResolver
@@ -34,7 +35,7 @@ def _reverse_affected(
     changed = True
     while changed:
         changed = False
-        for ref, dependencies in catalog._state.dependencies.items():
+        for ref, dependencies in lookup_state(catalog).dependencies.items():
             if ref not in affected and any(dependency in affected for dependency in dependencies):
                 affected.add(ref)
                 changed = True
@@ -69,3 +70,20 @@ class ValidationLookup(CatalogInputLookup, Protocol):
         sample_size: int | None = None,
         entity_scopes: Mapping[str, AuthoringScope] | None = None,
     ) -> SemanticResolver: ...
+
+
+def validation_connections(
+    catalog: ValidationLookup,
+) -> AbstractContextManager[DatasourceConnectionService]:
+    return catalog._connection_operation()  # noqa: SLF001 - Keep online checks in the owning Catalog's connection scope.
+
+
+def validation_resolver(
+    catalog: ValidationLookup,
+    *,
+    connections: DatasourceConnectionService,
+    entity_scopes: Mapping[str, AuthoringScope],
+) -> SemanticResolver:
+    return catalog._semantic_resolver(  # noqa: SLF001 - The Catalog owns the validation scope.
+        connections=connections, entity_scopes=entity_scopes
+    )

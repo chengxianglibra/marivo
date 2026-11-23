@@ -6,7 +6,7 @@ import sys
 from datetime import timezone
 from enum import Enum
 
-from typing_extensions import Never, Self
+from typing_extensions import Never, Self, override
 
 if sys.version_info >= (3, 11):
     import tomllib as tomllib
@@ -17,9 +17,11 @@ else:
 class StrEnum(str, Enum):
     """Python 3.11-compatible subset of :class:`enum.StrEnum`."""
 
+    @override
     def __str__(self) -> str:
         return str.__str__(self)
 
+    @override
     def __format__(self, format_spec: str) -> str:
         return str.__format__(self, format_spec)
 

@@ -98,10 +98,102 @@ def _validate_render_budgets(
                     )
 
 
+def _validate_object_relationships(
+    contract: SemanticObjectContract,
+    canonical_ids: tuple[str, ...],
+    object_contracts: tuple[SemanticObjectContract, ...],
+) -> None:
+    kind = contract.semantic_kind
+    for relationship in contract.relationships:
+        target_id = relationship.target.canonical_id
+        if not relationship.explanation.strip() or target_id is None:
+            raise ValueError(f"semantic object relationship is incomplete: {kind.value}")
+        registered_relationship_ids = {
+            *canonical_ids,
+            *(object_contract.canonical_id for object_contract in object_contracts),
+        }
+        if relationship.target.surface == "semantic":
+            if target_id not in registered_relationship_ids:
+                raise ValueError(f"unknown semantic object relationship: {kind.value}")
+        elif relationship.target.surface == "datasource":
+            try:
+                DATASOURCE_REGISTRY.by_canonical_id(target_id)
+            except KeyError as exc:
+                raise ValueError(f"unknown datasource object relationship: {kind.value}") from exc
+        else:
+            raise ValueError(f"unsupported object relationship surface: {kind.value}")
+
+
+def _validate_object_decisions(
+    contract: SemanticObjectContract, allowed_next_ids: set[str]
+) -> None:
+    kind = contract.semantic_kind
+    decision_ids = tuple(decision.decision_id for decision in contract.decisions)
+    if not decision_ids or any(not decision_id.strip() for decision_id in decision_ids):
+        raise ValueError(f"semantic object decisions must be named: {kind.value}")
+    if len(decision_ids) != len(set(decision_ids)):
+        raise ValueError(f"duplicate semantic object decision id: {kind.value}")
+    for decision in contract.decisions:
+        if not decision.question.strip() or not decision.determine_from.strip():
+            raise ValueError(f"semantic object decision guidance is incomplete: {kind.value}")
+        next_ids = tuple(target.canonical_id or "" for target in decision.next_targets)
+        if any(
+            target.surface != "semantic" or target_id not in allowed_next_ids
+            for target, target_id in zip(decision.next_targets, next_ids, strict=True)
+        ):
+            raise ValueError(f"semantic object decision target escapes its owner: {kind.value}")
+        if decision.encoding_status == "supported":
+            if not next_ids or decision.unsupported_reason is not None:
+                raise ValueError(f"invalid supported semantic object decision: {kind.value}")
+        elif next_ids or not decision.unsupported_reason:
+            raise ValueError(f"invalid unsupported semantic object decision: {kind.value}")
+
+
+def _validate_object_contract(
+    registry: SemanticManifest, contract: SemanticObjectContract, exact_ids: set[str]
+) -> None:
+    kind = contract.semantic_kind
+    expected_ref_family = _symbol_family(kind)
+    if contract.canonical_id != kind.value:
+        raise ValueError(f"invalid semantic object-kind canonical id: {kind.value}")
+    if contract.catalog_kind != kind.value:
+        raise ValueError(f"semantic object catalog kind drift: {kind.value}")
+    if contract.ref_target != _target(f"ref.{kind.value}"):
+        raise ValueError(f"semantic object ref target drift: {kind.value}")
+    ref_descriptor = registry.by_canonical_id(contract.ref_target.canonical_id or "")
+    if not isinstance(ref_descriptor, AuthoringCapability):
+        raise ValueError(f"semantic object ref target is not exact: {kind.value}")
+    if ref_descriptor.output_family != expected_ref_family:
+        raise ValueError(f"semantic object ref-kind output drift: {kind.value}")
+
+    construction_ids = tuple(mode.target.canonical_id or "" for mode in contract.construction_modes)
+    if not construction_ids:
+        raise ValueError(f"semantic object kind has no construction mode: {kind.value}")
+    if len(construction_ids) != len(set(construction_ids)):
+        raise ValueError(f"duplicate semantic object construction mode: {kind.value}")
+    for mode in contract.construction_modes:
+        descriptor = registry.by_canonical_id(mode.target.canonical_id or "")
+        if not isinstance(descriptor, AuthoringCapability):
+            raise ValueError(f"semantic construction target is not exact: {kind.value}")
+        if descriptor.output_family not in contract.construction_families:
+            raise ValueError(f"semantic construction output-kind drift: {kind.value}")
+
+    supporting_ids = tuple(target.canonical_id or "" for target in contract.supporting_targets)
+    check_ids = tuple(target.canonical_id or "" for target in contract.check_targets)
+    if len(supporting_ids) != len(set(supporting_ids)):
+        raise ValueError(f"duplicate semantic supporting target: {kind.value}")
+    if len(check_ids) != len(set(check_ids)):
+        raise ValueError(f"duplicate semantic check target: {kind.value}")
+    for target in (*contract.supporting_targets, *contract.check_targets):
+        if target.surface != "semantic" or target.canonical_id not in exact_ids:
+            raise ValueError(f"unknown semantic object edge: {kind.value}")
+
+    _validate_object_decisions(contract, {*construction_ids, *supporting_ids, *check_ids})
+
+
 def _validate_object_contracts(
     registry: SemanticManifest,
     help_descriptors: tuple[SemanticHelpDescriptor, ...],
-    validate_target: _TargetValidator,
     exact_ids: set[str],
     canonical_ids: tuple[str, ...],
 ) -> None:
@@ -125,85 +217,8 @@ def _validate_object_contracts(
         raise ValueError("semantic object-kind contracts must cover every non-datasource kind")
 
     for contract in object_contracts:
-        kind = contract.semantic_kind
-        expected_ref_family = _symbol_family(kind)
-        if contract.canonical_id != kind.value:
-            raise ValueError(f"invalid semantic object-kind canonical id: {kind.value}")
-        if contract.catalog_kind != kind.value:
-            raise ValueError(f"semantic object catalog kind drift: {kind.value}")
-        if contract.ref_target != _target(f"ref.{kind.value}"):
-            raise ValueError(f"semantic object ref target drift: {kind.value}")
-        ref_descriptor = registry.by_canonical_id(contract.ref_target.canonical_id or "")
-        if not isinstance(ref_descriptor, AuthoringCapability):
-            raise ValueError(f"semantic object ref target is not exact: {kind.value}")
-        if ref_descriptor.output_family != expected_ref_family:
-            raise ValueError(f"semantic object ref-kind output drift: {kind.value}")
-
-        construction_ids = tuple(
-            mode.target.canonical_id or "" for mode in contract.construction_modes
-        )
-        if not construction_ids:
-            raise ValueError(f"semantic object kind has no construction mode: {kind.value}")
-        if len(construction_ids) != len(set(construction_ids)):
-            raise ValueError(f"duplicate semantic object construction mode: {kind.value}")
-        for mode in contract.construction_modes:
-            descriptor = registry.by_canonical_id(mode.target.canonical_id or "")
-            if not isinstance(descriptor, AuthoringCapability):
-                raise ValueError(f"semantic construction target is not exact: {kind.value}")
-            if descriptor.output_family not in contract.construction_families:
-                raise ValueError(f"semantic construction output-kind drift: {kind.value}")
-
-        supporting_ids = tuple(target.canonical_id or "" for target in contract.supporting_targets)
-        check_ids = tuple(target.canonical_id or "" for target in contract.check_targets)
-        if len(supporting_ids) != len(set(supporting_ids)):
-            raise ValueError(f"duplicate semantic supporting target: {kind.value}")
-        if len(check_ids) != len(set(check_ids)):
-            raise ValueError(f"duplicate semantic check target: {kind.value}")
-        for target in (*contract.supporting_targets, *contract.check_targets):
-            if target.surface != "semantic" or target.canonical_id not in exact_ids:
-                raise ValueError(f"unknown semantic object edge: {kind.value}")
-
-        decision_ids = tuple(decision.decision_id for decision in contract.decisions)
-        if not decision_ids or any(not decision_id.strip() for decision_id in decision_ids):
-            raise ValueError(f"semantic object decisions must be named: {kind.value}")
-        if len(decision_ids) != len(set(decision_ids)):
-            raise ValueError(f"duplicate semantic object decision id: {kind.value}")
-        allowed_next_ids = {*construction_ids, *supporting_ids, *check_ids}
-        for decision in contract.decisions:
-            if not decision.question.strip() or not decision.determine_from.strip():
-                raise ValueError(f"semantic object decision guidance is incomplete: {kind.value}")
-            next_ids = tuple(target.canonical_id or "" for target in decision.next_targets)
-            if any(
-                target.surface != "semantic" or target_id not in allowed_next_ids
-                for target, target_id in zip(decision.next_targets, next_ids, strict=True)
-            ):
-                raise ValueError(f"semantic object decision target escapes its owner: {kind.value}")
-            if decision.encoding_status == "supported":
-                if not next_ids or decision.unsupported_reason is not None:
-                    raise ValueError(f"invalid supported semantic object decision: {kind.value}")
-            elif next_ids or not decision.unsupported_reason:
-                raise ValueError(f"invalid unsupported semantic object decision: {kind.value}")
-
-        for relationship in contract.relationships:
-            target_id = relationship.target.canonical_id
-            if not relationship.explanation.strip() or target_id is None:
-                raise ValueError(f"semantic object relationship is incomplete: {kind.value}")
-            registered_relationship_ids = {
-                *canonical_ids,
-                *(object_contract.canonical_id for object_contract in object_contracts),
-            }
-            if relationship.target.surface == "semantic":
-                if target_id not in registered_relationship_ids:
-                    raise ValueError(f"unknown semantic object relationship: {kind.value}")
-            elif relationship.target.surface == "datasource":
-                try:
-                    DATASOURCE_REGISTRY.by_canonical_id(target_id)
-                except KeyError as exc:
-                    raise ValueError(
-                        f"unknown datasource object relationship: {kind.value}"
-                    ) from exc
-            else:
-                raise ValueError(f"unsupported object relationship surface: {kind.value}")
+        _validate_object_contract(registry, contract, exact_ids)
+        _validate_object_relationships(contract, canonical_ids, object_contracts)
 
 
 def _validate_discovery(
@@ -336,11 +351,37 @@ def _validate_factory_methods(
     return ref_method_ids, source_check_method_ids
 
 
-def validate_registry(registry: SemanticManifest) -> None:
-    """Reject invalid closed registry state before the live surface is built."""
+def _validate_root_routes(registry: SemanticManifest, validate_target: _TargetValidator) -> None:
+    for section in registry.root_sections:
+        if not section.label.strip() or not section.members:
+            raise ValueError(f"semantic root section is incomplete: {section.section_id}")
+        for target in section.members:
+            validate_target(target, owner=f"root.{section.section_id}")
+        if len(section.route_summaries) != len(section.members) or any(
+            not summary.strip() for summary in section.route_summaries
+        ):
+            raise ValueError(f"semantic root decisions are incomplete: {section.section_id}")
 
-    help_descriptors = registry.help_descriptors
-    canonical_ids = tuple(descriptor.canonical_id for descriptor in help_descriptors)
+    for error_kind, repair_contract in registry._repair_contracts.items():
+        if error_kind != repair_contract.error_kind or not error_kind.strip():
+            raise ValueError("semantic repair contract key drift")
+        target = repair_contract.help_target
+        target_id = target.canonical_id
+        if target_id is None:
+            raise ValueError(f"semantic repair target lacks a canonical id: {error_kind}")
+        if target.surface != "semantic":
+            continue
+        validate_target(target, owner=f"repair.{error_kind}")
+        descriptor = registry.by_canonical_id(target_id)
+        if not isinstance(descriptor, (AuthoringCapability, SemanticObjectContract)):
+            raise ValueError(f"semantic repair target is over-broad: {error_kind}")
+
+
+def _validate_descriptor_maps(
+    registry: SemanticManifest,
+    help_descriptors: tuple[SemanticHelpDescriptor, ...],
+    canonical_ids: tuple[str, ...],
+) -> tuple[AuthoringCapability, ...]:
     if any(not canonical_id.strip() for canonical_id in canonical_ids):
         raise ValueError("semantic help canonical ids must not be empty")
     if any(not descriptor.summary.strip() for descriptor in help_descriptors):
@@ -369,7 +410,15 @@ def validate_registry(registry: SemanticManifest) -> None:
         callable_path = descriptor.callable_path
         if callable_path is None or registry._by_callable_path.get(callable_path) is not descriptor:
             raise ValueError("semantic callable index does not preserve descriptor identity")
+    return exact_descriptors
 
+
+def validate_registry(registry: SemanticManifest) -> None:
+    """Reject invalid closed registry state before the live surface is built."""
+
+    help_descriptors = registry.help_descriptors
+    canonical_ids = tuple(descriptor.canonical_id for descriptor in help_descriptors)
+    exact_descriptors = _validate_descriptor_maps(registry, help_descriptors, canonical_ids)
     _validate_render_budgets(registry, help_descriptors)
 
     exact_ids = {descriptor.canonical_id for descriptor in exact_descriptors}
@@ -408,33 +457,8 @@ def validate_registry(registry: SemanticManifest) -> None:
         except KeyError as exc:
             raise ValueError(f"unknown external semantic Help route: {owner}") from exc
 
-    for section in registry.root_sections:
-        if not section.label.strip() or not section.members:
-            raise ValueError(f"semantic root section is incomplete: {section.section_id}")
-        for target in section.members:
-            validate_target(target, owner=f"root.{section.section_id}")
-        if len(section.route_summaries) != len(section.members) or any(
-            not summary.strip() for summary in section.route_summaries
-        ):
-            raise ValueError(f"semantic root decisions are incomplete: {section.section_id}")
-
-    for error_kind, repair_contract in registry._repair_contracts.items():
-        if error_kind != repair_contract.error_kind or not error_kind.strip():
-            raise ValueError("semantic repair contract key drift")
-        target = repair_contract.help_target
-        target_id = target.canonical_id
-        if target_id is None:
-            raise ValueError(f"semantic repair target lacks a canonical id: {error_kind}")
-        if target.surface != "semantic":
-            continue
-        validate_target(target, owner=f"repair.{error_kind}")
-        descriptor = registry.by_canonical_id(target_id)
-        if not isinstance(descriptor, (AuthoringCapability, SemanticObjectContract)):
-            raise ValueError(f"semantic repair target is over-broad: {error_kind}")
-
-    _validate_object_contracts(
-        registry, help_descriptors, validate_target, exact_ids, canonical_ids
-    )
+    _validate_root_routes(registry, validate_target)
+    _validate_object_contracts(registry, help_descriptors, exact_ids, canonical_ids)
 
     ref_method_ids, source_check_method_ids = _validate_factory_methods(registry, validate_target)
     _validate_discovery(

@@ -10,6 +10,7 @@ from marivo._definition.expressions import EntityCount
 from marivo._definition.observations import ContributionBinding
 from marivo._definition.query import LiteralValues, ResultQuery
 from marivo._definition.types import AxisBinding, FieldRead, field_read_key
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.query_stages import SourceField, SourceSchema
 from marivo.analysis.core.value_types import data_type
@@ -24,7 +25,7 @@ def literal_schemas(
     if not isinstance(graph.root, ResultQuery):
         return ()
     result: tuple[SourceSchema, ...] = ()
-    if not isinstance(graph.root.operation, LiteralValues) or not graph.signature.axes:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(graph.root.operation, LiteralValues) or not graph.signature.axes:
         return result
     keys: list[SourceField] = []
     groups = []

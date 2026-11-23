@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 import ibis.expr.operations as ops
 import ibis.expr.rules as rlz
 import ibis.expr.types as ir
 
+from marivo._definition._ibis_typing import ValueOperation
 
-class EncodedTime(ops.Value):  # type: ignore[misc]  # Ibis operation bases lack typing stubs.
+
+class EncodedTime(ValueOperation):
     """An instant and its declared physical ordered encoding."""
 
     raw: ops.Value
@@ -19,6 +22,12 @@ class EncodedTime(ops.Value):  # type: ignore[misc]  # Ibis operation bases lack
     timezone: str
     dtype = rlz.dtype_like("instant")
     shape = rlz.shape_like("instant")
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self, raw: ops.Value, instant: ops.Value, format: str, timezone: str
+        ) -> None: ...
 
 
 def encoded_time(raw: ir.Value, instant: ir.Value, format: str, timezone: str) -> ir.Value:

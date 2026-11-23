@@ -35,6 +35,11 @@ from marivo.analysis.core.frame_operations import (
     FixFrameValues,
 )
 from marivo.analysis.model.frame_attribute_merge import AttributeMergeValues
+from marivo.analysis.model.frame_contracts import (
+    frame_backing,
+    frame_input_id,
+    frame_logical_schema,
+)
 
 
 def _pending_source_inputs(
@@ -46,10 +51,10 @@ def _pending_source_inputs(
     sources: list[tuple[FrameNode, SourceFrameBinding]] = []
     while pending:
         current = pending.pop()
-        if current._input_id in seen:
+        if frame_input_id(current) in seen:
             continue
-        seen.add(current._input_id)
-        backing = current._backing
+        seen.add(frame_input_id(current))
+        backing = frame_backing(current)
         if not isinstance(backing, ExpressionFrameBacking):
             continue
         root = backing.root
@@ -76,10 +81,10 @@ def _value_summary(value: object, source: FrameNode, depth: int = 0) -> str:
     if depth >= 8:
         return "... omitted (expression depth)"
     if isinstance(value, ValueSlot):
-        name = ".".join(source._schema.value_paths[value.index])
+        name = ".".join(frame_logical_schema(source).value_paths[value.index])
         return f"value[{name!r}]"
     if isinstance(value, CoordinateSlot):
-        return f"coordinate[{source._schema.axes[value.index].token!r}]"
+        return f"coordinate[{frame_logical_schema(source).axes[value.index].token!r}]"
     if isinstance(value, PresenceSlot):
         return f"presence[{'.'.join(value.path)!r}]"
     if isinstance(value, ValueLiteral):
@@ -99,7 +104,7 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
     if isinstance(operation, AttributeMergeValues):
         targets: list[str] = []
         for frame in binding.inputs[:6]:
-            backing = frame._backing
+            backing = frame_backing(frame)
             if isinstance(backing, ExpressionFrameBacking) and isinstance(
                 backing.root, OperationFrameBinding
             ):
@@ -111,7 +116,7 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
         values = tuple((name, _value_summary(value, source)) for name, value in operation.values)
         return f"select(values={values!r})"
     if isinstance(operation, FixFrameValues):
-        return f"fix(axis={source._schema.axes[operation.position].name!r}, key={operation.key!r})"
+        return f"fix(axis={frame_logical_schema(source).axes[operation.position].name!r}, key={operation.key!r})"
     if isinstance(operation, FilterValues):
         return f"where(predicate={_value_summary(operation.predicate, source)})"
     if isinstance(operation, TopValues):
@@ -159,5 +164,7 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
         )
         for name, statistic in operation.values
     )
-    axes = tuple(source._schema.axes[position].token for position in operation.positions)
+    axes = tuple(
+        frame_logical_schema(source).axes[position].token for position in operation.positions
+    )
     return f"reduce(values={statistics!r}, by={axes!r})"

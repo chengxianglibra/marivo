@@ -69,6 +69,11 @@ class CompiledRead:
     _owner: object
 
 
+def issued_by(value: BoundSource | QualifiedSource | CompiledRead, owner: object) -> bool:
+    """Check a session-issued descriptor without disclosing its token."""
+    return value._owner is owner  # noqa: SLF001 - Ownership is checked on the closed descriptors.
+
+
 @dataclass(frozen=True, slots=True)
 class _IssuedRead:
     expression: ir.Expr

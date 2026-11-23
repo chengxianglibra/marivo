@@ -76,20 +76,16 @@ def _project(
     return _NativePopulation(expression, tuple(groups))
 
 
-def _population_relation(
-    program: ResultProgram, inputs: tuple[NativeQueryRelation, ...], provider: str
-) -> ir.Table | str:
-    operation = program.operation
-    assert isinstance(operation, PopulationValues)
-    available = {
-        computation_fingerprint(atom): _NativePopulation(value.expression, groups)
-        for atom, value, groups in zip(
-            program.population_inputs, inputs, program.population_layouts, strict=True
-        )
-    }
+class _NativePopulationLowerer:
+    def __init__(self, available: Mapping[str, _NativePopulation], provider: str) -> None:
+        self.available = available
+        self.provider = provider
 
     def matches(
-        condition: PredicateExpression, operand: PopulationDependency, value: _NativePopulation
+        self,
+        condition: PredicateExpression,
+        operand: PopulationDependency,
+        value: _NativePopulation,
     ) -> _NativePopulation | str:
         if any(not isinstance(leaf, PopulationContains) for leaf in condition.inputs):
             return "Field predicates retain the checked coordinate kernel."
@@ -98,7 +94,7 @@ def _population_relation(
         values: dict[str, object] = {}
         for index, leaf in enumerate(condition.inputs):
             assert isinstance(leaf, PopulationContains)
-            other = rows(leaf.population)
+            other = self.rows(leaf.population)
             if isinstance(other, str):
                 return other
             marker = f"__population_match_{index}"
@@ -110,7 +106,7 @@ def _population_relation(
                 **{name: other.expression[old] for old, name in renamed.items()}
             ).mutate(**{marker: ibis.literal(True)})
             predicates = tuple(
-                _same_key(table[a], right[renamed[b]], provider)
+                _same_key(table[a], right[renamed[b]], self.provider)
                 for axis, group in zip(leaf.population.axes, other.groups, strict=True)
                 for a, b in zip(
                     value.groups[coordinate_position(operand.axes, axis)], group, strict=True
@@ -126,31 +122,35 @@ def _population_relation(
         assert isinstance(selected, ir.BooleanValue)
         return _NativePopulation(table.filter(selected).select(*original), value.groups)
 
-    def rows(domain: PopulationDependency) -> _NativePopulation | str:
-        found = available.get(computation_fingerprint(domain))
+    def rows(self, domain: PopulationDependency) -> _NativePopulation | str:
+        found = self.available.get(computation_fingerprint(domain))
         if found is not None:
-            return _project(found, tuple(range(len(found.groups))), provider)
+            return _project(found, tuple(range(len(found.groups))), self.provider)
         if not isinstance(domain, PopulationProgram):
             return "Population relation requires a planned checked atom"
         node = domain.root
         if isinstance(node, PopulationProject):
             if node.interval_keys:
                 return "Interval key remapping retains the checked coordinate kernel."
-            value = rows(node.operand)
-            return value if isinstance(value, str) else _project(value, node.positions, provider)
+            value = self.rows(node.operand)
+            return (
+                value if isinstance(value, str) else _project(value, node.positions, self.provider)
+            )
         if isinstance(node, PopulationSet):
-            left, right = rows(node.left), rows(node.right)
+            left, right = self.rows(node.left), self.rows(node.right)
             if isinstance(left, str):
                 return left
             if isinstance(right, str):
                 return right
             if node.operation == "union":
                 return _NativePopulation(
-                    _distinct(left.expression.union(right.expression, distinct=False), provider),
+                    _distinct(
+                        left.expression.union(right.expression, distinct=False), self.provider
+                    ),
                     left.groups,
                 )
             lhs, rhs = left.expression.view(), right.expression.view()
-            conditions = [_same_key(lhs[key], rhs[key], provider) for key in lhs.columns]
+            conditions = [_same_key(lhs[key], rhs[key], self.provider) for key in lhs.columns]
             joined = (
                 lhs.semi_join(rhs, conditions)
                 if node.operation == "intersection"
@@ -162,7 +162,7 @@ def _population_relation(
             groups: list[tuple[str, ...]] = []
             offset = 0
             for factor in node.factors:
-                value = rows(factor)
+                value = self.rows(factor)
                 if isinstance(value, str):
                     return value
                 aliases = {
@@ -180,11 +180,28 @@ def _population_relation(
             # Complete factor tuples remain unique in their Cartesian product.
             return _NativePopulation(combined, tuple(groups))
         if isinstance(node, PopulationFilter):
-            value = rows(node.operand)
-            return value if isinstance(value, str) else matches(node.predicate, node.operand, value)
+            value = self.rows(node.operand)
+            return (
+                value
+                if isinstance(value, str)
+                else self.matches(node.predicate, node.operand, value)
+            )
         return "Population source lookup retains its prepared attribute or relationship route"
 
-    result = rows(operation.definition)
+
+def _population_relation(
+    program: ResultProgram, inputs: tuple[NativeQueryRelation, ...], provider: str
+) -> ir.Table | str:
+    operation = program.operation
+    assert isinstance(operation, PopulationValues)
+    available = {
+        computation_fingerprint(atom): _NativePopulation(value.expression, groups)
+        for atom, value, groups in zip(
+            program.population_inputs, inputs, program.population_layouts, strict=True
+        )
+    }
+
+    result = _NativePopulationLowerer(available, provider).rows(operation.definition)
     if isinstance(result, str):
         return result
     source_keys = tuple(key for group in result.groups for key in group)
@@ -196,6 +213,22 @@ def _population_relation(
         if output_keys
         else result.expression.select(__population_unit=ibis.literal(True)).distinct()
     )
+
+
+def _exact_pop_distinct(table: ir.Table, provider: str) -> ir.Table:
+    def exact_distinct(
+        node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object
+    ) -> ops.Node:
+        rewritten = node.__recreate__(kwargs) if kwargs else node
+        if isinstance(rewritten, ops.Distinct):
+            parent = rewritten.parent.to_expr()
+            assert isinstance(parent, ir.Table)
+            return _distinct(parent, provider).op()
+        return rewritten
+
+    exact = table.op().map(exact_distinct)[table.op()].to_expr()
+    assert isinstance(exact, ir.Table)
+    return exact
 
 
 def _native_member_counts(
@@ -232,19 +265,7 @@ def _native_member_counts(
             table = relations[binding.stage_id]
             provider = providers[binding.stage_id]
 
-            def exact_distinct(
-                node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object
-            ) -> ops.Node:
-                rewritten = node.__recreate__(kwargs) if kwargs else node
-                if isinstance(rewritten, ops.Distinct):
-                    parent = rewritten.parent.to_expr()
-                    assert isinstance(parent, ir.Table)
-                    return _distinct(parent, provider).op()
-                return rewritten
-
-            exact = table.op().map(exact_distinct)[table.op()].to_expr()
-            assert isinstance(exact, ir.Table)
-            table = exact
+            table = _exact_pop_distinct(table, provider)
             mapping = dict(zip(count.keys, binding.keys, strict=True))
             selected = tuple(
                 mapping[name]

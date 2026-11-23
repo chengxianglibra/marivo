@@ -23,19 +23,29 @@ def forbidden(*args: object, **kwargs: object) -> NoReturn:
     raise AssertionError("Fixed Frame accessed a live source or Semantic")
 
 
+def _arrow_scalar(value: pa.Scalar) -> Json:
+    if (
+        pa.types.is_timestamp(value.type)
+        or pa.types.is_duration(value.type)
+        or pa.types.is_date32(value.type)
+    ):
+        result: dict[str, Json] = {"arrow_type": str(value.type), "valid": value.is_valid}
+        if value.is_valid:
+            integer = pa.int32() if pa.types.is_date32(value.type) else pa.int64()
+            result["ticks"] = int(value.cast(integer).as_py())
+        return result
+    return _scalar(value.as_py())
+
+
+def _mapping(value: dict[object, object]) -> dict[str, Json]:
+    if not all(isinstance(key, str) for key in value):
+        raise TypeError("Frame evidence requires string metadata keys")
+    return {str(key): _scalar(item) for key, item in value.items()}
+
+
 def _scalar(value: object) -> Json:
     if isinstance(value, pa.Scalar):
-        if (
-            pa.types.is_timestamp(value.type)
-            or pa.types.is_duration(value.type)
-            or pa.types.is_date32(value.type)
-        ):
-            result: dict[str, Json] = {"arrow_type": str(value.type), "valid": value.is_valid}
-            if value.is_valid:
-                integer = pa.int32() if pa.types.is_date32(value.type) else pa.int64()
-                result["ticks"] = int(value.cast(integer).as_py())
-            return result
-        return _scalar(value.as_py())
+        return _arrow_scalar(value)
     if value is None or value is pd.NA or value is pd.NaT:
         return None
     if isinstance(value, (bool, np.bool_)):
@@ -57,9 +67,7 @@ def _scalar(value: object) -> Json:
     if isinstance(value, (tuple, list)):
         return [_scalar(item) for item in value]
     if isinstance(value, dict):
-        if not all(isinstance(key, str) for key in value):
-            raise TypeError("Frame evidence requires string metadata keys")
-        return {key: _scalar(item) for key, item in value.items()}
+        return _mapping(value)
     if isinstance(value, pa.Table):
         return _table(value.to_pandas(types_mapper=pd.ArrowDtype))
     if isinstance(value, pd.DataFrame):

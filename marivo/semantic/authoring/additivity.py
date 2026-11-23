@@ -8,6 +8,7 @@ from ibis.common.deferred import Deferred
 
 from marivo._authoring.model import AuthoringRepair
 from marivo._definition.types import InputContext, merge_input_contexts
+from marivo._kernel.input_context import captured_context
 from marivo._kernel.refs import Ref, SemanticKind
 from marivo._kernel.symbolic import DimensionSymbol, TimeDimensionSymbol
 from marivo.introspection.live.model import LiveHelpTarget
@@ -15,6 +16,7 @@ from marivo.semantic.authoring.context import _value_ref
 from marivo.semantic.catalog_model.objects import (
     Dimension,
     TimeDimension,
+    entry_reference,
 )
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
@@ -58,7 +60,7 @@ def _coordinates(values: tuple[CoordinateInput, ...]) -> tuple[str, ...]:
     paths: list[str] = []
     for coordinate in values:
         value = (
-            coordinate._ref
+            entry_reference(coordinate)
             if isinstance(coordinate, (Dimension, TimeDimension))
             else _value_ref(coordinate)
         )
@@ -104,7 +106,7 @@ def _coordinates(values: tuple[CoordinateInput, ...]) -> tuple[str, ...]:
 def _axis_context(axes: tuple[CoordinateInput, ...]) -> InputContext:
 
     return merge_input_contexts(
-        *(axis._context for axis in axes if isinstance(axis, (Dimension, TimeDimension)))
+        *(captured_context(axis) for axis in axes if isinstance(axis, (Dimension, TimeDimension)))
     )
 
 

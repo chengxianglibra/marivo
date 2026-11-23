@@ -36,6 +36,7 @@ from marivo.datasource.spi import (
     SourceSession,
     aggregate_operation,
     aggregate_repair_action,
+    bound_duration_units,
     native_aggregate,
 )
 from marivo.semantic._deferred_facts import MetricFacts
@@ -62,7 +63,7 @@ if TYPE_CHECKING:
 def validate_preview_metric(value: Deferred) -> None:
     """Reject unsupported Metric routes before opening a datasource."""
     metric = consume_metric(value)
-    closure = walk((metric.node,), resolve=dict(metric._declared).get)
+    closure = walk((metric.node,), resolve=dict(metric.declared).get)
     unsupported = tuple(
         dict.fromkeys(
             type(node).__name__
@@ -109,7 +110,7 @@ def validate_preview_metric(value: Deferred) -> None:
 def _prepare_preview_tables(
     metric: MetricFacts, resolver: SemanticResolver, registry: Registry
 ) -> tuple[dict[str, ir.Table], dict[str, str]]:
-    closure = walk((metric.node,), resolve=dict(metric._declared).get)
+    closure = walk((metric.node,), resolve=dict(metric.declared).get)
     refs = {exact.ref for node in closure.order for exact in direct_refs(node)}
     tables: dict[str, ir.Table] = {}
     durations: dict[str, str] = {}
@@ -138,7 +139,7 @@ def _prepare_preview_tables(
             registry.datasources[registry.entities[root.ref.path].datasource],
         )
         for name, expression in fields.items():
-            units = source.duration_units(expression)
+            units = bound_duration_units(source, expression)
             if len(units) > 1:
                 numeric_failure("one exact Duration unit", f"{name}: {units}")
             if units:
@@ -155,7 +156,7 @@ def _preview_reductions(
     durations: dict[str, str],
     registry: Registry,
 ) -> tuple[list[ir.Table], dict[tuple[int, ...], NumericValue]]:
-    declared = dict(metric._declared)
+    declared = dict(metric.declared)
     backend = registry.datasources[
         registry.entities[metric.roots[0].ref.path].datasource
     ].backend_type
@@ -267,7 +268,7 @@ def lower_preview_metric(
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...], tuple[tuple[str, str], ...]]:
     """Prepare bounded physical fields, then call the same Row/Metric kernel."""
     metric = consume_metric(value)
-    declared = dict(metric._declared)
+    declared = dict(metric.declared)
     tables, durations = _prepare_preview_tables(metric, resolver, registry)
     values: dict[tuple[int, ...], NumericValue] = {}
     reductions: list[ir.Table] = []

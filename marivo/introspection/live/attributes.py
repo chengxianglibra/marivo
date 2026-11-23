@@ -8,6 +8,8 @@ from typing import get_origin
 
 from pydantic import BaseModel
 
+from marivo._kernel.validation import is_instance
+
 
 @dataclass(frozen=True)
 class AttributeHelp:
@@ -53,7 +55,7 @@ def public_attributes(type_obj: type) -> dict[str, AttributeHelp]:
         if isinstance(annotations, dict):
             for name, annotation in annotations.items():
                 if (
-                    isinstance(name, str)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+                    is_instance(name, str)
                     and not name.startswith("_")
                     and str(get_origin(annotation)) != "typing.ClassVar"
                     and not (isinstance(annotation, str) and annotation.startswith("ClassVar["))

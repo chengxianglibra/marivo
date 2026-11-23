@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, NoReturn, Protocol
 
+from typing_extensions import override
+
 from marivo.analysis.model.data_types import DataColumn as DataColumn
 from marivo.analysis.model.data_types import ScalarDataType, require_data_text
 from marivo.analysis.model.errors import reject
@@ -91,10 +93,8 @@ class FrozenCalendarData:
     direct: FrozenCalendarOrigin | None = None
 
     def __post_init__(self) -> None:
-        if (
-            type(self.definition) not in (BuiltinCalendarData,)
-            or self.rule_version != "calendar.v3"  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or (self.direct is not None and type(self.direct) is not FrozenCalendarOrigin)
+        if (type(self.definition), self.rule_version) != (BuiltinCalendarData, "calendar.v3") or (
+            self.direct is not None and type(self.direct) is not FrozenCalendarOrigin
         ):
             reject(
                 "a closed versioned frozen calendar descriptor",
@@ -112,6 +112,7 @@ class CalendarDataAxis(DataAxis):
     timezone: str
     frozen: FrozenCalendarData | None = field(default=None, kw_only=True)
 
+    @override
     def __post_init__(self) -> None:
         DataAxis.__post_init__(self)
         require_data_text(self.timezone, "data.calendar.timezone")
@@ -189,6 +190,7 @@ class IntervalDataAxis(DataAxis):
     frozen: FrozenIntervalData
     timezone: str
 
+    @override
     def __post_init__(self) -> None:
         DataAxis.__post_init__(self)
         require_data_text(self.timezone, "data.interval.timezone")
@@ -209,6 +211,7 @@ class PairedDataAxis(DataAxis):
     right: CalendarDataAxis | IntervalDataAxis
     mapping_name: str
 
+    @override
     def __post_init__(self) -> None:
         DataAxis.__post_init__(self)
         if type(self.left) not in (CalendarDataAxis, IntervalDataAxis) or type(

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, TypeVar, overload
+from typing import TYPE_CHECKING, Literal, overload
 
 from ibis.common.deferred import Deferred, Just
+from typing_extensions import override
 
 from marivo._definition import population_builders as build
 from marivo._definition.correspondence import (
@@ -28,6 +28,7 @@ from marivo._definition.population_parameters import (
     parameter,
 )
 from marivo._definition.population_parameters import has_parameters as _native_parameters
+from marivo._definition.population_types import population_definition, population_identity_keys
 from marivo._definition.relations import (
     CalendarKeys,
     IntervalKeys,
@@ -47,16 +48,16 @@ from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
     CoordinateValue,
-    DefinitionGraphError,
     FieldRead,
     InputContext,
     IntervalCoordinate,
     Owner,
     PathParameter,
     field_axis,
-    merge_input_contexts,
 )
-from marivo._kernel.grouping import Grouping
+from marivo._kernel.grouping import Grouping, grouping_identity_keys
+from marivo._kernel.input_context import captured_context
+from marivo._kernel.paths import path_parameter
 from marivo._kernel.symbolic import EntitySymbol, PathSymbol
 from marivo._kernel.temporal import CalendarAxis, TimeScope
 from marivo.analysis._scope import scope_summary
@@ -65,11 +66,24 @@ from marivo.analysis.core.frame_data import (
     MemoryFrameBacking,
     StoredFrameBacking,
 )
-from marivo.analysis.dsl._frame_inputs import PopulationFrameInputs, collect_frame_key_inputs
+from marivo.analysis.dsl._frame_inputs import (
+    PopulationFrameInputs,
+    collect_frame_key_inputs,
+    population_frame_inputs,
+)
+from marivo.analysis.dsl.population_context import (
+    population_context as _context,
+)
+from marivo.analysis.dsl.population_context import (
+    population_identity_contracts as _identity_keys,
+)
+from marivo.analysis.dsl.population_context import (
+    validate_population_contract as _closed,
+)
 from marivo.analysis.dsl.population_identities import validate_identity_keys
 from marivo.analysis.dsl.temporal import interval_coordinate
 from marivo.analysis.model.errors import reject
-from marivo.analysis.model.frame_contracts import merge_frame_key_inputs
+from marivo.analysis.model.frame_contracts import frame_backing, merge_frame_key_inputs
 from marivo.semantic import (
     Entity,
     MetricExpression,
@@ -85,6 +99,7 @@ from marivo.semantic.spi import (
     catalog_entity_identity,
     consume_field,
     consume_predicate,
+    expression_role,
     validate_context,
 )
 from marivo.telemetry import traced
@@ -109,58 +124,19 @@ def _native_axes(
     return tuple(as_deferred(item) if isinstance(item, RowExpression) else item for item in by)
 
 
-def _context(*values: object) -> InputContext:
-    contexts: list[InputContext] = []
-    for value in values:
-        if isinstance(
-            value,
-            (Entity, Path, RowExpression, MetricExpression, Grouping, PopulationParameter),
-        ):
-            contexts.append(value._context)
-        elif isinstance(value, Deferred):
-            contexts.append(inspect_capture(value).context)
-        elif isinstance(value, (tuple, list)):
-            contexts.append(_context(*value))
-    return _closed(lambda: merge_input_contexts(*contexts), "population.context")
-
-
-def _identity_keys(*values: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    result: dict[str, tuple[str, ...]] = {}
-    for value in values:
-        items = (
-            value._identity_keys
-            if isinstance(value, (Grouping, PopulationParameter))
-            else ((value.id, value.primary_key),)
-            if isinstance(value, Entity)
-            else _identity_keys(*value)
-            if isinstance(value, (tuple, list))
-            else ()
-        )
-        for identity, keys in items:
-            if identity in result and result[identity] != keys:
-                reject(
-                    "one captured complete identity",
-                    identity,
-                    "Rebuild the coordinate domain with consistent primary keys.",
-                    "population",
-                )
-            result[identity] = keys
-    return tuple(result.items())
-
-
 def _validate_population(
     value: PopulationParameter, catalog: SemanticCatalog, owner: Owner
 ) -> None:
 
-    if value._context.owner not in (None, owner):
+    if captured_context(value).owner not in (None, owner):
         reject(
             "a Population owned by this Session",
             "another Store or Session",
             "Rebuild the Population in its owning Session.",
             "population",
         )
-    validate_context(value._context, project_root=catalog.workspace_dir, owner=owner)
-    validate_identity_keys(value._identity_keys, catalog)
+    validate_context(captured_context(value), project_root=catalog.workspace_dir, owner=owner)
+    validate_identity_keys(population_identity_keys(value), catalog)
 
 
 def _bind_by(
@@ -183,11 +159,17 @@ def _bind_by(
         )
     result: list[Deferred | Grouping | TimeScope | Population] = []
     for index, value in enumerate(by):
-        if isinstance(value, RowExpression) and value._role in ("dimension", "time", "numeric"):
+        if isinstance(value, RowExpression) and expression_role(value) in (
+            "dimension",
+            "time",
+            "numeric",
+        ):
             result.append(bind_field(value, catalog, owner=owner))
         elif isinstance(value, Grouping):
-            validate_context(value._context, project_root=catalog.workspace_dir, owner=owner)
-            validate_identity_keys(value._identity_keys, catalog)
+            validate_context(
+                captured_context(value), project_root=catalog.workspace_dir, owner=owner
+            )
+            validate_identity_keys(grouping_identity_keys(value), catalog)
             result.append(value)
         elif isinstance(value, Population):
             _validate_population(value, catalog, owner)
@@ -202,36 +184,6 @@ def _bind_by(
                 f"{location}[{index}]",
             )
     return tuple(result)
-
-
-_T = TypeVar("_T")
-
-
-def _closed(action: Callable[[], _T], location: str) -> _T:
-    try:
-        return action()
-    except DefinitionGraphError as error:
-        reject(
-            "a valid complete coordinate domain",
-            str(error),
-            "Use compatible complete axes, connected paths and one Session owner.",
-            location,
-            canonical_id=location
-            if location
-            in {
-                "population.classify",
-                "population.identities",
-                "population.project",
-                "population.where",
-                "population.image",
-                "population.preimage",
-                "population.union",
-                "population.intersection",
-                "population.difference",
-                "session.read",
-            }
-            else None,
-        )
 
 
 def _read(value: Deferred | FieldExpression) -> FieldRead:
@@ -314,7 +266,7 @@ def _capture_path(value: Path | PathSymbol) -> PathParameter | Deferred:
             "path.define",
             canonical_id="path.define",
         )
-    return value if isinstance(value, Deferred) else value._parameter
+    return value if isinstance(value, Deferred) else path_parameter(value)
 
 
 @overload
@@ -352,7 +304,7 @@ def identity(target: Entity | EntitySymbol | Path | PathSymbol) -> Grouping | De
     captured = (
         target
         if isinstance(target, Deferred)
-        else target._parameter
+        else path_parameter(target)
         if isinstance(target, Path)
         else catalog_entity_identity(target)
     )
@@ -441,6 +393,7 @@ class Population(PopulationParameter, PopulationFrameInputs):
             "Population",
         )
 
+    @override
     def __repr__(self) -> str:
         return f"<Population id={computation_fingerprint(self._definition)[:16]} axes={len(self._definition.axes)}; use .show()>"
 
@@ -454,7 +407,7 @@ class Population(PopulationParameter, PopulationFrameInputs):
 
         owner = _owner(self._definition)
         fixed_frames = sum(
-            isinstance(item.frame._backing, (MemoryFrameBacking, StoredFrameBacking))
+            isinstance(frame_backing(item.frame), (MemoryFrameBacking, StoredFrameBacking))
             for item in self._frame_inputs
         )
         facts = (
@@ -528,12 +481,14 @@ class Population(PopulationParameter, PopulationFrameInputs):
         if isinstance(other, Deferred):
             return _native(getattr(Deferred(Just(self)), operation)(other))
         definition = _closed(
-            lambda: build.set_operation(self._definition, other._definition, operation),
+            lambda: build.set_operation(self._definition, population_definition(other), operation),
             f"population.{operation}",
         )
         return Population(
             definition,
-            merge_frame_key_inputs(self._frame_inputs, other._frame_inputs, owner=definition.owner),
+            merge_frame_key_inputs(
+                self._frame_inputs, population_frame_inputs(other), owner=definition.owner
+            ),
             _context=context,
             _identity_keys=_identity_keys(self, other),
         )
@@ -731,14 +686,17 @@ class Population(PopulationParameter, PopulationFrameInputs):
             )
         definition = _closed(
             lambda: build.preimage(
-                self._definition, targets._definition, captured, _subject(on, "population.preimage")
+                self._definition,
+                population_definition(targets),
+                captured,
+                _subject(on, "population.preimage"),
             ),
             "population.preimage",
         )
         return Population(
             definition,
             merge_frame_key_inputs(
-                self._frame_inputs, targets._frame_inputs, owner=definition.owner
+                self._frame_inputs, population_frame_inputs(targets), owner=definition.owner
             ),
             _context=_context(self, targets, via, on),
             _identity_keys=_identity_keys(self, targets),
@@ -783,7 +741,9 @@ def in_population(population: Population | Deferred) -> Deferred | RowPredicate:
             "Construct a Population with coordinates, members or population_from.",
             "in_population",
         )
-    return RowExpression(PopulationContainsResolver(population), population._context, "boolean")
+    return RowExpression(
+        PopulationContainsResolver(population), captured_context(population), "boolean"
+    )
 
 
 def _interval_population(scope: TimeScope) -> Population:
@@ -964,12 +924,13 @@ def product(*factors: Population | Deferred | CalendarAxis | TimeScope) -> Popul
                 "product",
             )
     definition = _closed(
-        lambda: build.product(tuple(factor._definition for factor in populations)), "product"
+        lambda: build.product(tuple(population_definition(factor) for factor in populations)),
+        "product",
     )
     return Population(
         definition,
         merge_frame_key_inputs(
-            *(factor._frame_inputs for factor in populations), owner=definition.owner
+            *(population_frame_inputs(factor) for factor in populations), owner=definition.owner
         ),
         _context=context,
         _identity_keys=_identity_keys(populations),

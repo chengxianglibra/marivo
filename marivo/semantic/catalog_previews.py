@@ -45,6 +45,7 @@ from marivo.datasource.spi import (
     validate_preview_limit,
 )
 from marivo.semantic.catalog_model.inputs import CatalogInputLookup
+from marivo.semantic.catalog_model.objects import lookup_registry, lookup_value
 from marivo.semantic.catalog_model.refs import (
     _make_ref,
 )
@@ -61,6 +62,7 @@ from marivo.semantic.ir import (
     is_time_bearing_format,
 )
 from marivo.semantic.numeric_operations import numeric_failure
+from marivo.semantic.project_view import project_expression_sidecar
 from marivo.semantic.runtime_check.numeric_preview import (
     lower_preview_metric,
     validate_preview_metric,
@@ -201,6 +203,36 @@ class PreviewLookup(CatalogInputLookup, Protocol):
     ) -> SemanticResolver: ...
 
 
+def preview_resolver(
+    catalog: PreviewLookup,
+    *,
+    connections: DatasourceConnectionService,
+    sample_size: int | None = None,
+    entity_scopes: Mapping[str, AuthoringScope] | None = None,
+    source_bindings: Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]]
+    | None = None,
+) -> SemanticResolver:
+    return catalog._semantic_resolver(  # noqa: SLF001 - Preview uses the receiving Catalog's bounded resolver.
+        connections=connections,
+        sample_size=sample_size,
+        entity_scopes=entity_scopes,
+        source_bindings=source_bindings,
+    )
+
+
+def preview_registry(catalog: PreviewLookup) -> Registry:
+    return catalog._require_ready()  # noqa: SLF001 - Preview requires a fully ready Catalog.
+
+
+def require_catalog_ref(catalog: PreviewLookup, ref: Ref[SemanticKindTag]) -> None:
+    """Check an exact captured identity without reading a datasource."""
+    catalog._require_ref(ref)  # noqa: SLF001 - The Catalog owns the selected identity.
+
+
+def preview_sidecar(catalog: PreviewLookup) -> CompiledExpressionSidecar | None:
+    return project_expression_sidecar(catalog._project)  # noqa: SLF001 - Captured expression bodies of this project.
+
+
 @dataclass(frozen=True, slots=True)
 class _PreviewRequest:
     catalog: PreviewLookup
@@ -241,8 +273,9 @@ class _PreviewRequest:
         kind = self.ref.kind
         ref_str = self.ref.path
         bindings = self.bindings
-        reg = self.catalog._reg
-        resolver = self.catalog._semantic_resolver(
+        reg = lookup_registry(self.catalog)
+        resolver = preview_resolver(
+            self.catalog,
             connections=self.connections,
             sample_size=(METRIC_PREVIEW_SAMPLE_SIZE if kind == SemanticKind.METRIC else None),
             entity_scopes=bindings.entity_scopes,
@@ -284,9 +317,11 @@ class _PreviewRequest:
         bindings = self.bindings
         ref_str = self.ref.path
 
-        metric = self.catalog._resolved_value(self.ref)
+        metric = lookup_value(self.catalog, self.ref)
         assert isinstance(metric, Deferred)
-        expression, checks, samples = lower_preview_metric(metric, resolver, self.catalog._reg)
+        expression, checks, samples = lower_preview_metric(
+            metric, resolver, lookup_registry(self.catalog)
+        )
         frame = self.connections.collect_source(
             bindings.datasource_id, expression, purpose="semantic.preview", max_rows=1
         )
@@ -327,7 +362,7 @@ class _PreviewRequest:
     def _field(self, resolver: SemanticResolver) -> PreviewResult:
         kind = self.ref.kind
         ref_str = self.ref.path
-        reg = self.catalog._reg
+        reg = lookup_registry(self.catalog)
         bindings = self.bindings
         field_ir = reg.dimensions[ref_str]
         parent_table = resolver.entity(_make_ref(field_ir.entity, SemanticKind.ENTITY))
@@ -368,7 +403,7 @@ class _PreviewRequest:
         return result
 
     def _relationship(self, resolver: SemanticResolver) -> PreviewResult:
-        reg = self.catalog._reg
+        reg = lookup_registry(self.catalog)
         ref_str = self.ref.path
         relationship = reg.relationships[ref_str]
         left = resolver.entity(_make_ref(relationship.from_entity, SemanticKind.ENTITY))
@@ -438,12 +473,12 @@ class CatalogPreviewer:
         preflighted: bool = False,
     ) -> PreviewResult:
         """Execute the existing one-object preview contract."""
-        reg = self.catalog._require_ready()
+        reg = preview_registry(self.catalog)
         ref_obj = ref
-        self.catalog._require_ref(ref_obj)
+        require_catalog_ref(self.catalog, ref_obj)
         ref_str = ref_obj.path
         kind = ref_obj.kind
-        sidecar = self.catalog._project._expression_sidecar
+        sidecar = preview_sidecar(self.catalog)
         if sidecar is None:
             _raise(
                 ErrorKind.PROJECT_NOT_LOADED,
@@ -452,7 +487,7 @@ class CatalogPreviewer:
                 refs=(ref_str,),
             )
         if kind is SemanticKind.METRIC:
-            metric = self.catalog._resolved_value(ref_obj)
+            metric = lookup_value(self.catalog, ref_obj)
             assert isinstance(metric, Deferred)
             validate_preview_metric(metric)
         preview_limit = validate_preview_limit(limit)
@@ -512,11 +547,11 @@ class CatalogPreviewer:
         limit: int,
         include_types: bool,
     ) -> PreviewBatchResult:
-        reg = self.catalog._require_ready()
+        reg = preview_registry(self.catalog)
         ref_objects = tuple(refs)
         resolved = tuple((ref.path, ref.kind) for ref in ref_objects)
         preview_limit = validate_preview_limit(limit)
-        sidecar = self.catalog._project._expression_sidecar
+        sidecar = preview_sidecar(self.catalog)
         assert sidecar is not None
         readers: dict[int, DatasourceConnectionService] = {}
 
@@ -626,11 +661,12 @@ class CatalogPreviewer:
         limit: int,
         include_types: bool,
     ) -> tuple[PreviewResult, ...]:
-        reg = self.catalog._require_ready()
+        reg = preview_registry(self.catalog)
         bindings = items[0].bindings
         entity_id = bindings.entity_ids[0]
         row_limit = min(limit, bindings.scopes[0][1].max_rows)
-        resolver = self.catalog._semantic_resolver(
+        resolver = preview_resolver(
+            self.catalog,
             connections=connections,
             entity_scopes=bindings.entity_scopes,
             source_bindings=bindings.source_bindings,

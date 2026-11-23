@@ -9,6 +9,8 @@ from hashlib import sha256
 from itertools import pairwise
 from typing import Literal, TypeAlias
 
+from typing_extensions import override
+
 from marivo._kernel.time_types import Grain, grain_token
 from marivo._kernel.timezones import normalize_timezone
 
@@ -81,6 +83,7 @@ class TimeCell:
     end: datetime
     partial: bool
 
+    @override
     def __repr__(self) -> str:
         return _cell_repr(
             self.identity,
@@ -438,10 +441,14 @@ def builtin_nominal_ordinal(unit: str, step: int, start: datetime) -> int:
     return months // ({"month": 1, "quarter": 3, "year": 12}[unit] * step)
 
 
-def _floor(value: datetime, grain: Grain) -> datetime:
-    unit, count = grain.unit, grain.count
-    if unit is None or count is None:  # type: ignore[redundant-expr]  # Preserve the runtime check.
+def _grain_parts(unit: str | None, count: int | None) -> tuple[str, int]:
+    if unit is None or count is None:
         raise _invalid("builtin grain has no unit or count")
+    return unit, count
+
+
+def _floor(value: datetime, grain: Grain) -> datetime:
+    unit, count = _grain_parts(grain.unit, grain.count)
     if unit in ("second", "minute", "hour"):
         width = {"second": 1, "minute": 60, "hour": 3600}[unit] * count
         if 86400 % width:
@@ -467,9 +474,7 @@ def _floor(value: datetime, grain: Grain) -> datetime:
 
 
 def _next(value: datetime, grain: Grain) -> datetime:
-    unit, count = grain.unit, grain.count
-    if unit is None or count is None:  # type: ignore[redundant-expr]  # Preserve the runtime check.
-        raise _invalid("builtin grain has no unit or count")
+    unit, count = _grain_parts(grain.unit, grain.count)
     seconds = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}
     if unit in seconds:
         return value + timedelta(seconds=seconds[unit] * count)

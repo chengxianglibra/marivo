@@ -315,23 +315,11 @@ def query_packet_limit(backend: BaseBackend) -> tuple[int, str]:
     return limit, encoding
 
 
-def _inspect_mysql(
-    *,
-    datasource: str,
-    backend: BaseBackend,
-    table: str,
-    database: str | tuple[str, ...] | None,
-    table_expr: ir.Table,
-    include_partitions: bool,
-    default_database: str | None,
-) -> TableMetadata:
-
-    schema_columns = _schema_columns(table_expr)
-    schema_name = _database_label(database) or default_database
+def _mysql_table_profile(
+    backend: BaseBackend, table: str, schema_name: str | None, warnings: list[MetadataWarning]
+) -> tuple[str | None, TablePhysicalProfile | None]:
     table_comment: str | None = None
     physical_profile: TablePhysicalProfile | None = None
-    warnings: list[MetadataWarning] = []
-
     try:
         if schema_name is not None:
             table_rows = _mysql_rows(
@@ -370,35 +358,17 @@ def _inspect_mysql(
             )
         )
 
-    catalog_columns: dict[str, ColumnMetadata] = {}
-    parts = (
-        (*database, table)
-        if isinstance(database, tuple)
-        else (database, table)
-        if database is not None
-        else (table,)
-    )
-    try:
-        column_rows = _mysql_rows(backend, "mysql.columns.show", identifiers={"table_ref": parts})
-        for index, row in enumerate(column_rows, start=1):
-            name = str(row.get("Field"))
-            catalog_columns[name] = ColumnMetadata(
-                name=name,
-                type=str(row.get("Type") or ""),
-                nullable=_bool_from_nullable(row.get("Null")),
-                comment=_empty_to_none(row.get("Comment")),
-                ordinal_position=index,
-            )
-    except Exception as exc:
-        warnings.append(
-            MetadataWarning(
-                kind="metadata_query_failed",
-                message=(
-                    f"mysql column metadata query failed: {_backend_failure_summary(exc).message}"
-                ),
-            )
-        )
+    return table_comment, physical_profile
 
+
+def _mysql_column_partitions(
+    backend: BaseBackend,
+    table: str,
+    schema_name: str | None,
+    catalog_columns: Mapping[str, ColumnMetadata],
+    include_partitions: bool,
+    warnings: list[MetadataWarning],
+) -> tuple[dict[str, PartitionMetadata], Literal["known", "none", "unknown"]]:
     partitions_by_name: dict[str, PartitionMetadata] = {}
     partition_state: Literal["known", "none", "unknown"] = "unknown"
     if include_partitions:
@@ -446,6 +416,57 @@ def _inspect_mysql(
                 )
             )
 
+    return partitions_by_name, partition_state
+
+
+def _inspect_mysql(
+    *,
+    datasource: str,
+    backend: BaseBackend,
+    table: str,
+    database: str | tuple[str, ...] | None,
+    table_expr: ir.Table,
+    include_partitions: bool,
+    default_database: str | None,
+) -> TableMetadata:
+
+    schema_columns = _schema_columns(table_expr)
+    schema_name = _database_label(database) or default_database
+    warnings: list[MetadataWarning] = []
+
+    table_comment, physical_profile = _mysql_table_profile(backend, table, schema_name, warnings)
+    catalog_columns: dict[str, ColumnMetadata] = {}
+    parts = (
+        (*database, table)
+        if isinstance(database, tuple)
+        else (database, table)
+        if database is not None
+        else (table,)
+    )
+    try:
+        column_rows = _mysql_rows(backend, "mysql.columns.show", identifiers={"table_ref": parts})
+        for index, row in enumerate(column_rows, start=1):
+            name = str(row.get("Field"))
+            catalog_columns[name] = ColumnMetadata(
+                name=name,
+                type=str(row.get("Type") or ""),
+                nullable=_bool_from_nullable(row.get("Null")),
+                comment=_empty_to_none(row.get("Comment")),
+                ordinal_position=index,
+            )
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=(
+                    f"mysql column metadata query failed: {_backend_failure_summary(exc).message}"
+                ),
+            )
+        )
+
+    partitions_by_name, partition_state = _mysql_column_partitions(
+        backend, table, schema_name, catalog_columns, include_partitions, warnings
+    )
     is_view: bool | None = None
     view_definition: str | None = None
     try:
@@ -632,7 +653,7 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
                 action="Restore MySQL session timeout support and retry the read.",
             ),
         )
-    backend._marivo_configured_query_timeout_seconds = timeout_seconds
+    backend._marivo_configured_query_timeout_seconds = timeout_seconds  # noqa: SLF001 - Timeout marker on the Ibis backend instance.
     yield
 
 

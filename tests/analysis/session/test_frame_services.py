@@ -62,7 +62,7 @@ def test_local_metadata_reads_never_prepare_sources_mutate_or_read_payload(
     monkeypatch.setattr(cr, "current_resolver", _forbidden)
     monkeypatch.setattr(cr, "check_binding", _forbidden)
     monkeypatch.setattr(DatasetRuntime, "connection_service", _forbidden)
-    monkeypatch.setattr(SessionStore, "_write", _forbidden)
+    monkeypatch.setattr(SessionStore, "write_transaction", _forbidden)
     monkeypatch.setattr(SessionStore, "open_existing", _forbidden)
     monkeypatch.setattr(OutputRead, "_open", _forbidden)
     monkeypatch.setattr("marivo.analysis.session.reconcile_session", _forbidden)
@@ -94,7 +94,7 @@ def test_local_data_reads_use_receipts_and_do_not_cache_results(
     monkeypatch.setattr(SemanticProject, "load", _forbidden)
     monkeypatch.setattr(cr, "check_binding", _forbidden)
     monkeypatch.setattr(DatasetRuntime, "connection_service", _forbidden)
-    monkeypatch.setattr(SessionStore, "_write", _forbidden)
+    monkeypatch.setattr(SessionStore, "write_transaction", _forbidden)
     backing = local.open_frame(artifact.artifact_id)
     completed = local.read_complete(backing)
     result = export_frame(
@@ -233,7 +233,7 @@ def test_frame_identity_and_audit_availability_follow_exact_carrier(
     derived = saved.select({"answer": saved["answer"]})
     loaded = saved.compute()
     retained_id = saved.artifact_id
-    monkeypatch.setattr(SessionStore, "_read", _forbidden)
+    monkeypatch.setattr(SessionStore, "read_transaction", _forbidden)
     for frame in (pending, memory, saved, reopened, derived, loaded):
         assert frame.session_id == session.id
     assert saved.artifact_id == reopened.artifact_id == retained_id

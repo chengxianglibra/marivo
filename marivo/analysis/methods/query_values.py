@@ -58,6 +58,12 @@ from marivo.analysis.methods.numeric_state import (
 )
 from marivo.analysis.methods.physical import DurationType
 from marivo.analysis.methods.query_population import evaluate_population
+from marivo.analysis.methods.query_value_scalars import (
+    int64_array as _int64_array,
+)
+from marivo.analysis.methods.query_value_scalars import (
+    int64_literal as _int64_literal,
+)
 from marivo.analysis.model.data_types import (
     DataColumn,
     DataType,
@@ -69,27 +75,6 @@ from marivo.analysis.model.frozen_keys import FrozenKey
 from marivo.semantic.spi import numeric_failure
 
 _ORDERED_COMPARISONS = {"lt": "less", "le": "less_equal", "gt": "greater", "ge": "greater_equal"}
-
-
-def _int64_literal(expression: ValueExpression) -> pa.Scalar | None:
-    if isinstance(expression, ValueLiteral):
-        value = expression.value
-        if type(value) is int and -(2**63) <= value < 2**63:
-            return pa.scalar(value, type=pa.int64())
-    return None
-
-
-def _int64_array(
-    expression: ValueExpression, values: pd.Series
-) -> pa.Array | pa.ChunkedArray | None:
-    dtype = values.dtype
-    if (
-        not isinstance(expression, ValueLiteral)
-        and isinstance(dtype, pd.ArrowDtype)
-        and dtype.pyarrow_dtype == pa.int64()
-    ):
-        return pa.array(values, from_pandas=True)
-    return None
 
 
 def _binary(operation: str, left: object, right: object) -> object:
@@ -171,6 +156,136 @@ def _timestamp_awareness(values: pd.Series) -> bool | None:
     return None
 
 
+def _unary_series(expression: ValueUnary, values: pd.Series) -> pd.Series:
+    missing = typed_null_mask(values)
+    if expression.operation == "is_null":
+        return missing.astype("boolean")
+    if expression.operation == "not":
+        return ~values.astype("boolean")
+    if isinstance(values.dtype, pd.ArrowDtype) and pa.types.is_duration(values.dtype.pyarrow_dtype):
+        array = pa.array(values, from_pandas=True)
+        output: list[int | None] = []
+        for tick in array.cast(pa.int64()).to_pylist():
+            computed_tick = (
+                None
+                if tick is None
+                else -int(tick)
+                if expression.operation == "neg"
+                else abs(int(tick))
+            )
+            if computed_tick is not None and not -(2**63) <= computed_tick < 2**63:
+                numeric_failure(
+                    "exact signed int64 Duration arithmetic",
+                    f"{expression.operation}: Duration tick overflow",
+                )
+            output.append(computed_tick)
+        return pd.Series(
+            pd.arrays.ArrowExtensionArray(pa.array(output, type=pa.int64()).cast(array.type)),
+            index=values.index,
+        )
+    return -values if expression.operation == "neg" else values.abs()
+
+
+def _comparison_series(expression: ValueBinary, left: pd.Series, right: pd.Series) -> pd.Series:
+    left_awareness, right_awareness = _timestamp_awareness(left), _timestamp_awareness(right)
+    different_awareness = (
+        left_awareness is not None
+        and right_awareness is not None
+        and left_awareness != right_awareness
+    )
+    missing = typed_null_mask(left) | typed_null_mask(right)
+    if _has_temporal_dtype(left) or _has_temporal_dtype(right):
+        left, right = _temporal_comparison_values(left), _temporal_comparison_values(right)
+    result: list[object] = []
+    with localcontext():
+        for a, b, absent in zip(left, right, missing, strict=True):
+            if absent:
+                result.append(None)
+                continue
+            if different_awareness:
+                if expression.operation in ("eq", "ne"):
+                    result.append(expression.operation == "ne")
+                    continue
+                numeric_failure(
+                    "matching timestamp timezone awareness for ordered comparisons",
+                    "a timezone-aware timestamp and a timezone-free timestamp",
+                )
+            if expression.operation == "div" and b == 0:
+                result.append(None)
+                continue
+            try:
+                value = _binary(expression.operation, a, b)
+            except (TypeError, ValueError, ZeroDivisionError, OverflowError) as error:
+                numeric_failure("native result arithmetic", str(error))
+            result.append(value)
+    return pd.Series(result, dtype=object)
+
+
+def _arithmetic_series(
+    expression: ValueBinary,
+    program: ResultProgram | FrameProgram,
+    left: pd.Series,
+    right: pd.Series,
+) -> pd.Series:
+    duration = next(
+        (item for item in program.duration_operations if item.expression is expression), None
+    )
+    if duration is not None:
+        return duration_arithmetic(
+            {"add": "add", "sub": "subtract", "mul": "multiply", "div": "divide"}[
+                expression.operation
+            ],
+            left,
+            right,
+            left_type=duration.left,
+            right_type=duration.right,
+            output=duration.output,
+        )
+
+    return nullable_arithmetic(
+        {"add": "add", "sub": "subtract", "mul": "multiply", "div": "divide"}[expression.operation],
+        left,
+        right,
+    )
+
+
+def _binary_series(
+    expression: ValueBinary,
+    frame: pd.DataFrame,
+    program: ResultProgram | FrameProgram,
+    evaluation: FrameEvaluation | None,
+) -> pd.Series:
+    kernel = _ORDERED_COMPARISONS.get(expression.operation)
+    left_scalar = _int64_literal(expression.left) if kernel is not None else None
+    right_scalar = _int64_literal(expression.right) if kernel is not None else None
+    left = (
+        expression_series(expression.left, frame, program, evaluation=evaluation)
+        if left_scalar is None
+        else None
+    )
+    right = (
+        expression_series(expression.right, frame, program, evaluation=evaluation)
+        if right_scalar is None
+        else None
+    )
+    if kernel is not None and (left is not None or right is not None):
+        arrow_left = _int64_array(expression.left, left) if left is not None else left_scalar
+        arrow_right = _int64_array(expression.right, right) if right is not None else right_scalar
+        if arrow_left is not None and arrow_right is not None:
+            comparison = pc.call_function(kernel, [arrow_left, arrow_right])
+            return pd.Series(pd.arrays.ArrowExtensionArray(comparison))
+    if left is None:
+        left = expression_series(expression.left, frame, program, evaluation=evaluation)
+    if right is None:
+        right = expression_series(expression.right, frame, program, evaluation=evaluation)
+    if expression.operation in ("add", "sub", "mul", "div"):
+        return _arithmetic_series(expression, program, left, right)
+    if expression.operation in ("and", "or"):
+        a, b = left.astype("boolean"), right.astype("boolean")
+        return a & b if expression.operation == "and" else a | b
+    return _comparison_series(expression, left, right)
+
+
 def expression_series(
     expression: ValueExpression,
     frame: pd.DataFrame,
@@ -246,117 +361,8 @@ def expression_series(
         return pd.Series(pd.arrays.ArrowExtensionArray(pa.array([literal] * len(frame))))
     if isinstance(expression, ValueUnary):
         values = expression_series(expression.operand, frame, program, evaluation=evaluation)
-        missing = typed_null_mask(values)
-        if expression.operation == "is_null":
-            return missing.astype("boolean")
-        if expression.operation == "not":
-            return ~values.astype("boolean")
-        if isinstance(values.dtype, pd.ArrowDtype) and pa.types.is_duration(
-            values.dtype.pyarrow_dtype
-        ):
-            array = pa.array(values, from_pandas=True)
-            output: list[int | None] = []
-            for tick in array.cast(pa.int64()).to_pylist():
-                computed_tick = (
-                    None
-                    if tick is None
-                    else -int(tick)
-                    if expression.operation == "neg"
-                    else abs(int(tick))
-                )
-                if computed_tick is not None and not -(2**63) <= computed_tick < 2**63:
-                    numeric_failure(
-                        "exact signed int64 Duration arithmetic",
-                        f"{expression.operation}: Duration tick overflow",
-                    )
-                output.append(computed_tick)
-            return pd.Series(
-                pd.arrays.ArrowExtensionArray(pa.array(output, type=pa.int64()).cast(array.type)),
-                index=values.index,
-            )
-        return -values if expression.operation == "neg" else values.abs()
-    kernel = _ORDERED_COMPARISONS.get(expression.operation)
-    left_scalar = _int64_literal(expression.left) if kernel is not None else None
-    right_scalar = _int64_literal(expression.right) if kernel is not None else None
-    left = (
-        expression_series(expression.left, frame, program, evaluation=evaluation)
-        if left_scalar is None
-        else None
-    )
-    right = (
-        expression_series(expression.right, frame, program, evaluation=evaluation)
-        if right_scalar is None
-        else None
-    )
-    if kernel is not None and (left is not None or right is not None):
-        arrow_left = _int64_array(expression.left, left) if left is not None else left_scalar
-        arrow_right = _int64_array(expression.right, right) if right is not None else right_scalar
-        if arrow_left is not None and arrow_right is not None:
-            comparison = pc.call_function(kernel, [arrow_left, arrow_right])
-            return pd.Series(pd.arrays.ArrowExtensionArray(comparison))
-    if left is None:
-        left = expression_series(expression.left, frame, program, evaluation=evaluation)
-    if right is None:
-        right = expression_series(expression.right, frame, program, evaluation=evaluation)
-    if expression.operation in ("add", "sub", "mul", "div"):
-        duration = next(
-            (item for item in program.duration_operations if item.expression is expression), None
-        )
-        if duration is not None:
-            return duration_arithmetic(
-                {"add": "add", "sub": "subtract", "mul": "multiply", "div": "divide"}[
-                    expression.operation
-                ],
-                left,
-                right,
-                left_type=duration.left,
-                right_type=duration.right,
-                output=duration.output,
-            )
-
-        computed = nullable_arithmetic(
-            {"add": "add", "sub": "subtract", "mul": "multiply", "div": "divide"}[
-                expression.operation
-            ],
-            left,
-            right,
-        )
-        return computed
-    if expression.operation in ("and", "or"):
-        a, b = left.astype("boolean"), right.astype("boolean")
-        return a & b if expression.operation == "and" else a | b
-    left_awareness, right_awareness = _timestamp_awareness(left), _timestamp_awareness(right)
-    different_awareness = (
-        left_awareness is not None
-        and right_awareness is not None
-        and left_awareness != right_awareness
-    )
-    missing = typed_null_mask(left) | typed_null_mask(right)
-    if _has_temporal_dtype(left) or _has_temporal_dtype(right):
-        left, right = _temporal_comparison_values(left), _temporal_comparison_values(right)
-    result: list[object] = []
-    with localcontext():
-        for a, b, absent in zip(left, right, missing, strict=True):
-            if absent:
-                result.append(None)
-                continue
-            if different_awareness:
-                if expression.operation in ("eq", "ne"):
-                    result.append(expression.operation == "ne")
-                    continue
-                numeric_failure(
-                    "matching timestamp timezone awareness for ordered comparisons",
-                    "a timezone-aware timestamp and a timezone-free timestamp",
-                )
-            if expression.operation == "div" and b == 0:
-                result.append(None)
-                continue
-            try:
-                value = _binary(expression.operation, a, b)
-            except (TypeError, ValueError, ZeroDivisionError, OverflowError) as error:
-                numeric_failure("native result arithmetic", str(error))
-            result.append(value)
-    return pd.Series(result, dtype=object)
+        return _unary_series(expression, values)
+    return _binary_series(expression, frame, program, evaluation)
 
 
 def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
@@ -633,6 +639,79 @@ def _reduce_numeric(
     return value
 
 
+def _prepare_pair(
+    statistic: PairStatistic,
+    types: tuple[DataType, ...],
+    program: FrameProgram,
+    source: pd.DataFrame,
+    evaluation: FrameEvaluation,
+) -> tuple[
+    tuple[str, str, tuple[DataType, ...]],
+    tuple[tuple[Number | None, ...], tuple[Number | None, ...]],
+]:
+    # Complete both expressions before applying either valid-value mask.
+    # A missing counterpart cannot hide a strict child arithmetic error.
+    endpoints = (statistic.left, statistic.right)
+    keys = tuple(expression_key(endpoint) for endpoint in endpoints)
+    for key, endpoint in zip(keys, endpoints, strict=True):
+        if key not in evaluation.endpoint_series:
+            evaluation.endpoint_series[key] = expression_series(
+                endpoint, source, program, evaluation=evaluation
+            )
+    for side, key, endpoint, dtype in zip(("left", "right"), keys, endpoints, types, strict=True):
+        cache_key = (key, dtype)
+        if cache_key not in evaluation.endpoints:
+            evaluation.endpoints[cache_key] = _pair_values(
+                evaluation.endpoint_series[key],
+                dtype,
+                endpoint=f"{side} operand {endpoint!r}",
+                location=statistic.location,
+            )
+    return (keys[0], keys[1], types), (
+        evaluation.endpoints[(keys[0], types[0])],
+        evaluation.endpoints[(keys[1], types[1])],
+    )
+
+
+def _reduce_pair(
+    statistic: PairStatistic,
+    types: tuple[DataType, ...],
+    positions: list[int] | range,
+    pair_key: tuple[str, str, tuple[DataType, ...]],
+    left_values: tuple[Number | None, ...],
+    right_values: tuple[Number | None, ...],
+    active_pairs: dict[tuple[str, str, tuple[DataType, ...]], tuple[list[Number], list[Number]]],
+) -> object:
+    if pair_key not in active_pairs:
+        active_left: list[Number] = []
+        active_right: list[Number] = []
+        for position in positions:
+            left_value, right_value = left_values[position], right_values[position]
+            if left_value is not None and right_value is not None:
+                active_left.append(left_value)
+                active_right.append(right_value)
+        active_pairs[pair_key] = (active_left, active_right)
+    active_left, active_right = active_pairs[pair_key]
+    if statistic.method == "pair_count":
+        return len(active_left)
+    left_type, right_type = types
+    try:
+        return correlation(
+            active_left,
+            active_right,
+            left_type=left_type,
+            right_type=right_type,
+            method=statistic.method,
+        )
+    except (ValueError, OverflowError) as error:
+        reject(
+            "finite nonzero numeric scales for nonconstant paired statistics",
+            f"{statistic.method}({statistic.left!r}, {statistic.right!r}): {error}",
+            "Use finite representable numeric inputs, then retry the paired statistic.",
+            statistic.location,
+        )
+
+
 def _reduce(
     program: FrameProgram, source: pd.DataFrame, evaluation: FrameEvaluation
 ) -> tuple[pd.DataFrame, FrameGroupIndex]:
@@ -645,31 +724,8 @@ def _reduce(
     pair_keys: dict[str, tuple[str, str, tuple[DataType, ...]]] = {}
     for index, (name, statistic) in enumerate(operation.values):
         if isinstance(statistic, PairStatistic):
-            # Complete both expressions before applying either valid-value mask.
-            # A missing counterpart cannot hide a strict child arithmetic error.
-            endpoints = (statistic.left, statistic.right)
-            keys = tuple(expression_key(endpoint) for endpoint in endpoints)
-            for key, endpoint in zip(keys, endpoints, strict=True):
-                if key not in evaluation.endpoint_series:
-                    evaluation.endpoint_series[key] = expression_series(
-                        endpoint, source, program, evaluation=evaluation
-                    )
-            types = program.statistic_types[index]
-            for side, key, endpoint, dtype in zip(
-                ("left", "right"), keys, endpoints, types, strict=True
-            ):
-                cache_key = (key, dtype)
-                if cache_key not in evaluation.endpoints:
-                    evaluation.endpoints[cache_key] = _pair_values(
-                        evaluation.endpoint_series[key],
-                        dtype,
-                        endpoint=f"{side} operand {endpoint!r}",
-                        location=statistic.location,
-                    )
-            pair_keys[name] = (keys[0], keys[1], types)
-            paired[name] = (
-                evaluation.endpoints[(keys[0], types[0])],
-                evaluation.endpoints[(keys[1], types[1])],
+            pair_keys[name], paired[name] = _prepare_pair(
+                statistic, program.statistic_types[index], program, source, evaluation
             )
         elif statistic.value is not None:
             evaluated[name] = expression_series(
@@ -696,35 +752,15 @@ def _reduce(
             if isinstance(statistic, PairStatistic):
                 left_values, right_values = paired[name]
                 pair_key = pair_keys[name]
-                if pair_key not in active_pairs:
-                    active_left: list[Number] = []
-                    active_right: list[Number] = []
-                    for position in positions:
-                        left_value, right_value = left_values[position], right_values[position]
-                        if left_value is not None and right_value is not None:
-                            active_left.append(left_value)
-                            active_right.append(right_value)
-                    active_pairs[pair_key] = (active_left, active_right)
-                active_left, active_right = active_pairs[pair_key]
-                if statistic.method == "pair_count":
-                    value = len(active_left)
-                else:
-                    left_type, right_type = program.statistic_types[index]
-                    try:
-                        value = correlation(
-                            active_left,
-                            active_right,
-                            left_type=left_type,
-                            right_type=right_type,
-                            method=statistic.method,
-                        )
-                    except (ValueError, OverflowError) as error:
-                        reject(
-                            "finite nonzero numeric scales for nonconstant paired statistics",
-                            f"{statistic.method}({statistic.left!r}, {statistic.right!r}): {error}",
-                            "Use finite representable numeric inputs, then retry the paired statistic.",
-                            statistic.location,
-                        )
+                value = _reduce_pair(
+                    statistic,
+                    program.statistic_types[index],
+                    positions,
+                    pair_key,
+                    left_values,
+                    right_values,
+                    active_pairs,
+                )
             elif statistic.method == "row_count":
                 value = len(positions)
             else:

@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, TypeAlias
 
+from typing_extensions import override
+
 from marivo._kernel.render import Card
 from marivo.analysis.model.data_schema import (
     BuiltinCalendarData,
@@ -96,6 +98,7 @@ class FieldExportColumn:
     slot_id: str
     kind: Literal["field"] = field(default="field", init=False)
 
+    @override
     def __repr__(self) -> str:
         return (
             f"<FieldExportColumn name={self.name[:64]!r} slot={self.slot_id[:64]!r}; use .show()>"
@@ -125,6 +128,7 @@ class CoordinateExportColumn:
     ]
     kind: Literal["coordinate"] = field(default="coordinate", init=False)
 
+    @override
     def __repr__(self) -> str:
         return f"<CoordinateExportColumn name={self.name[:32]!r} axis={self.axis_token[:32]!r} endpoint={self.endpoint} part={self.part}; use .show()>"
 
@@ -322,6 +326,7 @@ class FrameSchema:
             }
         )
 
+    @override
     def __repr__(self) -> str:
         return f"<FrameSchema input={self.input_id[:64]!r} axes={len(self.axes)} values={len(self._values)} presence={len(self._presence)}; use .show()>"
 

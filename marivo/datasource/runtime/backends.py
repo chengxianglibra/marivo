@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import NoReturn, SupportsIndex
 
 from ibis.backends import BaseBackend
+from typing_extensions import override
 
 from marivo._kernel.validation import nonempty_text
 from marivo.datasource import credentials as cr
@@ -121,6 +122,7 @@ class BuiltDatasourceBackend:
     def disconnect(self) -> None:
         self.lease.close()
 
+    @override
     def __reduce_ex__(self, protocol: SupportsIndex) -> NoReturn:
         raise TypeError("Live datasource backends cannot be serialized.")
 
@@ -142,6 +144,52 @@ def build_backend_with_secrets(
     )
 
 
+def _configure_connection_timeout(
+    backend_type: str, kwargs: dict[str, object], connection_timeout_seconds: int | None
+) -> None:
+    if connection_timeout_seconds is not None:
+        if backend_type in {"postgres", "mysql", "clickhouse"}:
+            kwargs["connect_timeout"] = connection_timeout_seconds
+        if backend_type == "mysql":
+            kwargs["read_timeout"] = connection_timeout_seconds
+            kwargs["write_timeout"] = connection_timeout_seconds
+        elif backend_type == "clickhouse":
+            kwargs["send_receive_timeout"] = connection_timeout_seconds
+        elif backend_type == "trino":
+            kwargs["request_timeout"] = connection_timeout_seconds
+
+
+def _configure_session_settings(
+    backend_type: str, kwargs: dict[str, object], terminal_timeout_seconds: int | None
+) -> None:
+    if terminal_timeout_seconds is not None:
+        if backend_type == "postgres":
+            kwargs["options"] = (
+                str(kwargs.get("options", ""))
+                + f" -c statement_timeout={terminal_timeout_seconds * 1000} -c TimeZone=UTC"
+            ).strip()
+        elif backend_type == "trino":
+            properties = kwargs.get("session_properties")
+            kwargs["session_properties"] = {
+                **(properties if isinstance(properties, dict) else {}),
+                "query_max_run_time": f"{terminal_timeout_seconds}s",
+            }
+    if backend_type == "trino":
+        kwargs["timezone"] = "UTC"
+
+
+def _duckdb_credentials(
+    datasource: DatasourceIR, kwargs: dict[str, object]
+) -> tuple[object, dict[str, object]]:
+    secret_metadata: object = None
+    resolved_credentials: dict[str, object] = {}
+    if datasource.backend_type == "duckdb":
+        secret_metadata = kwargs.pop("secrets", None)
+        for key in datasource.env_refs:
+            resolved_credentials[key] = kwargs.pop(key)
+    return secret_metadata, resolved_credentials
+
+
 def _build_backend_from_effective(
     datasource: DatasourceIR,
     effective: EffectiveDatasourceKwargs,
@@ -153,36 +201,9 @@ def _build_backend_from_effective(
     profile = require_profile_for_backend_type(datasource.backend_type)
     _reject_unqualified_credentials(datasource, profile)
     kwargs = dict(effective.kwargs)
-    if connection_timeout_seconds is not None:
-        if datasource.backend_type in {"postgres", "mysql", "clickhouse"}:
-            kwargs["connect_timeout"] = connection_timeout_seconds
-        if datasource.backend_type == "mysql":
-            kwargs["read_timeout"] = connection_timeout_seconds
-            kwargs["write_timeout"] = connection_timeout_seconds
-        elif datasource.backend_type == "clickhouse":
-            kwargs["send_receive_timeout"] = connection_timeout_seconds
-        elif datasource.backend_type == "trino":
-            kwargs["request_timeout"] = connection_timeout_seconds
-    secret_metadata: object = None
-    resolved_credentials: dict[str, object] = {}
-    if datasource.backend_type == "duckdb":
-        secret_metadata = kwargs.pop("secrets", None)
-        for key in datasource.env_refs:
-            resolved_credentials[key] = kwargs.pop(key)
-    if terminal_timeout_seconds is not None:
-        if datasource.backend_type == "postgres":
-            kwargs["options"] = (
-                str(kwargs.get("options", ""))
-                + f" -c statement_timeout={terminal_timeout_seconds * 1000} -c TimeZone=UTC"
-            ).strip()
-        elif datasource.backend_type == "trino":
-            properties = kwargs.get("session_properties")
-            kwargs["session_properties"] = {
-                **(properties if isinstance(properties, dict) else {}),
-                "query_max_run_time": f"{terminal_timeout_seconds}s",
-            }
-    if datasource.backend_type == "trino":
-        kwargs["timezone"] = "UTC"
+    _configure_connection_timeout(datasource.backend_type, kwargs, connection_timeout_seconds)
+    secret_metadata, resolved_credentials = _duckdb_credentials(datasource, kwargs)
+    _configure_session_settings(datasource.backend_type, kwargs, terminal_timeout_seconds)
     try:
         if profile.connect_owned is not None:
             backend = profile.connect_owned(
@@ -237,7 +258,7 @@ def _build_backend_from_effective(
                     resolved=resolved_credentials,
                 )
                 if credentials is not None:
-                    backend._marivo_duckdb_http_auth = credentials
+                    backend._marivo_duckdb_http_auth = credentials  # noqa: SLF001 - Authentication marker on this Ibis DuckDB connection.
         _configure_terminal_timeout(backend, profile, terminal_timeout_seconds, effective.injected)
     except BaseException as exc:
         built.disconnect()
@@ -275,7 +296,7 @@ def _configure_terminal_timeout(
 ) -> None:
     if terminal_timeout_seconds is not None:
         if profile.name in {"postgres", "trino", "mysql"}:
-            backend._marivo_terminal_timeout_seconds = terminal_timeout_seconds
+            backend._marivo_terminal_timeout_seconds = terminal_timeout_seconds  # noqa: SLF001 - Timeout marker on the owned backend lease.
         if profile.name == "mysql" and profile.native_query_timeout is not None:
             try:
                 with profile.native_query_timeout(backend, terminal_timeout_seconds):

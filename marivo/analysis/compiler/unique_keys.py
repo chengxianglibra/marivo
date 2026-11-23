@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from functools import cache
 
 import ibis.expr.operations as ops
@@ -53,56 +53,62 @@ def relation_unique_keys(
         if isinstance(node, ops.JoinReference):
             return infer(node.parent).project(slots)
         if isinstance(node, ops.JoinChain) and len(node.rest) == 1:
-            link = node.rest[0]
-            left, right = infer(node.first), infer(link.table)
-            left_bound: list[str] = []
-            right_bound: list[str] = []
-
-            def equality(predicate: ops.Value) -> None:
-                if isinstance(predicate, ops.And):
-                    equality(predicate.left)
-                    equality(predicate.right)
-                elif isinstance(predicate, (ops.Equals, ops.IdenticalTo)):
-                    lhs, rhs = predicate.left, predicate.right
-                    if not isinstance(lhs, ops.Field) or not isinstance(rhs, ops.Field):
-                        return
-                    if lhs.dtype.copy(nullable=True) != rhs.dtype.copy(nullable=True):
-                        return
-                    # String dtype does not disclose backend collation. A
-                    # case-insensitive equality can match several exact keys;
-                    # only already-normalized non-string carriers qualify.
-                    if lhs.dtype.is_string() or rhs.dtype.is_string():
-                        return
-                    if lhs.rel == link.table and rhs.rel == node.first:
-                        lhs, rhs = rhs, lhs
-                    if lhs.rel == node.first and rhs.rel == link.table:
-                        left_bound.append(lhs.name)
-                        right_bound.append(rhs.name)
-
-            for predicate in link.predicates:
-                equality(predicate)
-            left_mapping = {
-                value.name: name
-                for name, value in node.values.items()
-                if isinstance(value, ops.Field) and value.rel == node.first
-            }
-            right_mapping = {
-                value.name: name
-                for name, value in node.values.items()
-                if isinstance(value, ops.Field) and value.rel == link.table
-            }
-            lhs = left.project(tuple(left_mapping)).project(slots, left_mapping)
-            rhs = right.project(tuple(right_mapping)).project(slots, right_mapping)
-            candidates: tuple[tuple[str, ...], ...] = ()
-            if link.how in ("semi", "anti") or (
-                link.how in ("inner", "left") and right.proves(tuple(right_bound))
-            ):
-                candidates = lhs.keys
-            if link.how == "inner" and left.proves(tuple(left_bound)):
-                candidates = (*candidates, *rhs.keys)
-            if link.how == "cross":
-                candidates = tuple((*a, *b) for a in lhs.keys for b in rhs.keys)
-            return UniqueKeys(slots, candidates)
+            return _join_keys(node, slots, infer)
         return UniqueKeys(slots)
 
     return infer(table.op())
+
+
+def _join_keys(
+    node: ops.JoinChain, slots: tuple[str, ...], infer: Callable[[ops.Relation], UniqueKeys]
+) -> UniqueKeys:
+    link = node.rest[0]
+    left, right = infer(node.first), infer(link.table)
+    left_bound: list[str] = []
+    right_bound: list[str] = []
+
+    def equality(predicate: ops.Value) -> None:
+        if isinstance(predicate, ops.And):
+            equality(predicate.left)
+            equality(predicate.right)
+        elif isinstance(predicate, (ops.Equals, ops.IdenticalTo)):
+            lhs, rhs = predicate.left, predicate.right
+            if not isinstance(lhs, ops.Field) or not isinstance(rhs, ops.Field):
+                return
+            if lhs.dtype.copy(nullable=True) != rhs.dtype.copy(nullable=True):
+                return
+            # String dtype does not disclose backend collation. A
+            # case-insensitive equality can match several exact keys;
+            # only already-normalized non-string carriers qualify.
+            if lhs.dtype.is_string() or rhs.dtype.is_string():
+                return
+            if lhs.rel == link.table and rhs.rel == node.first:
+                lhs, rhs = rhs, lhs
+            if lhs.rel == node.first and rhs.rel == link.table:
+                left_bound.append(lhs.name)
+                right_bound.append(rhs.name)
+
+    for predicate in link.predicates:
+        equality(predicate)
+    left_mapping = {
+        value.name: name
+        for name, value in node.values.items()
+        if isinstance(value, ops.Field) and value.rel == node.first
+    }
+    right_mapping = {
+        value.name: name
+        for name, value in node.values.items()
+        if isinstance(value, ops.Field) and value.rel == link.table
+    }
+    lhs = left.project(tuple(left_mapping)).project(slots, left_mapping)
+    rhs = right.project(tuple(right_mapping)).project(slots, right_mapping)
+    candidates: tuple[tuple[str, ...], ...] = ()
+    if link.how in ("semi", "anti") or (
+        link.how in ("inner", "left") and right.proves(tuple(right_bound))
+    ):
+        candidates = lhs.keys
+    if link.how == "inner" and left.proves(tuple(left_bound)):
+        candidates = (*candidates, *rhs.keys)
+    if link.how == "cross":
+        candidates = tuple((*a, *b) for a in lhs.keys for b in rhs.keys)
+    return UniqueKeys(slots, candidates)

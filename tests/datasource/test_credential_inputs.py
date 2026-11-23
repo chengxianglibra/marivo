@@ -27,7 +27,7 @@ from marivo.datasource.ir import DatasourceSourceLocation
 from marivo.datasource.runtime import backends as backends
 from marivo.datasource.runtime.connections import load_datasource, open_backend
 from marivo.datasource.store import declarations as store
-from marivo.datasource.store.authoring import _ir_from_spec
+from marivo.datasource.store.authoring import datasource_ir_from_spec
 from tests.shared_fixtures import datasource_arguments_source
 
 
@@ -202,7 +202,7 @@ def test_secret_install_failure_disconnects_and_sanitizes(
     monkeypatch.setattr(backends, "require_profile_for_backend_type", lambda kind: profile)
     monkeypatch.setenv("KEY", "private-install-canary")
     monkeypatch.setenv("SECRET", "private-install-canary")
-    ir = _ir_from_spec(
+    ir = datasource_ir_from_spec(
         md.duckdb(name="lake", secrets=[s3()]),
         location=DatasourceSourceLocation(file="<test>", line=1),
     )
@@ -242,10 +242,10 @@ def test_file_secrets_exclude_other_managed_connections_and_are_removed_on_close
     monkeypatch.setenv("SECRET", "fixture-secret")
     path = tmp_path / "shared.duckdb"
     location = DatasourceSourceLocation(file="<test>", line=1)
-    scoped = _ir_from_spec(
+    scoped = datasource_ir_from_spec(
         md.duckdb(name="first", path=str(path), secrets=[s3()]), location=location
     )
-    plain = _ir_from_spec(md.duckdb(name="second", path=str(path)), location=location)
+    plain = datasource_ir_from_spec(md.duckdb(name="second", path=str(path)), location=location)
     observer = ENGINE_PROFILES["duckdb"].connect("observer", {"path": str(path)})
     try:
         built = backends.build_backend_with_secrets(scoped)
@@ -321,14 +321,14 @@ def test_partial_install_cleans_up_a_shared_native_instance(
     location = DatasourceSourceLocation(file="<test>", line=1)
     try:
         with pytest.raises(DatasourceConnectionError) as caught:
-            backends.build_backend_with_secrets(_ir_from_spec(spec, location=location))
+            backends.build_backend_with_secrets(datasource_ir_from_spec(spec, location=location))
         assert (
             observer.raw_sql(
                 "SELECT name FROM duckdb_secrets() WHERE name LIKE 'marivo_lake_%'"
             ).fetchall()
             == []
         )
-        plain = _ir_from_spec(md.duckdb(name="lake", path=str(path)), location=location)
+        plain = datasource_ir_from_spec(md.duckdb(name="lake", path=str(path)), location=location)
         backends.build_backend_with_secrets(plain).disconnect()
     finally:
         observer.disconnect()
@@ -351,7 +351,7 @@ def test_persistent_secret_with_longer_scope_remains_native(
     spec = md.duckdb(
         name="lake", secrets=[s3(scope="s3://bucket/")], extra={"secret_directory": str(directory)}
     )
-    ir = _ir_from_spec(spec, location=DatasourceSourceLocation(file="<test>", line=1))
+    ir = datasource_ir_from_spec(spec, location=DatasourceSourceLocation(file="<test>", line=1))
     built = backends.build_backend_with_secrets(ir)
     try:
         assert built.backend.raw_sql(

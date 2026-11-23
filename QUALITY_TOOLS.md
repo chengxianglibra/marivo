@@ -5,8 +5,8 @@
 | 目的 | 命令 |
 | --- | --- |
 | 日常增量检查 | `make check-fast` |
-| 检查格式、Lint 和完整导入图 | `make lint` |
-| 检查库和测试的类型 | `make typecheck` |
+| 检查格式、复杂度、私有成员和完整导入图 | `make lint` |
+| 检查库和测试的类型及显式覆写 | `make typecheck` |
 | 运行默认本地测试 | `make test` |
 | 运行单个测试文件 | `make test TESTS='tests/surface/test_architecture_guard.py'` |
 | 完整本地门禁 | `make check` |

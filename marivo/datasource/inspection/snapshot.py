@@ -7,7 +7,6 @@ import json
 import re
 from collections import Counter
 from collections.abc import Callable, Mapping
-from contextlib import nullcontext
 from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -36,8 +35,15 @@ from marivo.datasource.ir import (
 from marivo.datasource.metadata_types import ColumnMetadata
 from marivo.datasource.runtime.json_source import normalize_json_source_params
 from marivo.datasource.runtime.preview import normalize_preview_cell
+from marivo.datasource.runtime.session_access import safe_source_error, source_native_timeout
 from marivo.datasource.runtime.session_factory import open_source_session
-from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource, _apply_scope
+from marivo.datasource.source import (
+    AuthoringScope,
+    PartitionScope,
+    TableSource,
+    _apply_scope,
+    scope_time_range,
+)
 from marivo.datasource.store import declarations as _store
 from marivo.datasource.store.authoring import _storage_name
 from marivo.datasource.store.authoring_store import AuthoringStore
@@ -426,7 +432,6 @@ def _read_sample(
     scope_state: Literal["known", "none", "unknown"],
 ) -> tuple[pd.DataFrame, tuple[tuple[str, ...], ...]]:
     profile = require_profile_for_backend_type(datasource_ir.backend_type)
-    timeout = profile.native_query_timeout
 
     session: SourceSession | None = None
     timeout_entered = False
@@ -440,7 +445,7 @@ def _read_sample(
         except (DatasourceCredentialError, DatasourceCredentialScopeError):
             raise
         except Exception as exc:
-            exc = cr.safe_backend_exception(exc, session._backend if session is not None else None)
+            exc = cr.safe_backend_exception(exc, None)
             failure = _backend_failure_summary(exc)
             raise _acquisition_error(
                 code="acquisition_connection_failed",
@@ -458,7 +463,7 @@ def _read_sample(
         except (DatasourceCredentialError, DatasourceCredentialScopeError):
             raise
         except Exception as exc:
-            exc = cr.safe_backend_exception(exc, session._backend if session is not None else None)  # type: ignore[redundant-expr]  # Preserve the runtime check.
+            exc = safe_source_error(session, exc)
             failure = _backend_failure_summary(exc)
             raise _acquisition_error(
                 code="acquisition_source_failed",
@@ -467,8 +472,8 @@ def _read_sample(
                 scope_state=scope_state,
             ) from exc
         pushed_predicate: tuple[tuple[str, ...], ...]
-        if isinstance(scope, PartitionScope) and scope._time_range is not None:
-            time_predicate = scope._time_range
+        time_predicate = scope_time_range(scope)
+        if time_predicate is not None:
             pushed_predicate = (
                 (
                     "time_range",
@@ -484,11 +489,7 @@ def _read_sample(
         expression = _apply_scope(expression, scope)
         expression = expression.select(*columns).limit(scope.max_rows + 1)
         try:
-            with (
-                timeout(session._backend, scope.timeout_seconds)
-                if timeout is not None
-                else nullcontext()
-            ):
+            with source_native_timeout(session, scope.timeout_seconds):
                 timeout_entered = True
                 frame = session.collect_bounded(
                     expression,
@@ -499,7 +500,7 @@ def _read_sample(
         except (DatasourceCredentialError, DatasourceCredentialScopeError):
             raise
         except Exception as exc:
-            exc = cr.safe_backend_exception(exc, session._backend if session is not None else None)  # type: ignore[redundant-expr]  # Preserve the runtime check.
+            exc = safe_source_error(session, exc)
             failure = _backend_failure_summary(exc)
             if not timeout_entered:
                 raise _acquisition_error(

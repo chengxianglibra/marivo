@@ -29,7 +29,7 @@ from marivo.datasource.store.authoring import (
     MySQLSpec,
     PostgresSpec,
     TrinoSpec,
-    _ir_from_spec,
+    datasource_ir_from_spec,
     validate_datasource_name,
 )
 from marivo.datasource.store.evidence_payload import datasource_spec_fingerprint
@@ -40,7 +40,7 @@ from tests.support.result_protocol import assert_conforms
 def _ir(
     spec: DuckDBSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec,
 ) -> DatasourceIR:
-    return _ir_from_spec(
+    return datasource_ir_from_spec(
         spec,
         location=DatasourceSourceLocation(file="<test>", line=1),
     )

@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from typing_extensions import override
+
 from marivo._kernel.ai_context import AiContextIR as AiContextView
 from marivo._kernel.refs import (
     Ref,
@@ -125,6 +127,7 @@ class _DetailsBase(RenderableResult):
     def dependents(self) -> tuple[LookupSymbol, ...]:
         return tuple(symbol_from_ref(ref) for ref in self._dependents)
 
+    @override
     def _repr_identity(self) -> str:
         return f"{self.__class__.__name__} ref={self._ref.key}"
 
@@ -138,6 +141,7 @@ class _DetailsBase(RenderableResult):
             dependents=self._dependents,
         )
 
+    @override
     def _card(self) -> Card:
         card = Card(identity=self._repr_identity(), available=(".show()",))
         for section in self._detail_sections():
@@ -155,6 +159,7 @@ class DatasourceDetails(_DetailsBase):
     env_refs: Mapping[str, str]
 
     @property
+    @override
     def ref(self) -> DatasourceSymbol:
         return symbol_factory.datasource(self._ref.path)
 
@@ -162,6 +167,7 @@ class DatasourceDetails(_DetailsBase):
         object.__setattr__(self, "fields", MappingProxyType(dict(self.fields)))
         object.__setattr__(self, "env_refs", MappingProxyType(dict(self.env_refs)))
 
+    @override
     def _detail_sections(self) -> list[Section]:
         sections = super()._detail_sections()
         sections.extend(
@@ -190,9 +196,11 @@ class DomainDetails(_DetailsBase):
     default: bool
 
     @property
+    @override
     def ref(self) -> DomainSymbol:
         return symbol_factory.domain(self._ref.path)
 
+    @override
     def _detail_sections(self) -> list[Section]:
         sections = super()._detail_sections()
         sections.extend(

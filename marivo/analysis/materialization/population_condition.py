@@ -37,6 +37,7 @@ from marivo.analysis.materialization.population_domains import PrepareDomain, _d
 from marivo.analysis.materialization.population_relations import traverse_membership_paths
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.time_facts import FrameSourceTime
+from marivo.datasource.spi import expression_backend_name
 from marivo.semantic.spi import (
     CompiledSemanticState,
     normalize_target_entity,
@@ -70,6 +71,67 @@ def membership_time_axes(
             if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
         )
     )
+
+
+def _append_membership_time(
+    axis: CalendarCoordinate | IntervalCoordinate,
+    contribution: ContributionBinding,
+    columns: Mapping[str, str],
+    carrier: ir.Table,
+    allowed: ir.Table,
+    target_name: str,
+    *,
+    private_endpoint: bool,
+    inputs: set[str],
+    predicates: list[ir.BooleanValue],
+    ranges: list[ir.BooleanValue],
+) -> None:
+    if contribution.time is None:
+        reject(
+            "a contribution clock for time coordinates in in_population",
+            contribution.root.ref.key,
+            "Use a Metric bound to the intended TimeField.",
+            "Metric.where",
+            canonical_id="in_population",
+        )
+    clock_read = FieldRead(
+        contribution.time.field,
+        contribution.root,
+        contribution.time.path,
+        contribution.time.at,
+        source_at=contribution.time.source_at,
+        step_ats=contribution.time.step_ats,
+    )
+    clock = columns[field_read_key(clock_read)]
+    time = carrier[clock]
+    calendar_slot = next((slot for slot, item in contribution.calendars if item == axis), None)
+    if private_endpoint and contribution.window_key is not None:
+        buckets = ibis.literal(contribution.window_key)
+    elif (
+        private_endpoint and calendar_slot is not None and calendar_field(calendar_slot) in columns
+    ):
+        slot = columns[calendar_field(calendar_slot)]
+        inputs.add(slot)
+        buckets = carrier[slot]
+    else:
+        target = allowed[target_name]
+        cells = population_time_ranges(axis)
+        inputs.add(clock)
+        if not cells:
+            ranges.append(ibis.literal(False))
+            return
+        ranges.append(
+            ibis.or_(
+                *(
+                    (target == ibis.literal(key, type=target.type()))
+                    & (time >= temporal_bound(time, start, axis.timezone))
+                    & (time < temporal_bound(time, end, axis.timezone))
+                    for key, start, end in cells
+                )
+            )
+        )
+        return
+    predicates.append(buckets == allowed[target_name])
 
 
 def prepare_condition_memberships(
@@ -114,7 +176,7 @@ def prepare_condition_memberships(
                 if isinstance(axis, AxisBinding) and axis.field is None
                 for key in group
             }
-            provider = table._find_backend().name
+            provider = expression_backend_name(table)
             allowed = _domain_table(selected).view()
             allowed = (
                 allowed.select(
@@ -176,56 +238,18 @@ def prepare_condition_memberships(
                 zip(domain.axes, selected.key_groups, strict=True)
             ):
                 if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
-                    if contribution.time is None:
-                        reject(
-                            "a contribution clock for time coordinates in in_population",
-                            contribution.root.ref.key,
-                            "Use a Metric bound to the intended TimeField.",
-                            "Metric.where",
-                            canonical_id="in_population",
-                        )
-                    clock_read = FieldRead(
-                        contribution.time.field,
-                        contribution.root,
-                        contribution.time.path,
-                        contribution.time.at,
-                        source_at=contribution.time.source_at,
-                        step_ats=contribution.time.step_ats,
+                    _append_membership_time(
+                        axis,
+                        contribution,
+                        columns,
+                        carrier,
+                        allowed,
+                        renamed[group[0]],
+                        private_endpoint=private_endpoint,
+                        inputs=inputs,
+                        predicates=predicates,
+                        ranges=ranges,
                     )
-                    clock = columns[field_read_key(clock_read)]
-                    time = carrier[clock]
-                    calendar_slot = next(
-                        (slot for slot, item in contribution.calendars if item == axis), None
-                    )
-                    if private_endpoint and contribution.window_key is not None:
-                        buckets = ibis.literal(contribution.window_key)
-                    elif (
-                        private_endpoint
-                        and calendar_slot is not None
-                        and calendar_field(calendar_slot) in columns
-                    ):
-                        slot = columns[calendar_field(calendar_slot)]
-                        inputs.add(slot)
-                        buckets = carrier[slot]
-                    else:
-                        target = allowed[renamed[group[0]]]
-                        cells = population_time_ranges(axis)
-                        inputs.add(clock)
-                        if not cells:
-                            ranges.append(ibis.literal(False))
-                            continue
-                        ranges.append(
-                            ibis.or_(
-                                *(
-                                    (target == ibis.literal(key, type=target.type()))
-                                    & (time >= temporal_bound(time, start, axis.timezone))
-                                    & (time < temporal_bound(time, end, axis.timezone))
-                                    for key, start, end in cells
-                                )
-                            )
-                        )
-                        continue
-                    predicates.append(buckets == allowed[renamed[group[0]]])
                     continue
                 assert isinstance(axis, AxisBinding)
                 read = reads[axis]
@@ -332,7 +356,7 @@ def _related_columns(
                 prefix += "_"
             current = {name: prefix + name for name in target.columns}
             target = target.rename(**{alias: name for name, alias in current.items()})
-            provider = carrier._find_backend().name
+            provider = expression_backend_name(carrier)
             carrier = carrier.inner_join(
                 target,
                 [
@@ -368,7 +392,7 @@ def _mark_matching_facts(
     matches = candidates.inner_join(allowed, predicates or ibis.literal(True))
     if ranges:
         matches = matches.filter(*ranges)
-    provider = facts._find_backend().name
+    provider = expression_backend_name(facts)
     aliases = tuple(f"{marker}_{i}" for i in range(len(inputs)))
     hits = matches.select(
         **{

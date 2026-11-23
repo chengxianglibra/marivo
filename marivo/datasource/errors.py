@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
+from typing_extensions import override
 
 from marivo._authoring.errors import ContractScopeErrorPayload
 from marivo._authoring.model import AuthoringRepair
@@ -50,7 +51,7 @@ def _backend_failure_summary(
     exc: Exception, *, redact: Callable[[str], str] = str
 ) -> _BackendFailureSummary:
     """Return a bounded diagnostic that does not expose common secret shapes."""
-    if isinstance(exc, DatasourceError) and (failure := exc._backend_failure) is not None:
+    if isinstance(exc, DatasourceError) and (failure := exc._backend_failure) is not None:  # noqa: SLF001 - Render the captured driver failure through redaction.
         return _BackendFailureSummary(
             exception_type=redact(failure.exception_type),
             backend_code=redact(failure.backend_code) if failure.backend_code is not None else None,
@@ -191,6 +192,7 @@ class DatasourceError(MarivoError):
         self.traceback = traceback
         self._backend_failure = _backend_failure
 
+    @override
     def __str__(self) -> str:
         lines = [f"{type(self).__name__}: {self.message}"]
         source = self.source_location
@@ -243,6 +245,7 @@ class DatasourceAuthoringError(DatasourceError):
             repair=repair,
         )
 
+    @override
     def __str__(self) -> str:
         rendered = super().__str__().splitlines()
         rendered[1:1] = (f"Code: {self.code}", f"Stage: {self.stage}")

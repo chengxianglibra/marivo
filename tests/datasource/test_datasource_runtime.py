@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from ibis.backends.duckdb import Backend
+from typing_extensions import override
 
 import marivo.datasource as md
 from marivo.datasource.errors import DatasourceMissingError
@@ -10,7 +11,7 @@ from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.runtime import connections as runtime
 from marivo.datasource.runtime.backends import BuiltDatasourceBackend
 from marivo.datasource.runtime.read_types import SourceSubmission
-from marivo.datasource.store.authoring import _ir_from_spec
+from marivo.datasource.store.authoring import datasource_ir_from_spec
 
 
 class FakeBackend:
@@ -22,7 +23,7 @@ class FakeBackend:
 
 
 def _warehouse_datasource() -> DatasourceIR:
-    return _ir_from_spec(
+    return datasource_ir_from_spec(
         md.duckdb(name="warehouse"),
         location=DatasourceSourceLocation(file="<test>", line=1),
     )
@@ -72,6 +73,7 @@ def test_scoped_disconnect_observation_reports_actual_outcome(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fails: bool
 ) -> None:
     class ObservedBackend(FakeBackend):
+        @override
         def disconnect(self) -> None:
             super().disconnect()
             if fails:

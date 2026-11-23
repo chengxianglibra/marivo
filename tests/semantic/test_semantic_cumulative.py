@@ -62,7 +62,7 @@ def _write_project(tmp_path: Path, body: str) -> Path:
 def _metric_node(catalog: ms.SemanticCatalog, name: str) -> MetricNode:
     facts = consume_metric(catalog_value(catalog, f"sales.{name}", kind="metric"))
     node = facts.node
-    definitions = dict(facts._declared)
+    definitions = dict(facts.declared)
     while isinstance(node, DeclaredMetricRef):
         node = definitions[node.ref]
     return node

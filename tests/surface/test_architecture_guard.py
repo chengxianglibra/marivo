@@ -334,3 +334,27 @@ def test_diff_rejects_moving_an_import_ignore_and_widening_budgets() -> None:
         governance.baseline_increases(json.dumps(previous), '{"ARCH001":{"old":1},"ARCH003":{}}')
         == []
     )
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "finding"),
+    [
+        ('"C901",', "", "must select C901"),
+        ("max-complexity = 15", "max-complexity = 16", "relaxes Ruff mccabe.max-complexity"),
+        ("max-branches = 15", "max-branches = 16", "relaxes Ruff pylint.max-branches"),
+        ("max-statements = 80", "max-statements = 81", "relaxes Ruff pylint.max-statements"),
+        ("!marivo/**/*.py", "!marivo/_kernel/**/*.py", "adds Ruff SLF001 exemption"),
+        ('"explicit-override",', "", "disables a protected Mypy error code"),
+    ],
+)
+def test_diff_rejects_relaxing_structure_and_override_gates(
+    before: str, after: str, finding: str
+) -> None:
+    configuration = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert configuration.count(before) == 1
+    assert not governance.tool_config_relaxations(configuration, configuration)
+    findings = governance.tool_config_relaxations(
+        configuration, configuration.replace(before, after)
+    )
+    assert len(findings) == 1
+    assert finding in findings[0]

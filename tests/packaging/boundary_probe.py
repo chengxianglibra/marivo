@@ -10,10 +10,13 @@ import json
 import sys
 from pathlib import Path
 
+from typing_extensions import override
+
 
 class MissingNativeMySQL(importlib.abc.MetaPathFinder):
     """Fail if a selected backend indirectly imports the retired C driver."""
 
+    @override
     def find_spec(self, fullname: str, path: object = None, target: object = None) -> None:
         if fullname == "MySQLdb" or fullname.startswith("MySQLdb."):
             raise ModuleNotFoundError("native MySQL driver unavailable", name=fullname)

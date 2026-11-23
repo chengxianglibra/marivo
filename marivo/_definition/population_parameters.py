@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Literal
 
 from ibis.common.deferred import (
     Attr,
@@ -70,9 +71,12 @@ from marivo._definition.population_types import (
     CalendarKeys,
     IntervalKeys,
     MembershipBinding,
+    PopulationDependency,
     PopulationParameter,
     PopulationProgram,
     PredicateExpression,
+    population_definition,
+    population_identity_keys,
 )
 from marivo._definition.types import (
     AxisBinding,
@@ -81,9 +85,10 @@ from marivo._definition.types import (
     field_axis,
 )
 from marivo._kernel.errors import invalid
-from marivo._kernel.grouping import Grouping
+from marivo._kernel.grouping import Grouping, grouping_identity_keys
 from marivo._kernel.input_context import (
     InputContext,
+    captured_context,
     merge_input_contexts,
 )
 from marivo._kernel.paths import (
@@ -92,6 +97,8 @@ from marivo._kernel.paths import (
     RelationshipStepParameter,
     _PathValue,
     _RelationshipValue,
+    path_parameter,
+    relationship_binding,
 )
 from marivo._kernel.refs import ExactRef, Ref, SemanticKindTag
 from marivo._kernel.symbolic import native_symbol_ref
@@ -108,10 +115,10 @@ def _contexts(*values: object) -> InputContext:
     contexts: list[InputContext] = []
     for value in values:
         if isinstance(value, (_RelationshipValue, PathParameter)):
-            contexts.append(value._context)
+            contexts.append(captured_context(value))
         elif isinstance(value, (Deferred, Resolver, Grouping, PopulationParameter)):
             contexts.append(
-                value._context
+                captured_context(value)
                 if isinstance(value, (Grouping, PopulationParameter))
                 else inspect_capture(
                     value if isinstance(value, Deferred) else Deferred(value)
@@ -126,7 +133,7 @@ def _keys(*values: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
     result: dict[str, tuple[str, ...]] = {}
     for value in values:
         items = (
-            value._identity_keys
+            grouping_identity_keys(value)
             if isinstance(value, (Grouping, PopulationParameter))
             else ((value.target.ref.key, value.steps[-1].relationship.target_keys),)
             if isinstance(value, PathParameter)
@@ -167,7 +174,9 @@ def interval(scope: TimeScope) -> PopulationParameter:
 def _literal(value: Deferred) -> object:
     recipe = resolver_of(value)
     if isinstance(recipe, Just):
-        return recipe.value._parameter if isinstance(recipe.value, _PathValue) else recipe.value
+        return (
+            path_parameter(recipe.value) if isinstance(recipe.value, _PathValue) else recipe.value
+        )
     if relationship_carrier(recipe) is not None:
         return recipe.value
     return value
@@ -186,8 +195,28 @@ def _relationship(value: object) -> RelationshipParameter:
     if isinstance(value, RelationshipParameter):
         return value
     if isinstance(value, _RelationshipValue):
-        return value._parameter
+        return relationship_binding(value)
     invalid("symbolic path binding requires closed Relationship facts")
+
+
+def _bound_axes(
+    items: tuple[AxisValue, ...],
+    bind: Callable[[Deferred], Deferred],
+    field: Callable[[Deferred], FieldRead],
+) -> tuple[ComparisonAxis, ...]:
+    result: list[ComparisonAxis] = []
+    for item in items:
+        current = _literal(bind(item)) if isinstance(item, Deferred) else item
+        if isinstance(current, Grouping):
+            binding = grouping_binding(current)
+            if isinstance(binding, MembershipBinding):
+                invalid("Population coordinates cannot contain membership allocation rules")
+            result.append(binding)
+        elif isinstance(current, Deferred):
+            result.append(field_axis(field(current)))
+        else:
+            invalid("Population axes require closed fields or coordinate groupings")
+    return build.axes(tuple(result))
 
 
 def bind_parameter(
@@ -206,21 +235,6 @@ def bind_parameter(
             invalid("This parameter requires a bound Path from mv.path(...)")
         return current
 
-    def by(items: tuple[AxisValue, ...]) -> tuple[ComparisonAxis, ...]:
-        result: list[ComparisonAxis] = []
-        for item in items:
-            current = _literal(bind(item)) if isinstance(item, Deferred) else item
-            if isinstance(current, Grouping):
-                binding = grouping_binding(current)
-                if isinstance(binding, MembershipBinding):
-                    invalid("Population coordinates cannot contain membership allocation rules")
-                result.append(binding)
-            elif isinstance(current, Deferred):
-                result.append(field_axis(field(current)))
-            else:
-                invalid("Population axes require closed fields or coordinate groupings")
-        return build.axes(tuple(result))
-
     if isinstance(value, PathRecipe):
         steps: list[RelationshipStepParameter] = []
         for step in value.steps:
@@ -230,14 +244,14 @@ def bind_parameter(
                 if isinstance(current, RelationshipStepParameter)
                 else RelationshipStepParameter(_relationship(current))
             )
-        return PathParameter(tuple(steps), value.source_at, _context=value._context)
+        return PathParameter(tuple(steps), value.source_at, _context=captured_context(value))
     if isinstance(value, IdentityParameter):
         if isinstance(value.target, Deferred):
             reference = native_symbol_ref(value.target)
             target = _entity(resolve(reference)) if reference is not None else path(value.target)
         else:
             target = value.target
-        return _CoordinateGrouping(build.identity(target), value._context, _keys(target))
+        return _CoordinateGrouping(build.identity(target), captured_context(value), _keys(target))
     if isinstance(value, MembershipParameter):
         return _MembershipGrouping(
             build.membership(
@@ -245,40 +259,46 @@ def bind_parameter(
                 tuple(path(item) for item in value.paths),
                 value.unmatched,
             ),
-            value._context,
+            captured_context(value),
         )
     if isinstance(value, CoordinatesParameter):
         return PopulationParameter(
-            build.coordinates(by(value.by), value.keys),
-            _context=value._context,
-            _identity_keys=value._identity_keys,
+            build.coordinates(_bound_axes(value.by, bind, field), value.keys),
+            _context=captured_context(value),
+            _identity_keys=grouping_identity_keys(value),
         )
     if isinstance(value, ProductParameter):
-        factors: list[PopulationParameter] = []
-        for item in value.factors:
-            current = _literal(bind(item)) if isinstance(item, Deferred) else item
-            if isinstance(current, CalendarAxis):
-                coordinate = grouping_binding(current)
-                factors.append(
-                    PopulationParameter(
-                        PopulationProgram(CalendarKeys(coordinate), None, (coordinate,))
-                    )
-                )
-            elif isinstance(current, TimeScope):
-                factors.append(interval(current))
-            elif isinstance(current, PopulationParameter):
-                factors.append(current)
-            else:
-                invalid("product requires Population, CalendarAxis or TimeScope factors")
-        return PopulationParameter(
-            build.product(tuple(item._definition for item in factors)),
-            _context=merge_input_contexts(value._context, _contexts(tuple(factors))),
-            _identity_keys=_keys(tuple(factors)),
-        )
+        return _bind_product(value, bind)
     current = _literal(bind(value.population))
     if not isinstance(current, PopulationParameter):
         invalid("in_population requires a bound Population parameter")
     return PopulationContainsResolver(current)
+
+
+def _bind_product(
+    value: ProductParameter, bind: Callable[[Deferred], Deferred]
+) -> PopulationParameter:
+    factors: list[PopulationParameter] = []
+    for item in value.factors:
+        current = _literal(bind(item)) if isinstance(item, Deferred) else item
+        if isinstance(current, CalendarAxis):
+            coordinate = grouping_binding(current)
+            factors.append(
+                PopulationParameter(
+                    PopulationProgram(CalendarKeys(coordinate), None, (coordinate,))
+                )
+            )
+        elif isinstance(current, TimeScope):
+            factors.append(interval(current))
+        elif isinstance(current, PopulationParameter):
+            factors.append(current)
+        else:
+            invalid("product requires Population, CalendarAxis or TimeScope factors")
+    return PopulationParameter(
+        build.product(tuple(population_definition(item) for item in factors)),
+        _context=merge_input_contexts(captured_context(value), _contexts(tuple(factors))),
+        _identity_keys=_keys(tuple(factors)),
+    )
 
 
 def _subject_argument(value: object, method: str) -> ComparisonAxis | None:
@@ -305,6 +325,22 @@ def _axis_arguments(
     return tuple(result), tuple(isinstance(item, Grouping) for item in values)
 
 
+def _bound_value(item: Resolver, bind: Callable[[Deferred], Deferred]) -> object:
+    current = resolver_of(bind(Deferred(item)))
+    if isinstance(current, Just):
+        return (
+            path_parameter(current.value)
+            if isinstance(current.value, _PathValue)
+            else current.value
+        )
+    carrier = relationship_carrier(current)
+    if carrier is not None:
+        return carrier
+    if isinstance(current, Sequence):
+        return tuple(_bound_value(child, bind) for child in current.values)
+    return Deferred(current)
+
+
 def bind_parameter_call(
     recipe: Resolver,
     bind: Callable[[Deferred], Deferred],
@@ -314,21 +350,8 @@ def bind_parameter_call(
 ) -> Resolver | None:
     """Interpret only the explicitly supported native helper operations."""
 
-    def bound(item: Resolver) -> object:
-        current = resolver_of(bind(Deferred(item)))
-        if isinstance(current, Just):
-            return (
-                current.value._parameter if isinstance(current.value, _PathValue) else current.value
-            )
-        carrier = relationship_carrier(current)
-        if carrier is not None:
-            return carrier
-        if isinstance(current, Sequence):
-            return tuple(bound(child) for child in current.values)
-        return Deferred(current)
-
     if isinstance(recipe, Attr):
-        receiver = bound(recipe.obj)
+        receiver = _bound_value(recipe.obj, bind)
         if (
             isinstance(receiver, PopulationParameter)
             and isinstance(recipe.name, Just)
@@ -338,16 +361,16 @@ def bind_parameter_call(
                 tuple(
                     _CoordinateGrouping(
                         axis,
-                        InputContext(receiver._context.project_root),
+                        InputContext(captured_context(receiver).project_root),
                         tuple(
                             (identity, keys)
-                            for identity, keys in receiver._identity_keys
+                            for identity, keys in population_identity_keys(receiver)
                             if isinstance(axis, AxisBinding)
                             and axis.role == "identity"
                             and axis.entity.ref.key == identity
                         ),
                     )
-                    for axis in receiver._definition.axes
+                    for axis in population_definition(receiver).axes
                 )
             )
         return None
@@ -355,7 +378,7 @@ def bind_parameter_call(
         indexer: object = recipe.indexer
         if not isinstance(indexer, Resolver):
             invalid("Population axis selection requires a native constant index")
-        receiver, index = bound(recipe.obj), bound(indexer)
+        receiver, index = _bound_value(recipe.obj, bind), _bound_value(indexer, bind)
         if isinstance(receiver, tuple) and type(index) is int:
             return Just(receiver[index])
         return None
@@ -367,23 +390,41 @@ def bind_parameter_call(
         and captured_relationship(recipe.func.obj)
     ):
         validate_relationship_recipe(recipe, ())
-        anchor = bound(recipe.args[0])
+        anchor = _bound_value(recipe.args[0], bind)
         assert isinstance(anchor, InstantAnchor)
-        return Just(RelationshipStepParameter(_relationship(bound(recipe.func.obj)), anchor))
-    receiver = bound(recipe.func.obj)
+        return Just(
+            RelationshipStepParameter(_relationship(_bound_value(recipe.func.obj, bind)), anchor)
+        )
+    receiver = _bound_value(recipe.func.obj, bind)
     if not isinstance(receiver, PopulationParameter) or not isinstance(recipe.func.name, Just):
         return None
     method = recipe.func.name.value
-    args = tuple(bound(item) for item in recipe.args)
-    kwargs = {key: bound(item) for key, item in recipe.kwargs.items()}
+    args = tuple(_bound_value(item, bind) for item in recipe.args)
+    kwargs = {key: _bound_value(item, bind) for key, item in recipe.kwargs.items()}
 
-    def empty() -> None:
-        if args or kwargs:
-            invalid(f"Population.{method} does not accept these arguments")
+    return _apply_population_call(receiver, method, args, kwargs, field, predicate)
 
+
+_SET_METHODS: dict[str, Literal["union", "intersection", "difference"]] = {
+    "union": "union",
+    "intersection": "intersection",
+    "difference": "difference",
+}
+
+
+def _apply_population_call(
+    receiver: PopulationParameter,
+    method: str,
+    args: tuple[object, ...],
+    kwargs: dict[str, object],
+    field: Callable[[Deferred], FieldRead],
+    predicate: Callable[[Deferred], PredicateExpression],
+) -> Resolver:
     if method == "count":
-        empty()
+        if args or kwargs:
+            invalid("Population.count does not accept these arguments")
         return PopulationCountResolver(receiver)
+    definition: PopulationDependency
     if method in ("project", "classify"):
         by = kwargs.get("by")
         allowed = {"by", "on"} if method == "classify" else {"by"}
@@ -391,10 +432,10 @@ def bind_parameter_call(
             invalid(f"Population.{method} requires by=(field_or_grouping, ...)")
         values, exact = _axis_arguments(by, field)
         definition = (
-            build.project(receiver._definition, values)
+            build.project(population_definition(receiver), values)
             if method == "project"
             else build.classify(
-                receiver._definition,
+                population_definition(receiver),
                 values,
                 _subject_argument(kwargs.get("on"), method),
                 exact=exact,
@@ -404,42 +445,50 @@ def bind_parameter_call(
         selected = _subject_argument(kwargs.get("on"), method)
         if args or set(kwargs) != {"on"} or selected is None:
             invalid("Population.identities requires on=identity_grouping")
-        definition = build.identities(receiver._definition, selected)
-    elif method in ("union", "intersection", "difference"):
+        definition = build.identities(population_definition(receiver), selected)
+    elif (set_method := _SET_METHODS.get(method)) is not None:
         if len(args) != 1 or kwargs or not isinstance(args[0], PopulationParameter):
             invalid(f"Population.{method} requires one Population")
-        definition = build.set_operation(receiver._definition, args[0]._definition, method)
+        definition = build.set_operation(
+            population_definition(receiver), population_definition(args[0]), set_method
+        )
     elif method == "where":
         if len(args) != 1 or kwargs or not isinstance(args[0], Deferred):
             invalid("Population.where requires one Deferred membership predicate")
-        definition = build.where(receiver._definition, predicate(args[0]))
+        definition = build.where(population_definition(receiver), predicate(args[0]))
     elif method in ("image", "preimage"):
-        path = kwargs.get("via")
-        if not isinstance(path, PathParameter) or set(kwargs) - {"via", "on"}:
-            invalid(f"Population.{method} requires via=mv.path(...) and optional on=")
-        if method == "image":
-            if args:
-                invalid("Population.image uses keyword arguments via= and on=")
-            definition = build.image(
-                receiver._definition, path, _subject_argument(kwargs.get("on"), method)
-            )
-        else:
-            if len(args) != 1 or not isinstance(args[0], PopulationParameter):
-                invalid("Population.preimage requires one target Population and via")
-            definition = build.preimage(
-                receiver._definition,
-                args[0]._definition,
-                path,
-                _subject_argument(kwargs.get("on"), method),
-            )
+        definition = _population_path_call(receiver, method, args, kwargs)
     else:
         invalid(f"Unsupported symbolic Population operation {method!r}")
     return Just(
         PopulationParameter(
             definition,
             _context=merge_input_contexts(
-                receiver._context, _contexts(args, tuple(kwargs.values()))
+                captured_context(receiver), _contexts(args, tuple(kwargs.values()))
             ),
             _identity_keys=_keys(receiver, args, tuple(kwargs.values())),
         )
     )
+
+
+def _population_path_call(
+    receiver: PopulationParameter, method: str, args: tuple[object, ...], kwargs: dict[str, object]
+) -> PopulationDependency:
+    path = kwargs.get("via")
+    if not isinstance(path, PathParameter) or set(kwargs) - {"via", "on"}:
+        invalid(f"Population.{method} requires via=mv.path(...) and optional on=")
+    if method == "image":
+        if args:
+            invalid("Population.image uses keyword arguments via= and on=")
+        return build.image(
+            population_definition(receiver), path, _subject_argument(kwargs.get("on"), method)
+        )
+    else:
+        if len(args) != 1 or not isinstance(args[0], PopulationParameter):
+            invalid("Population.preimage requires one target Population and via")
+        return build.preimage(
+            population_definition(receiver),
+            population_definition(args[0]),
+            path,
+            _subject_argument(kwargs.get("on"), method),
+        )

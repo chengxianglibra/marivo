@@ -18,6 +18,7 @@ from typing import (
 )
 
 from ibis.common.deferred import Attr, Call, Deferred, Resolver
+from typing_extensions import override
 
 from marivo._definition.deferred import (
     NamedResolver,
@@ -32,6 +33,8 @@ from marivo._definition.types import (
     RelationshipStepParameter,
     SumNone,
 )
+from marivo._kernel.input_context import captured_context
+from marivo._kernel.paths import relationship_binding
 from marivo._kernel.refs import (
     DatasourceKind,
     DimensionKind,
@@ -96,6 +99,8 @@ from marivo.semantic.expressions.inputs import (
 from marivo.semantic.expressions.objects import (
     _Entity,
     _Relationship,
+    entity_exact,
+    expression_default_time,
 )
 from marivo.semantic.static_check.source_timezone import (
     effective_source_timezone,
@@ -128,6 +133,7 @@ class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]
     __hash__ = None  # type: ignore[assignment]  # Semantic objects have no implicit business equality.
 
     @property
+    @override
     def _context(self) -> InputContext:
         return InputContext(Path(self._catalog.workspace_dir).resolve())
 
@@ -164,10 +170,10 @@ class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]
     @property
     def definition(self) -> EntryDefinition:
         """Complete kind-specific captured definition; no source data is read."""
-        return self._catalog._definition(self._ref)
+        return lookup_definition(self._catalog, self._ref)
 
     def _definition_as(self, expected: type[_DefinitionT]) -> _DefinitionT:
-        definition = self._catalog._definition(self._ref)
+        definition = lookup_definition(self._catalog, self._ref)
         if not isinstance(definition, expected):
             raise TypeError(f"{self._ref.key} must have a {expected.__name__} definition")
         return definition
@@ -175,10 +181,10 @@ class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]
     @property
     def provenance(self) -> EntryProvenance:
         """Captured declaration source and compiled snapshot identity."""
-        captured = self._catalog._state.definitions.get(self._ref)
+        captured = lookup_state(self._catalog).definitions.get(self._ref)
         location = getattr(captured, "location", None)
         if location is None and self._ref.kind in {SemanticKind.METRIC, SemanticKind.MEASURE}:
-            value = self._catalog._resolved_value(self._ref)
+            value = lookup_value(self._catalog, self._ref)
             declaration = root_declaration(value) if isinstance(value, Deferred) else None
             location = declaration.location if declaration is not None else None
         details = self._details
@@ -210,7 +216,7 @@ class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]
         Constraints:
             Candidates do not guarantee Analysis composition validity.
         """
-        return self._catalog._related(self, relation, limit=limit, cursor=cursor)
+        return related_entries(self._catalog, self, relation, limit=limit, cursor=cursor)
 
     @traced(surface="semantic", operation="semantic_object.to_dict", kind="method")
     def to_dict(self) -> dict[str, JsonValue]:
@@ -253,6 +259,7 @@ class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]
         return json.dumps(self.to_dict(), ensure_ascii=False, sort_keys=True)
 
     @traced(surface="semantic", operation="semantic_object.show", kind="method")
+    @override
     def show(
         self,
         *,
@@ -294,9 +301,11 @@ class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]
             card.field(section, json.dumps(_json_value(value), ensure_ascii=False))
             print(card.render(max_output_bytes=max_output_bytes))
 
+    @override
     def _repr_identity(self) -> str:
         return f"{type(self).__name__} {self.id}"
 
+    @override
     def _card(self) -> Card:
         definition = self.definition
         available = [
@@ -335,14 +344,14 @@ class _SemanticObject(RenderableResult, CatalogInput, Generic[CatalogEntryKindT]
         elif isinstance(definition, FieldDefinition):
             card.field("expression", definition.expression)
             card.field("unit", definition.unit or "(none)")
-            dimension = self._catalog._reg.dimensions.get(self._ref.path)
+            dimension = lookup_registry(self._catalog).dimensions.get(self._ref.path)
             if dimension is not None and dimension.is_time_dimension:
                 source = effective_source_timezone(
-                    self._catalog._reg,
-                    source_timezone_axis(self._catalog._reg, self._ref.path),
+                    lookup_registry(self._catalog),
+                    source_timezone_axis(lookup_registry(self._catalog), self._ref.path),
                 )
                 if source is not None:
-                    owner = self._catalog._reg.entities[dimension.entity].datasource
+                    owner = lookup_registry(self._catalog).entities[dimension.entity].datasource
                     location = f"datasource {owner}" if source.origin == "datasource" else "field"
                     inherited = (
                         f"; inherited from {source.inherited_from}" if source.inherited_from else ""
@@ -376,10 +385,12 @@ class Domain(_SemanticObject[DomainKind]):
     """Immutable domain catalog entry."""
 
     @property
+    @override
     def kind(self) -> Literal["domain"]:
         return "domain"
 
     @property
+    @override
     def definition(self) -> DomainDefinition:
         return self._definition_as(DomainDefinition)
 
@@ -389,14 +400,17 @@ class Datasource(_SemanticObject[DatasourceKind], DatasourceIdentityHandle):
     """Immutable datasource catalog entry."""
 
     @property
+    @override
     def kind(self) -> Literal["datasource"]:
         return "datasource"
 
     @property
+    @override
     def _datasource_identity(self) -> _DatasourceIdentity:
         return _DatasourceIdentity(self._ref, self._catalog.workspace_dir.resolve())
 
     @property
+    @override
     def definition(self) -> DatasourceDefinition:
         return self._definition_as(DatasourceDefinition)
 
@@ -411,10 +425,12 @@ class Entity(_SemanticObject[EntityKind]):
     """A named Entity with captured metadata and direct identity operations."""
 
     @property
+    @override
     def kind(self) -> Literal["entity"]:
         return "entity"
 
     @property
+    @override
     def definition(self) -> EntityDefinition:
         return self._definition_as(EntityDefinition)
 
@@ -446,19 +462,19 @@ class Entity(_SemanticObject[EntityKind]):
             completed scope; use a Mapping to give this anonymous output a name.
         """
 
-        value = self._catalog._resolved_value(self._ref)
+        value = lookup_value(self._catalog, self._ref)
         assert isinstance(value, _Entity)
         # Keep the Entity boundary inside count, so receiver scope owns identity facts.
 
         leaf = NamedResolver(
-            value._exact_ref,
+            entity_exact(value),
             SemanticResolver(
                 SemanticInput(
-                    value._exact_ref,
-                    value._exact_ref,
+                    entity_exact(value),
+                    entity_exact(value),
                     "1",
                     SumNone(),
-                    default_time=value._default_time,
+                    default_time=expression_default_time(value),
                 )
             ),
         )
@@ -474,21 +490,25 @@ class Dimension(_SemanticObject[DimensionKind], RowExpression[Literal["dimension
     """A named Dimension with captured metadata and row comparison operations."""
 
     @property
+    @override
     def kind(self) -> Literal["dimension"]:
         return "dimension"
 
     @property
+    @override
     def definition(self) -> FieldDefinition:
         return self._definition_as(FieldDefinition)
 
     @property
+    @override
     def _role(self) -> Literal["dimension"]:
         return "dimension"
 
     @property
+    @override
     def _recipe(self) -> Resolver:
 
-        return self._catalog._named_recipe(self._ref)
+        return lookup_recipe(self._catalog, self._ref)
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -496,21 +516,25 @@ class TimeDimension(_SemanticObject[TimeDimensionKind], RowExpression[Literal["t
     """A named TimeDimension with captured metadata and time operations."""
 
     @property
+    @override
     def kind(self) -> Literal["time_dimension"]:
         return "time_dimension"
 
     @property
+    @override
     def definition(self) -> FieldDefinition:
         return self._definition_as(FieldDefinition)
 
     @property
+    @override
     def _role(self) -> Literal["time"]:
         return "time"
 
     @property
+    @override
     def _recipe(self) -> Resolver:
 
-        return self._catalog._named_recipe(self._ref)
+        return lookup_recipe(self._catalog, self._ref)
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -518,21 +542,25 @@ class Measure(_SemanticObject[MeasureKind], RowExpression[Literal["numeric"]]):
     """A named Measure with captured metadata and numeric row operations."""
 
     @property
+    @override
     def kind(self) -> Literal["measure"]:
         return "measure"
 
     @property
+    @override
     def definition(self) -> FieldDefinition:
         return self._definition_as(FieldDefinition)
 
     @property
+    @override
     def _role(self) -> Literal["numeric"]:
         return "numeric"
 
     @property
+    @override
     def _recipe(self) -> Resolver:
 
-        return self._catalog._named_recipe(self._ref)
+        return lookup_recipe(self._catalog, self._ref)
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -540,21 +568,25 @@ class Metric(_SemanticObject[MetricKind], MetricExpression[Literal["numeric"]]):
     """A named Metric with captured metadata and completed metric operations."""
 
     @property
+    @override
     def kind(self) -> Literal["metric"]:
         return "metric"
 
     @property
+    @override
     def definition(self) -> MetricDefinition:
         return self._definition_as(MetricDefinition)
 
     @property
+    @override
     def _role(self) -> Literal["numeric"]:
         return "numeric"
 
     @property
+    @override
     def _recipe(self) -> Resolver:
 
-        return self._catalog._named_recipe(self._ref)
+        return lookup_recipe(self._catalog, self._ref)
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -562,18 +594,21 @@ class Relationship(_SemanticObject[RelationshipKind], CatalogRelationshipInput):
     """A named directed Relationship with captured metadata and endpoint navigation."""
 
     @property
+    @override
     def kind(self) -> Literal["relationship"]:
         return "relationship"
 
     @property
+    @override
     def definition(self) -> RelationshipDefinition:
         return self._definition_as(RelationshipDefinition)
 
     @property
+    @override
     def _parameter(self) -> RelationshipParameter:
-        value = self._catalog._resolved_value(self._ref)
+        value = lookup_value(self._catalog, self._ref)
         assert isinstance(value, _Relationship)
-        return value._parameter
+        return relationship_binding(value)
 
     @property
     def from_entity(self) -> Entity:
@@ -640,13 +675,15 @@ class RelationshipStep:
     def __init__(self) -> None:
         raise TypeError("Use relationship.at(anchor) or mv.path(...).steps.")
 
+    @override
     def __init_subclass__(cls) -> NoReturn:
         raise TypeError("RelationshipStep is a closed value type.")
 
     @property
     def _context(self) -> InputContext:
-        return self.relationship._context
+        return captured_context(self.relationship)
 
+    @override
     def __repr__(self) -> str:
         return f"<RelationshipStep {self.relationship.id[:150]}; use .show()>"
 
@@ -658,7 +695,7 @@ class RelationshipStep:
 
 def _step(relationship: Relationship, anchor: InstantAnchor | None) -> RelationshipStep:
     try:
-        facts = RelationshipStepParameter(relationship._parameter, anchor)
+        facts = RelationshipStepParameter(relationship_binding(relationship), anchor)
     except DefinitionGraphError as error:
         raise SemanticExpressionError(
             kind=ErrorKind.INVALID_TIME_PATH,
@@ -706,3 +743,54 @@ class CatalogLookup(Protocol):
     ) -> CatalogPage[SemanticObject]: ...
 
     def get(self, id: str | LookupSymbol, /) -> SemanticObject: ...
+
+
+def lookup_state(catalog: CatalogLookup) -> CompiledSemanticState:
+    return catalog._state  # noqa: SLF001 - Compiled state belongs to the owning Catalog.
+
+
+def lookup_registry(catalog: CatalogLookup) -> Registry:
+    return catalog._reg  # noqa: SLF001 - The Catalog protocol owns the selected registry.
+
+
+def lookup_definition(catalog: CatalogLookup, ref: Ref[SemanticKindTag]) -> EntryDefinition:
+    return catalog._definition(ref)  # noqa: SLF001 - Resolve inside the owning Catalog.
+
+
+def lookup_value(catalog: CatalogLookup, ref: Ref[SemanticKindTag]) -> ResolvedValue:
+    return catalog._resolved_value(ref)  # noqa: SLF001 - Resolve inside the owning Catalog.
+
+
+def lookup_recipe(catalog: CatalogLookup, ref: Ref[SemanticKindTag]) -> Resolver:
+    return catalog._named_recipe(ref)  # noqa: SLF001 - Resolve inside the owning Catalog.
+
+
+def entry_reference(entry: _SemanticObject[CatalogEntryKindT]) -> Ref[CatalogEntryKindT]:
+    return entry._ref  # noqa: SLF001 - The Catalog entry owns its nominal reference.
+
+
+def entry_value(entry: _SemanticObject[SemanticKindTag]) -> ResolvedValue:
+    return lookup_value(entry._catalog, entry._ref)  # noqa: SLF001 - Resolve only through the entry's captured Catalog.
+
+
+def entry_workspace(entry: _SemanticObject[SemanticKindTag]) -> Path:
+    return entry._catalog.workspace_dir  # noqa: SLF001 - Check input ownership against its captured Catalog.
+
+
+def entry_details(entry: _SemanticObject[SemanticKindTag]) -> _CatalogObjectDetails | None:
+    return entry._details  # noqa: SLF001 - Definition rendering owns the closed detail variants.
+
+
+def related_entries(
+    catalog: CatalogLookup,
+    entry: _SemanticObject[SemanticKindTag],
+    relation: RelatedRelation,
+    *,
+    limit: int,
+    cursor: str | None,
+) -> CatalogPage[SemanticObject]:
+    return catalog._related(entry, relation, limit=limit, cursor=cursor)  # noqa: SLF001 - Catalog controls navigation scope.
+
+
+def relationship_step_parameter(step: RelationshipStep) -> RelationshipStepParameter:
+    return step._parameter  # noqa: SLF001 - Exact relationship and captured time anchor.

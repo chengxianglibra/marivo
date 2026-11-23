@@ -36,6 +36,7 @@ from marivo.analysis.model.lineage import (
     SemanticObjectIdentity,
     all_origins,
     directory,
+    lineage_domain,
     merge,
     union,
 )
@@ -60,6 +61,31 @@ if TYPE_CHECKING:
     from marivo.analysis.model.frame_structure import PendingDataSchema, PendingFrameAxis
     from marivo.analysis.model.layout_facts import FrameValueContext
     from marivo.semantic.spi import CompiledSemanticState
+
+
+def _collect_origin_value(
+    value: object,
+    resolver: _Resolver | None,
+    identity: Callable[[ExactRef], Origins],
+    collect: Callable[[object], Origins],
+) -> Origins:
+    if isinstance(value, ExactRef):
+        return identity(value)
+    if isinstance(value, Ref):
+        return identity(resolver.exact(value)) if resolver is not None else ()
+    if isinstance(value, Grain):
+        return ()
+    if isinstance(value, tuple):
+        return union(*(collect(item) for item in value))
+    if is_dataclass(value) and not isinstance(value, type):
+        return union(
+            *(
+                collect(getattr(value, field.name))
+                for field in fields(value)
+                if field.name not in ("recipe", "keys", "rows")
+            )
+        )
+    return ()
 
 
 def _capture(
@@ -96,29 +122,10 @@ def _capture(
         prior = captured.get(id(value))
         if prior is not None:
             return prior[1]
-        result = collect_value(value)
+        result = _collect_origin_value(value, resolver, identity, collect)
         if isinstance(value, tuple) or is_dataclass(value):
             captured[id(value)] = (value, result)
         return result
-
-    def collect_value(value: object) -> Origins:
-        if isinstance(value, ExactRef):
-            return identity(value)
-        if isinstance(value, Ref):
-            return identity(resolver.exact(value)) if resolver is not None else ()
-        if isinstance(value, Grain):
-            return ()
-        if isinstance(value, tuple):
-            return union(*(collect(item) for item in value))
-        if is_dataclass(value) and not isinstance(value, type):
-            return union(
-                *(
-                    collect(getattr(value, field.name))
-                    for field in fields(value)
-                    if field.name not in ("recipe", "keys", "rows")
-                )
-            )
-        return ()
 
     definitions = dict(root.graph.signature.declared_metrics)
     nodes: dict[int, ColumnLineage] = {}
@@ -239,7 +246,7 @@ def source_lineage(
             domain,
             *(
                 union(
-                    item.frame.lineage._domain,
+                    lineage_domain(item.frame.lineage),
                     *(all_origins(c) for c in item.frame.lineage.axes.values()),
                 )
                 for item in root.frame_key_inputs

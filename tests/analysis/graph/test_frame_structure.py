@@ -21,8 +21,14 @@ from marivo.analysis.core.frame_data import (
     MemoryFrameBacking,
     required_attachments,
 )
-from marivo.analysis.dsl.column import row_count
+from marivo.analysis.dsl.column import (
+    column_input_id,
+    column_value_kind,
+    require_frame_column,
+    row_count,
+)
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame_axis import axis_frame
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.terminal_store import describe
@@ -200,7 +206,7 @@ def test_paths_own_lookup_and_order_without_graph_scans(local: LocalFrameService
     frame = AnalysisFrame._from_memory(local, CompletedFrameResult(owned, metadata("r")))
     assert frame.output_names == ("left.revenue", "right.revenue")
     assert frame.presence_names == ("left_present", "left.right_present")
-    assert frame["left.right_present"]._kind == "boolean"
+    assert column_value_kind(frame["left.right_present"]) == "boolean"
 
 
 def test_equal_structures_are_independent_inputs_and_old_handles_fail(
@@ -214,8 +220,8 @@ def test_equal_structures_are_independent_inputs_and_old_handles_fail(
     assert isinstance(second._backing, MemoryFrameBacking)
     assert first._schema == second._schema
     assert first._input_id != second._input_id
-    assert second.over(row_count())._input_id == second._input_id
-    assert first.over(row_count())._input_id == first._input_id
+    assert column_input_id(second.over(row_count())) == second._input_id
+    assert column_input_id(first.over(row_count())) == first._input_id
     assert second._backing.metadata.result_id == first._backing.metadata.result_id
     assert second._backing.metadata.evaluated_at == NOW
 
@@ -229,9 +235,9 @@ def test_axis_lookup_is_exact_ambiguous_and_complete(local: LocalFrameServices) 
         "identity",
         ("customer",),
     )
-    assert frame.coord(axis)._kind == "string"
+    assert column_value_kind(frame.coord(axis)) == "string"
     ambiguous = memory(local, schema(duplicate_names=True))
-    assert ambiguous.coord(ambiguous.axes[1])._kind == "string"
+    assert column_value_kind(ambiguous.coord(ambiguous.axes[1])) == "string"
     composite = memory(local, schema(composite=True))
 
 
@@ -246,13 +252,13 @@ def test_handles_keep_current_input_alive_without_runtime(
     del frame, column
     gc.collect()
     assert reference() is not None
-    assert statistic._frame is axis._frame
+    assert statistic._frame is axis_frame(axis)
     axis.show()
     retained = reference()
     assert retained is not None
     retained["revenue"].show()
     assert tuple(field.name for field in fields(local)) == ("store", "session_ref")
-    assert isinstance(axis._frame._backing, MemoryFrameBacking)
+    assert isinstance(axis_frame(axis)._backing, MemoryFrameBacking)
     del axis, statistic, retained
     gc.collect()
     assert reference() is None
@@ -308,9 +314,9 @@ def test_stored_bindings_are_stable_only_for_exact_store_session_artifact(
 
     first, second = reopen(local, "artifact_1"), reopen(local, "artifact_1")
     assert first is not second and first._input_id == second._input_id
-    second._require_column(first["revenue"])
+    require_frame_column(second, first["revenue"])
     second.over(first["revenue"].sum())
-    assert second.coord(first.axes[0])._input_id == second._input_id
+    assert column_input_id(second.coord(first.axes[0])) == second._input_id
     other_session = DatasetRuntime.create(tmp_path, "stored-other", timezone="UTC").local
     other_store = DatasetRuntime.create(
         tmp_path / "other-store", "frame-structure", timezone="UTC"

@@ -230,7 +230,7 @@ def test_saved_context_pool_is_shared_and_does_not_grow_with_rows(tmp_path: Path
                 "again": source.over(source["amount"].sum()),
             }
         ).persist()
-        with local.store._read() as connection:
+        with local.store.read_transaction() as connection:
             saved = read_manifest(local.store, connection, result.artifact_id)
         assert saved is not None
         wire = parse_json(protocol.encode(saved))
@@ -469,7 +469,7 @@ def test_corrupt_nested_source_reads_cannot_become_empty(damage: str) -> None:
 def test_current_store_contains_no_record_collections(tmp_path: Path) -> None:
 
     store = SessionStore(tmp_path)
-    with store._read() as connection:
+    with store.read_transaction() as connection:
         names = {
             row[0]
             for row in connection.execute(

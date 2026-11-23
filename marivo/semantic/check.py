@@ -5,6 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import TypedDict, cast
+
+from typing_extensions import NotRequired
 
 from marivo._kernel.project import resolve_project_root
 from marivo.semantic.errors import SemanticError, StructuredWarning
@@ -54,11 +57,17 @@ def _domain_of_ref(ref: str) -> str:
     return ref.split(".", 1)[0] if "." in ref else ref
 
 
+class _DomainReadiness(TypedDict):
+    status: str
+    blockers: list[dict[str, object]]
+    warnings: list[dict[str, object]]
+
+
 def _partition_readiness_by_domain(
     report: ReadinessReport,
     domain_names: list[str],
-) -> dict[str, dict[str, object]]:
-    result: dict[str, dict[str, object]] = {}
+) -> dict[str, _DomainReadiness]:
+    result: dict[str, _DomainReadiness] = {}
     for domain_name in domain_names:
         blockers = [
             b for b in report.blockers if any(_domain_of_ref(r) == domain_name for r in b.refs)
@@ -81,19 +90,40 @@ def _partition_readiness_by_domain(
     return result
 
 
+class _CheckPayload(TypedDict):
+    status: str
+    errors: list[dict[str, object]]
+    warnings: list[dict[str, object]]
+    readiness: NotRequired[dict[str, object]]
+    readiness_by_domain: NotRequired[dict[str, _DomainReadiness]]
+
+
 def run_check(
     *,
     workspace_dir: str | Path | None = None,
     readiness: bool = False,
     include_traceback: bool = False,
 ) -> dict[str, object]:
+    return dict(
+        _run_check(
+            workspace_dir=workspace_dir, readiness=readiness, include_traceback=include_traceback
+        )
+    )
+
+
+def _run_check(
+    *,
+    workspace_dir: str | Path | None = None,
+    readiness: bool = False,
+    include_traceback: bool = False,
+) -> _CheckPayload:
     if workspace_dir is None:
         project = SemanticProject(workspace_dir=resolve_project_root())
     else:
         project = SemanticProject(workspace_dir=workspace_dir)
 
     result = project.load()
-    payload: dict[str, object] = {
+    payload: _CheckPayload = {
         "status": result.status,
         "errors": [
             _error_to_dict(error, include_traceback=include_traceback) for error in result.errors
@@ -109,8 +139,8 @@ def run_check(
         report = project.readiness()
         payload["readiness"] = report.to_dict()
         payload["status"] = report.status
-        if project.is_ready() and project._registry is not None:
-            domain_names = sorted(project._registry.domains.keys())
+        if project.is_ready() and result.registry is not None:
+            domain_names = sorted(result.registry.domains.keys())
             payload["readiness_by_domain"] = _partition_readiness_by_domain(report, domain_names)
 
     return payload
@@ -127,10 +157,9 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _print_text(payload: dict[str, object]) -> None:
+def _print_text(payload: _CheckPayload) -> None:
     print(f"Semantic check: {payload['status']}")
-    errors: list[dict[str, object]] = payload.get("errors", [])  # type: ignore[assignment]  # Report producers write error records here.
-    warnings: list[dict[str, object]] = payload.get("warnings", [])  # type: ignore[assignment]  # Report producers write warning records here.
+    errors, warnings = payload["errors"], payload["warnings"]
     if errors:
         print("Errors:")
         for error in errors:
@@ -152,11 +181,16 @@ def _print_text(payload: dict[str, object]) -> None:
         print("Warnings:")
         for warning in warnings:
             print(f"- [{warning['kind']}] {warning['message']}")
+    _print_readiness(payload)
+
+
+def _print_readiness(payload: _CheckPayload) -> None:
     readiness = payload.get("readiness")
     if isinstance(readiness, dict):
         print(f"Semantic readiness: {readiness['status']}")
-        blockers: list[dict[str, object]] = readiness.get("blockers", [])
-        report_warnings: list[dict[str, object]] = readiness.get("warnings", [])
+        # ReadinessReport.to_dict emits these issue directories with a fixed shape.
+        blockers = cast("list[dict[str, object]]", readiness.get("blockers", []))
+        report_warnings = cast("list[dict[str, object]]", readiness.get("warnings", []))
         if blockers:
             print("Blockers:")
             for blocker in blockers:
@@ -196,7 +230,7 @@ def _print_text(payload: dict[str, object]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    payload = run_check(
+    payload = _run_check(
         workspace_dir=args.workspace_dir,
         readiness=args.readiness,
         include_traceback=args.traceback,

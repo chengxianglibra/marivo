@@ -38,7 +38,8 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
 )
 from marivo.analysis.dsl import frame_sources
-from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
+from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs, population_frame_inputs
+from marivo.analysis.dsl._frame_lifecycle import bind_frame_owner
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_population import population_from
 from marivo.analysis.dsl.population import Population, in_population, product
@@ -165,7 +166,7 @@ def _bridge(session: Session, frame: AnalysisFrame, *, identity: bool = False) -
 
 def _ids(population: Population | Deferred) -> tuple[str, ...]:
     assert isinstance(population, Population)
-    return tuple(item.input_id for item in population._frame_inputs)
+    return tuple(item.input_id for item in population_frame_inputs(population))
 
 
 def test_factory_is_metadata_only_and_definition_is_inert(
@@ -192,7 +193,7 @@ def test_factory_is_metadata_only_and_definition_is_inert(
     assert leaf.input_id == frame._input_id
     assert leaf.bindings[0].key_names == ("first",)
     assert leaf.bindings[0].target.field == consume_field(region).reference
-    assert population._frame_inputs[0].frame is frame
+    assert population_frame_inputs(population)[0].frame is frame
     closure = walk((population._definition,), resolve=lambda _: None)
     assert closure.order == (leaf, population._definition)
     assert consume_field(region).reference in direct_refs(population._definition)
@@ -213,7 +214,7 @@ def test_explicit_empty_mapping_keeps_the_input_dependency(session: Session, emp
     assert population._definition.root == FrameKeys(source._input_id, ())
     assert population._definition.axes == () and _ids(population) == (source._input_id,)
     # Construction cannot decide whether the projected empty tuple exists.
-    assert population._frame_inputs[0].frame is source
+    assert population_frame_inputs(population)[0].frame is source
 
 
 def test_mapping_order_and_fingerprints_capture_exact_input_and_targets(session: Session) -> None:
@@ -285,7 +286,7 @@ def test_predicates_and_deferred_recipes_preserve_inputs_before_consumption(
 ) -> None:
     left, right = _bridge(session, _fields(session)), _bridge(session, _fields(session))
     condition = in_population(left) & ~(in_population(left) | in_population(right))
-    expected = (*left._frame_inputs, *right._frame_inputs)
+    expected = (*population_frame_inputs(left), *population_frame_inputs(right))
     assert collect_frame_key_inputs(condition) == expected
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     metric = -(amount.sum().where(condition) + amount.sum().where(in_population(left)))
@@ -346,8 +347,12 @@ def test_factory_rejects_unsupported_pending_roles(session: Session, role: str) 
             name="paired",
         )
     )
-    frame = AnalysisFrame._bind(
-        pending._local, replace(pending._schema, axes=(axis,)), pending._backing, pending._input_id
+    frame = bind_frame_owner(
+        AnalysisFrame,
+        pending._local,
+        replace(pending._schema, axes=(axis,)),
+        pending._backing,
+        pending._input_id,
     )
 
 
@@ -428,7 +433,7 @@ def test_independent_stored_handles_share_exact_descriptor_without_reading(
     accepted = population_from(
         session._runtime.local, session.catalog._state, left, on=((right.axes[0], region),)
     )
-    assert accepted._frame_inputs[0].frame is left
+    assert population_frame_inputs(accepted)[0].frame is left
     conflicting = _stored(session, memory._schema, digest="contradictory")
 
 
@@ -442,7 +447,7 @@ def test_cross_session_inputs_reject_and_selected_frame_stays_alive(session: Ses
     population = _bridge(session, frame)
     del frame
     gc.collect()
-    assert reference() is population._frame_inputs[0].frame
+    assert reference() is population_frame_inputs(population)[0].frame
     pending = frame_sources.observe(
         session._runtime.local,
         session.catalog._state,
@@ -470,7 +475,7 @@ def test_mixed_native_predicate_and_declared_metric_retain_all_frame_inputs(
     region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     condition = ((region == "east") | in_population(left)) & ~(in_population(right) | False)
-    expected = (*left._frame_inputs, *right._frame_inputs)
+    expected = (*population_frame_inputs(left), *population_frame_inputs(right))
     facts = consume_predicate(condition)
     assert isinstance(facts.node, PredicateExpression)
     assert isinstance(facts.node.inputs[0], RowExpression)

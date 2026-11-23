@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import TypeVar
 
 from marivo._definition.correspondence import CalendarCorrespondence
+from marivo._kernel.validation import is_exact_pair
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.value_names import validate_paths
@@ -20,9 +21,7 @@ def validate_baseline_options(
     if on is not None and (
         type(on) is not tuple
         or any(
-            type(pair) is not tuple
-            or len(pair) != 2  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-            or any(not isinstance(axis, FrameAxis) for axis in pair)
+            not is_exact_pair(pair) or any(not isinstance(axis, FrameAxis) for axis in pair)
             for pair in on
         )
     ):

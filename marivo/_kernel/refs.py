@@ -19,6 +19,7 @@ from typing import (
 )
 
 from pydantic_core import CoreSchema, core_schema
+from typing_extensions import override
 
 from marivo._kernel.compat import Never, Self, StrEnum
 from marivo._kernel.errors import invalid
@@ -160,10 +161,12 @@ class Ref(Generic[KindT]):
     def __init__(self, _sealed: Never, /) -> None:
         raise AssertionError("Ref initialization is unreachable")
 
+    @override
     def __init_subclass__(cls, **kwargs: object) -> Never:
         del cls, kwargs
         raise TypeError("Ref is sealed and cannot be subclassed.")
 
+    @override
     def __setattr__(self, name: str, value: object) -> Never:
         del name, value
         raise AttributeError("Ref instances are immutable")
@@ -176,18 +179,22 @@ class Ref(Generic[KindT]):
     def name(self) -> str:
         return self.path.rsplit(".", 1)[-1]
 
+    @override
     def __str__(self) -> str:
         return self.key
 
+    @override
     def __repr__(self) -> str:
         return f"Ref[{self.kind.value}]({self.key})"
 
+    @override
     def __eq__(self, other: object) -> bool:
         if type(other) is not Ref:
             return False
         ref = cast("Ref[SemanticKindTag]", other)
         return self.kind is ref.kind and self.path == ref.path
 
+    @override
     def __hash__(self) -> int:
         return hash((self.kind, self.path))
 
@@ -198,6 +205,7 @@ class Ref(Generic[KindT]):
         memo[id(self)] = self
         return self
 
+    @override
     def __reduce_ex__(self, protocol: SupportsIndex) -> tuple[object, tuple[object, ...]]:
         del protocol
         return (_restore_ref_payload, (RefPayloadV1.from_ref(self),))

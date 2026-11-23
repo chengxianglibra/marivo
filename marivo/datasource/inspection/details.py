@@ -7,6 +7,7 @@ from typing import Literal
 
 import ibis
 from ibis.backends.sql.datatypes import ClickHouseType
+from typing_extensions import override
 
 from marivo._kernel.refs import DatasourceKind, Ref
 from marivo._kernel.render import Card, RenderableResult
@@ -66,6 +67,7 @@ class PartitionInspection(RenderableResult):
         """Native lookup selector for the inspected datasource."""
         return symbol_factory.datasource(self._datasource.path)
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"PartitionInspection datasource={self._datasource.path} "
@@ -73,6 +75,7 @@ class PartitionInspection(RenderableResult):
             f"limit={self.limit} status={self.status}"
         )
 
+    @override
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),

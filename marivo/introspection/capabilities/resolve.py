@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Generic, Literal, NoReturn, TypeVar
 
+from typing_extensions import override
+
 from marivo.introspection.capabilities.spec import CapabilitySpec, RegistryView
 from marivo.introspection.live.attributes import public_attributes
 from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface
@@ -66,6 +68,7 @@ class ResolvedLiveTarget(Generic[DescriptorT_co]):
                 f"invalid {self.kind} payload: missing={missing!r}, unexpected={unexpected!r}"
             )
 
+    @override
     def __repr__(self) -> str:
         if self.descriptor is not None:
             return f"ResolvedLiveTarget(kind={self.kind}, target={self.canonical_id!r})"
@@ -257,9 +260,9 @@ def _raise(surface: LiveSurfaceAdapter[DescriptorT], target: object) -> NoReturn
 class LiveSuggestionIndex:
     """Immutable lexical suggestion index over native descriptors."""
 
-    _all_targets: tuple[str, ...]
-    _target_tokens: MappingProxyType[str, frozenset[str]]
-    _normalized_targets: MappingProxyType[str, str]
+    all_targets: tuple[str, ...]
+    target_tokens: MappingProxyType[str, frozenset[str]]
+    normalized_targets: MappingProxyType[str, str]
 
 
 def _normalize_token(text: str) -> str:
@@ -307,9 +310,9 @@ def build_suggestion_index(
         target_tokens[target] = frozenset(tokens)
         normalized_targets[target] = _normalize_token(target)
     return LiveSuggestionIndex(
-        _all_targets=all_targets,
-        _target_tokens=MappingProxyType(target_tokens),
-        _normalized_targets=MappingProxyType(normalized_targets),
+        all_targets=all_targets,
+        target_tokens=MappingProxyType(target_tokens),
+        normalized_targets=MappingProxyType(normalized_targets),
     )
 
 
@@ -331,7 +334,7 @@ def suggestions_for(query: str, index: LiveSuggestionIndex) -> tuple[str, ...]:
 
     scored = [
         (score, target)
-        for target in index._all_targets
+        for target in index.all_targets
         if (score := _score_target(target, query_tokens, normalized_query, index, similarity)) > 0.0
     ]
     # A typo within an exact namespace should lead to that namespace's closest
@@ -363,8 +366,8 @@ def _score_target(
     index: LiveSuggestionIndex,
     similarity: Callable[[str, str], float],
 ) -> float:
-    target_tokens = index._target_tokens[target]
-    normalized_target = index._normalized_targets[target]
+    target_tokens = index.target_tokens[target]
+    normalized_target = index.normalized_targets[target]
     score = 100.0 * len(query_tokens & target_tokens)
     if normalized_query and len(normalized_query) >= 3:
         ratios = (

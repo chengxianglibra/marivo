@@ -7,6 +7,8 @@ from decimal import Decimal
 from math import isfinite
 from typing import Literal, TypeAlias
 
+from typing_extensions import override
+
 from marivo.analysis.core.frame_method_checks import _divisor, _quotient_unit, _total
 from marivo.analysis.model.method_values import (
     FrameMethodValue,
@@ -45,6 +47,7 @@ class FrameLevelSupport(_FactRecord):
         ):
             _fail("exact nonnegative endpoint support counts", repr(self.input_count))
 
+    @override
     def _summary(self) -> str:
         return f"kind=level_support, root={_short(self.root_id)!r}, policy={self.policy}"
 
@@ -73,6 +76,7 @@ class FrameLevelAdditiveMethod(_FactRecord):
         _total(self.value)
         _level_support(self.support)
 
+    @override
     def _summary(self) -> str:
         return f"kind=level_additive, column={_short(self.value.column.name)!r}, roots={len(self.support)}"
 
@@ -100,6 +104,7 @@ class FrameLevelRatioMethod(_FactRecord):
             _fail("nonzero denominator and matching ratio units", self.value.column.name)
         _level_support(self.support)
 
+    @override
     def _summary(self) -> str:
         return f"kind=level_ratio_component, column={_short(self.value.column.name)!r}, roots={len(self.support)}"
 
@@ -148,6 +153,7 @@ class FrameLevelDivisionMethod(_FactRecord):
         if self.operation == "rescale" and self.value.column.unit is None:
             _fail("an explicit rescale result unit", self.value.column.name)
 
+    @override
     def _summary(self) -> str:
         return f"kind=level_division, column={_short(self.value.column.name)!r}, operation={self.operation}"
 
@@ -173,6 +179,7 @@ class FrameLevelLinearTerm(_FactRecord):
             _fail("a finite original coefficient", repr(self.coefficient))
         _level_method(self.method)
 
+    @override
     def _summary(self) -> str:
         return f"kind=level_linear_term, child={self.method.kind}, column={_short(self.method.value.column.name)!r}"
 
@@ -198,6 +205,7 @@ class FrameLevelLinearMethod(_FactRecord):
         if any(term.method.value.column.unit != self.value.column.unit for term in self.terms):
             _fail("linear child units matching parent", self.value.column.name)
 
+    @override
     def _summary(self) -> str:
         return (
             f"kind=level_linear, column={_short(self.value.column.name)!r}, terms={len(self.terms)}"

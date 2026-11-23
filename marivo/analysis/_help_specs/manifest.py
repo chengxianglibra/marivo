@@ -11,6 +11,8 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import NoReturn
 
+from typing_extensions import override
+
 from marivo.analysis import grain
 from marivo.analysis._help_specs.navigation import navigation
 from marivo.analysis.dsl import _correspondence_disclosure as operators
@@ -58,6 +60,7 @@ class AnalysisManifest(SurfaceRegistry[Descriptor]):
             for descriptor in self.descriptors
         )
 
+    @override
     def discovery_ids(self) -> tuple[str, ...]:
         """Return intentional discovery members, not every resolvable leaf."""
         members = {m for d in self.descriptors if isinstance(d, NavigationInput) for m in d.members}
@@ -92,6 +95,7 @@ class AnalysisManifest(SurfaceRegistry[Descriptor]):
             )
         )
 
+    @override
     def by_callable(self, value: object) -> Descriptor:
         receiver = getattr(value, "__self__", None)
         function = getattr(value, "__func__", value)

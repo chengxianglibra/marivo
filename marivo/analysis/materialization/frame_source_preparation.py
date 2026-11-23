@@ -71,6 +71,12 @@ from marivo.analysis.model.data_schema import (
 from marivo.analysis.model.data_types import DataColumn
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_contracts import (
+    frame_backing,
+    frame_input_id,
+    frame_local,
+    frame_logical_schema,
+)
 from marivo.analysis.model.frame_metadata import (
     EvaluationInput,
     FrameOperationName,
@@ -124,30 +130,32 @@ def _schema(
     graph: BoundGraph | None = None,
     keys_only: bool = False,
 ) -> DataSchema:
+    backing = frame_backing(frame)
+    logical = frame_logical_schema(frame)
     graph = graph or (
-        frame._backing.root.graph
-        if isinstance(frame._backing, ExpressionFrameBacking)
-        and isinstance(frame._backing.root, (SourceFrameBinding, LiteralFrameBinding))
+        backing.root.graph
+        if isinstance(backing, ExpressionFrameBacking)
+        and isinstance(backing.root, (SourceFrameBinding, LiteralFrameBinding))
         else None
     )
-    if graph is None or not isinstance(frame._schema, PendingDataSchema):
+    if graph is None or not isinstance(logical, PendingDataSchema):
         reject(
             "a captured pending source structure",
-            frame._input_id,
+            frame_input_id(frame),
             "Capture the explicit source before preparing it.",
             "frame.prepare",
         )
     layout = endpoint(graph, plan)
     columns = {column.slot_id: column for column in layout.columns}
     axes: list[DataAxis] = []
-    if len(layout.key_groups) != len(frame._schema.axes):
+    if len(layout.key_groups) != len(logical.axes):
         reject(
             "one complete prepared key group per captured axis",
             repr(layout.key_groups),
             "Preserve complete source coordinate groups.",
             "frame.prepare",
         )
-    for captured, keys in zip(frame._schema.axes, layout.key_groups, strict=True):
+    for captured, keys in zip(logical.axes, layout.key_groups, strict=True):
         role = axis_role(captured)
         constraints: tuple[DataColumn | PendingDataColumn, ...] = captured.columns
         if len(keys) != len(captured.columns):
@@ -184,16 +192,16 @@ def _schema(
         if keys_only
         else tuple(
             replace(column, name=constraint.name, unit=constraint.unit)
-            for column, constraint in zip(layout.values, frame._schema.values, strict=True)
+            for column, constraint in zip(layout.values, logical.values, strict=True)
         )
     )
     schema = DataSchema(
         tuple(axes),
         values,
-        value_paths=() if keys_only else frame._schema.value_paths,
+        value_paths=() if keys_only else logical.value_paths,
         source_times=source_times,
     )
-    return schema if keys_only else frame._schema.complete(schema)
+    return schema if keys_only else logical.complete(schema)
 
 
 def prepare_frame_sources(
@@ -205,7 +213,7 @@ def prepare_frame_sources(
     """Open, prepare, lower and qualify sources in captured discovery order."""
     # Validate every dependency before any HTTP source can acquire business data.
     for current in captured.source_frames.values():
-        backing = current._backing
+        backing = frame_backing(current)
         if isinstance(backing, ExpressionFrameBacking) and isinstance(
             backing.root, SourceFrameBinding
         ):
@@ -214,7 +222,7 @@ def prepare_frame_sources(
     for input_id, current in captured.source_frames.items():
         state.prepare(input_id, current)
     for input_id, current in captured.fixed_frames.items():
-        backing = current._backing
+        backing = frame_backing(current)
         if isinstance(backing, MemoryFrameBacking):
             state.inputs.append(MemoryInput(input_id, backing.metadata.result_id))
         elif isinstance(backing, StoredFrameBacking):
@@ -222,8 +230,8 @@ def prepare_frame_sources(
                 StoredInput(
                     input_id,
                     backing.metadata.result_id,
-                    current._local.owner.owner_id,
-                    current._local.owner.session_id,
+                    frame_local(current).owner.owner_id,
+                    frame_local(current).owner.session_id,
                     backing.artifact_id,
                 )
             )
@@ -257,7 +265,7 @@ class _FrameSourcePreparation:
     inputs: list[EvaluationInput] = field(default_factory=list)
 
     def prepare(self, input_id: str, current: FrameNode) -> None:
-        backing = current._backing
+        backing = frame_backing(current)
         assert isinstance(backing, ExpressionFrameBacking)
         binding = backing.root
         assert isinstance(binding, (SourceFrameBinding, LiteralFrameBinding))
@@ -380,7 +388,7 @@ class _FrameSourcePreparation:
                 graph,
                 binding.state,
                 memo=memo,
-                consumption_timezone=current._local.report_timezone_name,
+                consumption_timezone=frame_local(current).report_timezone_name,
                 frame_schemas=key_schemas,
                 json_responses=self.json_responses.setdefault(scope, {}),
                 reuse_sources=reuse_sources,
@@ -474,7 +482,7 @@ class _FrameSourcePreparation:
                 active_graph,
                 prepared,
                 binding.state,
-                current._local.report_timezone_name,
+                frame_local(current).report_timezone_name,
                 key_schemas,
                 checked_inputs=checked_inputs,
             )
@@ -486,7 +494,7 @@ class _FrameSourcePreparation:
                 prepared,
                 binding.state,
                 sparse_window,
-                current._local.report_timezone_name,
+                frame_local(current).report_timezone_name,
                 key_schemas,
             )
             self.prepared_by_input[input_id] = prepared

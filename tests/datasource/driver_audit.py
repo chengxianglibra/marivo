@@ -17,7 +17,7 @@ from types import FrameType
 from typing import Literal, TypeVar, overload
 
 import pytest
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 import marivo
 from marivo.datasource.engines.statements import (
@@ -111,74 +111,72 @@ def frames() -> Iterator[FrameType]:
         frame = frame.f_back
 
 
+def _governed_origin(sql: str, frame: FrameType) -> Origin | None:
+    path = frame.f_code.co_filename.replace("\\", "/")
+    name = frame.f_code.co_name
+    local = frame.f_locals
+    if (
+        path.endswith("/marivo/datasource/engines/statements.py")
+        and name == "execute_provider_statement"
+    ):
+        submission = local.get("submission")
+        if not isinstance(submission, ProviderStatementSubmission):
+            return Origin("unknown", "provider submission missing")
+        statement = provider_statement(submission.provider, submission.statement_id)
+        expected_sql = local.get("sql") if statement.parameterized else submission.sql
+        if statement.parameterized and submission.sql != statement.template:
+            return Origin("unknown", "parameterized provider log must retain only its template")
+        if sql != expected_sql or submission.purpose not in statement.allowed_purposes:
+            return Origin("unknown", "provider text or purpose mismatch")
+        parameters = local.get("parameters")
+        names = (
+            tuple(sorted(str(key) for key in parameters)) if isinstance(parameters, Mapping) else ()
+        )
+        return Origin("provider", submission.statement_id, submission.purpose, sql, names)
+    if path.endswith("/marivo/datasource/runtime/adapters.py") and name == "execute":
+        owner = local.get("self")
+        proof = local.get("proof")
+        if isinstance(owner, SourceSession) and isinstance(proof, _IssuedRead) and sql == proof.sql:
+            return Origin(
+                "governed_ibis",
+                "SourceSession.execute",
+                proof.purpose,
+                proof.sql,
+                source_identity=proof.source_identity,
+                expression_identity=id(proof.expression),
+                schema=tuple((field.name, str(field.type)) for field in proof.schema),
+            )
+        return Origin("unknown", "SourceSession issued text mismatch")
+    if path.endswith("/marivo/datasource/runtime/session_factory.py") and name == "probe_backend":
+        expected = local.get("sql")
+        if isinstance(expected, str) and sql == expected:
+            return Origin(
+                "governed_ibis",
+                "datasource.adapters._probe_backend",
+                "datasource.connectivity",
+                expected,
+            )
+        return Origin("unknown", "Ibis probe text mismatch")
+    if path.endswith("/marivo/datasource/inspection/raw_sql.py") and name == "_run_raw_sql":
+        expected = local.get("statement")
+        if isinstance(expected, str) and sql == expected:
+            return Origin(
+                "raw_sql_terminal",
+                "datasource.manage.raw_sql",
+                str(local.get("reason_text", "")),
+                expected,
+            )
+    return None
+
+
 def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) -> Origin:
     """Bind the actual driver argument to its current owning call, never SQL syntax."""
     if store_connection:
         return Origin("store", "analysis.materialization.store.SessionStore", "persistence")
     for frame in stack:
-        path = frame.f_code.co_filename.replace("\\", "/")
-        name = frame.f_code.co_name
-        local = frame.f_locals
-        if (
-            path.endswith("/marivo/datasource/engines/statements.py")
-            and name == "execute_provider_statement"
-        ):
-            submission = local.get("submission")
-            if not isinstance(submission, ProviderStatementSubmission):
-                return Origin("unknown", "provider submission missing")
-            statement = provider_statement(submission.provider, submission.statement_id)
-            expected_sql = local.get("sql") if statement.parameterized else submission.sql
-            if statement.parameterized and submission.sql != statement.template:
-                return Origin("unknown", "parameterized provider log must retain only its template")
-            if sql != expected_sql or submission.purpose not in statement.allowed_purposes:
-                return Origin("unknown", "provider text or purpose mismatch")
-            parameters = local.get("parameters")
-            names = (
-                tuple(sorted(str(key) for key in parameters))
-                if isinstance(parameters, Mapping)
-                else ()
-            )
-            return Origin("provider", submission.statement_id, submission.purpose, sql, names)
-        if path.endswith("/marivo/datasource/runtime/adapters.py") and name == "execute":
-            owner = local.get("self")
-            proof = local.get("proof")
-            if (
-                isinstance(owner, SourceSession)
-                and isinstance(proof, _IssuedRead)
-                and sql == proof.sql
-            ):
-                return Origin(
-                    "governed_ibis",
-                    "SourceSession.execute",
-                    proof.purpose,
-                    proof.sql,
-                    source_identity=proof.source_identity,
-                    expression_identity=id(proof.expression),
-                    schema=tuple((field.name, str(field.type)) for field in proof.schema),
-                )
-            return Origin("unknown", "SourceSession issued text mismatch")
-        if (
-            path.endswith("/marivo/datasource/runtime/session_factory.py")
-            and name == "probe_backend"
-        ):
-            expected = local.get("sql")
-            if isinstance(expected, str) and sql == expected:
-                return Origin(
-                    "governed_ibis",
-                    "datasource.adapters._probe_backend",
-                    "datasource.connectivity",
-                    expected,
-                )
-            return Origin("unknown", "Ibis probe text mismatch")
-        if path.endswith("/marivo/datasource/inspection/raw_sql.py") and name == "_run_raw_sql":
-            expected = local.get("statement")
-            if isinstance(expected, str) and sql == expected:
-                return Origin(
-                    "raw_sql_terminal",
-                    "datasource.manage.raw_sql",
-                    str(local.get("reason_text", "")),
-                    expected,
-                )
+        origin = _governed_origin(sql, frame)
+        if origin is not None:
+            return origin
     # A closed set of Ibis and adapter producers owns their native metadata and
     # preparation SQL. Generic raw_sql/execute frames alone grant no authority.
     for frame in stack:
@@ -391,6 +389,7 @@ class DuckDBConnectionWitness:
 class SQLiteCursorWitness(sqlite3.Cursor):
     """Observe the native cursor input before SQLite expands parameters or pragmas."""
 
+    @override
     def execute(self, sql: str, parameters: object = ()) -> Self:
         connection = self.connection
         assert isinstance(connection, SQLiteConnectionWitness)
@@ -401,6 +400,7 @@ class SQLiteCursorWitness(sqlite3.Cursor):
         assert result is self
         return self
 
+    @override
     def executemany(self, sql: str, seq_of_parameters: object) -> Self:
         connection = self.connection
         assert isinstance(connection, SQLiteConnectionWitness)
@@ -415,6 +415,7 @@ class SQLiteCursorWitness(sqlite3.Cursor):
         assert result is self
         return self
 
+    @override
     def executescript(self, sql_script: str) -> sqlite3.Cursor:
         connection = self.connection
         assert isinstance(connection, SQLiteConnectionWitness)
@@ -444,11 +445,13 @@ class SQLiteConnectionWitness(sqlite3.Connection):
     @overload
     def cursor(self, factory: Callable[[sqlite3.Connection], _CursorT]) -> _CursorT: ...
 
+    @override
     def cursor(
         self, factory: Callable[[sqlite3.Connection], sqlite3.Cursor] | None = None
     ) -> sqlite3.Cursor:
         return super().cursor(factory or SQLiteCursorWitness)
 
+    @override
     def execute(self, sql: str, parameters: object = ()) -> sqlite3.Cursor:
         native: Callable[..., sqlite3.Cursor] = super().execute
         result = self.audit.submit(
@@ -457,6 +460,7 @@ class SQLiteConnectionWitness(sqlite3.Connection):
         assert isinstance(result, sqlite3.Cursor)
         return result
 
+    @override
     def executemany(self, sql: str, parameters: object) -> sqlite3.Cursor:
         native: Callable[..., sqlite3.Cursor] = super().executemany
         result = self.audit.submit(
@@ -465,6 +469,7 @@ class SQLiteConnectionWitness(sqlite3.Connection):
         assert isinstance(result, sqlite3.Cursor)
         return result
 
+    @override
     def executescript(self, sql_script: str) -> sqlite3.Cursor:
         native = super().executescript
         result = self.audit.submit(

@@ -75,8 +75,8 @@ class ExpressionBody:
     source_column: str | None = None
     source_columns: tuple[str, ...] = ()
     source_syntax: str | None = field(default=None, repr=False)
-    _function_ast: ast.FunctionDef | None = field(default=None, repr=False, compare=False)
-    _bound_calls: frozenset[int] = field(default_factory=frozenset, repr=False, compare=False)
+    syntax_tree: ast.FunctionDef | None = field(default=None, repr=False, compare=False)
+    bound_call_ids: frozenset[int] = field(default_factory=frozenset, repr=False, compare=False)
     description: ExpressionDescription = field(
         default_factory=lambda: _UnsupportedExpression("description_unavailable")
     )
@@ -128,12 +128,38 @@ class ExpressionBody:
         )
 
 
+def _validate_column_free(body: ExpressionBody, function: ast.FunctionDef) -> None:
+    returns = [node.value for node in function.body if isinstance(node, ast.Return)]
+    if len(returns) != 1:
+        raise ValueError("unknown constant expression")
+    value = _return_expr(body.callable, function)
+    if not (
+        isinstance(value, ast.Constant)
+        or (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Attribute)
+            and isinstance(value.func.value, ast.Name)
+            and (
+                (
+                    value.func.value.id == "ibis"
+                    and value.func.attr == "literal"
+                    and all(isinstance(arg, ast.Constant) for arg in value.args)
+                )
+                or (
+                    value.func.value.id == "ms" and value.func.attr == "all_rows" and not value.args
+                )
+            )
+        )
+    ):
+        raise ValueError("unproven column-free expression")
+
+
 def expression_column_accesses(body: ExpressionBody) -> tuple[tuple[int, str], ...]:
     """Resolve parameter-owned column syntax without invoking the captured function."""
     if body.source_column is not None:
         return ((0, body.source_column),)
     try:
-        function = body._function_ast
+        function = body.syntax_tree
         if function is None:
             tree = ast.parse(
                 body.source_syntax
@@ -166,7 +192,7 @@ def expression_column_accesses(body: ExpressionBody) -> tuple[tuple[int, str], .
             elif (
                 isinstance(parent, ast.Call)
                 and (
-                    id(parent) in body._bound_calls
+                    id(parent) in body.bound_call_ids
                     or (isinstance(parent.func, ast.Attribute) and parent.func.attr == "bind")
                 )
                 and body.bindings
@@ -178,31 +204,7 @@ def expression_column_accesses(body: ExpressionBody) -> tuple[tuple[int, str], .
             if access not in accesses:
                 accesses.append(access)
         if not accesses and not body.bindings:
-            returns = [node.value for node in function.body if isinstance(node, ast.Return)]
-            if len(returns) != 1:
-                raise ValueError("unknown constant expression")
-            value = _return_expr(body.callable, function)
-            if not (
-                isinstance(value, ast.Constant)
-                or (
-                    isinstance(value, ast.Call)
-                    and isinstance(value.func, ast.Attribute)
-                    and isinstance(value.func.value, ast.Name)
-                    and (
-                        (
-                            value.func.value.id == "ibis"
-                            and value.func.attr == "literal"
-                            and all(isinstance(arg, ast.Constant) for arg in value.args)
-                        )
-                        or (
-                            value.func.value.id == "ms"
-                            and value.func.attr == "all_rows"
-                            and not value.args
-                        )
-                    )
-                )
-            ):
-                raise ValueError("unproven column-free expression")
+            _validate_column_free(body, function)
         return tuple(accesses)
     except (OSError, TypeError, SyntaxError, StopIteration, ValueError) as exc:
         raise SemanticRuntimeError(

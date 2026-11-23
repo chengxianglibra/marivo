@@ -24,6 +24,7 @@ from marivo._definition.types import (
 from marivo._kernel.refs import (
     SemanticKind,
 )
+from marivo._kernel.validation import is_instance
 from marivo.semantic._deferred_facts import RowFacts
 from marivo.semantic._deferred_semantics import consume_row
 from marivo.semantic.errors import ErrorKind
@@ -181,7 +182,7 @@ def declare_measure(
     if (
         isinstance(permission, (SumAxes, SumAllExcept))
         and type(permission) is type(value.permission)
-        and isinstance(value.permission, (SumAxes, SumAllExcept))  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        and is_instance(value.permission, (SumAxes, SumAllExcept))
         and frozenset(permission.axes) == frozenset(value.permission.axes)
     ):
         permission = value.permission

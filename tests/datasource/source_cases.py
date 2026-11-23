@@ -21,6 +21,7 @@ import pyarrow.parquet as pq
 import pytest
 from _pytest.mark.structures import ParameterSet
 from psycopg import sql
+from typing_extensions import override
 
 from marivo.datasource.ir import (
     AiContextIR,
@@ -148,6 +149,7 @@ def json_server(
             self.end_headers()
             self.wfile.write(payload)
 
+        @override
         def log_message(self, format: str, *args: object) -> None:
             pass
 

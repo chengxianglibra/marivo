@@ -181,7 +181,7 @@ def receipt_paths(root: Path, result: mv.AnalysisFrame) -> tuple[Path, ...]:
 def assert_clean(session: mv.Session, *, artifacts: int) -> None:
     runtime = session._runtime
     assert runtime.store.resources(session.id) == ()
-    with runtime.store._read() as connection:
+    with runtime.store.read_transaction() as connection:
         assert (
             connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == artifacts
         )

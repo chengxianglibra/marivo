@@ -9,8 +9,10 @@ from types import MappingProxyType
 from typing import ClassVar, Literal
 from urllib.parse import urlsplit
 
+from typing_extensions import override
+
 from marivo._kernel.render import Card, RenderableResult
-from marivo._kernel.validation import input_sequence, nonblank_text
+from marivo._kernel.validation import input_sequence, is_instance, nonblank_text
 from marivo.datasource.errors import DatasourceFieldInvalidError, repair
 from marivo.telemetry import traced
 
@@ -35,9 +37,11 @@ class EnvRef(RenderableResult):
         if not nonblank_text(self.name):
             raise invalid("name", "a non-empty credential name", self.name, 'Use md.env("NAME").')
 
+    @override
     def _repr_identity(self) -> str:
         return f"EnvRef name={self.name!r}"
 
+    @override
     def _card(self) -> Card:
         return Card(identity=self._repr_identity(), available=(".name", ".show()")).field(
             "name", self.name
@@ -71,9 +75,11 @@ class _Secret(RenderableResult):
     type: ClassVar[str]
     scope: str
 
+    @override
     def _repr_identity(self) -> str:
         return f"{type(self).__name__} type={self.type} scope={self.scope!r} refs={len(secret_refs(self))}"
 
+    @override
     def _card(self) -> Card:
         return (
             Card(identity=self._repr_identity(), available=(".scope", ".show()"))
@@ -166,7 +172,7 @@ class HttpHeadersSecret(_Secret):
 
     def __post_init__(self) -> None:
         self._validate_scope()
-        if not isinstance(self.headers, Mapping) or not self.headers:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not is_instance(self.headers, Mapping) or not self.headers:
             raise invalid(
                 "headers",
                 "a non-empty mapping of header names to EnvRef",
@@ -174,7 +180,9 @@ class HttpHeadersSecret(_Secret):
                 'Use headers={"x-api-key": md.env("API_KEY")}.',
             )
         for name, value in self.headers.items():
-            if not isinstance(name, str) or not re.fullmatch(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+", name):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            if not is_instance(name, str) or not re.fullmatch(
+                r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+", name
+            ):
                 raise invalid(
                     "headers", "valid HTTP header names", name, "Use a non-empty HTTP header token."
                 )

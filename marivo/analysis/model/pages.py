@@ -8,6 +8,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
+from typing_extensions import override
+
 from marivo._kernel.render import Card, RenderableResult
 
 
@@ -59,12 +61,14 @@ class _BoundedPage(RenderableResult, Generic[T]):
     def __getitem__(self, index: int) -> T:
         return self.items[index]
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"{type(self).__name__} items={len(self.items)} "
             f"limit={self.limit} has_more={self.has_more}"
         )
 
+    @override
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),

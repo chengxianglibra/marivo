@@ -21,14 +21,17 @@ import ibis.expr.types as ir
 import sqlglot as sg
 import sqlglot.expressions as sge
 from ibis.backends import BaseBackend
-from ibis.backends.sql import SQLBackend
-from ibis.backends.sql.compilers.clickhouse import ClickHouseCompiler
-from ibis.backends.sql.compilers.duckdb import DuckDBCompiler
-from ibis.backends.sql.compilers.mysql import MySQLCompiler
-from ibis.backends.sql.compilers.postgres import PostgresCompiler
-from ibis.backends.sql.compilers.trino import TrinoCompiler
 from ibis.common.exceptions import OperationNotDefinedError
+from typing_extensions import override
 
+from marivo.datasource.engines._ibis_typing import (
+    ClickHouseCompiler,
+    DuckDBCompiler,
+    MySQLCompiler,
+    PostgresCompiler,
+    SQLBackend,
+    TrinoCompiler,
+)
 from marivo.datasource.engines.aggregate_policy import aggregate_repair_action, native_aggregate
 from marivo.datasource.engines.calendar_relations import (
     CalendarData,
@@ -85,7 +88,7 @@ def _reject(backend: str, node: ops.Node) -> NoReturn:
 
 # Ibis compiler classes are untyped. These subclasses retain its complete relational
 # compiler and override aggregate admission and private calendar operations on owned instances.
-class _PostgresCompiler(PostgresCompiler):  # type: ignore[misc]  # Ibis compiler bases lack typing stubs.
+class _PostgresCompiler(PostgresCompiler):
     def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
         return compile_calendar_range(op, "postgres")
 
@@ -94,11 +97,12 @@ class _PostgresCompiler(PostgresCompiler):  # type: ignore[misc]  # Ibis compile
 
     UNSUPPORTED_OPS = (*PostgresCompiler.UNSUPPORTED_OPS, *_unsupported("postgres"))
 
+    @override
     def visit_Undefined(self, op: ops.Node, **kwargs: object) -> NoReturn:
         _reject("postgres", op)
 
 
-class _MySQLCompiler(MySQLCompiler):  # type: ignore[misc]  # Ibis compiler bases lack typing stubs.
+class _MySQLCompiler(MySQLCompiler):
     SIMPLE_OPS: ClassVar[dict[type[ops.Node], str]] = {
         op: name for op, name in MySQLCompiler.SIMPLE_OPS.items() if op is not ops.IntervalMultiply
     }
@@ -115,9 +119,11 @@ class _MySQLCompiler(MySQLCompiler):  # type: ignore[misc]  # Ibis compiler base
     def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
         return compile_calendar_range(op, "mysql")
 
+    @override
     def visit_DateTimestampTruncate(
         self, op: ops.DateTruncate | ops.TimestampTruncate, *, arg: sge.Expr, unit: object
     ) -> sge.Expr:
+        result: sge.Expr
         if op.unit.short == "W":
             result = sge.Anonymous(
                 this="DATE_SUB",
@@ -138,11 +144,13 @@ class _MySQLCompiler(MySQLCompiler):  # type: ignore[misc]  # Ibis compiler base
 
     UNSUPPORTED_OPS = (*MySQLCompiler.UNSUPPORTED_OPS, *_unsupported("mysql"))
 
+    @override
     def visit_Undefined(self, op: ops.Node, **kwargs: object) -> NoReturn:
         _reject("mysql", op)
 
 
-class _TrinoCompiler(TrinoCompiler):  # type: ignore[misc]  # Ibis compiler bases lack typing stubs.
+class _TrinoCompiler(TrinoCompiler):
+    @override
     def visit_IntervalFromInteger(
         self, op: ops.IntervalFromInteger, *, arg: sge.Expr, unit: object
     ) -> sge.Expr:
@@ -160,9 +168,11 @@ class _TrinoCompiler(TrinoCompiler):  # type: ignore[misc]  # Ibis compiler base
     def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
         return compile_calendar_range(op, "trino")
 
+    @override
     def visit_NonNullLiteral(
         self, op: ops.Literal, *, value: object, dtype: dt.DataType
     ) -> sge.Expr | None:
+        result: sge.Expr | None
         if isinstance(dtype, dt.Timestamp) and isinstance(value, datetime):
             # The ordinary ISO parser returns timestamp(3), losing boundary
             # microseconds before the outer cast can restore their precision.
@@ -177,6 +187,7 @@ class _TrinoCompiler(TrinoCompiler):  # type: ignore[misc]  # Ibis compiler base
 
     UNSUPPORTED_OPS = (*TrinoCompiler.UNSUPPORTED_OPS, *_unsupported("trino"))
 
+    @override
     def visit_Undefined(self, op: ops.Node, **kwargs: object) -> NoReturn:
         _reject("trino", op)
 
@@ -187,7 +198,8 @@ def _native_name(backend: str, reducer: str) -> str:
     return name
 
 
-class _ClickHouseCompiler(ClickHouseCompiler):  # type: ignore[misc]  # Ibis compiler bases lack typing stubs.
+class _ClickHouseCompiler(ClickHouseCompiler):
+    @override
     def visit_JoinChain(
         self,
         op: ops.JoinChain,
@@ -334,6 +346,7 @@ class _ClickHouseCompiler(ClickHouseCompiler):  # type: ignore[misc]  # Ibis com
 class _DistributedClickHouseCompiler(_ClickHouseCompiler):
     """Broadcast complete subquery inputs rather than evaluate shard-local subsets."""
 
+    @override
     def visit_JoinLink(
         self, op: ops.JoinLink, *, how: str, table: sge.Expr, predicates: Sequence[sge.Expr]
     ) -> sge.Join:
@@ -342,6 +355,7 @@ class _DistributedClickHouseCompiler(_ClickHouseCompiler):
         result.set("global_", "GLOBAL")
         return result
 
+    @override
     def visit_InSubquery(self, op: ops.InSubquery, *, needle: sge.Expr, rel: sge.Expr) -> sge.Expr:
         result = super().visit_InSubquery(op, needle=needle, rel=rel)
         assert isinstance(result, sge.Expr)
@@ -388,7 +402,7 @@ _RENDERED_DUCKDB_SQL_MAX = 2048
 _RENDERED_DUCKDB_LOCK = threading.Lock()
 
 
-class _DuckDBCompiler(DuckDBCompiler):  # type: ignore[misc]  # Ibis compiler bases lack typing stubs.
+class _DuckDBCompiler(DuckDBCompiler):
     def visit_IsNull(self, op: ops.IsNull, *, arg: sge.Expr) -> sge.Expr:
         # DuckDB parses NOT x IS NULL as NOT (x IS NULL), not (NOT x) IS NULL.
         if isinstance(arg, sge.Not):
@@ -403,6 +417,7 @@ class _DuckDBCompiler(DuckDBCompiler):  # type: ignore[misc]  # Ibis compiler ba
     def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
         return compile_calendar_range(op, "duckdb")
 
+    @override
     def translate(self, op: ops.Node, *, params: Mapping[ir.Expr, object]) -> sge.Expr:
         if params:
             result = super().translate(op, params=params)
@@ -423,6 +438,7 @@ class _DuckDBCompiler(DuckDBCompiler):  # type: ignore[misc]  # Ibis compiler ba
                 _RENDERED_DUCKDB_SQL.popitem(last=False)
         return result.copy()
 
+    @override
     def to_sqlglot(
         self,
         expr: ir.Expr,

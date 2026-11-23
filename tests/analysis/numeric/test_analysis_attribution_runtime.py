@@ -573,7 +573,7 @@ def test_attribution_publication_cleans_only_failed_run(
         assert len(failed - failed_run_refs) == 1
         failed_run_refs = failed
         pd.testing.assert_frame_equal(fixed.to_pandas(), expected)
-        with case.session._runtime.store._read() as conn:
+        with case.session._runtime.store.read_transaction() as conn:
             assert conn.execute("SELECT count(*) FROM action_resource_journal").fetchone()[0] == 0
     fresh = query.compute()
     baseline = basis_query(case, 7).compute()

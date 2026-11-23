@@ -142,8 +142,8 @@ def read_issued_query(
     # Ibis' pandas reader rounds nullable Int64 through float64;
     # its Arrow reader also rejects ClickHouse's UInt8 booleans.
     # Decode the same issued SQL from native Python columns first.
-    external = backend._collect_in_memory_tables(table, {})
-    external_data = backend._normalize_external_tables(external)
+    external = backend._collect_in_memory_tables(table, {})  # noqa: SLF001 - Ibis ClickHouse ABI for external table compilation.
+    external_data = backend._normalize_external_tables(external)  # noqa: SLF001 - Ibis ClickHouse ABI for native external table data.
     batches: list[pa.RecordBatch] = []
     mark_submitted()
     with backend.con.query_column_block_stream(sql, external_data=external_data) as blocks:

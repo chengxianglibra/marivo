@@ -28,6 +28,7 @@ from marivo._kernel.refs import (
 from marivo.semantic._consumption import bind_metric
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._expression_values import MetricExpression
+from marivo.semantic.catalog_model.objects import lookup_state
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.state_consumption import consume_metric_in_state
 
@@ -42,7 +43,7 @@ def catalog_metric_definition(catalog: SemanticCatalog, target: ExactRef) -> Met
     Lookup is by kind and path in this scope: a reference built against an
     earlier same-path definition reaches the current one.
     """
-    declared = catalog._state.registry.declared_metrics.get(target.ref.path)
+    declared = lookup_state(catalog).registry.declared_metrics.get(target.ref.path)
     if declared is None or target.ref.kind is not SemanticKind.METRIC:
         return None
 
@@ -95,7 +96,7 @@ def catalog_closure(catalog: SemanticCatalog, value: Deferred | NumericMetric) -
     Metrics and filters over a now-composite Metric fail with a structured
     error. No source is read.
     """
-    state = catalog._state
+    state = lookup_state(catalog)
 
     def expand(target: ExactRef) -> MetricNode | None:
         return catalog_metric_definition(catalog, target)

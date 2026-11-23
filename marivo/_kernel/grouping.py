@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Literal
+from typing import Literal, Protocol
 
 from marivo._kernel.input_context import InputContext
+
+
+class _IdentityGrouping(Protocol):
+    @property
+    def _identity_keys(self) -> tuple[tuple[str, tuple[str, ...]], ...]: ...
+
+
+def grouping_identity_keys(value: _IdentityGrouping) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    return value._identity_keys  # noqa: SLF001 - Exact keys carried by grouping and Population inputs.
 
 
 class Grouping(ABC):

@@ -15,7 +15,7 @@ from marivo.analysis.compiler.observation import lower_observation
 from marivo.analysis.compiler.query_stages import ReductionRead, SourceReadStage
 from marivo.analysis.compiler.reduction_input import ReductionInput
 from marivo.analysis.core.value_types import data_type
-from marivo.analysis.materialization.source_completion import _complete_source_frame
+from marivo.analysis.materialization.source_completion import complete_source_frame
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.semantic.errors import SemanticExpressionError
 from tests.datasource.aggregate_fixtures import compiler_backend
@@ -134,7 +134,7 @@ def test_native_quantiles_and_typed_results(
                 (),
                 None,
             )
-            value = _complete_source_frame(stage, raw, checks).table.value.iloc[0]
+            value = complete_source_frame(stage, raw, checks).table.value.iloc[0]
             if expected is None:
                 assert pd.isna(value), (values, dtype, q)
             else:
@@ -172,7 +172,7 @@ def test_native_quantiles_keep_strict_null_checks_and_nonfinite_values(bad: floa
                 None,
             )
             if deferred:
-                completed = _complete_source_frame(
+                completed = complete_source_frame(
                     stage,
                     connection.to_pyarrow(expression).to_pandas(types_mapper=pd.ArrowDtype),
                     checks,
@@ -182,13 +182,13 @@ def test_native_quantiles_keep_strict_null_checks_and_nonfinite_values(bad: floa
                 )
             elif bad is None:
                 with pytest.raises(SemanticExpressionError):
-                    _complete_source_frame(
+                    complete_source_frame(
                         stage,
                         connection.to_pyarrow(expression).to_pandas(types_mapper=pd.ArrowDtype),
                         checks,
                     )
             else:
-                value = _complete_source_frame(
+                value = complete_source_frame(
                     stage,
                     connection.to_pyarrow(expression).to_pandas(types_mapper=pd.ArrowDtype),
                     checks,
@@ -235,7 +235,7 @@ def test_native_interpolation_preserves_infinity_and_valid_nan(
             (),
             None,
         )
-        value = _complete_source_frame(
+        value = complete_source_frame(
             stage, connection.to_pyarrow(expression).to_pandas(types_mapper=pd.ArrowDtype), checks
         ).table.value
         assert pa.array(value).is_valid().to_pylist() == [True]

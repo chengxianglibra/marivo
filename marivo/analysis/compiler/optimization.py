@@ -34,6 +34,7 @@ from marivo._definition.query import (
 )
 from marivo._definition.types import RULE_VERSION, AxisBinding, Owner
 from marivo._kernel.refs import SemanticKind
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.binding.signature import ResultQuantity
@@ -399,22 +400,20 @@ def _ordinary_sample_formula(stage: QueryStage) -> bool:
     ):
         return False
     closure = walk((node for _, node in program.outputs), resolve=dict(program.declared).get)
-    return all(
-        not isinstance(node, MetricWindow)
-        and (
-            not isinstance(node, (PerReduce, PerWeightedMean))
-            or (
-                isinstance(node.samples, tuple)
-                and all(
-                    isinstance(axis, AxisBinding)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-                    and axis.field is not None
-                    and axis.field.ref.kind is SemanticKind.DIMENSION
-                    for axis in node.samples
-                )
+    for node in closure.order:
+        if isinstance(node, MetricWindow):
+            return False
+        if isinstance(node, (PerReduce, PerWeightedMean)) and not (
+            isinstance(node.samples, tuple)
+            and all(
+                is_instance(axis, AxisBinding)
+                and axis.field is not None
+                and axis.field.ref.kind is SemanticKind.DIMENSION
+                for axis in node.samples
             )
-        )
-        for node in closure.order
-    )
+        ):
+            return False
+    return True
 
 
 def _common_sources(plan: QueryPlan) -> QueryPlan:

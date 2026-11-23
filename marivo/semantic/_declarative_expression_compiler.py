@@ -41,6 +41,7 @@ from marivo._definition.windows import (
     trailing_periods,
 )
 from marivo._kernel.grouping import Grouping
+from marivo._kernel.input_context import captured_context
 from marivo._kernel.refs import (
     Ref,
     SemanticKind,
@@ -98,7 +99,7 @@ def _load_function_ast(fn: Callable[..., object]) -> tuple[ast.FunctionDef, int]
     ctx = _LOADER_CTX.get()
     try:
         source = None
-        if ctx is not None and ctx._model_package is not None:
+        if ctx is not None and ctx.model_package is not None:
             original = fn
             if not isinstance(fn, FunctionType) or "__wrapped__" in fn.__dict__:
                 original = inspect.unwrap(fn)
@@ -107,10 +108,10 @@ def _load_function_ast(fn: Callable[..., object]) -> tuple[ast.FunctionDef, int]
             if (
                 isinstance(original, FunctionType)
                 and isinstance(module_name := original.__globals__.get("__name__"), str)
-                and module_name.startswith(f"{ctx._model_package}.")
+                and module_name.startswith(f"{ctx.model_package}.")
             ):
                 code = original.__code__
-                model_source = ctx._sources.captured(code.co_filename)
+                model_source = ctx.sources.captured(code.co_filename)
                 if model_source is not None:
                     if original is fn:
                         function = model_source.functions.get((code.co_firstlineno, fn.__name__))
@@ -180,17 +181,17 @@ class _DeclarationExpressionBuilder:
         if type(value) is tuple:
             return tuple(self.dependency(item, node) for item in value)
         if isinstance(value, (Grouping, PopulationParameter)):
-            self.input_contexts.append(value._context)
+            self.input_contexts.append(captured_context(value))
             return value
         if isinstance(value, Grain):
             return value
         if isinstance(value, _ExpressionCarrier):
-            self.input_contexts.append(value._context)
+            self.input_contexts.append(captured_context(value))
             value = _as_deferred(value)
 
         if isinstance(value, (CatalogEntity, CatalogRelationship, Path, RelationshipStep)):
             # Preserve the named boundary; controlled count/path capture owns conversion.
-            self.input_contexts.append(value._context)
+            self.input_contexts.append(captured_context(value))
             return value
         if isinstance(value, Deferred):
             self.capture(value)
@@ -311,7 +312,6 @@ class _DeclarationExpressionBuilder:
             )
 
     def value(self, node: ast.expr) -> object:
-
         if isinstance(node, ast.Name):
             if node.id not in self.symbols:
                 self.fail(node, "an existing dependency or earlier local name", node.id)
@@ -323,85 +323,98 @@ class _DeclarationExpressionBuilder:
         if isinstance(node, (ast.Tuple, ast.List)):
             return tuple(self.value(item) for item in node.elts)
         if isinstance(node, ast.BinOp):
-            left, right = self.value(node.left), self.value(node.right)
-            if isinstance(left, Deferred):
-                if isinstance(node.op, ast.Add):
-                    return left + right
-                if isinstance(node.op, ast.Sub):
-                    return left - right
-                if isinstance(node.op, ast.Mult):
-                    return left * right
-                if isinstance(node.op, ast.Div):
-                    return left / right
-                if isinstance(node.op, ast.Pow):
-                    return left**right
-                if isinstance(node.op, ast.Mod):
-                    return left % right
-                if isinstance(node.op, ast.BitAnd):
-                    return left & right
-                if isinstance(node.op, ast.BitOr):
-                    return left | right
-            elif isinstance(right, Deferred):
-                if isinstance(node.op, ast.Add):
-                    return right.__radd__(left)
-                if isinstance(node.op, ast.Sub):
-                    return right.__rsub__(left)
-                if isinstance(node.op, ast.Mult):
-                    return right.__rmul__(left)
-                if isinstance(node.op, ast.Div):
-                    return right.__rtruediv__(left)
-                if isinstance(node.op, ast.Pow):
-                    return right.__rpow__(left)
-                if isinstance(node.op, ast.Mod):
-                    return right.__rmod__(left)
-            self.fail(
-                node, "native arithmetic with a controlled Deferred operand", ast.unparse(node)
-            )
+            return self._binary_value(node)
         if isinstance(node, ast.UnaryOp):
-            value = self.value(node.operand)
-            if isinstance(value, Deferred):
-                if isinstance(node.op, ast.Invert):
-                    return ~value
-                if isinstance(node.op, ast.USub):
-                    return -value
-                if isinstance(node.op, ast.UAdd):
-                    return value
-            if type(value) in (int, float, Decimal):
-                number = cast("int | float | Decimal", value)
-                if isinstance(node.op, ast.USub):
-                    return -number
-                if isinstance(node.op, ast.UAdd):
-                    return number
+            return self._unary_value(node)
         if isinstance(node, ast.Compare) and len(node.ops) == 1:
-            left, right = self.value(node.left), self.value(node.comparators[0])
-            if isinstance(left, Deferred):
-                if isinstance(node.ops[0], ast.Eq):
-                    return left == right
-                if isinstance(node.ops[0], ast.NotEq):
-                    return left != right
-                if isinstance(node.ops[0], ast.Lt):
-                    return left < right
-                if isinstance(node.ops[0], ast.LtE):
-                    return left <= right
-                if isinstance(node.ops[0], ast.Gt):
-                    return left > right
-                if isinstance(node.ops[0], ast.GtE):
-                    return left >= right
-            elif isinstance(right, Deferred):
-                if isinstance(node.ops[0], ast.Eq):
-                    return right == left
-                if isinstance(node.ops[0], ast.NotEq):
-                    return right != left
-                if isinstance(node.ops[0], ast.Lt):
-                    return right > left
-                if isinstance(node.ops[0], ast.LtE):
-                    return right >= left
-                if isinstance(node.ops[0], ast.Gt):
-                    return right < left
-                if isinstance(node.ops[0], ast.GtE):
-                    return right <= left
+            return self._comparison_value(node)
         if isinstance(node, ast.Call):
             return self._call_value(node)
+        self.fail(node, "closed semantic expression syntax", ast.unparse(node))
+
+    def _reflected_binary(self, node: ast.BinOp, left: object, right: Deferred) -> object:
+        if isinstance(node.op, ast.Add):
+            return right.__radd__(left)
+        if isinstance(node.op, ast.Sub):
+            return right.__rsub__(left)
+        if isinstance(node.op, ast.Mult):
+            return right.__rmul__(left)
+        if isinstance(node.op, ast.Div):
+            return right.__rtruediv__(left)
+        if isinstance(node.op, ast.Pow):
+            return right.__rpow__(left)
+        if isinstance(node.op, ast.Mod):
+            return right.__rmod__(left)
+        self.fail(node, "native arithmetic with a controlled Deferred operand", ast.unparse(node))
+
+    def _binary_value(self, node: ast.BinOp) -> object:
+        left, right = self.value(node.left), self.value(node.right)
+        if isinstance(left, Deferred):
+            if isinstance(node.op, ast.Add):
+                return left + right
+            if isinstance(node.op, ast.Sub):
+                return left - right
+            if isinstance(node.op, ast.Mult):
+                return left * right
+            if isinstance(node.op, ast.Div):
+                return left / right
+            if isinstance(node.op, ast.Pow):
+                return left**right
+            if isinstance(node.op, ast.Mod):
+                return left % right
+            if isinstance(node.op, ast.BitAnd):
+                return left & right
+            if isinstance(node.op, ast.BitOr):
+                return left | right
+        elif isinstance(right, Deferred):
+            return self._reflected_binary(node, left, right)
+        self.fail(node, "native arithmetic with a controlled Deferred operand", ast.unparse(node))
+
+    def _unary_value(self, node: ast.UnaryOp) -> object:
+        value = self.value(node.operand)
+        if isinstance(value, Deferred):
+            if isinstance(node.op, ast.Invert):
+                return ~value
+            if isinstance(node.op, ast.USub):
+                return -value
+            if isinstance(node.op, ast.UAdd):
+                return value
+        if type(value) in (int, float, Decimal):
+            number = cast("int | float | Decimal", value)
+            if isinstance(node.op, ast.USub):
+                return -number
+            if isinstance(node.op, ast.UAdd):
+                return number
+        self.fail(node, "closed semantic expression syntax", ast.unparse(node))
+
+    def _comparison_value(self, node: ast.Compare) -> object:
+        left, right = self.value(node.left), self.value(node.comparators[0])
+        if isinstance(left, Deferred):
+            if isinstance(node.ops[0], ast.Eq):
+                return left == right
+            if isinstance(node.ops[0], ast.NotEq):
+                return left != right
+            if isinstance(node.ops[0], ast.Lt):
+                return left < right
+            if isinstance(node.ops[0], ast.LtE):
+                return left <= right
+            if isinstance(node.ops[0], ast.Gt):
+                return left > right
+            if isinstance(node.ops[0], ast.GtE):
+                return left >= right
+        elif isinstance(right, Deferred):
+            if isinstance(node.ops[0], ast.Eq):
+                return right == left
+            if isinstance(node.ops[0], ast.NotEq):
+                return right != left
+            if isinstance(node.ops[0], ast.Lt):
+                return right > left
+            if isinstance(node.ops[0], ast.LtE):
+                return right >= left
+            if isinstance(node.ops[0], ast.Gt):
+                return right < left
+            if isinstance(node.ops[0], ast.GtE):
+                return right <= left
         self.fail(node, "closed semantic expression syntax", ast.unparse(node))
 
     def _call_value(self, node: ast.Call) -> object:
@@ -477,7 +490,7 @@ class _DeclarationExpressionBuilder:
                 )
         result = method(*args, **kwargs)
         if isinstance(result, _ExpressionCarrier):
-            self.input_contexts.append(result._context)
+            self.input_contexts.append(captured_context(result))
             return _as_deferred(result)
         return result
 

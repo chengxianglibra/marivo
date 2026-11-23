@@ -44,7 +44,7 @@ class MetricFacts:
     node: MetricNode
     roots: tuple[ExactRef, ...]
     unit: str | None
-    _declared: tuple[tuple[ExactRef, MetricNode], ...] = ()
+    declared: tuple[tuple[ExactRef, MetricNode], ...] = ()
     boolean: bool = False
 
 

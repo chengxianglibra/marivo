@@ -10,27 +10,14 @@ from typing import Literal, TypeAlias
 
 import pandas as pd
 import pyarrow as pa
-import pyarrow.compute as pc
+from typing_extensions import override
 
 from marivo._kernel.render import Card, RenderableResult
 from marivo.analysis.core.arrow_keys import FrameKeyScalar as FrameKeyScalar
+from marivo.analysis.core.data_validation import detached_rows
 from marivo.analysis.model.frame_schema import FrameExportColumn
 from marivo.analysis.model.layout_facts import FrameComparison
 from marivo.analysis.model.time_facts import FrameAxisSchema
-
-
-def detached_rows(rows: pd.DataFrame) -> pd.DataFrame:
-    """Copy selected Arrow buffers too; pandas deep copies retain their parents."""
-    values: dict[str, pd.Series] = {}
-    for name in rows.columns:
-        column = rows[name]
-        if isinstance(column.dtype, pd.ArrowDtype):
-            array = pa.array(column, from_pandas=True)
-            copied = pc.take(array, pa.array(range(len(array)), type=pa.int64()))
-            values[name] = pd.Series(pd.arrays.ArrowExtensionArray(copied))
-        else:
-            values[name] = column.reset_index(drop=True).copy(deep=True)
-    return pd.DataFrame(values, index=pd.RangeIndex(len(rows)))
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -52,12 +39,14 @@ class FrameReadStats(RenderableResult):
     coordinate_rows_read: int
     receipt_bytes_hashed: int
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"FrameReadStats data_rows={self.data_rows_read} "
             f"coordinate_rows={self.coordinate_rows_read} bytes_hashed={self.receipt_bytes_hashed}"
         )
 
+    @override
     def _card(self) -> Card:
         return (
             Card(identity=self._repr_identity(), available=(".show()",))
@@ -113,12 +102,14 @@ class FramePage(RenderableResult):
         """
         return detached_rows(self._rows)
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"FramePage input={self.input_id[:24]} rows={len(self)} "
             f"total={self.total_count} has_more={self.has_more}"
         )
 
+    @override
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
@@ -142,9 +133,11 @@ class _PeriodRecord(RenderableResult):
         text = ", ".join(values)
         return text[:200] + ("..." if len(text) > 200 or len(self.key) > 4 else "")
 
+    @override
     def _repr_identity(self) -> str:
         return f"{type(self).__name__} key=({self._key_identity()})"
 
+    @override
     def _card(self) -> Card:
         assert is_dataclass(self)
         card = Card(identity=self._repr_identity(), available=(".show()",))
@@ -248,12 +241,14 @@ class FramePeriodPage(RenderableResult):
         """Return this page's record count without reading data."""
         return len(self.items)
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"FramePeriodPage input={self.input_id[:24]} items={len(self)} "
             f"total={self.total_count} has_more={self.has_more}"
         )
 
+    @override
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),

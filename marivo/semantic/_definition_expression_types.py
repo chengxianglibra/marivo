@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
+from typing_extensions import override
+
 from marivo._kernel.refs import (
     EntityKind,
     FieldKind,
@@ -19,9 +21,11 @@ from marivo._kernel.render import Card, RenderableResult
 
 
 class _Value(RenderableResult):
+    @override
     def _repr_identity(self) -> str:
         return type(self).__name__.removeprefix("_")
 
+    @override
     def _card(self) -> Card:
         return Card(identity=self._repr_identity(), available=(".show()",))
 

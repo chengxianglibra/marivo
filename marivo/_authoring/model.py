@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict
+from typing_extensions import override
 
 from marivo._kernel.errors import StructuredRepair
 from marivo.introspection.live.model import HelpSurface, LiveHelpTarget
@@ -109,11 +110,13 @@ class AuthoringRepair(StructuredRepair[RepairKind]):
 
     preserves_evidence: bool | None = None
 
+    @override
     def __post_init__(self) -> None:
         StructuredRepair.__post_init__(self)
         if self.preserves_evidence is not None and not isinstance(self.preserves_evidence, bool):
             raise ValueError("preserves_evidence must be a bool or None")
 
+    @override
     def model_dump(self, *, mode: Literal["python", "json"] = "python") -> dict[str, object]:
         return {
             **StructuredRepair.model_dump(self, mode=mode),

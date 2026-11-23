@@ -45,7 +45,7 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
     for field in ("definition_graph", "continuation"):
         payload = json.loads(original)
         payload["value"]["fields"][field] = {"record": "GroupDomain", "fields": {}}
-        with case.session._runtime.store._write() as connection:
+        with case.session._runtime.store.write_transaction() as connection:
             connection.execute(
                 "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
                 (json.dumps(payload), value.artifact_id),
@@ -61,7 +61,7 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
         assert caught.value.stage == "terminal_output"
         assert caught.value.repair is not None
         assert "cannot be migrated or replayed" in caught.value.repair.action
-    with case.session._runtime.store._write() as connection:
+    with case.session._runtime.store.write_transaction() as connection:
         connection.execute(
             "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
             (original, value.artifact_id),

@@ -348,6 +348,64 @@ def _validate_clockless_windows(
                     )
 
 
+def _window_start(
+    rule: ObservationWindow,
+    period: ObservationPeriod,
+    calendar: CalendarCoordinate | None,
+    cells: tuple[tuple[datetime, datetime, datetime, datetime], ...],
+    index: int,
+    end: datetime,
+    native_start: datetime | None,
+) -> datetime | None:
+    start: datetime | None
+    if isinstance(rule, AllHistory):
+        start = None
+    elif isinstance(rule, Since):
+        start = rule.start
+    elif isinstance(rule, TrailingDuration):
+        start = end.astimezone(timezone.utc) - rule.duration
+    elif isinstance(rule, ToDate):
+        if native_start is not None and calendar is not None and not calendar.actual_only:
+            start = native_start
+        else:
+            start, right = _reset(end, rule.grain, period.timezone)
+            if cells and not start <= cells[index][0] < cells[index][1] <= right:
+                reject(
+                    "each nominal output bucket inside one reset period",
+                    repr(cells[index]),
+                    "Choose an output Grain contained by the reset Grain.",
+                    "Metric.window",
+                )
+            if native_start is not None:
+                start = native_start
+    else:
+        assert isinstance(rule, TrailingPeriods)
+        if calendar is None or any(cell[:2] != cell[2:] for cell in cells):
+            reject(
+                "complete calendar buckets for trailing_periods",
+                "missing or partial report buckets",
+                "Observe a CalendarAxis with complete periods.",
+                "Metric.window",
+            )
+        if native_start is not None:
+            start = native_start
+        else:
+            grid = calendar
+            grain = grid.grain_spec
+            if grain.unit not in ("day", "week", "month", "quarter", "year"):
+                reject(
+                    "day/week/month/quarter/year periods",
+                    grid.grain,
+                    "Use trailing_duration for elapsed subday windows.",
+                    "Metric.window",
+                )
+            local: datetime = cells[index][0].astimezone(normalize_timezone(period.timezone).tz)
+            for _ in range(rule.count - 1):
+                local = _previous(local, grain)
+            start = instant(local.replace(tzinfo=None), period.timezone)
+    return start
+
+
 def _clocked_window_reads(
     contribution: ContributionBinding,
     rule: ObservationWindow,
@@ -375,52 +433,7 @@ def _clocked_window_reads(
             if native_starts is not None and calendar is not None
             else None
         )
-        start: datetime | None
-        if isinstance(rule, AllHistory):
-            start = None
-        elif isinstance(rule, Since):
-            start = rule.start
-        elif isinstance(rule, TrailingDuration):
-            start = end.astimezone(timezone.utc) - rule.duration
-        elif isinstance(rule, ToDate):
-            if native_start is not None and calendar is not None and not calendar.actual_only:
-                start = native_start
-            else:
-                start, right = _reset(end, rule.grain, period.timezone)
-                if cells and not start <= cells[index][0] < cells[index][1] <= right:
-                    reject(
-                        "each nominal output bucket inside one reset period",
-                        repr(cells[index]),
-                        "Choose an output Grain contained by the reset Grain.",
-                        "Metric.window",
-                    )
-                if native_start is not None:
-                    start = native_start
-        else:
-            assert isinstance(rule, TrailingPeriods)
-            if calendar is None or any(cell[:2] != cell[2:] for cell in cells):
-                reject(
-                    "complete calendar buckets for trailing_periods",
-                    "missing or partial report buckets",
-                    "Observe a CalendarAxis with complete periods.",
-                    "Metric.window",
-                )
-            if native_start is not None:
-                start = native_start
-            else:
-                grid = calendar
-                grain = grid.grain_spec
-                if grain.unit not in ("day", "week", "month", "quarter", "year"):
-                    reject(
-                        "day/week/month/quarter/year periods",
-                        grid.grain,
-                        "Use trailing_duration for elapsed subday windows.",
-                        "Metric.window",
-                    )
-                local: datetime = cells[index][0].astimezone(normalize_timezone(period.timezone).tz)
-                for _ in range(rule.count - 1):
-                    local = _previous(local, grain)
-                start = instant(local.replace(tzinfo=None), period.timezone)
+        start = _window_start(rule, period, calendar, cells, index, end, native_start)
         if start is not None and start >= end:
             reject(
                 "window start before each endpoint",

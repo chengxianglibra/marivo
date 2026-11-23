@@ -159,28 +159,28 @@ def _unencodable(location: str) -> ServiceError:
     )
 
 
+def _arrow_scalar(value: pa.Scalar, location: str, *, exact: bool) -> JsonValue:
+    if not value.is_valid:
+        return None
+    if isinstance(value, pa.DurationScalar):
+        return str(value.value)
+    try:
+        decoded = value.as_py()
+        if isinstance(value, pa.TimestampScalar) and value.type.unit == "ns" and decoded is pd.NaT:
+            # pandas reserves int64 minimum for NaT; Arrow keeps its validity
+            # separately. Decode whole seconds and retain the exact fraction.
+            seconds, nanoseconds = divmod(value.value, 1_000_000_000)
+            stamp = pa.scalar(seconds, type=pa.timestamp("s", tz=value.type.tz)).as_py()
+            whole = stamp.isoformat()
+            return f"{whole[:19]}.{nanoseconds:09d}{whole[19:]}"
+        return scalar(decoded, location, exact=exact)
+    except (ValueError, OverflowError, KeyError):
+        raise _unencodable(location) from None
+
+
 def scalar(value: object, location: str, *, exact: bool) -> JsonValue:
     if isinstance(value, pa.Scalar):
-        if not value.is_valid:
-            return None
-        if isinstance(value, pa.DurationScalar):
-            return str(value.value)
-        try:
-            decoded = value.as_py()
-            if (
-                isinstance(value, pa.TimestampScalar)
-                and value.type.unit == "ns"
-                and decoded is pd.NaT
-            ):
-                # pandas reserves int64 minimum for NaT; Arrow keeps its validity
-                # separately. Decode whole seconds and retain the exact fraction.
-                seconds, nanoseconds = divmod(value.value, 1_000_000_000)
-                stamp = pa.scalar(seconds, type=pa.timestamp("s", tz=value.type.tz)).as_py()
-                whole = stamp.isoformat()
-                return f"{whole[:19]}.{nanoseconds:09d}{whole[19:]}"
-            return scalar(decoded, location, exact=exact)
-        except (ValueError, OverflowError, KeyError):
-            raise _unencodable(location) from None
+        return _arrow_scalar(value, location, exact=exact)
     if value is None or value is pd.NA or value is pd.NaT:
         return None
     if isinstance(value, (bool, str)):

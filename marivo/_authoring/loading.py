@@ -17,6 +17,8 @@ from types import CodeType, ModuleType
 from typing import Literal
 from uuid import uuid4
 
+from typing_extensions import override
+
 _SOURCE_LOADING_FILE: ContextVar[Path | None] = ContextVar("_SOURCE_LOADING_FILE", default=None)
 _IMPORT_FINDERS_LOCK = Lock()
 _SourceCapture = Callable[[str, bytes], None]
@@ -32,6 +34,7 @@ class _AuthoredSourceLoader(SourceFileLoader):
         super().__init__(name, path)
         self._capture = capture
 
+    @override
     def get_code(self, fullname: str) -> CodeType:
         # Keep the load-local cache out of the loader retained by sys.modules.
         capture, self._capture = self._capture, None
@@ -61,6 +64,7 @@ class _AuthoredSourceFinder(MetaPathFinder):
         self._prefixes = tuple(f"{prefix}." for prefix in prefixes)
         self._capture = capture
 
+    @override
     def find_spec(
         self, fullname: str, path: Sequence[str] | None, target: ModuleType | None = None
     ) -> ModuleSpec | None:

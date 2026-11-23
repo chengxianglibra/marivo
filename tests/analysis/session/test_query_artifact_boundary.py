@@ -179,9 +179,9 @@ def test_catalog_metrics_capture_the_r1_definition_closure(
     if composition != "direct":
         assert len(_graph(query).signature.quantities) == 1
         assert dict(_graph(query).signature.declared_metrics) == dict(
-            (*consume_metric(revenue)._declared, *consume_metric(double)._declared)
+            (*consume_metric(revenue).declared, *consume_metric(double).declared)
             if composition == "ratio"
-            else consume_metric(revenue)._declared
+            else consume_metric(revenue).declared
         )
     assert _graph(query).signature.declared_metrics
     assert _graph(query).fingerprint
@@ -258,7 +258,7 @@ def test_old_graph_metadata_is_rejected_without_decoding_or_mutation(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("old-output")
-    with session._runtime.store._write() as connection:
+    with session._runtime.store.write_transaction() as connection:
         connection.execute(
             "INSERT INTO dataset_artifacts VALUES (?,?,?,?,?)",
             (

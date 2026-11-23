@@ -214,6 +214,19 @@ def _annotation(owner: type[object], name: str) -> object:
     return annotation
 
 
+_PRIMITIVE_SCHEMAS: dict[type, JsonObject] = {
+    datetime: DATETIME,
+    InstantAnchor: DATETIME,
+    date: {"type": "string", "format": "date"},
+    timedelta: record(unit=literal("us"), ticks=TICKS),
+    str: STRING,
+    int: INT,
+    bool: BOOL,
+    float: NUMBER,
+    type(None): NULL,
+}
+
+
 def _type(annotation: object) -> JsonObject:
     if isinstance(annotation, type) and annotation in _NESTED:
         return ref(annotation.__name__)
@@ -231,22 +244,9 @@ def _type(annotation: object) -> JsonObject:
         )
     if annotation in (ScalarDataType, DecimalDataType, TimestampDataType, DurationDataType):
         return ref(annotation.__name__)
-    if annotation in (datetime, InstantAnchor):
-        return DATETIME
-    if annotation is date:
-        return {"type": "string", "format": "date"}
-    if annotation is timedelta:
-        return record(unit=literal("us"), ticks=TICKS)
-    if annotation is str:
-        return STRING
-    if annotation is int:
-        return INT
-    if annotation is bool:
-        return BOOL
-    if annotation is float:
-        return NUMBER
-    if annotation is type(None):
-        return NULL
+    primitive = _PRIMITIVE_SCHEMAS.get(annotation) if isinstance(annotation, type) else None
+    if primitive is not None:
+        return primitive
     origin, args = get_origin(annotation), get_args(annotation)
     if origin in (Union, UnionType):
         return either(*(_type(arg) for arg in args))

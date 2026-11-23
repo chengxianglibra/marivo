@@ -25,6 +25,7 @@ from marivo._definition.types import (
     SumNone,
     SumPermission,
 )
+from marivo._kernel.paths import relationship_binding
 from marivo._kernel.refs import (
     DimensionKind,
     EntityKind,
@@ -49,6 +50,8 @@ from marivo.semantic.expressions.objects import (
     _Entity,
     _fail,
     _Relationship,
+    expression_default_time,
+    field_is_versioned,
 )
 from marivo.semantic.ir import (
     DimensionIR,
@@ -92,7 +95,7 @@ class _Resolver:
         cached = self._versions.get(target)
         if cached is None:
             if isinstance(self._state, CompiledSemanticState):
-                version = self._state._definition_version(target)
+                version = self._state.definition_version(target)
             else:
                 version = scoped_definition_fingerprint(
                     root=target,
@@ -339,7 +342,7 @@ def resolve(catalog: CompiledCatalog, target: Ref[SemanticKindTag]) -> ResolvedV
             action="Resolve a field, Entity, Relationship or published Metric ref.",
             refs=(target.key,),
         )
-    state = catalog._state
+    state = catalog._state  # noqa: SLF001 - CompiledCatalog owns this exact captured lookup scope.
     if target.kind is SemanticKind.METRIC and target.path not in state.registry.declared_metrics:
         raise SemanticExpressionError(
             kind=ErrorKind.METRIC_NOT_FOUND,
@@ -374,15 +377,15 @@ def author_value(value: ResolvedValue) -> ResolvedValue:
                 unit=value.unit if isinstance(value, Measure) else None,
                 permission=value.permission if isinstance(value, Measure) else SumNone(),
                 coordinates=value.coordinates if isinstance(value, Measure) else (),
-                versioned=value._versioned,
-                default_time=value._default_time,
+                versioned=field_is_versioned(value),
+                default_time=expression_default_time(value),
                 field_read=FieldRead(
                     value.ref,
                     value.root,
-                    tuple(step._parameter.ref for step in value.path),
+                    tuple(relationship_binding(step).ref for step in value.path),
                     value.anchor,
-                    path_facts=tuple(step._parameter for step in value.path),
-                    versioned=value._versioned,
+                    path_facts=tuple(relationship_binding(step) for step in value.path),
+                    versioned=field_is_versioned(value),
                     unit=value.unit if isinstance(value, Measure) else None,
                 ),
             )

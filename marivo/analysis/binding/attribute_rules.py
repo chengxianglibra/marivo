@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import operator
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Generic, Literal, NoReturn, TypeAlias, TypeVar
@@ -253,6 +253,42 @@ def _allows(permission: SumPermission, axis: ComparisonAxis) -> bool:
     return False
 
 
+def _recipe_allows(
+    recipe: Resolver, inputs: tuple[RowField | MeasureAssertion, ...], axis: ComparisonAxis
+) -> bool | None:
+    def visit(child: Resolver) -> bool | None:
+        return _recipe_allows(child, inputs, axis)
+
+    if isinstance(recipe, RescaleResolver):
+        return visit(recipe.recipe)
+    if type(recipe) is Variable:
+        for index, item in enumerate(inputs):
+            if recipe.name == f"slot_{index}":
+                return _row_allows(item, axis)
+        return False
+    if type(recipe) is Just:
+        return None
+    if type(recipe) is UnaryOperator and recipe.func is operator.neg:
+        return visit(recipe.arg)
+    if type(recipe) is BinaryOperator:
+        left, right = visit(recipe.left), visit(recipe.right)
+        rows = tuple(item for item in (left, right) if item is not None)
+        if recipe.func in (operator.add, operator.sub):
+            return all(rows) if rows else None
+        if recipe.func is operator.mul and len(rows) == 1:
+            return rows[0]
+        if recipe.func is operator.truediv and left is not None and right is None:
+            return left
+        return False
+    if type(recipe) is Call and type(recipe.func) is Attr:
+        name = attribute_name(recipe.func)
+        if name == "name":
+            return visit(recipe.func.obj)
+        if name == "divide" and len(recipe.args) == 1 and visit(recipe.args[0]) is None:
+            return visit(recipe.func.obj)
+    return False
+
+
 def _row_allows(node: RowNode, axis: ComparisonAxis) -> bool:
     if isinstance(node, RowField):
         return _allows(node.permission, axis)
@@ -263,38 +299,7 @@ def _row_allows(node: RowNode, axis: ComparisonAxis) -> bool:
             else _row_allows(node.operand, axis)
         )
 
-    def visit(recipe: Resolver) -> bool | None:
-
-        if isinstance(recipe, RescaleResolver):
-            return visit(recipe.recipe)
-        if type(recipe) is Variable:
-            for index, item in enumerate(node.inputs):
-                if recipe.name == f"slot_{index}":
-                    return _row_allows(item, axis)
-            return False
-        if type(recipe) is Just:
-            return None
-        if type(recipe) is UnaryOperator and recipe.func is operator.neg:
-            return visit(recipe.arg)
-        if type(recipe) is BinaryOperator:
-            left, right = visit(recipe.left), visit(recipe.right)
-            rows = tuple(item for item in (left, right) if item is not None)
-            if recipe.func in (operator.add, operator.sub):
-                return all(rows) if rows else None
-            if recipe.func is operator.mul and len(rows) == 1:
-                return rows[0]
-            if recipe.func is operator.truediv and left is not None and right is None:
-                return left
-            return False
-        if type(recipe) is Call and type(recipe.func) is Attr:
-            name = attribute_name(recipe.func)
-            if name == "name":
-                return visit(recipe.func.obj)
-            if name == "divide" and len(recipe.args) == 1 and visit(recipe.args[0]) is None:
-                return visit(recipe.func.obj)
-        return False
-
-    return visit(node.recipe) is True
+    return _recipe_allows(node.recipe, node.inputs, axis) is True
 
 
 def _roots(node: RowNode) -> tuple[ExactRef, ...]:
@@ -400,6 +405,34 @@ class _AttributeRuleBinding:
             self.fail(path, "uncaptured window wrapper", reason="missing_component_proof")
         return AttributeSourceRequest(binding, roles, support)
 
+    def _source_aggregate(self, item: SourceAggregate, path: tuple[int, ...]) -> AttributeRule:
+        if item.reducer == "mean":
+            return RatioComponentRule(
+                NativeMean(
+                    self.source(
+                        item, path, ("valid_value_sum", "valid_value_count"), "non_null_value"
+                    )
+                )
+            )
+        if item.reducer not in ("sum", "count", "count_distinct"):
+            self.fail(path, f"source reducer {item.reducer}")
+        if item.reducer == "sum" and (
+            not self.by or not all(_row_allows(item.operand, axis) for axis in self.by)
+        ):
+            self.fail(path, "sum permission does not cover every requested classification axis")
+        distinct = item.reducer == "count_distinct"
+        return AdditiveRule(
+            AdditiveSource(
+                self.source(
+                    item,
+                    path,
+                    ("additive_value",),
+                    "identity" if distinct else "non_null_value",
+                ),
+                distinct,
+            )
+        )
+
     def visit(self, item: MetricNode, path: tuple[int, ...]) -> AttributeRule:
         if isinstance(item, DeclaredMetricRef):
             if item.ref in self.active or item.ref not in self.declared:
@@ -452,35 +485,37 @@ class _AttributeRuleBinding:
                 )
             )
         if isinstance(item, SourceAggregate):
-            if item.reducer == "mean":
-                return RatioComponentRule(
-                    NativeMean(
-                        self.source(
-                            item, path, ("valid_value_sum", "valid_value_count"), "non_null_value"
-                        )
-                    )
-                )
-            if item.reducer not in ("sum", "count", "count_distinct"):
-                self.fail(path, f"source reducer {item.reducer}")
-            if item.reducer == "sum" and (
-                not self.by or not all(_row_allows(item.operand, axis) for axis in self.by)
-            ):
-                self.fail(path, "sum permission does not cover every requested classification axis")
-            distinct = item.reducer == "count_distinct"
-            return AdditiveRule(
-                AdditiveSource(
-                    self.source(
-                        item,
-                        path,
-                        ("additive_value",),
-                        "identity" if distinct else "non_null_value",
-                    ),
-                    distinct,
-                )
-            )
+            return self._source_aggregate(item, path)
         if not isinstance(item, MetricExpression):
             self.fail(path, type(item).__name__)
         return self._visit_recipe(item, path)
+
+    def _binary_rule(
+        self,
+        value: BinaryOperator,
+        left: _RecipeValue,
+        right: _RecipeValue,
+        rule: Callable[[_RecipeValue], AttributeRule],
+        path: tuple[int, ...],
+    ) -> AttributeRule:
+        if value.func is operator.add:
+            return _combine_rules(RuleAdd(rule(left), rule(right)))
+        if value.func is operator.sub:
+            return _combine_rules(RuleSubtract(rule(left), rule(right)))
+        if value.func is operator.truediv:
+            if isinstance(right, FixedScalar) and not isinstance(left, FixedScalar):
+                if right.value == 0:
+                    self.fail(path, "a zero fixed divisor")
+                return _combine_rules(RuleDivide(left, right))
+            if not isinstance(left, AdditiveRule) or not isinstance(right, AdditiveRule):
+                self.fail(path, "a divide without two ordered additive components")
+            return RatioComponentRule(DirectRatio(left, right))
+        if value.func is operator.mul:
+            if isinstance(left, FixedScalar) and not isinstance(right, FixedScalar):
+                return _combine_rules(RuleScale(right, left, "left"))
+            if isinstance(right, FixedScalar) and not isinstance(left, FixedScalar):
+                return _combine_rules(RuleScale(left, right, "right"))
+        self.fail(path, "an unsupported completed-Metric operator")
 
     def _visit_recipe(self, item: MetricExpression, path: tuple[int, ...]) -> AttributeRule:
         used: list[int] = []
@@ -489,14 +524,6 @@ class _AttributeRuleBinding:
             if isinstance(value, FixedScalar):
                 self.fail(path, "a constant offset or constant-only Metric")
             return value
-
-        def ratio(
-            left: _RecipeValue,
-            right: _RecipeValue,
-        ) -> RatioComponentRule:
-            if not isinstance(left, AdditiveRule) or not isinstance(right, AdditiveRule):
-                self.fail(path, "a divide without two ordered additive components")
-            return RatioComponentRule(DirectRatio(left, right))
 
         def recipe(value: Resolver) -> _RecipeValue:
 
@@ -523,23 +550,7 @@ class _AttributeRuleBinding:
             if type(value) is UnaryOperator and value.func is operator.neg:
                 return _combine_rules(RuleNegate(rule(recipe(value.arg))))
             if type(value) is BinaryOperator:
-                left, right = recipe(value.left), recipe(value.right)
-                if value.func is operator.add:
-                    return _combine_rules(RuleAdd(rule(left), rule(right)))
-                if value.func is operator.sub:
-                    return _combine_rules(RuleSubtract(rule(left), rule(right)))
-                if value.func is operator.truediv:
-                    if isinstance(right, FixedScalar) and not isinstance(left, FixedScalar):
-                        if right.value == 0:
-                            self.fail(path, "a zero fixed divisor")
-                        return _combine_rules(RuleDivide(left, right))
-                    return ratio(left, right)
-                if value.func is operator.mul:
-                    if isinstance(left, FixedScalar) and not isinstance(right, FixedScalar):
-                        return _combine_rules(RuleScale(right, left, "left"))
-                    if isinstance(right, FixedScalar) and not isinstance(left, FixedScalar):
-                        return _combine_rules(RuleScale(left, right, "right"))
-                self.fail(path, "an unsupported completed-Metric operator")
+                return self._binary_rule(value, recipe(value.left), recipe(value.right), rule, path)
             self.fail(path, f"unsupported Metric recipe {type(value).__name__}")
 
         result = rule(recipe(item.recipe))

@@ -187,7 +187,7 @@ def _submissions(backend: BaseBackend) -> list[ProviderStatementSubmission]:
     log = getattr(backend, "_marivo_provider_submissions", None)
     if log is None:
         log = []
-        backend._marivo_provider_submissions = log
+        backend._marivo_provider_submissions = log  # noqa: SLF001 - Submission log owned by this provider connection.
     return log
 
 

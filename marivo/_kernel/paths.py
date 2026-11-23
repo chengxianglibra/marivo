@@ -11,6 +11,7 @@ from marivo._kernel.errors import invalid
 from marivo._kernel.input_context import InputContext
 from marivo._kernel.refs import ExactRef
 from marivo._kernel.time_types import InstantAnchor
+from marivo._kernel.validation import is_instance
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +79,7 @@ class PathParameter:
 def check_path_anchor(value: InstantAnchor | None, entity: ExactRef, versioned: bool) -> None:
     if value is None:
         return
-    if not isinstance(value, InstantAnchor) or value.utcoffset() is None:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(value, InstantAnchor) or value.utcoffset() is None:
         invalid(f"Use session.instant(...) to anchor {entity.ref.key} in mv.path.")
     if not versioned:
         invalid(f"Remove the version anchor for unversioned node {entity.ref.key}.")
@@ -104,3 +105,17 @@ class _PathValue:
     __slots__ = ()
     _parameter: PathParameter
     _context: InputContext
+
+
+def relationship_binding(value: _RelationshipValue) -> RelationshipParameter:
+    """Resolve a captured relationship through its nominal bridge."""
+    return value._parameter  # noqa: SLF001 - Shared relationship carrier.
+
+
+def path_parameter(value: _PathValue) -> PathParameter:
+    """Read the closed path retained by a path value."""
+    return value._parameter  # noqa: SLF001 - Shared path carrier.
+
+
+def relationship_default_time(value: RelationshipParameter) -> ExactRef | None:
+    return value._from_default_time  # noqa: SLF001 - Clock captured with the relationship source.

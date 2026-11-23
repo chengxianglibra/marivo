@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from typing_extensions import override
+
 from marivo.analysis.model.method_values import _FactRecord, _fail, _short
 
 
@@ -77,6 +79,7 @@ class FrameMethodOutput(_FactRecord):
         ):
             _fail("a complete nonempty output path", repr(self.path))
 
+    @override
     def _summary(self) -> str:
         return f"kind=output, role={self.role}, path={_short(repr(self.path), 60)}"
 
@@ -110,6 +113,7 @@ class FrameMethodTarget(_FactRecord):
         ):
             _fail("four ordered main roles and unique diagnostics", repr(self.target))
 
+    @override
     def _summary(self) -> str:
         return (
             f"kind={self.kind}, target={_short(repr(self.target), 60)}, outputs={len(self.outputs)}"

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import replace
 from hashlib import sha256
 from json import dumps
+from typing import TypeVar
+from uuid import uuid4
 
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
@@ -14,6 +15,7 @@ from marivo.analysis.core.frame_data import (
     FrameBacking,
     FrameDerivation,
     FrameNode,
+    MemoryFrameBacking,
     OperationFrameBinding,
     StoredFrameBacking,
 )
@@ -25,10 +27,40 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.model.artifact_data import ArtifactData, SavedFrameMethodFacts
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.errors import reject
+from marivo.analysis.model.frame_contracts import frame_derivation_of, frame_local
+from marivo.analysis.model.frame_integrity import share_contexts, validate_current_facts
 from marivo.analysis.model.frame_metadata import StoredFrameMetadata
+from marivo.analysis.model.frame_schema import LogicalSchema
 from marivo.analysis.model.frame_structure import PendingDataSchema
 from marivo.analysis.model.lineage import FrameLineage
 from marivo.analysis.model.lineage import validate as validate_lineage
+
+FrameT = TypeVar("FrameT", bound=FrameNode)
+
+
+def new_frame_id() -> str:
+    return "frame_" + uuid4().hex
+
+
+def bind_frame_owner(
+    cls: type[FrameT],
+    local: LocalFrameServices,
+    schema: LogicalSchema,
+    backing: FrameBacking,
+    input_id: str,
+    derivation: FrameDerivation | None = None,
+) -> FrameT:
+    schema = share_contexts(schema)
+    validate_current_facts(schema)
+    result = object.__new__(cls)
+    object.__setattr__(result, "_local", local)
+    object.__setattr__(result, "_input_id", input_id)
+    object.__setattr__(result, "_schema", schema)
+    object.__setattr__(result, "_backing", backing)
+    object.__setattr__(result, "_derivation", derivation)
+    lineage = capture_lineage(schema, backing, input_id)
+    object.__setattr__(result, "_lineage", lineage)
+    return result
 
 
 def capture_lineage(
@@ -50,16 +82,24 @@ def capture_lineage(
 def complete_frame(
     frame: FrameNode,
     backing: ExpressionFrameBacking | StoredFrameBacking,
-    bind_key: Callable[[LocalFrameServices, CompletedFrameResult, str], FrameNode],
+    frame_type: type[FrameNode],
 ) -> tuple[CompletedFrameResult, FrameDerivation | None]:
     """Return a completed result and its detached key declaration."""
     if isinstance(backing, StoredFrameBacking):
-        return frame._local.read_complete(backing), frame._derivation
+        return frame_local(frame).read_complete(backing), frame_derivation_of(frame)
     keys: dict[str, CompletedFrameData] = {}
-    needs_keys = frame_derivation.uses_frame_keys(frame._derivation)
+    needs_keys = frame_derivation.uses_frame_keys(frame_derivation_of(frame))
     result = frame_evaluation.evaluate_frame(frame, declaration_keys=keys if needs_keys else None)
+
+    def bind_key(
+        local: LocalFrameServices, result: CompletedFrameResult, input_id: str
+    ) -> FrameNode:
+        return bind_frame_owner(
+            frame_type, local, result.data.schema, MemoryFrameBacking(result), input_id, None
+        )
+
     declaration = frame_derivation.complete_declaration(
-        frame._derivation, keys, result.metadata, bind_key
+        frame_derivation_of(frame), keys, result.metadata, bind_key
     )
     return result, declaration
 

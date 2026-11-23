@@ -372,6 +372,45 @@ class _AttributeBundler:
         )
 
 
+def _validate_window_proofs(requests: tuple[AttributeSourceRequest, ...]) -> None:
+    for request in requests:
+        if request.binding.window_key is not None:
+            proof = request.window
+            if proof is None:
+                input_failure(
+                    "missing_component_proof",
+                    "a window source lacks its captured finite binding proof",
+                )
+            actual = tuple(
+                item.binding
+                for item in requests
+                if (item.binding.logical_occurrence or item.binding.occurrence)
+                == (request.binding.logical_occurrence or request.binding.occurrence)
+            )
+            if actual != proof.bindings:
+                input_failure(
+                    "missing_component_proof",
+                    "expanded source uses differ from the captured finite window proof",
+                )
+
+
+def _dependency_order(stages: list[QueryStage]) -> list[QueryStage]:
+    by_id = {stage.stage_id: stage for stage in stages}
+    ordered: dict[str, QueryStage] = {}
+
+    def include(stage: QueryStage) -> None:
+        if stage.stage_id in ordered:
+            return
+        for dependency in stage.inputs:
+            if dependency in by_id:
+                include(by_id[dependency])
+        ordered[stage.stage_id] = stage
+
+    for stage in stages:
+        include(stage)
+    return list(ordered.values())
+
+
 def bundle_attribute_plan(
     plan: QueryPlan,
     rules: tuple[tuple[str, AttributeRule], ...],
@@ -393,25 +432,7 @@ def bundle_attribute_plan(
     for stage in plan.stages:
         if isinstance(stage, SourceReadStage) and stage.occurrence in by_occurrence:
             roots.setdefault(stage.source_id, []).append(stage)
-    for request in requests:
-        if request.binding.window_key is not None:
-            proof = request.window
-            if proof is None:
-                input_failure(
-                    "missing_component_proof",
-                    "a window source lacks its captured finite binding proof",
-                )
-            actual = tuple(
-                item.binding
-                for item in requests
-                if (item.binding.logical_occurrence or item.binding.occurrence)
-                == (request.binding.logical_occurrence or request.binding.occurrence)
-            )
-            if actual != proof.bindings:
-                input_failure(
-                    "missing_component_proof",
-                    "expanded source uses differ from the captured finite window proof",
-                )
+    _validate_window_proofs(requests)
     formula = next(
         (
             stage.program
@@ -488,20 +509,7 @@ def bundle_attribute_plan(
     if population_parameter is not None:
         # Population keys are an existing captured dependency, uploaded once as
         # a typed relation before the fine read that checks their coverage.
-        by_id = {stage.stage_id: stage for stage in stages}
-        ordered: dict[str, QueryStage] = {}
-
-        def include(stage: QueryStage) -> None:
-            if stage.stage_id in ordered:
-                return
-            for dependency in stage.inputs:
-                if dependency in by_id:
-                    include(by_id[dependency])
-            ordered[stage.stage_id] = stage
-
-        for stage in stages:
-            include(stage)
-        stages = list(ordered.values())
+        stages = _dependency_order(stages)
     consumers = tuple(
         (
             stage.stage_id,

@@ -14,6 +14,7 @@ from marivo._definition.expressions import DeclaredMetricRef, MetricNode
 from marivo._definition.grouping import grouping_binding, normalize_groupings
 from marivo._definition.observations import CoordinateBinding, ObservationBinding
 from marivo._definition.population_builders import extend
+from marivo._definition.population_types import population_definition
 from marivo._definition.query import LiteralValues, ResultQuery
 from marivo._definition.relations import (
     LiteralPopulation,
@@ -39,6 +40,7 @@ from marivo._definition.types import (
 from marivo._kernel.grouping import Grouping
 from marivo._kernel.temporal import TimeScope
 from marivo._kernel.timezones import same_timezone
+from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.contribution_binding import ObservationCoordinate
 from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.binding.observe import ObservationPeriod, bind_observation
@@ -47,11 +49,11 @@ from marivo.analysis.core.value_types import literal_kind
 from marivo.analysis.dsl.population import (
     Population,
     _axes,
-    _closed,
     _owner,
     _read,
     _subject,
 )
+from marivo.analysis.dsl.population_context import validate_population_contract as _closed
 from marivo.analysis.dsl.temporal import interval_coordinate
 from marivo.analysis.model.errors import CoreRuleError, reject
 from marivo.analysis.model.value_names import value_name
@@ -62,6 +64,7 @@ from marivo.semantic.spi import (
     consume_metric,
     consume_metric_in_state,
     consume_predicate,
+    expression_role,
 )
 
 ValueRow: TypeAlias = tuple[tuple[CoordinateValue, ...], Mapping[str, LiteralValue]]
@@ -103,7 +106,7 @@ def _metric_inputs(
             if name is not None
             else f"Session.observe.metrics[{index}]"
         )
-        if not isinstance(metric, MetricExpression) or metric._role != "numeric":  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not is_instance(metric, MetricExpression) or expression_role(metric) != "numeric":
             reject(
                 "a numeric Metric expression",
                 type(metric).__name__,
@@ -143,14 +146,14 @@ def capture_read(
     on: Grouping | None = None,
 ) -> BoundGraph:
 
-    if _owner(population._definition) not in (None, owner):
+    if _owner(population_definition(population)) not in (None, owner):
         reject(
             "a Population from this Session",
             "another Session owner",
             "Read the domain through its owning Session.",
             "Session.read",
         )
-    if not isinstance(fields, Mapping) or not fields:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not is_instance(fields, Mapping) or not fields:
         reject(
             "a nonempty named Field mapping",
             type(fields).__name__,
@@ -160,13 +163,13 @@ def capture_read(
     reads = tuple(_read(value) for value in fields.values())
     definition, positions = _closed(
         lambda: extend(
-            population._definition,
+            population_definition(population),
             tuple(field_axis(read) for read in reads),
             _subject(on, "session.read"),
         ),
         "session.read",
     )
-    axes = population._definition.axes
+    axes = population_definition(population).axes
     quantities = tuple(
         ResultQuantity(name, read.unit, "unresolved")
         for name, read in zip(fields, reads, strict=True)
@@ -180,6 +183,26 @@ def capture_read(
     )
 
 
+def _capture_literal(value: LiteralValue) -> LiteralValue:
+    try:
+        result = check_literal(value, role="values literal")
+    except DefinitionGraphError as error:
+        reject(
+            "a finite immutable literal",
+            str(error),
+            "Use a finite typed value.",
+            "Session.values",
+        )
+    if isinstance(result, datetime) and (result.tzinfo is None or result.utcoffset() is None):
+        reject(
+            "a timezone-aware timestamp literal",
+            repr(result),
+            "Pass an aware datetime or a date-valued key.",
+            "Session.values",
+        )
+    return result
+
+
 def capture_values(
     *,
     by: tuple[Deferred | Grouping, ...],
@@ -187,25 +210,6 @@ def capture_values(
     rows: tuple[ValueRow, ...],
     owner: Owner,
 ) -> BoundGraph:
-
-    def literal(value: LiteralValue) -> LiteralValue:
-        try:
-            result = check_literal(value, role="values literal")
-        except DefinitionGraphError as error:
-            reject(
-                "a finite immutable literal",
-                str(error),
-                "Use a finite typed value.",
-                "Session.values",
-            )
-        if isinstance(result, datetime) and (result.tzinfo is None or result.utcoffset() is None):
-            reject(
-                "a timezone-aware timestamp literal",
-                repr(result),
-                "Pass an aware datetime or a date-valued key.",
-                "Session.values",
-            )
-        return result
 
     axes = _axes(by)
     if any(isinstance(axis, CalendarCoordinate) for axis in axes):
@@ -215,7 +219,7 @@ def capture_values(
             "Reuse calendars through Population, rather than hand-writing calendar keys.",
             "Session.values",
         )
-    if not columns or not isinstance(rows, tuple) or not rows:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+    if not columns or not is_instance(rows, tuple) or not rows:
         reject(
             "named columns and finite typed literal rows",
             repr((columns, rows)),
@@ -230,7 +234,7 @@ def capture_values(
                 for component in (
                     coordinate_key if isinstance(coordinate_key, tuple) else (coordinate_key,)
                 ):
-                    literal(component)
+                    _capture_literal(component)
         domain = LiteralPopulation(
             tuple(axis for axis in axes if isinstance(axis, AxisBinding)), keys, "values@v1"
         )
@@ -258,7 +262,7 @@ def capture_values(
                 "Provide each columns name once in every ValueRow.",
                 "Session.values",
             )
-        literals = tuple(literal(row[name]) for _, row in rows)
+        literals = tuple(_capture_literal(row[name]) for _, row in rows)
         if any(value is None for value in literals):
             reject(
                 "non-null literal values",
@@ -286,7 +290,7 @@ def capture_values(
                 "Session.values",
             )
     for key, row in rows:
-        values.append((key, tuple(literal(row[name]) for name in names)))
+        values.append((key, tuple(_capture_literal(row[name]) for name in names)))
     root = ResultQuery(LiteralValues(names, tuple(values)), axes, owner)
     signature = BoundSignature(
         owner,
@@ -359,7 +363,7 @@ def _capture_named_metrics(
             )
         names[name] = (position, reference)
         quantities.append(BoundQuantity(name, facts.node, facts.unit))
-        definitions.update(facts._declared)
+        definitions.update(facts.declared)
     return quantities, definitions
 
 
@@ -444,7 +448,7 @@ def capture_metrics(
     scope: TimeScope | None = None,
 ) -> BoundGraph:
     quantities, definitions = _capture_named_metrics(metrics, state)
-    population = by._definition if isinstance(by, Population) else None
+    population = population_definition(by) if isinstance(by, Population) else None
     if population is not None and _owner(population) not in (None, owner):
         reject(
             "a Population from this Session",
@@ -541,7 +545,7 @@ def capture_metrics(
 
 def capture_population(population: Population, owner: Owner) -> BoundGraph:
 
-    existing_owner = _owner(population._definition)
+    existing_owner = _owner(population_definition(population))
     if existing_owner is not None and existing_owner != owner:
         reject(
             "a Population from this Session",
@@ -549,13 +553,13 @@ def capture_population(population: Population, owner: Owner) -> BoundGraph:
             "Rebuild the Population in this Session.",
             "session.frame",
         )
-    axes = population._definition.axes
+    axes = population_definition(population).axes
     binding = ObservationBinding(
         None,
         None,
-        CoordinateBinding(axes, "grouped", population._definition),
+        CoordinateBinding(axes, "grouped", population_definition(population)),
         (),
     )
     signature = BoundSignature(owner, (), axes, observation=binding)
-    root = ObserveQuery((), axes, owner, population._definition)
+    root = ObserveQuery((), axes, owner, population_definition(population))
     return BoundGraph(root, signature)

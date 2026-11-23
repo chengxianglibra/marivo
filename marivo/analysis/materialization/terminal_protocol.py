@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, is_dataclass
 from datetime import date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from functools import cache
 from types import MappingProxyType, UnionType
 from typing import Literal, TypeVar, Union, get_args, get_origin, get_type_hints
@@ -45,6 +45,9 @@ from marivo.analysis.core.frame_shapley_facts import (
 )
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.contracts import _array, _obj, _text, parse_json
+from marivo.analysis.materialization.terminal_scalars import (
+    decode_wire_scalar as _decode_wire_scalar,
+)
 from marivo.analysis.model.artifact_data import (
     ArtifactData,
     ArtifactManifest,
@@ -711,37 +714,7 @@ def _decode(value: object, contexts: tuple[FrameValueContext, ...] = ()) -> obje
             raise invalid("invalid local context reference")
         return contexts[index]
     if "scalar" in value:
-        obj = _obj(value, "scalar value")
-        raw = obj["value"]
-        if obj["scalar"] == "arrow_date" and type(raw) is int:
-            return pa.scalar(raw, type=pa.date32())
-        if obj["scalar"] == "arrow_timestamp" and isinstance(raw, list) and len(raw) == 3:
-            unit, zone, integer = raw
-            if type(unit) is str and (zone is None or type(zone) is str) and type(integer) is int:
-                return pa.scalar(integer, type=pa.timestamp(unit, zone))
-        if obj["scalar"] == "arrow_duration" and isinstance(raw, list) and len(raw) == 2:
-            unit, integer = raw
-            if type(unit) is str and type(integer) is int:
-                return pa.scalar(integer, type=pa.duration(unit))
-        text = _text(raw)
-        if obj["scalar"] == "timedelta":
-            return timedelta(microseconds=int(text))
-        try:
-            if obj["scalar"] == "Decimal":
-                number = Decimal(text)
-                if number.is_finite() and str(number) == text:
-                    return number
-            if obj["scalar"] == "date":
-                day = date.fromisoformat(text)
-                if day.isoformat() == text:
-                    return day
-            if obj["scalar"] == "datetime":
-                instant = datetime.fromisoformat(text)
-                if instant.isoformat() == text:
-                    return instant
-        except (ValueError, InvalidOperation):
-            pass
-        raise invalid("invalid terminal scalar")
+        return _decode_wire_scalar(value)
     obj = _obj(value, "record fields")
     record = _TYPES.get(_text(obj["record"]))
     if record is None:

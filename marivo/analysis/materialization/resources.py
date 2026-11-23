@@ -72,7 +72,7 @@ def discharge_resources(
     The caller holds the Session writer guard and has resolved Store commit state.
     Read-only queries and connection-scoped temporary relations cannot publish.
     """
-    runs = tuple(store._resource_run(ref) for ref in {item.run_ref for item in resources})
+    runs = tuple(store.resource_run(ref) for ref in {item.run_ref for item in resources})
     journal = tuple(
         item for run in runs if run is not None for item in store.resources(run.session_ref)
     )
@@ -129,7 +129,7 @@ def discharge_resources(
                 help_target="session.resume",
             )
         relative = PurePosixPath(resource.safe_locator)
-        run = store._resource_run(resource.run_ref)
+        run = store.resource_run(resource.run_ref)
         if run is None:
             raise _invalid_resource(resource)
         allowed = (
@@ -166,7 +166,7 @@ def _invalid_resource(resource: ResourceRecord) -> IntegrityError:
 
 
 def _resource_session(store: SessionStore, resource: ResourceRecord) -> str:
-    run = store._resource_run(resource.run_ref)
+    run = store.resource_run(resource.run_ref)
     if run is None:
         raise _invalid_resource(resource)
     return run.session_ref

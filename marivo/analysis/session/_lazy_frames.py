@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame_factory import frame_from_storage
 from marivo.analysis.errors import AnalysisError, AnalysisRepair, SessionStateError
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.contracts import parse_timestamp
@@ -59,7 +59,7 @@ def persisted_frames(
                 "cursor", "cursor is invalid or belongs to another selection"
             ) from None
         after = position, artifact_id
-    with store._read() as conn:
+    with store.read_transaction() as conn:
         rows = _rows(
             conn,
             "SELECT artifact_ref,committed_at FROM dataset_artifacts WHERE session_ref=? "
@@ -74,7 +74,7 @@ def persisted_frames(
             manifest = terminal_store.manifest(store, conn, artifact_id)
             if manifest is None or manifest.session_id != session:
                 raise invalid("selected committed Frame is absent or belongs to another Session")
-            frame = AnalysisFrame._from_stored(
+            frame = frame_from_storage(
                 local,
                 manifest.data,
                 artifact_id=artifact_id,

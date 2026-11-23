@@ -209,6 +209,58 @@ def _deserialize_query_param_value(raw_value: object) -> object:
     return raw_value
 
 
+def _json_body_params(raw_body_params: object) -> list[JsonBodyParam]:
+    if not isinstance(raw_body_params, Sequence) or isinstance(raw_body_params, str | bytes):
+        raise TypeError("JsonSourceIR.body_params must be a sequence.")
+    body_params: list[JsonBodyParam] = []
+    for raw_param in raw_body_params:
+        if not isinstance(raw_param, Mapping):
+            raise TypeError("JsonSourceIR.body_params entries must be mappings.")
+        raw_path = raw_param.get("path")
+        raw_name = raw_param.get("name")
+        if not isinstance(raw_path, Sequence) or isinstance(raw_path, str | bytes):
+            raise TypeError("JsonSourceIR.body_params paths must be sequences.")
+        path: list[str | int] = []
+        for part in raw_path:
+            if isinstance(part, str) or (isinstance(part, int) and not isinstance(part, bool)):
+                path.append(part)
+            else:
+                raise TypeError("JsonSourceIR.body_params path parts must be strings or integers.")
+        if not isinstance(raw_name, str):
+            raise TypeError("JsonSourceIR.body_params names must be strings.")
+        body_params.append((tuple(path), SourceParamIR(name=raw_name)))
+    return body_params
+
+
+def _json_source_from_dict(data: Mapping[str, object]) -> JsonSourceIR:
+    if "schema" in data or "field_paths" in data:
+        raise ValueError("typed JSON schemas and field_paths are no longer supported; use columns.")
+    raw_format = str(data.get("format", "auto"))
+    raw_records_path = data.get("records_path")
+    raw_query_params = data.get("query_params", {})
+    raw_method = str(data.get("method", "GET"))
+    raw_body = data.get("body")
+    raw_body_params = data.get("body_params", [])
+    if not isinstance(raw_query_params, Mapping):
+        raise TypeError("JsonSourceIR.query_params must be a mapping.")
+    query_params: list[tuple[str, object]] = []
+    for name, raw_value in raw_query_params.items():
+        if not isinstance(name, str):
+            raise TypeError("JsonSourceIR.query_params names must be strings.")
+        query_params.append((name, _deserialize_query_param_value(raw_value)))
+    body_params = _json_body_params(raw_body_params)
+    return JsonSourceIR(
+        path=str(data["path"]),
+        columns=_source_columns_from_dict(data.get("columns"), field_name="JsonSourceIR.columns"),
+        format=cast('Literal["auto", "newline_delimited", "array"]', raw_format),
+        records_path=cast("str | None", raw_records_path),
+        query_params=cast("tuple[tuple[str, JsonQueryParamValue], ...]", tuple(query_params)),
+        method=cast('Literal["GET", "POST"]', raw_method),
+        body_json=json_body_to_string(raw_body) if raw_body is not None else None,
+        body_params=tuple(body_params),
+    )
+
+
 def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
     kind = data.get("kind")
     if kind == "table":
@@ -246,56 +298,7 @@ def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
             delimiter=str(data.get("delimiter", ",")),
         )
     if kind == "json":
-        if "schema" in data or "field_paths" in data:
-            raise ValueError(
-                "typed JSON schemas and field_paths are no longer supported; use columns."
-            )
-        raw_format = str(data.get("format", "auto"))
-        raw_records_path = data.get("records_path")
-        raw_query_params = data.get("query_params", {})
-        raw_method = str(data.get("method", "GET"))
-        raw_body = data.get("body")
-        raw_body_params = data.get("body_params", [])
-        if not isinstance(raw_query_params, Mapping):
-            raise TypeError("JsonSourceIR.query_params must be a mapping.")
-        query_params: list[tuple[str, object]] = []
-        for name, raw_value in raw_query_params.items():
-            if not isinstance(name, str):
-                raise TypeError("JsonSourceIR.query_params names must be strings.")
-            query_params.append((name, _deserialize_query_param_value(raw_value)))
-        if not isinstance(raw_body_params, Sequence) or isinstance(raw_body_params, str | bytes):
-            raise TypeError("JsonSourceIR.body_params must be a sequence.")
-        body_params: list[JsonBodyParam] = []
-        for raw_param in raw_body_params:
-            if not isinstance(raw_param, Mapping):
-                raise TypeError("JsonSourceIR.body_params entries must be mappings.")
-            raw_path = raw_param.get("path")
-            raw_name = raw_param.get("name")
-            if not isinstance(raw_path, Sequence) or isinstance(raw_path, str | bytes):
-                raise TypeError("JsonSourceIR.body_params paths must be sequences.")
-            path: list[str | int] = []
-            for part in raw_path:
-                if isinstance(part, str) or (isinstance(part, int) and not isinstance(part, bool)):
-                    path.append(part)
-                else:
-                    raise TypeError(
-                        "JsonSourceIR.body_params path parts must be strings or integers."
-                    )
-            if not isinstance(raw_name, str):
-                raise TypeError("JsonSourceIR.body_params names must be strings.")
-            body_params.append((tuple(path), SourceParamIR(name=raw_name)))
-        return JsonSourceIR(
-            path=str(data["path"]),
-            columns=_source_columns_from_dict(
-                data.get("columns"), field_name="JsonSourceIR.columns"
-            ),
-            format=cast('Literal["auto", "newline_delimited", "array"]', raw_format),
-            records_path=cast("str | None", raw_records_path),
-            query_params=cast("tuple[tuple[str, JsonQueryParamValue], ...]", tuple(query_params)),
-            method=cast('Literal["GET", "POST"]', raw_method),
-            body_json=json_body_to_string(raw_body) if raw_body is not None else None,
-            body_params=tuple(body_params),
-        )
+        return _json_source_from_dict(data)
     raise ValueError(f"unsupported entity source kind: {kind!r}")
 
 

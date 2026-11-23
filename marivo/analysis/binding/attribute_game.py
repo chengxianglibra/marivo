@@ -68,6 +68,70 @@ def _rows(node: RowNode) -> tuple[RowField, ...]:
     return tuple(field for item in node.inputs for field in _rows(item))
 
 
+def _weighted_states(current: SourceWeightedMean) -> tuple[MetricNode, ...]:
+    inputs: list[RowField | MeasureAssertion] = []
+
+    def row_recipe(row: RowNode) -> Resolver:
+        if isinstance(row, RowExpression):
+            recipe = _rename_slots(row.recipe, len(inputs))
+            inputs.extend(row.inputs)
+            return recipe
+        recipe = Variable(f"slot_{len(inputs)}")
+        inputs.append(row)
+        return recipe
+
+    value_recipe, weight_recipe = row_recipe(current.value), row_recipe(current.weight)
+    product = RowExpression(
+        BinaryOperator(operator.mul, value_recipe, weight_recipe), tuple(inputs)
+    )
+    valid_weight = RowExpression(
+        Call(Attr(Call(Attr(value_recipe, "notnull")), "ifelse"), weight_recipe, Just(None)),
+        tuple(inputs),
+    )
+    return (
+        SourceAggregate(product, "sum", current.time, nulls="ignore"),
+        SourceAggregate(valid_weight, "sum", current.time, nulls="ignore"),
+        SourceAggregate(product, "count", current.time),
+        EntityCount(_rows(current.value)[0].root, current.time),
+    )
+
+
+def _append_leaf(
+    leaves: list[GameLeaf],
+    quantities: list[tuple[str, MetricNode]],
+    current: SourceAggregate | SourceWeightedMean | EntityCount,
+    occurrence: tuple[int, ...],
+    filters: tuple[ContributionFilter, ...],
+    kind: Literal["sum", "count", "mean", "weighted_mean", "min", "max", "quantile", "distinct"],
+    states: tuple[MetricNode, ...],
+    state_eligible: bool,
+) -> None:
+    slots = []
+    for original_state in states:
+        state: MetricNode = original_state
+        for condition in reversed(filters):
+            state = ContributionFilter(state, condition.predicate)
+        slots.append(len(quantities))
+        quantities.append((f"state_{len(quantities)}", state))
+    leaves.append(
+        GameLeaf(
+            occurrence,
+            kind,
+            tuple(slots),
+            current,
+            current.q
+            if isinstance(current, SourceAggregate) and current.q is not None
+            else 0.5
+            if kind == "quantile"
+            else None,
+            current.nulls
+            if isinstance(current, (SourceAggregate, SourceWeightedMean))
+            else "ignore",
+            state_eligible,
+        )
+    )
+
+
 def build_game(
     node: MetricNode,
     declared: Mapping[ExactRef, MetricNode],
@@ -152,62 +216,11 @@ def build_game(
                 "approx_quantile",
             )
         elif isinstance(current, SourceWeightedMean):
-            kind = "weighted_mean"
-
-            inputs: list[RowField | MeasureAssertion] = []
-
-            def row_recipe(row: RowNode) -> Resolver:
-                if isinstance(row, RowExpression):
-                    recipe = _rename_slots(row.recipe, len(inputs))
-                    inputs.extend(row.inputs)
-                    return recipe
-                recipe = Variable(f"slot_{len(inputs)}")
-                inputs.append(row)
-                return recipe
-
-            value_recipe, weight_recipe = row_recipe(current.value), row_recipe(current.weight)
-            product = RowExpression(
-                BinaryOperator(operator.mul, value_recipe, weight_recipe), tuple(inputs)
-            )
-            valid_weight = RowExpression(
-                Call(
-                    Attr(Call(Attr(value_recipe, "notnull")), "ifelse"), weight_recipe, Just(None)
-                ),
-                tuple(inputs),
-            )
-            states = (
-                SourceAggregate(product, "sum", current.time, nulls="ignore"),
-                SourceAggregate(valid_weight, "sum", current.time, nulls="ignore"),
-                SourceAggregate(product, "count", current.time),
-                EntityCount(_rows(current.value)[0].root, current.time),
-            )
+            kind, states = "weighted_mean", _weighted_states(current)
         else:
             unsupported(current, occurrence)
             return
-        slots = []
-        for original_state in states:
-            state: MetricNode = original_state
-            for condition in reversed(filters):
-                state = ContributionFilter(state, condition.predicate)
-            slots.append(len(quantities))
-            quantities.append((f"state_{len(quantities)}", state))
-        leaves.append(
-            GameLeaf(
-                occurrence,
-                kind,
-                tuple(slots),
-                current,
-                current.q
-                if isinstance(current, SourceAggregate) and current.q is not None
-                else 0.5
-                if kind == "quantile"
-                else None,
-                current.nulls
-                if isinstance(current, (SourceAggregate, SourceWeightedMean))
-                else "ignore",
-                state_eligible,
-            )
-        )
+        _append_leaf(leaves, quantities, current, occurrence, filters, kind, states, state_eligible)
 
     visit(node, (0,), ())
     # Static operation admission uses the owning numeric lowerer. Physical input
@@ -243,12 +256,11 @@ def build_game(
     )
 
 
-def game_signature(game: AttributeGame) -> tuple[object, ...]:
-    """Describe the replacement formula without pinning source definition versions."""
+class _GameSignature:
+    def __init__(self, declared: dict[ExactRef, MetricNode]) -> None:
+        self.declared = declared
 
-    declared = dict(game.declared)
-
-    def row_signature(row: RowNode) -> tuple[object, ...]:
+    def row_signature(self, row: RowNode) -> tuple[object, ...]:
 
         if isinstance(row, RowField):
             read = row.read
@@ -270,64 +282,68 @@ def game_signature(game: AttributeGame) -> tuple[object, ...]:
             return (
                 "assertion",
                 row.unit,
-                input_signature(row.permission),
-                row_signature(row.operand),
+                self.input_signature(row.permission),
+                self.row_signature(row.operand),
             )
         return (
             "row",
             canonical_recipe(row.recipe, slots=tuple(f"slot_{i}" for i in range(len(row.inputs)))),
-            tuple(row_signature(item) for item in row.inputs),
+            tuple(self.row_signature(item) for item in row.inputs),
         )
 
-    def predicate_signature(predicate: PredicateExpression) -> tuple[object, ...]:
+    def predicate_signature(self, predicate: PredicateExpression) -> tuple[object, ...]:
         return (
             canonical_recipe(
                 predicate.recipe, slots=tuple(f"slot_{i}" for i in range(len(predicate.inputs)))
             ),
             tuple(
-                row_signature(item)
+                self.row_signature(item)
                 if isinstance(item, RowExpression)
-                else ("population", input_signature(item.population))
+                else ("population", self.input_signature(item.population))
                 for item in predicate.inputs
             ),
         )
 
-    def input_signature(value: object) -> object:
+    def input_signature(self, value: object) -> object:
         # Closed predicate inputs retain their full captured structure. ExactRef
         # versions describe provenance; a version alone is not formula identity.
         if isinstance(value, ExactRef):
             return value.ref.key
         if isinstance(value, RowExpression):
-            return row_signature(value)
+            return self.row_signature(value)
         if isinstance(value, PredicateExpression):
-            return predicate_signature(value)
+            return self.predicate_signature(value)
         if isinstance(value, MetricExpression):
-            return signature(value)
+            return self.signature(value)
         if isinstance(value, tuple):
-            return tuple(input_signature(item) for item in value)
+            return tuple(self.input_signature(item) for item in value)
         if is_dataclass(value) and not isinstance(value, type):
             return (
                 dataclass_identity_name(value),
                 tuple(
-                    (field.name, input_signature(getattr(value, field.name)))
+                    (field.name, self.input_signature(getattr(value, field.name)))
                     for field in fields(value)
                     if field.name != "origins"
                 ),
             )
         return value
 
-    def signature(node: MetricNode) -> tuple[object, ...]:
+    def signature(self, node: MetricNode) -> tuple[object, ...]:
         if isinstance(node, DeclaredMetricRef):
-            return signature(declared[node.ref])
+            return self.signature(self.declared[node.ref])
         if isinstance(node, ContributionFilter):
-            return ("filtered_input", predicate_signature(node.predicate), signature(node.operand))
+            return (
+                "filtered_input",
+                self.predicate_signature(node.predicate),
+                self.signature(node.operand),
+            )
         if isinstance(node, MetricExpression):
             return (
                 "formula",
                 canonical_recipe(
                     node.recipe, slots=tuple(f"slot_{i}" for i in range(len(node.operands)))
                 ),
-                tuple(signature(child) for child in node.operands),
+                tuple(self.signature(child) for child in node.operands),
             )
         time = (
             node.time
@@ -350,9 +366,9 @@ def game_signature(game: AttributeGame) -> tuple[object, ...]:
             else ()
         )
         inputs = (
-            (row_signature(node.operand),)
+            (self.row_signature(node.operand),)
             if isinstance(node, SourceAggregate)
-            else (row_signature(node.value), row_signature(node.weight))
+            else (self.row_signature(node.value), self.row_signature(node.weight))
             if isinstance(node, SourceWeightedMean)
             else (),
             units,
@@ -371,7 +387,10 @@ def game_signature(game: AttributeGame) -> tuple[object, ...]:
             return ("weighted_mean", inputs, node.nulls, node.rule_version, time_signature)
         raise AssertionError("unqualified game leaf")
 
-    return signature(game.node)
+
+def game_signature(game: AttributeGame) -> tuple[object, ...]:
+    """Describe the replacement formula without pinning source definition versions."""
+    return _GameSignature(dict(game.declared)).signature(game.node)
 
 
 def require_games_match(left: AttributeGame, right: AttributeGame, *, metric: str) -> None:

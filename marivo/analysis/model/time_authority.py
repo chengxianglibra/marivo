@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from typing import Literal
 
+from typing_extensions import override
+
 from marivo._kernel.timezones import normalize_timezone, same_timezone
 
 
@@ -44,6 +46,7 @@ class _SourceTime:
 class InstantSourceTime(_SourceTime):
     kind: Literal["instant"] = "instant"
 
+    @override
     def __post_init__(self) -> None:
         _SourceTime.__post_init__(self)
         if self.kind != "instant":
@@ -57,6 +60,7 @@ class WallClockSourceTime(_SourceTime):
     origin: Literal["field", "datasource"]
     inherited_from: str | None = None
 
+    @override
     def __post_init__(self) -> None:
         _SourceTime.__post_init__(self)
         if self.kind != "wall_clock":
@@ -73,6 +77,7 @@ class CivilDateSourceTime(_SourceTime):
     timezone: str
     origin: Literal["field", "datasource"]
 
+    @override
     def __post_init__(self) -> None:
         _SourceTime.__post_init__(self)
         if self.kind != "civil_date":

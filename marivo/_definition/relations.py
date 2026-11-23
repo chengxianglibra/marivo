@@ -180,53 +180,11 @@ def population_keys(
     if isinstance(node, CalendarKeys):
         return tuple((cell[0],) for cell in node.calendar.cells)
     if isinstance(node, PopulationFilter):
-        if any(not isinstance(item, PopulationContains) for item in node.predicate.inputs):
-            return None  # Field conditions require the consuming physical key types.
-        source = population_keys(node.operand)
-        domains = condition_populations(node.predicate)
-        if source is None or any(population_keys(domain) is None for domain in domains):
-            return None
+        return _filtered_keys(definition, node)
 
-        def matches(row: tuple[CoordinateValue, ...]) -> bool:
-            values: list[bool] = []
-            for condition in node.predicate.inputs:
-                if not isinstance(condition, PopulationContains):
-                    invalid("Population.where requires membership leaves; use members for fields.")
-                keys = population_keys(condition.population)
-                assert keys is not None
-                projection = tuple(
-                    row[coordinate_position(definition.axes, axis)]
-                    for axis in condition.population.axes
-                )
-
-                def token_key(
-                    key: tuple[CoordinateValue, ...], axes: tuple[ComparisonAxis, ...]
-                ) -> tuple[tuple[str, str], ...]:
-                    return tuple(
-                        _coordinate_token(axis, value, index, {})
-                        for index, (axis, value) in enumerate(zip(axes, key, strict=True))
-                    )
-
-                projected_axes = tuple(
-                    definition.axes[coordinate_position(definition.axes, axis)]
-                    for axis in condition.population.axes
-                )
-                values.append(
-                    token_key(projection, projected_axes)
-                    in {token_key(key, condition.population.axes) for key in keys}
-                )
-            return _condition_value(node.predicate.recipe, tuple(values))
-
-        return tuple(row for row in source if matches(row))
-
-    left: tuple[tuple[CoordinateValue, ...], ...] | None = None
-    right: tuple[tuple[CoordinateValue, ...], ...] | None = None
     if isinstance(node, PopulationSet):
-        left, right = population_keys(node.left), population_keys(node.right)
-        if left is None or right is None:
-            return None
-        rows = (*left, *right)
-    elif isinstance(node, PopulationProject):
+        return _set_keys(definition.axes, node)
+    if isinstance(node, PopulationProject):
         source = population_keys(node.operand)
         if source is None:
             return None
@@ -243,22 +201,66 @@ def population_keys(
     else:
         return None
 
-    def token(row: tuple[CoordinateValue, ...]) -> tuple[tuple[str, str], ...]:
-        return tuple(
-            _coordinate_token(axis, value, index, {})
-            for index, (axis, value) in enumerate(zip(definition.axes, row, strict=True))
-        )
-
-    if isinstance(node, PopulationSet):
-        assert left is not None and right is not None
-        left_map = {token(row): row for row in left}
-        right_map = {token(row): row for row in right}
-        if node.operation == "intersection":
-            result = {key: row for key, row in left_map.items() if key in right_map}
-        elif node.operation == "difference":
-            result = {key: row for key, row in left_map.items() if key not in right_map}
-        else:
-            result = left_map | right_map
-    else:
-        result = {token(row): row for row in rows}
+    result = {_key_token(definition.axes, row): row for row in rows}
     return tuple(result[key] for key in sorted(result))
+
+
+def _key_token(
+    axes: tuple[ComparisonAxis, ...], row: tuple[CoordinateValue, ...]
+) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        _coordinate_token(axis, value, index, {})
+        for index, (axis, value) in enumerate(zip(axes, row, strict=True))
+    )
+
+
+def _set_keys(
+    axes: tuple[ComparisonAxis, ...], node: PopulationSet
+) -> tuple[tuple[CoordinateValue, ...], ...] | None:
+    left, right = population_keys(node.left), population_keys(node.right)
+    if left is None or right is None:
+        return None
+    left_map = {_key_token(axes, row): row for row in left}
+    right_map = {_key_token(axes, row): row for row in right}
+    if node.operation == "intersection":
+        result = {key: row for key, row in left_map.items() if key in right_map}
+    elif node.operation == "difference":
+        result = {key: row for key, row in left_map.items() if key not in right_map}
+    else:
+        result = left_map | right_map
+    return tuple(result[key] for key in sorted(result))
+
+
+def _filtered_keys(
+    definition: PopulationDependency, node: PopulationFilter
+) -> tuple[tuple[CoordinateValue, ...], ...] | None:
+    if any(not isinstance(item, PopulationContains) for item in node.predicate.inputs):
+        return None  # Field conditions require the consuming physical key types.
+    source = population_keys(node.operand)
+    domains = condition_populations(node.predicate)
+    if source is None or any(population_keys(domain) is None for domain in domains):
+        return None
+
+    def matches(row: tuple[CoordinateValue, ...]) -> bool:
+        values: list[bool] = []
+        for condition in node.predicate.inputs:
+            if not isinstance(condition, PopulationContains):
+                invalid("Population.where requires membership leaves; use members for fields.")
+            keys = population_keys(condition.population)
+            assert keys is not None
+            projection = tuple(
+                row[coordinate_position(definition.axes, axis)]
+                for axis in condition.population.axes
+            )
+
+            projected_axes = tuple(
+                definition.axes[coordinate_position(definition.axes, axis)]
+                for axis in condition.population.axes
+            )
+            values.append(
+                _key_token(projected_axes, projection)
+                in {_key_token(condition.population.axes, key) for key in keys}
+            )
+        return _condition_value(node.predicate.recipe, tuple(values))
+
+    return tuple(row for row in source if matches(row))

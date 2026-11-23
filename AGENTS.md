@@ -13,6 +13,10 @@ repository-wide decisions; API details and procedures belong in the linked docs.
   requires explicit user authorization.
 - Use [marivo-review](.agents/skills/marivo-review/SKILL.md) for the project review
   contract, including formal reviews in the team development workflow.
+- Route library access to private state through typed operations owned by the
+  defining module. Document individual private accesses at the owning boundary
+  when a protocol or third-party interface requires them. Respect the complexity
+  limits and use explicit `@override` on inherited methods.
 
 ## Contract Navigation
 

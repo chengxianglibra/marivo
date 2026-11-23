@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from datetime import time
 from decimal import Decimal
 from functools import cached_property
+from typing import Protocol, cast
 
 import ibis.common.exceptions as com
 import ibis.expr.operations as ops
@@ -22,7 +23,6 @@ import pandas as pd
 import pyarrow as pa
 import sqlglot.expressions as sge
 from ibis.backends import BaseBackend
-from ibis.backends.sql import SQLBackend
 from ibis.backends.sql.compilers.mysql import compiler
 from ibis.formats.pandas import PandasData
 from pymysql import ProgrammingError
@@ -32,12 +32,19 @@ from pymysql.converters import convert_datetime
 from pymysql.cursors import Cursor
 
 from marivo.datasource._lifetime import BackendLease
+from marivo.datasource.engines._ibis_typing import SQLBackend
 from marivo.datasource.engines.base import decode_cursor_frame
 from marivo.datasource.errors import (
     DatasourceConnectionError,
     DatasourceSourceCapabilityError,
     repair,
 )
+
+
+class _PyMySQLConnect(Protocol):
+    def __call__(
+        self, *, host: str, user: str, password: str, port: int, autocommit: bool, **options: object
+    ) -> Connection: ...
 
 
 def _time_value(value: pd.Timedelta) -> time:
@@ -71,8 +78,7 @@ def convert_mysql_frame(frame: pd.DataFrame, schema: sch.Schema) -> pd.DataFrame
     return result
 
 
-# Ibis SQLBackend has no typing metadata. All driver-facing methods are typed here.
-class MySQLBackend(SQLBackend):  # type: ignore[misc]  # The Ibis SQL backend base has no typing stubs.
+class MySQLBackend(SQLBackend):
     name = "mysql"
     compiler = compiler
     supports_create_or_replace = False
@@ -89,7 +95,8 @@ class MySQLBackend(SQLBackend):  # type: ignore[misc]  # The Ibis SQL backend ba
         try:
             # PyMySQL validates the authored JSON kwargs at this single driver
             # boundary; their value types depend on the actual option names.
-            self.con = Connection(  # type: ignore[call-overload]  # The stub cannot express forwarded driver options.
+            connect = cast("_PyMySQLConnect", Connection)
+            self.con = connect(
                 host="127.0.0.1" if host == "localhost" else host,
                 user=user or getpass.getuser(),
                 password=password or "",
@@ -135,7 +142,8 @@ class MySQLBackend(SQLBackend):  # type: ignore[misc]  # The Ibis SQL backend ba
     @cached_property
     def version(self) -> str:
         # PyMySQL's stubs leave this native string-returning extension untyped.
-        return str(self.con.get_server_info())  # type: ignore[no-untyped-call]  # PyMySQL leaves this method untyped.
+        server_info: Callable[[], str] = self.con.get_server_info
+        return str(server_info())
 
     def get_schema(
         self, name: str, *, catalog: str | None = None, database: str | None = None

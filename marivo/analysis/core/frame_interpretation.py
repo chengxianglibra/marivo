@@ -466,6 +466,22 @@ if TYPE_CHECKING:
     from marivo.analysis.model.lineage import FrameLineage
 
 
+def _shared_context(
+    context: FrameValueContext | None, common: tuple[FrameFixedAxis, ...]
+) -> FrameValueContext | None:
+    if isinstance(
+        context, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext)
+    ) and any(
+        isinstance(group, FrameFixedGroup) and group.fixed not in common
+        for group in (
+            *context.groups,
+            *(context.along if isinstance(context, FrameShareContext) else ()),
+        )
+    ):
+        return None
+    return context
+
+
 def comparison_facts(
     inputs: tuple[LogicalSchema, ...], output: LogicalSchema, operation: CompareFrameValues
 ) -> LogicalSchema:
@@ -477,19 +493,6 @@ def comparison_facts(
     facts = list(output.comparisons)
     alignments: list[DataAlignment] = []
     common = tuple(f for f in current.fixed_axes if all(f in b.fixed_axes for b in inputs[1:]))
-
-    def shared_context(context: FrameValueContext | None) -> FrameValueContext | None:
-        if isinstance(
-            context, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext)
-        ) and any(
-            isinstance(group, FrameFixedGroup) and group.fixed not in common
-            for group in (
-                *context.groups,
-                *(context.along if isinstance(context, FrameShareContext) else ()),
-            )
-        ):
-            return None
-        return context
 
     for i, (item, baseline) in enumerate(zip(operation.baselines, inputs[1:], strict=True)):
         fact = facts[i]
@@ -576,8 +579,8 @@ def comparison_facts(
                 if isinstance(b, FrameObservationContext) and isinstance(b.time, FrameAxisTime):
                     b = replace(b, time=FrameComparedTime(comparison_id(fact), "baseline"))
             captured.append((path, a, b))
-            shared_a = shared_context(a)
-            shared_b = shared_context(b)
+            shared_a = _shared_context(a, common)
+            shared_b = _shared_context(b, common)
             if shared_a is not None:
                 contexts[name] = shared_a
             if shared_b is not None:

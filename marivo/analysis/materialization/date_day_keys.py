@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 import ibis.expr.operations as ops
 import ibis.expr.rules as rlz
 import ibis.expr.types as ir
 
+from marivo._definition._ibis_typing import ValueOperation
 from marivo._definition.types import CalendarCoordinate
 from marivo.analysis.compiler.calendar import KEY_TYPE, reusable_date_day
 from marivo.analysis.compiler.source_time import _raw_lineage, source_time
@@ -21,13 +23,17 @@ from marivo.semantic.spi import (
 )
 
 
-class _DeferredDayKey(ops.Value):  # type: ignore[misc]  # Ibis operation bases have no typing stubs.
+class _DeferredDayKey(ValueOperation):
     """Keep a raw grouping key and its exact native restoration expression."""
 
     raw: ops.Value
     key: ops.Value
     dtype = KEY_TYPE
     shape = rlz.shape_like("raw")
+
+    if TYPE_CHECKING:
+
+        def __init__(self, raw: ops.Value, key: ops.Value) -> None: ...
 
 
 def deferred_day_key(

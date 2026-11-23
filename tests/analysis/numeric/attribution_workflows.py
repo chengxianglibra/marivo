@@ -67,6 +67,88 @@ def _number(value: object) -> Fraction | None:
     raise ValueError("a finite numeric allocation input is required")
 
 
+def _allocation_components(
+    frame: pd.DataFrame, method: Method, axes: tuple[str, ...], parents: tuple[str, ...]
+) -> tuple[dict[tuple[object, ...], Fraction], dict[tuple[object, ...], Fraction]]:
+    numerators: dict[tuple[object, ...], Fraction] = defaultdict(Fraction)
+    divisors: dict[tuple[object, ...], Fraction] = defaultdict(Fraction)
+    own_weights: dict[tuple[object, ...], Fraction] = defaultdict(Fraction)
+    for row in frame.to_dict(orient="records"):
+        parent = tuple(row[name] for name in parents)
+        key = (*parent, *(row[name] for name in axes))
+        amount = _number(row["amount"])
+        weight = _number(row["weight"]) if method in {"weighted", "ratio"} else None
+        if method == "count":
+            numerators[key] += 1
+        elif method == "weighted":
+            if amount is not None and weight is not None:
+                numerators[key] += amount * weight
+                divisors[parent] += weight
+        elif method == "ratio":
+            numerators[key] += amount or Fraction()
+            divisors[parent] += weight or Fraction()
+            own_weights[key] += weight or Fraction()
+        elif amount is not None:
+            numerators[key] += amount * (2 if method == "linear" else 1)
+            divisors[parent] += 1
+    if method == "ratio" and any(
+        value and not own_weights[key] for key, value in numerators.items()
+    ):
+        raise ValueError("nonzero category numerator with zero category denominator")
+    return dict(numerators), dict(divisors)
+
+
+def _validate_allocation_domain(
+    current: pd.DataFrame,
+    baseline: pd.DataFrame,
+    axes: tuple[str, ...],
+    top_k: int | None,
+    mode: Mode,
+) -> None:
+    if (
+        not axes
+        or len(set(axes)) != len(axes)
+        or any(name not in current.columns or name not in baseline.columns for name in axes)
+    ):
+        raise ValueError("unique existing allocation axes are required")
+    if mode not in {"joint", "hierarchy"} or (mode == "hierarchy" and len(axes) < 2):
+        raise ValueError("hierarchy requires at least two axes")
+    if any(bool(frame.loc[:, list(axes)].isna().any().any()) for frame in (current, baseline)):
+        raise ValueError("allocation axes require non-null labels")
+    if top_k is not None and (type(top_k) is not int or not 1 <= top_k <= 1000):
+        raise ValueError("top_k must be an integer from 1 through 1000")
+
+
+def _select_top_categories(
+    frame: pd.DataFrame, axes: tuple[str, ...], parents: tuple[str, ...], top_k: int
+) -> pd.DataFrame:
+    partitions = (
+        frame.groupby(list(parents), dropna=False, sort=False) if parents else (((), frame),)
+    )
+    folded = []
+    for _, group in partitions:
+        for position, axis in enumerate(axes):
+            scores: dict[object, Fraction] = defaultdict(Fraction)
+            for row in group.to_dict(orient="records"):
+                scores[row[axis]] += max(
+                    abs(_number(row["current"]) or Fraction()),
+                    abs(_number(row["baseline"]) or Fraction()),
+                )
+            kept = set(sorted(scores, key=lambda key: (-scores[key], repr(key)))[:top_k])
+            other = ~group[axis].isin(kept)
+            group = group.copy()
+            group.loc[other, axis] = None
+            group.loc[other, "other_flags"] += 1 << position
+        folded.append(
+            group.groupby([*parents, *axes, "other_flags"], dropna=False, sort=False)[
+                ["current", "baseline", "contribution"]
+            ]
+            .sum()
+            .reset_index()
+        )
+    return pd.concat(folded, ignore_index=True)
+
+
 def allocation(
     current: pd.DataFrame,
     baseline: pd.DataFrame,
@@ -83,18 +165,7 @@ def allocation(
     ratios use their independent weight sums. Synthetic Other is a separate
     flag, so a real string category named Other keeps its identity.
     """
-    if (
-        not axes
-        or len(set(axes)) != len(axes)
-        or any(name not in current.columns or name not in baseline.columns for name in axes)
-    ):
-        raise ValueError("unique existing allocation axes are required")
-    if mode not in {"joint", "hierarchy"} or (mode == "hierarchy" and len(axes) < 2):
-        raise ValueError("hierarchy requires at least two axes")
-    if any(bool(frame.loc[:, list(axes)].isna().any().any()) for frame in (current, baseline)):
-        raise ValueError("allocation axes require non-null labels")
-    if top_k is not None and (type(top_k) is not int or not 1 <= top_k <= 1000):
-        raise ValueError("top_k must be an integer from 1 through 1000")
+    _validate_allocation_domain(current, baseline, axes, top_k, mode)
     dtype = current["amount"].dtype
     scale = (
         dtype.pyarrow_dtype.scale
@@ -120,38 +191,8 @@ def allocation(
             int(value) if method in {"sum", "linear"} and value.denominator == 1 else float(value)
         )
 
-    def components(
-        frame: pd.DataFrame,
-    ) -> tuple[dict[tuple[object, ...], Fraction], dict[tuple[object, ...], Fraction]]:
-        numerators: dict[tuple[object, ...], Fraction] = defaultdict(Fraction)
-        divisors: dict[tuple[object, ...], Fraction] = defaultdict(Fraction)
-        own_weights: dict[tuple[object, ...], Fraction] = defaultdict(Fraction)
-        for row in frame.to_dict(orient="records"):
-            parent = tuple(row[name] for name in parents)
-            key = (*parent, *(row[name] for name in axes))
-            amount = _number(row["amount"])
-            weight = _number(row["weight"]) if method in {"weighted", "ratio"} else None
-            if method == "count":
-                numerators[key] += 1
-            elif method == "weighted":
-                if amount is not None and weight is not None:
-                    numerators[key] += amount * weight
-                    divisors[parent] += weight
-            elif method == "ratio":
-                numerators[key] += amount or Fraction()
-                divisors[parent] += weight or Fraction()
-                own_weights[key] += weight or Fraction()
-            elif amount is not None:
-                numerators[key] += amount * (2 if method == "linear" else 1)
-                divisors[parent] += 1
-        if method == "ratio" and any(
-            value and not own_weights[key] for key, value in numerators.items()
-        ):
-            raise ValueError("nonzero category numerator with zero category denominator")
-        return dict(numerators), dict(divisors)
-
-    left, left_den = components(current)
-    right, right_den = components(baseline)
+    left, left_den = _allocation_components(current, method, axes, parents)
+    right, right_den = _allocation_components(baseline, method, axes, parents)
     records: list[dict[str, object]] = []
     parent_changes: dict[tuple[object, ...], Fraction] = {}
     for parent in {key[: len(parents)] for key in (*left, *right)}:
@@ -206,31 +247,7 @@ def allocation(
     if frame.empty:
         return frame.assign(level=pd.Series(dtype="int64"))
     if top_k is not None:
-        partitions = (
-            frame.groupby(list(parents), dropna=False, sort=False) if parents else (((), frame),)
-        )
-        folded = []
-        for _, group in partitions:
-            for position, axis in enumerate(axes):
-                scores: dict[object, Fraction] = defaultdict(Fraction)
-                for row in group.to_dict(orient="records"):
-                    scores[row[axis]] += max(
-                        abs(_number(row["current"]) or Fraction()),
-                        abs(_number(row["baseline"]) or Fraction()),
-                    )
-                kept = set(sorted(scores, key=lambda key: (-scores[key], repr(key)))[:top_k])
-                other = ~group[axis].isin(kept)
-                group = group.copy()
-                group.loc[other, axis] = None
-                group.loc[other, "other_flags"] += 1 << position
-            folded.append(
-                group.groupby([*parents, *axes, "other_flags"], dropna=False, sort=False)[
-                    ["current", "baseline", "contribution"]
-                ]
-                .sum()
-                .reset_index()
-            )
-        frame = pd.concat(folded, ignore_index=True)
+        frame = _select_top_categories(frame, axes, parents, top_k)
     levels = []
     for level in range(1, len(axes) + 1) if mode == "hierarchy" else (len(axes),):
         keys = [*parents, *axes[:level], "other_flags"]

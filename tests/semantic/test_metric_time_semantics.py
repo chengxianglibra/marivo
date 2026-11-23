@@ -177,7 +177,7 @@ def _clock_facts(
         (item.binding.field.ref.key, item.binding.source)
         if item.binding is not None
         else (None, None)
-        for item in metric_time_occurrences(facts.node, dict(facts._declared))
+        for item in metric_time_occurrences(facts.node, dict(facts.declared))
     )
 
 
@@ -446,13 +446,13 @@ def test_default_changes_only_for_new_definitions_and_is_deterministic_on_cold_l
     def local_closed() -> ms.MetricExpression[Literal["numeric"]]:
         return amount.sum()
 
-    expected = old._state._definition_version(ref.metric("sales.inherited_amount"))
+    expected = old._state.definition_version(ref.metric("sales.inherited_amount"))
     script = """
 import sys
 import marivo.semantic as ms
 from marivo._kernel.refs import ref
 catalog = ms.load(workspace_dir=sys.argv[1])
-print(catalog._state._definition_version(ref.metric("sales.inherited_amount")))
+print(catalog._state.definition_version(ref.metric("sales.inherited_amount")))
 """
     completed = subprocess.run(
         [sys.executable, "-c", script, str(tmp_path)], capture_output=True, text=True, check=True
@@ -473,9 +473,9 @@ print(catalog._state._definition_version(ref.metric("sales.inherited_amount")))
     )
     session = mv.session.get_or_create(name="new_default", timezone="UTC")
     current = session.catalog
-    assert current._state._definition_version(ref.metric("sales.inherited_amount")) != expected
+    assert current._state.definition_version(ref.metric("sales.inherited_amount")) != expected
     dependency = ref.metric("sales.paid_mean")
-    assert current._state._definition_version(dependency) != old._state._definition_version(
+    assert current._state.definition_version(dependency) != old._state.definition_version(
         dependency
     )
     assert _clock_facts(metric) == (("time_dimension:sales.orders.paid_at", "entity_default"),)

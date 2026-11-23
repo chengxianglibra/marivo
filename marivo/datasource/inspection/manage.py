@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
+from typing_extensions import override
+
 from marivo._authoring.model import AuthoringRepair
 from marivo._kernel import execution_log as _execution_log
 from marivo._kernel.refs import ref as ref_factory
@@ -63,9 +65,11 @@ class DatasourceSummary(RenderableResult):
     name: str
     backend_type: str
 
+    @override
     def _repr_identity(self) -> str:
         return f"DatasourceSummary name={self.name} backend={self.backend_type}"
 
+    @override
     def _card(self) -> Card:
         card = Card(identity=self._repr_identity(), available=(".show()",))
         if self.name == DEFAULT_DATASOURCE_NAME:
@@ -93,9 +97,11 @@ class DatasourceList(RenderableResult):
     def __getitem__(self, index: int) -> DatasourceSummary:
         return self._items[index]
 
+    @override
     def _repr_identity(self) -> str:
         return f"DatasourceList count={len(self._items)}"
 
+    @override
     def _card(self) -> Card:
         rows = [[item.name, item.backend_type] for item in self._items]
         card = Card(
@@ -117,12 +123,14 @@ class DatasourceDescription(RenderableResult):
     env_refs: dict[str, str]
     wall_clock_timezone: str | None = None
 
+    @override
     def _repr_identity(self) -> str:
         return (
             f"DatasourceDescription name={self.name} backend={self.backend_type} "
             f"fields={len(self.literal_fields)} env_refs={len(self.env_refs)}"
         )
 
+    @override
     def _card(self) -> Card:
         field_names = sorted(self.literal_fields)
         env_ref_names = credential_labels(self.literal_fields, self.env_refs)
@@ -178,10 +186,12 @@ class DatasourceTestResult(RenderableResult):
         if not self.ok and (self.failure is None or self.repair is None):
             raise ValueError("DatasourceTestResult with ok=False requires both failure and repair")
 
+    @override
     def _repr_identity(self) -> str:
         latency = "n/a" if self.latency_ms is None else f"{self.latency_ms}ms"
         return f"DatasourceTestResult name={self.name} ok={self.ok} latency={latency}"
 
+    @override
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),

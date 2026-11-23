@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
-from uuid import uuid4
 
 import pandas as pd
 from typing_extensions import overload as _public_overload
+from typing_extensions import override
 
 from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._definition.query import (
@@ -19,6 +19,7 @@ from marivo._definition.query import (
     ValueSlot,
 )
 from marivo._definition.types import LiteralValue
+from marivo._kernel.validation import is_instance
 from marivo.analysis.core.frame_data import (
     CompletedFrameResult,
     ExpressionFrameBacking,
@@ -46,8 +47,9 @@ from marivo.analysis.core.frame_value_analysis import infer_frame_schema
 from marivo.analysis.dsl import frame_derivation
 from marivo.analysis.dsl._frame_attribute_api import attribute
 from marivo.analysis.dsl._frame_lifecycle import (
-    capture_lineage,
+    bind_frame_owner,
     complete_frame,
+    new_frame_id,
     require_stored,
     stored_backing,
 )
@@ -77,8 +79,8 @@ from marivo.analysis.dsl.baseline import (
     validate_baseline_aliases,
     validate_baseline_options,
 )
-from marivo.analysis.dsl.column import Column, _Statistic
-from marivo.analysis.dsl.frame_axis import FrameAxis
+from marivo.analysis.dsl.column import Column, _Statistic, column_expression, column_value_kind
+from marivo.analysis.dsl.frame_axis import FrameAxis, make_frame_axis
 from marivo.analysis.materialization.carriers.frame_page import FramePage, FramePeriodPage
 from marivo.analysis.materialization.frame_paging import read_frame_periods
 from marivo.analysis.materialization.frame_services import LocalFrameServices
@@ -86,8 +88,13 @@ from marivo.analysis.materialization.pandas_export import export_names
 from marivo.analysis.model.artifact_data import ArtifactData, SavedFrameMethodFacts
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.errors import reject
-from marivo.analysis.model.frame_contracts import FrameIdentity
-from marivo.analysis.model.frame_integrity import share_contexts, validate_current_facts
+from marivo.analysis.model.frame_contracts import (
+    FrameIdentity,
+    frame_backing,
+    frame_derivation_of,
+    frame_input_id,
+    frame_logical_schema,
+)
 from marivo.analysis.model.frame_metadata import StoredFrameMetadata
 from marivo.analysis.model.frame_schema import (
     FrameAxisSchema,
@@ -102,7 +109,7 @@ from marivo.analysis.model.frame_structure import (
 )
 from marivo.analysis.model.layout_facts import FrameComparison
 from marivo.analysis.model.lineage import FrameLineage, all_origins
-from marivo.analysis.model.result_reference import FrameReference
+from marivo.analysis.model.result_reference import FrameReference, make_frame_reference
 from marivo.telemetry import traced
 
 if TYPE_CHECKING:
@@ -136,11 +143,12 @@ class AnalysisFrame(FrameIdentity):
         cls, local: LocalFrameServices, schema: LogicalSchema, root: FrameExpressionRoot
     ) -> AnalysisFrame:
         validate_expression_owner(local.owner, schema, root)
-        return cls._bind(
+        return bind_frame_owner(
+            cls,
             local,
             schema,
             ExpressionFrameBacking(root),
-            "frame_" + uuid4().hex,
+            new_frame_id(),
             frame_derivation.derive_declaration(schema, root),
         )
 
@@ -151,8 +159,9 @@ class AnalysisFrame(FrameIdentity):
         result: CompletedFrameResult,
         derivation: FrameDerivation | None = None,
     ) -> AnalysisFrame:
-        backing = MemoryFrameBacking(result)
-        return cls._bind(local, result.data.schema, backing, "frame_" + uuid4().hex, derivation)
+        return bind_frame_owner(
+            cls, local, result.data.schema, MemoryFrameBacking(result), new_frame_id(), derivation
+        )
 
     @classmethod
     def _from_stored(
@@ -169,29 +178,9 @@ class AnalysisFrame(FrameIdentity):
         backing, input_id = stored_backing(
             local, data, artifact_id, metadata, method_facts, description
         )
-        return cls._bind(local, data.schema, backing, input_id, derivation)
+        return bind_frame_owner(cls, local, data.schema, backing, input_id, derivation)
 
-    @classmethod
-    def _bind(
-        cls,
-        local: LocalFrameServices,
-        schema: LogicalSchema,
-        backing: FrameBacking,
-        input_id: str,
-        derivation: FrameDerivation | None = None,
-    ) -> AnalysisFrame:
-        schema = share_contexts(schema)
-        validate_current_facts(schema)
-        result = object.__new__(cls)
-        object.__setattr__(result, "_local", local)
-        object.__setattr__(result, "_input_id", input_id)
-        object.__setattr__(result, "_schema", schema)
-        object.__setattr__(result, "_backing", backing)
-        object.__setattr__(result, "_derivation", derivation)
-        lineage = capture_lineage(schema, backing, input_id)
-        object.__setattr__(result, "_lineage", lineage)
-        return result
-
+    @override
     def __repr__(self) -> str:
         kind = (
             "expression"
@@ -258,7 +247,7 @@ class AnalysisFrame(FrameIdentity):
         """
         schema = self._schema
         return tuple(
-            FrameAxis._from_frame(
+            make_frame_axis(
                 self, axis.token, axis.name, axis_role(axis), tuple(c.name for c in axis.columns)
             )
             for axis in schema.axes
@@ -396,15 +385,15 @@ class AnalysisFrame(FrameIdentity):
         Constraints: Keeps True, excludes False and NA, and preserves relative row order.
         """
         self._require_column(predicate, location="frame.where", canonical_id="analysis_frame.where")
-        if predicate._kind != "boolean":
+        if column_value_kind(predicate) != "boolean":
             reject(
                 "a boolean Column",
-                predicate._kind,
+                column_value_kind(predicate),
                 "Compare current values to construct a predicate.",
                 "frame.where",
                 canonical_id="analysis_frame.where",
             )
-        return self._derive(FilterValues(predicate._expression))
+        return self._derive(FilterValues(column_expression(predicate)))
 
     @traced(surface="analysis", operation="analysis_frame.fix", capture="short")
     def fix(self, axis: FrameAxis, key: LiteralValue | tuple[LiteralValue, ...]) -> AnalysisFrame:
@@ -477,7 +466,7 @@ class AnalysisFrame(FrameIdentity):
                 canonical_id="analysis_frame.top",
             )
         self._require_column(by, location="frame.top", canonical_id="analysis_frame.top")
-        return self._derive(TopValues(n, by._expression, descending))
+        return self._derive(TopValues(n, column_expression(by), descending))
 
     @traced(surface="analysis", operation="analysis_frame.reduce", capture="short")
     def reduce(
@@ -651,7 +640,7 @@ class AnalysisFrame(FrameIdentity):
         canonical_id: str,
     ) -> tuple[tuple[int, int], ...]:
         validate_pairing(on, match, location=location, canonical_id=canonical_id)
-        if not isinstance(other, AnalysisFrame) or other._local.owner != self._local.owner:  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        if not is_instance(other, AnalysisFrame) or other._local.owner != self._local.owner:
             reject(
                 "Frame inputs from the same Store and Session",
                 repr(other),
@@ -773,7 +762,9 @@ class AnalysisFrame(FrameIdentity):
         )
         operation = CompareFrameValues(bindings, unnamed=isinstance(baselines, AnalysisFrame))
         inputs = (self, *(declaration.frame for _, declaration in declarations))
-        schema = infer_frame_compare_schema(tuple(frame._schema for frame in inputs), operation)
+        schema = infer_frame_compare_schema(
+            tuple(frame_logical_schema(frame) for frame in inputs), operation
+        )
         return self._from_expression(self._local, schema, OperationFrameBinding(operation, inputs))
 
     @traced(surface="analysis", operation="analysis_frame.compute", stage="execute", capture="long")
@@ -800,7 +791,7 @@ class AnalysisFrame(FrameIdentity):
         """
         if isinstance(self._backing, MemoryFrameBacking):
             return self
-        result, declaration = complete_frame(self, self._backing, _bind_key_input)
+        result, declaration = complete_frame(self, self._backing, AnalysisFrame)
         return self._from_memory(self._local, result, declaration)
 
     @property
@@ -874,8 +865,9 @@ class AnalysisFrame(FrameIdentity):
                 )
             return self
         completed = self.compute()
-        assert isinstance(completed._backing, MemoryFrameBacking)
-        backing = self._local.publish(completed._backing.result, description=description)
+        memory = frame_backing(completed)
+        assert isinstance(memory, MemoryFrameBacking)
+        backing = self._local.publish(memory.result, description=description)
         return self._from_stored(
             self._local,
             backing.data,
@@ -883,7 +875,7 @@ class AnalysisFrame(FrameIdentity):
             metadata=backing.metadata,
             method_facts=backing.method_facts,
             description=backing.description,
-            derivation=completed._derivation,
+            derivation=frame_derivation_of(completed),
         )
 
     @property
@@ -896,7 +888,7 @@ class AnalysisFrame(FrameIdentity):
         pending or memory data first. Never executes, saves or queries a source.
         """
         backing = self._require_stored("ref")
-        return FrameReference._create(
+        return make_frame_reference(
             self._local.store.store_id, self.session_id, backing.artifact_id
         )
 
@@ -913,7 +905,7 @@ class AnalysisFrame(FrameIdentity):
 
     @property
     def _project_root(self) -> Path:
-        return self._local.store.project_root
+        return self._local.project_root
 
     def _require_stored(self, member: str) -> StoredFrameBacking:
         return require_stored(self._backing, member)
@@ -1140,11 +1132,12 @@ class ComparisonBaseline:
     def __init__(self) -> None:
         raise TypeError("Use mv.baseline(frame, on=..., match=...).")
 
+    @override
     def __repr__(self) -> str:
         axes = "inferred" if self.on is None else str(len(self.on))
         rule = "inferred" if self.match is None else self.match.kind
         return (
-            f"<ComparisonBaseline input={self.frame._input_id[:16]} "
+            f"<ComparisonBaseline input={frame_input_id(self.frame)[:16]} "
             f"axes={axes} match={rule}; use .show()>"
         )
 
@@ -1190,9 +1183,3 @@ def baseline(
     object.__setattr__(result, "on", on)
     object.__setattr__(result, "match", match)
     return result
-
-
-def _bind_key_input(
-    local: LocalFrameServices, result: CompletedFrameResult, input_id: str
-) -> AnalysisFrame:
-    return AnalysisFrame._bind(local, result.data.schema, MemoryFrameBacking(result), input_id)

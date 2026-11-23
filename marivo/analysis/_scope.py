@@ -34,6 +34,7 @@ from marivo._definition.relations import (
 )
 from marivo._definition.types import AxisBinding, FieldRead, attribute_time_key
 from marivo._kernel.time_types import grain_token
+from marivo._kernel.validation import is_instance
 
 
 def _bounded(text: str, limit: int) -> str:
@@ -80,7 +81,7 @@ def _observation_summary(observation: ObservationBinding) -> str:
     for occurrence, sample in observation.calendar_samples[:6]:
         field = (
             sample.sample.field.field
-            if isinstance(sample, BuiltinSampleCoordinate)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+            if is_instance(sample, BuiltinSampleCoordinate)
             and isinstance(sample.sample, FieldCalendarSample)
             else None
         )
@@ -140,7 +141,7 @@ def _node_summary(node: DefinitionNode) -> str:
     if isinstance(node, LiteralPopulation):
         keys = ", ".join(_bounded(repr(key), 160) for key in node.keys[:3])
         more = "; keys omitted" if len(node.keys) > 3 else ""
-        axes = tuple(_axis_summary(axis) for axis in node.axes if isinstance(axis, AxisBinding))  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        axes = tuple(_axis_summary(axis) for axis in node.axes if is_instance(axis, AxisBinding))
         return f"LiteralPopulation axes={axes}; coordinates={len(node.keys)}; keys=[{keys}]{more}"
     if isinstance(node, FrameKeys):
         bindings = tuple(
