@@ -41,7 +41,7 @@ from marivo._definition.types import (
     coordinate_read_keys,
     field_read_key,
 )
-from marivo._timezones import normalize_timezone
+from marivo._kernel.timezones import normalize_timezone
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.core.data_types import (

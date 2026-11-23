@@ -34,15 +34,7 @@ from marivo._definition.types import (
 from marivo._definition.types import (
     SourceLocation as DefinitionSourceLocation,
 )
-from marivo._symbolic import (
-    EntitySymbol,
-    LookupSymbol,
-    RelationshipSymbol,
-    symbol_factory,
-    symbol_from_ref,
-)
-from marivo._temporal import InstantAnchor
-from marivo.refs import (
+from marivo._kernel.refs import (
     DimensionKind,
     EntityKind,
     MeasureKind,
@@ -53,8 +45,16 @@ from marivo.refs import (
     SemanticKindTag,
     TimeDimensionKind,
 )
-from marivo.refs import ref as ref_factory
-from marivo.render import Card, RenderableResult
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.render import Card, RenderableResult
+from marivo._kernel.symbolic import (
+    EntitySymbol,
+    LookupSymbol,
+    RelationshipSymbol,
+    symbol_factory,
+    symbol_from_ref,
+)
+from marivo._kernel.temporal import InstantAnchor
 from marivo.semantic._compiled_state import CompilationGraph, CompiledSemanticState
 from marivo.semantic._dsl_authoring import (
     AdditiveAllV1,

@@ -12,7 +12,7 @@ from typing import Literal
 import ibis.expr.types as ibis_ir
 from ibis.common.deferred import Deferred
 
-from marivo.refs import SemanticKind
+from marivo._kernel.refs import SemanticKind
 from marivo.semantic._authoring_context import (
     _caller_location,
     _register_authoring_file,

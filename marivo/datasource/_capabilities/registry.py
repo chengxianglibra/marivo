@@ -17,7 +17,7 @@ from marivo._authoring.model import (
     MutationEffect,
     RepairKind,
 )
-from marivo._data_render import _display_help
+from marivo._kernel.data_render import _display_help
 from marivo.datasource._capabilities.inputs import datasource_inputs
 from marivo.datasource._capabilities.model import (
     DatasourceCapabilityRegistry,

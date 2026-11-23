@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from marivo.refs import SemanticKind
+from marivo._kernel.refs import SemanticKind
 from marivo.semantic.catalog import (
     Domain,
     SemanticCatalog,

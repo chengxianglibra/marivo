@@ -11,7 +11,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, TypeAlias, cast
 
-from marivo._compat import StrEnum
+from marivo._kernel.compat import StrEnum
+from marivo._kernel.refs import RefPayloadV1, SemanticKind
 from marivo.datasource.ir import (
     AiContextIR,
     CsvSourceIR,
@@ -28,7 +29,6 @@ from marivo.datasource.ir import (
     source_name,
     source_to_dict,
 )
-from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.semantic._dsl_authoring import (
     AdditivityPolicy,
 )
@@ -158,7 +158,7 @@ def _require_kind(value: object, *, field_name: str, expected: str) -> None:
 def _validate_timezone_value(value: object, field_name: str) -> str | None:
     if value is None:
         return None
-    from marivo._timezones import normalize_timezone
+    from marivo._kernel.timezones import normalize_timezone
 
     timezone = _require_non_empty_str(value, field_name)
     try:
@@ -435,7 +435,7 @@ class SampleIntervalIR:
                 f"SampleIntervalIR.unit must be 'minute' or 'hour', got {self.unit!r}."
             )
 
-        from marivo._temporal import validate_subday_count
+        from marivo._kernel.temporal import validate_subday_count
 
         validate_subday_count(self.unit, self.count)
 

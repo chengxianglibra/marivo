@@ -19,7 +19,10 @@ from typing import (
     get_origin,
 )
 
-from marivo._compat import Never, Self, StrEnum
+from pydantic_core import core_schema
+
+from marivo._kernel.compat import Never, Self, StrEnum
+from marivo._kernel.errors import invalid
 
 
 class SemanticKind(StrEnum):
@@ -207,8 +210,6 @@ class Ref(Generic[KindT]):
         handler: object,
     ) -> Any:
         del cls, handler
-        from pydantic_core import core_schema
-
         allowed_kinds = _allowed_kinds_for_annotation(source_type)
         allowed_values = [kind.value for kind in sorted(allowed_kinds, key=lambda item: item.value)]
 
@@ -440,3 +441,18 @@ def _decode_ref_key(value: object) -> Ref[SemanticKindTag]:
 
 def _restore_ref_payload(payload: RefPayloadV1) -> Ref[SemanticKindTag]:
     return _decode_ref_payload(payload)
+
+
+@dataclass(frozen=True, slots=True)
+class ExactRef:
+    """One semantic reference and the definition identity represented by a computation."""
+
+    ref: Ref[SemanticKindTag]
+    version: str
+
+    def __post_init__(self) -> None:
+        if type(self.version) is not str or not self.version:
+            invalid(
+                f"exact reference {self.ref.key} expected a non-empty definition version; "
+                f"received {self.version!r}. Capture the version from the resolved definition."
+            )

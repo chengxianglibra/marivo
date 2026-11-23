@@ -9,8 +9,8 @@ from hashlib import sha256
 from itertools import pairwise
 from typing import Literal, TypeAlias
 
-from marivo._temporal import Grain, TimeScope
-from marivo._timezones import normalize_timezone
+from marivo._kernel.time_types import Grain
+from marivo._kernel.timezones import normalize_timezone
 
 CivilBounds: TypeAlias = tuple[str, str, str, str]
 InstantBounds: TypeAlias = tuple[datetime, datetime, datetime, datetime]
@@ -478,16 +478,9 @@ def _next(value: datetime, grain: Grain) -> datetime:
     return value.replace(year=ordinal // 12, month=ordinal % 12 + 1)
 
 
-def bind_grid(
-    during: TimeScope,
-    grain: Grain,
-) -> BoundTimeGrid:
+def bind_time_grid(start: datetime, end: datetime, boundary: str, grain: Grain) -> BoundTimeGrid:
     """Freeze a finite grid; no source, host clock or calendar store is consulted."""
-    if not isinstance(during, TimeScope) or not isinstance(grain, Grain):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        raise _invalid("grid requires a TimeScope and Grain")
-    boundary = during.boundary_timezone
-    scope_zone = during.boundary_timezone
-    start, end = instant(during.start, scope_zone), instant(during.end, scope_zone)
+    start, end = instant(start, boundary), instant(end, boundary)
     if start >= end:
         raise _invalid("grid scope is empty or reversed")
     periods: list[tuple[datetime, datetime]] = []

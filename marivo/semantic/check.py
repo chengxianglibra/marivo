@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from marivo.project import resolve_project_root
+from marivo._kernel.project import resolve_project_root
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.reader import SemanticProject
 

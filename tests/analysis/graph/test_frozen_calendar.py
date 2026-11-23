@@ -9,8 +9,12 @@ import pyarrow as pa
 import pytest
 
 from marivo._definition.correspondence import CalendarCorrespondence
-from marivo._temporal import CalendarAxis, builtin_grain
-from marivo._temporal_grid import builtin_nominal_ordinal
+from marivo._definition.grouping import grouping_binding
+from marivo._kernel.temporal import (
+    CalendarAxis,
+    builtin_grain,
+)
+from marivo._kernel.temporal_grid import builtin_nominal_ordinal
 from marivo.analysis.core.data_schema import (
     BuiltinCalendarData,
     CalendarComparisonBinding,
@@ -324,14 +328,14 @@ def test_sparse_directory_keeps_nominal_distance_separate_from_selection_order()
 
 
 def test_two_hour_fold_writer_and_reader_preserve_distinct_nominal_starts() -> None:
-    from marivo._temporal_grid import bind_grid
+    from marivo._kernel.temporal import bind_grid
     from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
 
     scope = exact_scope("2026-10-25", "2026-10-26", "Europe/Berlin")
     grid = bind_grid(scope, builtin_grain(unit="hour", count=2))
     captured = freeze_calendar(
-        CalendarAxis(scope, grid)._binding,
+        grouping_binding(CalendarAxis(scope, grid)),
         token="axis.0",
         name="time",
         key=DataColumn("key", "time", TimestampDataType("us", "UTC"), False),
@@ -402,7 +406,7 @@ def test_direct_map_owns_origin_directory_and_exact_target_or_closed_reason(abse
 
 
 def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -> None:
-    from marivo._temporal_grid import (
+    from marivo._kernel.temporal_grid import (
         BoundTimeGrid,
         TimeCell,
         TimeGridOrigin,
@@ -464,7 +468,7 @@ def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -
     empty = grid((), empty_origin)
     assert empty.cells == ()
 
-    coordinate = CalendarAxis(None, shifted)._binding
+    coordinate = grouping_binding(CalendarAxis(None, shifted))
     frozen = freeze_calendar(
         coordinate,
         token="shifted",
@@ -486,7 +490,7 @@ def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -
         ),
     )
     frozen_empty = freeze_calendar(
-        CalendarAxis(None, empty)._binding,
+        grouping_binding(CalendarAxis(None, empty)),
         token="empty",
         name="week",
         key=DataColumn("key", "week", TimestampDataType("us", "UTC"), False),

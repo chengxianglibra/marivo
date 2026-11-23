@@ -7,13 +7,13 @@ from typing import NoReturn
 
 from ibis.common.deferred import Deferred
 
-from marivo._symbolic import (
+from marivo._kernel.refs import SemanticKind
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.symbolic import (
     DomainSymbol,
     native_symbol_ref,
     symbol_factory,
 )
-from marivo.refs import SemanticKind
-from marivo.refs import ref as ref_factory
 from marivo.semantic._authoring_context import (
     _caller_location,
     _push_ir,
@@ -133,7 +133,7 @@ def metric(
     """
     from marivo._definition.deferred import DeclarationRecord, declare
     from marivo._definition.types import SourceLocation
-    from marivo.refs import _validate_segment
+    from marivo._kernel.refs import _validate_segment
     from marivo.semantic._expression_binding import construct_metric_expression
     from marivo.semantic.errors import SemanticExpressionError
 

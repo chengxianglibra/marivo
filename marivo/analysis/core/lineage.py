@@ -22,8 +22,8 @@ from marivo._definition.query import (
     ValueSlot,
     ValueUnary,
 )
+from marivo._kernel.refs import SemanticKind
 from marivo.analysis.core.model import reject
-from marivo.refs import SemanticKind
 
 if TYPE_CHECKING:
     from marivo.analysis.core.data_schema import DataSchema

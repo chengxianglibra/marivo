@@ -14,13 +14,13 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._kernel.render import AgentResult
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.errors import DatasourceAuthoringError, DatasourceFieldInvalidError
 from marivo.datasource.inspection import SourceInspection
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata
 from marivo.datasource.snapshot import DeterministicMatch, DiscoveryEvidence
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
-from marivo.render import AgentResult
 
 
 class _QuerySpy:

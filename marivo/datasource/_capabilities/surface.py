@@ -41,7 +41,7 @@ def _help_target_error(target: object, suggestions: tuple[str, ...]) -> NoReturn
 
 
 def _cross_surface_owner(target: object) -> str | None:
-    from marivo.refs import Ref
+    from marivo._kernel.refs import Ref
 
     if type(target) is Ref:
         return "semantic"

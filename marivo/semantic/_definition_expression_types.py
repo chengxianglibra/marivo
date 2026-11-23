@@ -9,13 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
-from marivo.refs import (
+from marivo._kernel.refs import (
     EntityKind,
     FieldKind,
     Ref,
     SemanticKindTag,
 )
-from marivo.render import Card, RenderableResult
+from marivo._kernel.render import Card, RenderableResult
 
 
 class _Value(RenderableResult):

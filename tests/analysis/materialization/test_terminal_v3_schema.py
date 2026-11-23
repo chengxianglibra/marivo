@@ -533,7 +533,7 @@ def test_source_time_records_have_required_closed_fields(damage: str) -> None:
 def test_source_time_facts_decode_without_current_timezone_rules(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo import _timezones
+    from marivo._kernel import timezones as _timezones
     from marivo.analysis.core.frame_interpretation import (
         FrameCivilDateSourceTime,
         FrameInstantSourceTime,

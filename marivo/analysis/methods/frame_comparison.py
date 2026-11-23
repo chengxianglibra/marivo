@@ -10,7 +10,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo._definition.correspondence import CalendarCorrespondence
-from marivo._temporal_grid import CivilShiftAbsent
+from marivo._kernel.temporal_grid import CivilShiftAbsent
 from marivo.analysis.compiler.query_program import FrameCombineProgram, FrameCompareProgram
 from marivo.analysis.core.artifact_data import OutputAttachment
 from marivo.analysis.core.data_schema import (

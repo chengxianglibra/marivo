@@ -8,8 +8,8 @@ import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo._time_formats import ORDERED_TIME_FORMATS
-from marivo._timezones import normalize_timezone, same_timezone
+from marivo._kernel.time_formats import ORDERED_TIME_FORMATS
+from marivo._kernel.timezones import normalize_timezone, same_timezone
 from marivo.analysis.compiler.errors import DatasetCompilationError, compilation_error
 from marivo.analysis.core.time_authority import (
     CivilDateSourceTime,

@@ -27,9 +27,9 @@ from marivo._definition.windows import (
     TrailingDuration,
     TrailingPeriods,
 )
-from marivo._temporal import Grain, anchor_from_datetime, session_time_scope
-from marivo._temporal_grid import _floor, _next, bind_grid, instant
-from marivo._timezones import normalize_timezone
+from marivo._kernel.temporal import Grain, anchor_from_datetime, bind_grid, session_time_scope
+from marivo._kernel.temporal_grid import _floor, _next, instant
+from marivo._kernel.timezones import normalize_timezone
 from marivo.analysis.binding.time_guidance import (
     REPORT_CLOCK_GUIDANCE,
     partition_hour_candidates,

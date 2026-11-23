@@ -16,7 +16,7 @@ from marivo._definition.relations import (
     SourceIdentities,
 )
 from marivo._definition.types import AxisBinding, FieldRead, PathParameter
-from marivo._temporal import InstantAnchor
+from marivo._kernel.temporal import InstantAnchor
 from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.compiler.source_predicates import string_bytes
 from marivo.analysis.core.frame_interpretation import FrameSourceTime

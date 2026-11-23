@@ -63,7 +63,6 @@ DOMAIN_NAMES = {
     "ontology",
     "server",
     "cli",
-    "doctor",
     "__main__",
 }
 

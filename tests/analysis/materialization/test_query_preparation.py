@@ -11,8 +11,8 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._grouping import Grouping
-from marivo._temporal import TimeScope
+from marivo._kernel.grouping import Grouping
+from marivo._kernel.temporal import TimeScope
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import plan_query
 from marivo.analysis.core.frame_data import (
@@ -37,7 +37,7 @@ from tests.shared_fixtures import catalog_value
 MODEL = """import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._temporal import InstantAnchor
+from marivo._kernel.temporal import InstantAnchor
 warehouse = ms.ref.datasource("warehouse")
 customers = ms.entity(name="customers", datasource=warehouse, source=md.table("customers"), primary_key=["id"], versioning=ms.validity(valid_from=ms.ref.time_dimension("sales.customers.since"), valid_to=ms.ref.time_dimension("sales.customers.until"), interval="closed_open", open_end=(None,)))
 customer_id = ms.dimension_column(name="id", entity=customers, column="id")

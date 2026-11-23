@@ -38,9 +38,12 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.graph import children, computation_fingerprint
 from marivo._definition.types import AxisBinding, ExactRef, SumAll, SumAllExcept, SumAxes, SumNone
+from marivo._kernel.refs import (
+    Ref,
+    SemanticKindTag,
+)
+from marivo._kernel.refs import ref as ref_factory
 from marivo.analysis.errors import AnalysisError
-from marivo.refs import Ref, SemanticKindTag
-from marivo.refs import ref as ref_factory
 from marivo.semantic import Relationship
 from marivo.semantic._deferred_semantics import (
     MetricFacts,

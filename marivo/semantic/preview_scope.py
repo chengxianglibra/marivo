@@ -7,12 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
 
+from marivo._kernel.refs import EntityKind, Ref, SemanticKind, SemanticKindTag
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import normalize_json_source_params
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
-from marivo.preview import PreviewLimitError, validate_preview_limit
-from marivo.refs import EntityKind, Ref, SemanticKind, SemanticKindTag
-from marivo.refs import ref as ref_factory
+from marivo.datasource.spi import PreviewLimitError, validate_preview_limit
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 
 if TYPE_CHECKING:

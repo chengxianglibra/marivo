@@ -10,8 +10,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from marivo._kernel.render import Card, RenderableResult
 from marivo.analysis.core.result_reference import DataFrameReference
-from marivo.render import Card, RenderableResult
 
 
 @dataclass(frozen=True, init=False, repr=False)

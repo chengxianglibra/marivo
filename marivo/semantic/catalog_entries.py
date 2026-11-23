@@ -12,9 +12,9 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Generic, Literal, Protocol, TypeAlias, TypeVar
 
-from marivo._temporal import InstantAnchor
+from marivo._kernel.render import Card, RenderableResult
+from marivo._kernel.temporal import InstantAnchor
 from marivo.datasource.ir import AiContextIR, EntitySourceIR
-from marivo.render import Card, RenderableResult
 from marivo.semantic.catalog_search import Retrieval, SearchHit
 from marivo.semantic.ir import EntityVersioningIR, SampleIntervalIR, SemanticParse
 
@@ -271,7 +271,7 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
         return self._card().render(_include_newline=True)
 
     def _card(self) -> Card:
-        from marivo._data_render import _text
+        from marivo._kernel.data_render import _text
 
         card = Card(
             identity=f"{self._repr_identity()} next_cursor={self.next_cursor or '(end)'}",

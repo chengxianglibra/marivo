@@ -517,7 +517,7 @@ def test_parameterized_credential_failure_logs_template_without_bound_values(
 ) -> None:
     import ibis
 
-    from marivo import _execution_log
+    from marivo._kernel import execution_log as _execution_log
     from tests.support.execution_logs import execution_records
 
     secret = "credential-log-canary"

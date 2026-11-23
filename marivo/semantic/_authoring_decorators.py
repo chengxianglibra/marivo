@@ -12,7 +12,13 @@ from typing import TYPE_CHECKING, Literal, overload
 import ibis.expr.types as ibis_ir
 from ibis.common.deferred import Deferred
 
-from marivo._symbolic import (
+from marivo._kernel.refs import (
+    SemanticKind,
+)
+from marivo._kernel.refs import (
+    ref as ref_factory,
+)
+from marivo._kernel.symbolic import (
     DatasourceSymbol,
     DimensionSymbol,
     DomainSymbol,
@@ -22,12 +28,6 @@ from marivo._symbolic import (
     TimeDimensionSymbol,
     native_symbol_ref,
     symbol_factory,
-)
-from marivo.refs import (
-    SemanticKind,
-)
-from marivo.refs import (
-    ref as ref_factory,
 )
 from marivo.semantic._authoring_context import (
     _caller_location,
@@ -655,7 +655,7 @@ def measure(
         load; retrieve ``measure:<domain>.<entity>.<function_name>`` with ``catalog.get(...)``.
         The function name must match ``[a-z][a-z0-9_]*``; assertions retain time constraints.
     """
-    from marivo.refs import _validate_segment
+    from marivo._kernel.refs import _validate_segment
     from marivo.semantic._expression_binding import construct_measure_expression
     from marivo.semantic.errors import SemanticExpressionError
 

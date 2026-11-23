@@ -9,6 +9,7 @@ import ibis
 import pytest
 
 import marivo.datasource as md
+from marivo._kernel.render import AgentResult
 from marivo.datasource.authoring import DuckDBSpec
 from marivo.datasource.engines import ENGINE_PROFILES
 from marivo.datasource.engines.base import MetadataInspectRequest, schema_only_metadata_inspect
@@ -23,7 +24,6 @@ from marivo.datasource.metadata import (
     _inspect_source,
     inspect_table,
 )
-from marivo.render import AgentResult
 
 
 @pytest.mark.parametrize("backend_type", tuple(ENGINE_PROFILES))

@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
+from marivo._kernel.render import Card, RenderableResult
 from marivo.analysis._pages import _BoundedPage
 from marivo.analysis.core.frame_schema import FrameSchema
 from marivo.analysis.materialization.contracts import invalid
-from marivo.render import Card, RenderableResult
 
 
 def _identity(value: str) -> None:

@@ -135,7 +135,7 @@ def expression_value(
                     "Query.prepare",
                 )
             return ibis.literal(Decimal(expression.value), type=f"decimal({digits},0)")
-        from marivo._numeric_types import bind_numeric_literal
+        from marivo._kernel.numeric_types import bind_numeric_literal
 
         literal = expression.value
         if for_type_inference and isinstance(literal, pd.Timestamp) and literal.nanosecond:

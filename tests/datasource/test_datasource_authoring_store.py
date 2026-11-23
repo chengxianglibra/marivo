@@ -16,7 +16,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._compat import UTC
+from marivo._kernel.compat import UTC
 from marivo.cli import init_project
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.inspection import SourceInspection

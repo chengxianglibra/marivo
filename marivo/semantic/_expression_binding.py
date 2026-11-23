@@ -22,7 +22,7 @@ import ibis.expr.types as ir
 from ibis.common.deferred import Attr, Call, Deferred
 
 from marivo._definition.types import InputContext
-from marivo.refs import (
+from marivo._kernel.refs import (
     EntityKind,
     FieldKind,
     Ref,
@@ -450,8 +450,8 @@ class _DeclarationExpressionBuilder:
             TrailingDuration,
             TrailingPeriods,
         )
-        from marivo._grouping import Grouping
-        from marivo._temporal import Grain, InstantAnchor, TimeScope
+        from marivo._kernel.grouping import Grouping
+        from marivo._kernel.temporal import Grain, InstantAnchor, TimeScope
         from marivo.semantic.expressions import _Entity as Entity
         from marivo.semantic.expressions import _Relationship as Relationship
 
@@ -816,7 +816,7 @@ def _construct_declaration_expression(
             value = builder.value(stmt.value)
             if isinstance(value, Deferred):
                 builder.capture(value)
-                from marivo._symbolic import native_symbol_ref
+                from marivo._kernel.symbolic import native_symbol_ref
 
                 native = native_symbol_ref(value)
                 if native is not None and native.kind not in {
@@ -920,7 +920,7 @@ def _binding_field_ref(value: object) -> Ref[SemanticKindTag] | None:
     from marivo.semantic.expressions import _Relationship as Relationship
 
     if isinstance(value, Deferred):
-        from marivo._symbolic import native_symbol_ref
+        from marivo._kernel.symbolic import native_symbol_ref
         from marivo.semantic._deferred_semantics import consume_field
 
         native = native_symbol_ref(value)

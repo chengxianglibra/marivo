@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from marivo._timezones import normalize_timezone, same_timezone
+from marivo._kernel.timezones import normalize_timezone, same_timezone
 
 
 @pytest.mark.parametrize(

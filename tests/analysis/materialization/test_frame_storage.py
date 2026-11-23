@@ -18,7 +18,11 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._definition.correspondence import CalendarCorrespondence
-from marivo._temporal import CalendarAxis, builtin_grain
+from marivo._definition.grouping import grouping_binding
+from marivo._kernel.temporal import (
+    CalendarAxis,
+    builtin_grain,
+)
 from marivo.analysis.core.artifact_data import (
     ArtifactManifest,
     BuiltinCalendarData,
@@ -217,7 +221,7 @@ def manifest(frame: AnalysisFrame) -> ArtifactManifest:
 
 
 def period_endpoints(local: LocalFrameServices) -> tuple[AnalysisFrame, AnalysisFrame]:
-    from marivo._temporal import builtin_grain
+    from marivo._kernel.temporal import builtin_grain
     from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
 
@@ -229,7 +233,7 @@ def period_endpoints(local: LocalFrameServices) -> tuple[AnalysisFrame, Analysis
         (baseline, (120, 0), "period-baseline"),
     ):
         frozen = freeze_calendar(
-            axis._binding,
+            grouping_binding(axis),
             token="period",
             name="month",
             key=DataColumn("bucket", "bucket", TimestampDataType("us", "UTC"), False),
@@ -2073,7 +2077,7 @@ def interval(
     local: LocalFrameServices, start: int, end: int, *, zone: str = "UTC"
 ) -> AnalysisFrame:
     from marivo._definition.types import IntervalCoordinate
-    from marivo._temporal import anchor_from_datetime
+    from marivo._kernel.temporal import anchor_from_datetime
     from marivo.analysis.core.frame_calendar import freeze_interval
 
     frozen = freeze_interval(
@@ -2192,7 +2196,7 @@ def test_stored_interval_reads_and_matches_without_current_timezone_rules(
 ) -> None:
     from zoneinfo import ZoneInfoNotFoundError
 
-    from marivo import _timezones
+    from marivo._kernel import timezones as _timezones
 
     first = interval(local, 1, 4, zone="Asia/Shanghai").persist()
     second = interval(local, 2, 5, zone="Asia/Shanghai").persist()
@@ -3049,7 +3053,7 @@ print(json.dumps({"keys": page.coordinates["key"], "values": page.to_pandas()["a
 
 
 def test_calendar_export_unifies_grains_and_preserves_clipped_timezone_bounds() -> None:
-    from marivo._temporal_grid import bind_grid
+    from marivo._kernel.temporal import bind_grid
     from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
     from marivo.analysis.materialization.pandas_export import export_frame
@@ -3058,7 +3062,7 @@ def test_calendar_export_unifies_grains_and_preserves_clipped_timezone_bounds() 
         scope = exact_scope("2026-10-25T00:02:00", "2026-10-25T04:00:00", "Europe/Berlin")
         grid = bind_grid(scope, builtin_grain(unit=unit, count=count))
         frozen = freeze_calendar(
-            CalendarAxis(scope, grid)._binding,
+            grouping_binding(CalendarAxis(scope, grid)),
             token="axis.0",
             name="report.time",
             key=DataColumn("bucket", "bucket", TimestampDataType("us", "UTC"), False),
@@ -3147,14 +3151,14 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
     export_zone: str,
     calendar_zone: str,
 ) -> None:
-    from marivo._temporal_grid import bind_grid
+    from marivo._kernel.temporal import bind_grid
     from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
 
     scope = exact_scope("2024-01-01T00:02:00", "2024-01-03T00:00:00", zone)
     grid = bind_grid(scope, builtin_grain(unit="day", count=1))
     frozen = freeze_calendar(
-        CalendarAxis(scope, grid)._binding,
+        grouping_binding(CalendarAxis(scope, grid)),
         token="day",
         name="day",
         key=DataColumn("bucket", "bucket", TimestampDataType("us", "UTC"), False),
@@ -3397,7 +3401,7 @@ def test_period_pages_keep_endpoint_timezones_without_reconstruction(
     local: LocalFrameServices,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo import _timezones
+    from marivo._kernel import timezones as _timezones
     from marivo.analysis.core.frame_page import FrameIntervalPeriod, FramePairedPeriod
 
     left = interval(local, 1, 2, zone="Asia/Shanghai")

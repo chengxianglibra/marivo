@@ -11,11 +11,11 @@ from subprocess import run
 import pytest
 
 import marivo
-from marivo import _execution_log as log
-from marivo import _jsonl
-from marivo._compat import UTC
+from marivo._kernel import execution_log as log
+from marivo._kernel import jsonl as _jsonl
+from marivo._kernel.compat import UTC
+from marivo._kernel.environment import EnvironmentIdentity
 from marivo.datasource.errors import _execution_error_fields
-from marivo.introspection.live.model import EnvironmentFingerprint
 from tests.support.execution_logs import execution_records
 
 
@@ -109,7 +109,7 @@ def test_concurrent_process_append_keeps_jsonl_parseable(tmp_path: Path) -> None
     script = """
 import sys
 from pathlib import Path
-from marivo import _execution_log as log
+from marivo._kernel import execution_log as log
 with log.scope(Path(sys.argv[1])):
     for i in range(20):
         with log.QueryLog('SELECT ' + str(i), backend='duckdb', purpose='process.rows'):
@@ -150,10 +150,9 @@ def test_runtime_identity_is_lazy_and_cached_until_pid_changes(
     process_id = 101
     captured_pids: list[int] = []
 
-    def capture(cls: type[EnvironmentFingerprint]) -> EnvironmentFingerprint:
-        del cls
+    def capture() -> EnvironmentIdentity:
         captured_pids.append(process_id)
-        return EnvironmentFingerprint(
+        return EnvironmentIdentity(
             marivo_version=f"version-{process_id}",
             python_executable=f"/python/{process_id}",
             package_path=f"/package/{process_id}",
@@ -161,7 +160,7 @@ def test_runtime_identity_is_lazy_and_cached_until_pid_changes(
 
     monkeypatch.setattr(log, "_RUNTIME_IDENTITY", None)
     monkeypatch.setattr(log, "getpid", lambda: process_id)
-    monkeypatch.setattr(EnvironmentFingerprint, "current", classmethod(capture))
+    monkeypatch.setattr(log, "environment_identity", capture)
     with log.scope(tmp_path):
         assert captured_pids == []
         log.emit("first")
@@ -184,14 +183,13 @@ def test_runtime_identity_is_lazy_and_cached_until_pid_changes(
 def test_runtime_capture_failures_preserve_query_results_and_original_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    def fail(cls: type[EnvironmentFingerprint]) -> EnvironmentFingerprint:
-        del cls
+    def fail() -> EnvironmentIdentity:
         raise OSError("canary-secret")
 
     monkeypatch.setattr(log, "_RUNTIME_IDENTITY", None)
     failure = RuntimeError("business failure")
     with monkeypatch.context() as capture_patch:
-        capture_patch.setattr(EnvironmentFingerprint, "current", classmethod(fail))
+        capture_patch.setattr(log, "environment_identity", fail)
         with log.scope(tmp_path):
             with log.QueryLog("SELECT 1", backend="duckdb", purpose="test.capture") as query:
                 query.rows = 2

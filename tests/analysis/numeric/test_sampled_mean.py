@@ -49,8 +49,8 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
 ) -> None:
     from marivo._definition.expressions import RowField, SourceAggregate
     from marivo._definition.types import ExactRef, SumAll
+    from marivo._kernel.refs import ref
     from marivo.analysis.compiler.observation import ReductionInput, lower_observation
-    from marivo.refs import ref
 
     table = ibis.table(
         {
@@ -129,10 +129,10 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
 def test_sample_presence_filters_rows_without_discarding_present_nulls(marker: str | None) -> None:
     from marivo._definition.expressions import RowField, SourceAggregate
     from marivo._definition.types import ExactRef, SumAll
+    from marivo._kernel.refs import ref
     from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
     from marivo.analysis.compiler.sample_reductions import SampleLowerer
     from marivo.analysis.core.data_types import DataColumn, ScalarDataType
-    from marivo.refs import ref
 
     table = ibis.memtable(
         {"key.0": [1, 2, 3, 4], "value": [10.0, 1000.0, 2000.0, None]},
@@ -2045,11 +2045,11 @@ def test_ordered_single_axis_proofs_reach_native_and_local_consumers(
 def test_native_ordered_concat_does_not_inherit_each_fragment_unique_time() -> None:
     from marivo._definition.expressions import PerReduce, RowField, SourceAggregate
     from marivo._definition.types import AxisBinding, ExactRef, SumAll
+    from marivo._kernel.refs import ref
     from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
     from marivo.analysis.compiler.sample_reductions import SampleLowerer
     from marivo.analysis.core.data_types import DataColumn, ScalarDataType
     from marivo.analysis.core.unique_keys import UniqueKeys
-    from marivo.refs import ref
 
     field = RowField(
         ExactRef(ref.measure("sales.facts.amount"), "v1"),

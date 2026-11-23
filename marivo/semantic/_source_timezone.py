@@ -40,7 +40,7 @@ def effective_source_timezone(
     registry: Registry, axis: TargetDimensionContract
 ) -> DeclaredSourceTimezone | None:
     """Resolve parser → Datasource authority, recursively through hour prefixes."""
-    from marivo._timezones import normalize_timezone
+    from marivo._kernel.timezones import normalize_timezone
 
     visited: set[str] = set()
 

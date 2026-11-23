@@ -11,8 +11,8 @@ import ibis.expr.types as ir
 
 from marivo._definition.expressions import BuiltinSampleCoordinate
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
-from marivo._temporal import Grain
-from marivo._timezones import normalize_timezone, same_timezone
+from marivo._kernel.temporal import Grain
+from marivo._kernel.timezones import normalize_timezone, same_timezone
 from marivo.datasource._temporal_expressions import render, timestamp
 
 KEY_TYPE = dt.Timestamp(timezone="UTC", scale=6)

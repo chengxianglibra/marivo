@@ -10,7 +10,7 @@ import duckdb
 import marivo.datasource as md
 import marivo.ontology as mo
 import marivo.semantic as ms
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import ref as ref_factory
 from tests.support.refs import as_ref
 
 

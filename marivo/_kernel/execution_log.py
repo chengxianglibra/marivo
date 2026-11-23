@@ -14,23 +14,21 @@ from os import getpid
 from pathlib import Path
 from platform import python_version
 from time import monotonic
-from typing import Literal, TypeAlias, TypedDict
+from typing import Literal, TypeAlias
 from uuid import uuid4
 
-from marivo import _jsonl
-from marivo._compat import UTC
-from marivo.project import resolve_project_root
+from marivo._kernel import jsonl as _jsonl
+from marivo._kernel.compat import UTC
+from marivo._kernel.environment import EnvironmentIdentity, environment_identity
+from marivo._kernel.project import resolve_project_root
 
 LogValue: TypeAlias = str | int | float | bool | None
 QueryState: TypeAlias = Literal["succeeded", "failed"]
 ErrorFormatter: TypeAlias = Callable[[Exception], Mapping[str, LogValue]]
 
 
-class _RuntimeIdentity(TypedDict):
-    marivo_version: str
+class _RuntimeIdentity(EnvironmentIdentity):
     python_version: str
-    python_executable: str
-    package_path: str
     process_id: int
 
 
@@ -94,14 +92,9 @@ def _runtime_identity() -> _RuntimeIdentity:
 
     process_id = getpid()
     if _RUNTIME_IDENTITY is None or _RUNTIME_IDENTITY["process_id"] != process_id:
-        from marivo.introspection.live.model import EnvironmentFingerprint
-
-        fingerprint = EnvironmentFingerprint.current()
         _RUNTIME_IDENTITY = _RuntimeIdentity(
-            marivo_version=fingerprint.marivo_version,
+            **environment_identity(),
             python_version=python_version(),
-            python_executable=fingerprint.python_executable,
-            package_path=fingerprint.package_path,
             process_id=process_id,
         )
     return _RUNTIME_IDENTITY

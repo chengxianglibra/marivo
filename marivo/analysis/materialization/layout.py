@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from marivo.config import ANALYSIS_STORE_GENERATION
+from marivo._kernel.config import ANALYSIS_STORE_GENERATION
 
 
 @dataclass(frozen=True, slots=True)

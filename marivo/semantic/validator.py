@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Any, Literal, NoReturn, cast
 
 from ibis.common.deferred import Deferred
 
+from marivo._kernel.refs import RefPayloadV1, SemanticKind, _create_ref
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.ir import (
     CsvSourceIR,
     DatasourceIR,
@@ -31,8 +33,6 @@ from marivo.datasource.ir import (
     TableSourceIR,
 )
 from marivo.introspection._fuzzy import did_you_mean
-from marivo.refs import RefPayloadV1, SemanticKind, _create_ref
-from marivo.refs import ref as ref_factory
 from marivo.semantic.constraints import ASTSpec, ConstraintId, get_constraint
 from marivo.semantic.errors import (
     ErrorKind,
@@ -508,7 +508,7 @@ def normalize_target_version_selection(
             received="unversioned Entity or unsupported interpretation",
             action="Supply a versioned Entity and an instant or before-endpoint boundary.",
         )
-    from marivo._timezones import normalize_timezone
+    from marivo._kernel.timezones import normalize_timezone
 
     zone = normalize_timezone(version.timezone or "UTC").tz
     localized = (

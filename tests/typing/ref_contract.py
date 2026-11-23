@@ -6,11 +6,7 @@ from typing_extensions import Never, assert_type
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._symbolic import (
-    EntitySymbol,
-    MeasureSymbol,
-)
-from marivo.refs import (
+from marivo._kernel.refs import (
     DatasourceKind,
     DimensionKind,
     EntityKind,
@@ -19,8 +15,12 @@ from marivo.refs import (
     Ref,
     TimeDimensionKind,
 )
-from marivo.refs import (
+from marivo._kernel.refs import (
     ref as ref_factory,
+)
+from marivo._kernel.symbolic import (
+    EntitySymbol,
+    MeasureSymbol,
 )
 from marivo.semantic import bind
 from marivo.semantic.catalog import (

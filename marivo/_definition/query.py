@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import Literal, TypeAlias
 
 from marivo._definition.correspondence import ComparisonAxis
+from marivo._definition.expressions import MetricNode
+from marivo._definition.population_types import PopulationDependency
 from marivo._definition.types import (
     CoordinateValue,
     LiteralValue,
-    Owner,
 )
-
-if TYPE_CHECKING:
-    from marivo._definition.relations import PopulationDependency
+from marivo._kernel.input_context import Owner
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,3 +152,27 @@ class ResultQuery:
     operation: LiteralValues
     by: tuple[ComparisonAxis, ...]
     owner: Owner
+
+
+@dataclass(frozen=True, slots=True)
+class ObserveQuery:
+    """Lazy observation of labelled metrics over output axes."""
+
+    metrics: tuple[tuple[str, MetricNode], ...]
+    by: tuple[ComparisonAxis, ...]
+    owner: Owner | None
+    population: PopulationDependency | None = None
+    count_populations: tuple[PopulationDependency, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ReadQuery:
+    """Explicit identity-domain attribute projection over a classified Population."""
+
+    population: PopulationDependency
+    positions: tuple[int, ...]
+    by: tuple[ComparisonAxis, ...]
+    owner: Owner
+
+
+QueryNode: TypeAlias = ObserveQuery | ReadQuery | ResultQuery

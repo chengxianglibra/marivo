@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal, TypeAlias
 
-from marivo._errors import MarivoError
+from marivo._kernel.errors import MarivoError
 from marivo.introspection.live.model import HelpSurface, ResolvableHelpDescriptor
 from marivo.introspection.live.resolve import ResolvedLiveTarget
 

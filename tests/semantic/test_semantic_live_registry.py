@@ -13,9 +13,9 @@ from typing import get_args
 import pytest
 
 from marivo._authoring.model import AuthoringCapability
+from marivo._kernel.refs import SemanticKind
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.targets import canonical_target
-from marivo.refs import SemanticKind
 from marivo.semantic._capabilities.model import (
     SEMANTIC_HELP_RENDER_BUDGETS,
     ConstructionMode,
@@ -487,8 +487,8 @@ def test_registry_covers_all_public_types() -> None:
 
 
 def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
+    from marivo.datasource.preview import PreviewResult
     from marivo.introspection.live.resolve import resolve_live_target
-    from marivo.preview import PreviewResult
 
     for type_obj, contract in TYPE_CONTRACTS.items():
         if contract.name == "ref":
@@ -516,8 +516,8 @@ def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
 def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
     from marivo._help.model import NativeHelpRoute
     from marivo._help.route import route_help_target
+    from marivo.datasource.preview import PreviewResult
     from marivo.introspection.live.resolve import resolve_live_target
-    from marivo.preview import PreviewResult
     from marivo.semantic.dtos import PreviewBatchResult
     from marivo.semantic.readiness import ReadinessReport
     from marivo.semantic.validation import ValidationCheckResult, ValidationReport

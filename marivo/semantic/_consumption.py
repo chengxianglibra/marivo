@@ -10,7 +10,7 @@ from ibis.common.deferred import Deferred
 
 from marivo._definition.deferred import inspect_capture, resolver_of
 from marivo._definition.types import DefinitionGraphError, InputContext, Owner, merge_input_contexts
-from marivo.refs import Ref, SemanticKindTag
+from marivo._kernel.refs import Ref, SemanticKindTag
 from marivo.semantic._expression_values import (
     FieldExpression,
     MetricPredicate,
@@ -65,7 +65,7 @@ def _bind_recipe(
             received="unbound authoring symbols",
             action="Save the declaration in the model and load its complete scope, then obtain the object from the receiving Catalog.",
         )
-    from marivo.refs import ref as ref_factory
+    from marivo._kernel.refs import ref as ref_factory
     from marivo.semantic.expressions import _Entity
 
     for identity, captured_keys in inspection.identity_keys:

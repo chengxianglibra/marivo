@@ -9,8 +9,8 @@ from types import MappingProxyType
 from typing import ClassVar, Literal
 from urllib.parse import urlsplit
 
+from marivo._kernel.render import Card, RenderableResult
 from marivo.datasource.errors import DatasourceFieldInvalidError, repair
-from marivo.render import Card, RenderableResult
 
 
 def invalid(field: str, expected: str, value: object, action: str) -> DatasourceFieldInvalidError:

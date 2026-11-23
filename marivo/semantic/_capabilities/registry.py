@@ -20,9 +20,9 @@ from marivo._authoring.model import (
     MutationEffect,
     RepairKind,
 )
-from marivo._data_render import _display_help
+from marivo._kernel.data_render import _display_help
+from marivo._kernel.refs import SemanticKind
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.refs import SemanticKind
 from marivo.semantic._capabilities.inputs import authoring_guidance, authoring_inputs
 from marivo.semantic._capabilities.model import (
     SEMANTIC_HELP_RENDER_BUDGETS,
@@ -2046,7 +2046,7 @@ def _ref_factory_capabilities() -> tuple[AuthoringCapability, ...]:
     leaves = tuple(
         _capability(
             f"ref.{kind.value}",
-            f"marivo._symbolic._SymbolFactory.{kind.value}",
+            f"marivo._kernel.symbolic._SymbolFactory.{kind.value}",
             f"Create a native {kind.value} Deferred symbol from an exact path. "
             + _ref_role(kind)[0]
             + " Compose supported recipes directly; the loader binds them. Metadata selectors require a native leaf. Equality builds a recipe; bool, hash, dictionary keys and container membership are not identity operations. Invalid attributes and methods fail when a declaration or parameter captures the recipe; unconsumed recipes and formatted strings have no such guarantee.",
@@ -3525,9 +3525,9 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
 
     """Build private type contracts without exposing constructors as help targets."""
 
-    from marivo._symbolic import symbol_factory as ref_factory
-    from marivo.preview import PreviewResult
-    from marivo.refs import SemanticKind
+    from marivo._kernel.refs import SemanticKind
+    from marivo._kernel.symbolic import symbol_factory as ref_factory
+    from marivo.datasource.spi import PreviewResult
     from marivo.semantic.catalog import (
         Datasource,
         Dimension,
@@ -3915,7 +3915,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "SemanticKind",
         (),
     )
-    from marivo._ai_context import AiContextValue
+    from marivo._kernel.ai_context import AiContextValue
 
     add(
         AiContextValue,

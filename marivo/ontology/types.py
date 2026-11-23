@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal, SupportsIndex, TypeAlias, cast, final
 
-from marivo._compat import Never, Self
-from marivo.refs import EntityKind, MeasureKind, MetricKind, Ref, RefPayloadV1
+from marivo._kernel.compat import Never, Self
+from marivo._kernel.refs import EntityKind, MeasureKind, MetricKind, Ref, RefPayloadV1
 from marivo.semantic.ir import AiContextIR, SourceLocation
 
 OntologyEndpointKind: TypeAlias = EntityKind | MeasureKind | MetricKind

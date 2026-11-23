@@ -6,7 +6,7 @@ import ast
 from collections.abc import Mapping
 from typing import Literal
 
-from marivo.refs import EntityKind, FieldKind, Ref
+from marivo._kernel.refs import EntityKind, FieldKind, Ref
 from marivo.semantic._definition_display import describe_display
 from marivo.semantic._definition_expression_types import (
     ExpressionDescription,

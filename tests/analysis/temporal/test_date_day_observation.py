@@ -11,6 +11,7 @@ import sqlglot.expressions as sge
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._definition.grouping import grouping_binding
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.errors import SemanticExpressionError
@@ -174,7 +175,7 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
 
         for start, end in (("2026-03-05", "2026-03-11"), ("2026-10-29", "2026-11-04")):
             gap = exact_scope(start, end, "America/Havana").by(mv.grain("day"))
-            native, _, _ = output_calendar(gap._binding, case.session)
+            native, _, _ = output_calendar(grouping_binding(gap), case.session)
             # Simulate a different local timezone database qualifying a day
             # whose source-native midnight has actually shifted or repeated.
             with monkeypatch.context() as qualification:

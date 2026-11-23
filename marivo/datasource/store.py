@@ -7,12 +7,13 @@ from pathlib import Path
 from typing import Any, cast
 
 from marivo._authoring.loading import _current_source_loading_file
-from marivo.config import (
+from marivo._kernel.config import (
     AUTHORED_DIR,
     DATASOURCES_DIR,
     ProjectConfig,
     load_project_config,
 )
+from marivo._kernel.project import resolve_project_root
 from marivo.datasource._builtin import default_datasource, require_user_datasource_name
 from marivo.datasource.authoring import DatasourceSpec, DuckDBSpec, _storage_name
 from marivo.datasource.credential_inputs import EnvRef, secret_literal
@@ -23,7 +24,6 @@ from marivo.datasource.errors import (
 )
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.loader import _load_models_datasources, _models_root_errors
-from marivo.project import resolve_project_root
 
 
 def datasource_dir(project_root: Path | None = None) -> Path:

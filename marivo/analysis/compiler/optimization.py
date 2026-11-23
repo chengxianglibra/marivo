@@ -33,6 +33,7 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo._definition.types import RULE_VERSION, AxisBinding, Owner
+from marivo._kernel.refs import SemanticKind
 from marivo.analysis.compiler.graph_plan import (
     AttributeRead,
     ComponentRead,
@@ -67,7 +68,6 @@ from marivo.analysis.core.local_laws import (
 from marivo.analysis.core.model import ResultQuantity
 from marivo.analysis.core.value_types import ibis_type
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
-from marivo.refs import SemanticKind
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.graph_lowering import LoweredQuery

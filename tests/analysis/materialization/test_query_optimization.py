@@ -1265,7 +1265,7 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     clock: str,
 ) -> None:
 
-    from marivo._temporal import TimeScope, _time_scope_from_contract_data
+    from marivo._kernel.temporal import TimeScope, _time_scope_from_contract_data
 
     scope = optimization_session.time_scope(
         start=f"2026-01-01T{clock}+00:00", end=f"2026-01-03T{clock}+00:00"

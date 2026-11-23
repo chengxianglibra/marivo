@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from threading import Lock
 
-from marivo._compat import UTC
+from marivo._kernel.compat import UTC
 from marivo.analysis.materialization.layout import MaterializationLayout
 
 

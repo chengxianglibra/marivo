@@ -11,6 +11,7 @@ from sqlglot import expressions as sge
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._definition.grouping import grouping_binding
 from marivo._definition.types import IntervalCoordinate
 from marivo.analysis.core.frame_interpretation import FrameCalendarAxisSchema
 from marivo.analysis.materialization.graph_source_execution import _bind_attribute_calendar
@@ -29,7 +30,7 @@ def test_attribute_calendar_keeps_exact_key_types(
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("attribute-calendar-sql", timezone="UTC")
     grid = session.time_scope(start="2026-01-01", end="2026-01-04").by(mv.grain("day"))
-    coordinate = grid._binding
+    coordinate = grouping_binding(grid)
     selection = (
         coordinate
         if calendar

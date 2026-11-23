@@ -9,8 +9,7 @@ import ibis
 import ibis.expr.types as ir
 import pytest
 
-from marivo._symbolic import symbol_from_ref
-from marivo.refs import (
+from marivo._kernel.refs import (
     DimensionKind,
     EntityKind,
     MeasureKind,
@@ -18,7 +17,8 @@ from marivo.refs import (
     SemanticKindTag,
     TimeDimensionKind,
 )
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.symbolic import symbol_from_ref
 from marivo.semantic._expression_binding import (
     CompiledExpressionSidecar,
     ExpressionBody,

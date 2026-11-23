@@ -15,10 +15,10 @@ import ibis.expr.types as ibis_ir
 import pytest
 
 import marivo.datasource as md
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import JsonResponseCache
 from marivo.datasource.source import PartitionScope
-from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
@@ -634,7 +634,7 @@ def test_unrelated_ref_call_keeps_general_runtime_diagnostic(
             "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "from marivo.refs import ref as keys\nentity_ref = keys.entity('sales.orders')\n"
+                "from marivo._kernel.refs import ref as keys\nentity_ref = keys.entity('sales.orders')\n"
                 "entity_ref()\n"
             ),
         },
@@ -653,7 +653,7 @@ def test_shadowed_semantic_alias_keeps_general_runtime_diagnostic(
             "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "from marivo.refs import ref as keys\nref = keys.entity('sales.orders')\n"
+                "from marivo._kernel.refs import ref as keys\nref = keys.entity('sales.orders')\n"
                 "class Other:\n"
                 "    def entity(self, **kwargs):\n"
                 "        return ref\n"

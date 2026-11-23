@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from marivo.render import Card, RenderableResult
+from marivo._kernel.render import Card, RenderableResult
 
 
 class FrameReferenceWire(TypedDict):

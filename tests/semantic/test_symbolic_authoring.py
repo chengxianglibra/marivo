@@ -13,9 +13,9 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.deferred import inspect_capture, inspect_deferred, root_declaration
 from marivo._definition.expressions import SourceAggregate
-from marivo._symbolic import native_symbol_ref
-from marivo.refs import SemanticKind
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import SemanticKind
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.symbolic import native_symbol_ref
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
 from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
 from marivo.semantic.catalog import SemanticCatalog

@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo._grouping import Grouping
+from marivo._kernel.grouping import Grouping
 from marivo.analysis.core.attribute import AttributeMethodPayload, AttributeMethodProduction
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType

@@ -12,7 +12,7 @@ from ibis.common.deferred import Deferred
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.types import SumAllExcept, SumAxes
-from marivo._symbolic import EntitySymbol
+from marivo._kernel.symbolic import EntitySymbol
 from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
 from marivo.semantic.catalog import SemanticCatalog

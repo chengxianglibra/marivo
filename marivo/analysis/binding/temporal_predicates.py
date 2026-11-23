@@ -26,9 +26,9 @@ from marivo._definition.expressions import (
     RowField,
 )
 from marivo._definition.types import TimeInstantFieldRead
+from marivo._kernel.refs import SemanticKind
 from marivo.analysis.core.model import reject
 from marivo.analysis.dsl.temporal import exact_instant
-from marivo.refs import SemanticKind
 
 _COMPARISONS = (operator.eq, operator.ne, operator.lt, operator.le, operator.gt, operator.ge)
 

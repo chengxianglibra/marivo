@@ -15,12 +15,11 @@ import operator
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Final, Literal, NoReturn
+from typing import Final, NoReturn
 
 import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
-from ibis.common.bases import FrozenSlotted
 from ibis.common.deferred import (
     Attr,
     BinaryOperator,
@@ -34,17 +33,68 @@ from ibis.common.deferred import (
     UnaryOperator,
     Variable,
 )
-from ibis.util import PseudoHashable
 
-from marivo._ai_context import AiContextValue
+from marivo._definition.deferred_values import (
+    CapturedDefaultTimeResolver as CapturedDefaultTimeResolver,
+)
+from marivo._definition.deferred_values import (
+    DeclarationRecord as DeclarationRecord,
+)
+from marivo._definition.deferred_values import (
+    DeclarationResolver as DeclarationResolver,
+)
+from marivo._definition.deferred_values import (
+    NamedResolver as NamedResolver,
+)
+from marivo._definition.deferred_values import (
+    PopulationContainsResolver as PopulationContainsResolver,
+)
+from marivo._definition.deferred_values import (
+    PopulationCountResolver as PopulationCountResolver,
+)
+from marivo._definition.deferred_values import (
+    RescaleResolver as RescaleResolver,
+)
+from marivo._definition.deferred_values import (
+    SemanticInput as SemanticInput,
+)
+from marivo._definition.deferred_values import (
+    SemanticResolver as SemanticResolver,
+)
+from marivo._definition.deferred_values import (
+    attribute_name as attribute_name,
+)
+from marivo._definition.deferred_values import (
+    captured_relationship,
+)
+from marivo._definition.deferred_values import (
+    relationship_carrier as relationship_carrier,
+)
+from marivo._definition.deferred_values import (
+    resolver_of as resolver_of,
+)
+from marivo._definition.deferred_values import (
+    root_declaration as root_declaration,
+)
+from marivo._definition.deferred_values import semantic_input as semantic_input
+from marivo._definition.graph_encoding import DefinitionEncoder, fingerprint
+from marivo._definition.graph_traversal import _collect_refs, direct_refs
+from marivo._definition.grouping import grouping_binding
+from marivo._definition.parameter_recipes import (
+    CoordinatesParameter,
+    IdentityParameter,
+    MembershipParameter,
+    ParameterResolver,
+    PathRecipe,
+    parameter_role,
+    validate_parameter,
+    validate_parameter_call,
+)
+from marivo._definition.population_types import MembershipBinding, PopulationParameter
 from marivo._definition.types import (
-    ExactRef,
-    FieldRead,
-    InputContext,
-    PathParameter,
-    RelationshipStepParameter,
+    AxisBinding,
+    CalendarCoordinate,
     RowAttributeTime,
-    SourceLocation,
     SumAll,
     SumAllExcept,
     SumAxes,
@@ -52,20 +102,31 @@ from marivo._definition.types import (
     SumPermission,
     attribute_time_key,
     check_literal,
-    invalid,
     literal_token,
-    merge_input_contexts,
-)
-from marivo._definition.types import (
-    RelationshipParameter as RelationshipParameter,
 )
 from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
-from marivo._symbolic import SymbolResolver
-from marivo._temporal import Grain, InstantAnchor
-from marivo.refs import DomainKind, Ref, SemanticKind, SemanticKindTag
-
-if TYPE_CHECKING:
-    from marivo._definition.relations import PopulationParameter
+from marivo._kernel.errors import invalid
+from marivo._kernel.grouping import Grouping
+from marivo._kernel.input_context import (
+    InputContext,
+    merge_input_contexts,
+)
+from marivo._kernel.paths import (
+    PathParameter,
+    RelationshipStepParameter,
+)
+from marivo._kernel.paths import (
+    RelationshipParameter as RelationshipParameter,
+)
+from marivo._kernel.paths import (
+    _PathValue as _PathValue,
+)
+from marivo._kernel.paths import (
+    _RelationshipValue as _RelationshipValue,
+)
+from marivo._kernel.refs import ExactRef, Ref, SemanticKind, SemanticKindTag
+from marivo._kernel.symbolic import SymbolResolver
+from marivo._kernel.temporal import Grain, InstantAnchor, TimeScope
 
 RECIPE_RULE_VERSION: Final = 2
 _LITERAL_TYPES: Final = (str, bool, int, float, Decimal, date, datetime, InstantAnchor)
@@ -153,179 +214,6 @@ _BINARY_SYMBOLS: Final = (
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticInput:
-    """Frozen physical field facts captured by an owning completed scope."""
-
-    reference: ExactRef
-    root: ExactRef
-    unit: str | None
-    permission: SumPermission
-    coordinates: tuple[ExactRef, ...] = ()
-    field_read: FieldRead | None = None
-    versioned: bool = False
-    default_time: ExactRef | None = None
-
-
-class _RelationshipValue:
-    """Controlled nominal bridge for captured directed relationship parameters."""
-
-    __slots__ = ()
-
-    @property
-    def _parameter(self) -> RelationshipParameter:
-        raise NotImplementedError("Use a captured Relationship value.")
-
-    @property
-    def _context(self) -> InputContext:
-        return InputContext()
-
-
-def relationship_carrier(recipe: Resolver) -> _RelationshipValue | None:
-    """Read only Ibis's exact literal wrappers around the nominal relationship bridge."""
-    candidate: object
-    if isinstance(recipe, Just):
-        candidate = recipe.value
-    elif isinstance(recipe, JustUnhashable):
-        wrapped: object = recipe.value
-        if not isinstance(wrapped, PseudoHashable):
-            return None
-        candidate = wrapped.obj
-    else:
-        return None
-    return candidate if isinstance(candidate, _RelationshipValue) else None
-
-
-class _PathValue:
-    """Controlled literal bridge for a closed Path in native recipes."""
-
-    __slots__ = ()
-    _parameter: PathParameter
-
-
-@dataclass(frozen=True, slots=True)
-class DeclarationRecord:
-    """Local declaration identity, separate from its deferred computation."""
-
-    kind: Literal["measure", "metric"]
-    name: str
-    domain: Ref[DomainKind] | None = None
-    unit: str | None = None
-    permission: SumPermission | None = None
-    ai_context: AiContextValue | None = None
-    location: SourceLocation | None = None
-    reference: ExactRef | None = None
-    pending_additivity: tuple[Literal["over", "all", "none"], tuple[str, ...]] | None = None
-    pending_assertion: bool = False
-
-
-# Ibis does not ship py.typed. Keep its untyped inheritance at this one
-# runtime boundary, with the exact initializer shape used by these resolvers.
-if TYPE_CHECKING:
-
-    class _FrozenResolver(Resolver):
-        def __init__(self, **values: object) -> None: ...
-else:
-
-    class _FrozenResolver(FrozenSlotted, Resolver):
-        __slots__ = ()
-
-
-class CapturedDefaultTimeResolver(_FrozenResolver):
-    """An already selected Entity default, including the absence of one."""
-
-    __slots__ = ("field",)
-    field: ExactRef | None
-
-    def __init__(self, field: ExactRef | None) -> None:
-        super().__init__(field=field)
-
-    def resolve(self, context: dict[str, object]) -> NoReturn:
-        invalid("A captured default is a semantic contribution-time fact.")
-
-
-class SemanticResolver(_FrozenResolver):
-    """A semantic leaf that cannot be resolved through Ibis's generic context."""
-
-    __slots__ = ("input",)
-    input: SemanticInput
-
-    def __init__(self, value: SemanticInput) -> None:
-        super().__init__(input=value)
-
-    def resolve(self, context: dict[str, object]) -> NoReturn:
-        invalid("Semantic inputs require Marivo binding; use the semantic consumer.")
-
-
-class DeclarationResolver(_FrozenResolver):
-    """An immutable local declaration around the original Ibis recipe."""
-
-    __slots__ = ("declaration", "recipe")
-    declaration: DeclarationRecord
-    recipe: Resolver
-
-    def __init__(self, recipe: Resolver, declaration: DeclarationRecord) -> None:
-        super().__init__(recipe=recipe, declaration=declaration)
-
-    def resolve(self, context: dict[str, object]) -> NoReturn:
-        invalid("Semantic declarations require Marivo binding; use the semantic consumer.")
-
-
-class NamedResolver(_FrozenResolver):
-    """One named boundary in the existing recipe graph, with captured display facts."""
-
-    __slots__ = ("recipe", "reference")
-    reference: ExactRef
-    recipe: Resolver
-
-    def __init__(self, reference: ExactRef, recipe: Resolver) -> None:
-        super().__init__(reference=reference, recipe=recipe)
-
-    def resolve(self, context: dict[str, object]) -> NoReturn:
-        invalid("Named semantic inputs require the receiving Marivo scope.")
-
-
-class RescaleResolver(_FrozenResolver):
-    """Explicit numeric division and target-unit assertion on one recipe."""
-
-    __slots__ = ("divisor", "recipe", "unit")
-    recipe: Resolver
-    divisor: int | float | Decimal
-    unit: str
-
-    def __init__(self, recipe: Resolver, divisor: int | float | Decimal, unit: str) -> None:
-        super().__init__(recipe=recipe, divisor=divisor, unit=unit)
-
-    def resolve(self, context: dict[str, object]) -> NoReturn:
-        invalid("Rescale expressions require Marivo semantic binding.")
-
-
-class PopulationCountResolver(_FrozenResolver):
-    """A closed Metric carrying its explicit identity Population parameter."""
-
-    __slots__ = ("population",)
-    population: PopulationParameter
-
-    def __init__(self, population: PopulationParameter) -> None:
-        super().__init__(population=population)
-
-    def resolve(self, context: dict[str, object]) -> NoReturn:
-        invalid("Population counts require Marivo semantic binding.")
-
-
-class PopulationContainsResolver(_FrozenResolver):
-    """Invocation carrier for one membership leaf; binding never calls resolve."""
-
-    __slots__ = ("population",)
-    population: PopulationParameter
-
-    def __init__(self, population: PopulationParameter) -> None:
-        super().__init__(population=population)
-
-    def resolve(self, context: dict[str, object]) -> NoReturn:
-        invalid("Population membership requires Marivo predicate binding.")
-
-
-@dataclass(frozen=True, slots=True)
 class SemanticUse:
     """One captured input occurrence, including repeated shared inputs."""
 
@@ -365,32 +253,6 @@ class DeferredInspection:
 def admitted_function(value: object) -> bool:
     """Check identity of approved public Ibis constructors, without calling them."""
     return any(value is public for public, _, _ in _TOP_FUNCTIONS)
-
-
-def semantic_input(value: SemanticInput) -> Deferred:
-    """Capture frozen semantic facts without constructing a physical Ibis Value."""
-    return Deferred(SemanticResolver(value))
-
-
-def attribute_name(attribute: Attr) -> str:
-    """Read Ibis's actual Just carrier despite its incorrect str annotation."""
-    name: object = attribute.name
-    if isinstance(name, Just) and isinstance(name.value, str):
-        return name.value
-    invalid("A native deferred attribute requires one constant string name.")
-
-
-def resolver_of(value: Deferred) -> Resolver:
-    recipe: object = value._resolver
-    if not isinstance(recipe, Resolver):
-        invalid("Expected an Ibis deferred recipe; received an invalid carrier.")
-    return recipe
-
-
-def root_declaration(value: Deferred) -> DeclarationRecord | None:
-    """Return only a root declaration; anonymous derivations do not inherit it."""
-    recipe = resolver_of(value)
-    return recipe.declaration if type(recipe) is DeclarationResolver else None
 
 
 def declare(value: Deferred, declaration: DeclarationRecord) -> Deferred:
@@ -456,30 +318,10 @@ def _captured_scalar_path(recipe: Resolver) -> bool:
     return False
 
 
-def captured_relationship(recipe: Resolver) -> bool:
-    if isinstance(recipe, NamedResolver):
-        return recipe.reference.ref.kind is SemanticKind.RELATIONSHIP
-    return (
-        (isinstance(recipe, SymbolResolver) and recipe.reference.kind is SemanticKind.RELATIONSHIP)
-        or (isinstance(recipe, Just) and isinstance(recipe.value, RelationshipParameter))
-        or relationship_carrier(recipe) is not None
-    )
-
-
 def _capture_sample(recipe: Resolver, path: tuple[str, ...]) -> None:
     """Validate the finite sample-parameter grammar without resolving fields."""
     if isinstance(recipe, Just) and isinstance(recipe.value, (Grain,)):
         return
-    from marivo._definition.population_parameters import (
-        IdentityParameter,
-        MembershipParameter,
-        ParameterResolver,
-        parameter_role,
-    )
-    from marivo._definition.relations import MembershipBinding
-    from marivo._definition.types import AxisBinding
-    from marivo._grouping import Grouping
-
     if isinstance(recipe, Sequence):
         if recipe.typ is not tuple or not recipe.values:
             invalid("per requires a nonempty tuple of fields or grouping parameters.", path=path)
@@ -491,14 +333,15 @@ def _capture_sample(recipe: Resolver, path: tuple[str, ...]) -> None:
         role = parameter_role(member)
         if index == 0 and population:
             continue
+        binding = (
+            grouping_binding(member.value)
+            if isinstance(member, Just) and isinstance(member.value, Grouping)
+            else None
+        )
         membership = (
             isinstance(member, ParameterResolver)
             and isinstance(member.parameter, MembershipParameter)
-        ) or (
-            isinstance(member, Just)
-            and isinstance(member.value, Grouping)
-            and isinstance(member.value._binding, MembershipBinding)
-        )
+        ) or isinstance(binding, MembershipBinding)
         if membership:
             if not population:
                 if isinstance(member, ParameterResolver) and isinstance(
@@ -514,16 +357,10 @@ def _capture_sample(recipe: Resolver, path: tuple[str, ...]) -> None:
                             "Internal membership samples require native Dimension or TimeDimension fields.",
                             path=path,
                         )
-                elif (
-                    isinstance(member, Just)
-                    and isinstance(member.value, Grouping)
-                    and isinstance(member.value._binding, MembershipBinding)
-                    and any(
-                        read.field.ref.kind
-                        not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
-                        or read.path
-                        for read in member.value._binding.fields
-                    )
+                elif isinstance(binding, MembershipBinding) and any(
+                    read.field.ref.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
+                    or read.path
+                    for read in binding.fields
                 ):
                     invalid(
                         "Internal membership samples require native Dimension or TimeDimension fields.",
@@ -542,8 +379,7 @@ def _capture_sample(recipe: Resolver, path: tuple[str, ...]) -> None:
                 "per requires native Dimension or TimeDimension coordinates, not an identity grouping.",
                 path=path,
             )
-        if isinstance(member, Just) and isinstance(member.value, Grouping):
-            binding = member.value._binding
+        if binding is not None:
             if (
                 not isinstance(binding, AxisBinding)
                 or binding.role != "field"
@@ -598,19 +434,11 @@ class _Inspector:
         self.dependencies[_reference(value)] = value
 
     def visit(self, recipe: Resolver, path: tuple[str, ...], *, identity: bool = False) -> None:
-        from marivo._definition.population_parameters import (
-            ParameterResolver,
-            validate_parameter,
-            validate_parameter_call,
-        )
-
         if self.capture:
             validate_parameter_call(recipe, path)
 
         if isinstance(recipe, ParameterResolver):
             self.contexts.append(recipe.parameter._context)
-            from marivo._definition.population_parameters import CoordinatesParameter, PathRecipe
-
             if isinstance(recipe.parameter, CoordinatesParameter):
                 self.capture_identity_keys(recipe.parameter._identity_keys)
             self.token("parameter", type(recipe.parameter).__name__)
@@ -645,19 +473,20 @@ class _Inspector:
             self.contexts.append(recipe.population._context)
             self.capture_identity_keys(recipe.population._identity_keys)
             self.has_population_contains = True
-            from marivo._definition.graph import computation_fingerprint, direct_refs
-
             definition = recipe.population._definition
-            self.token("population_contains", computation_fingerprint(definition))
+            self.token(
+                "population_contains", DefinitionEncoder(canonical_recipe).fingerprint(definition)
+            )
             for reference in direct_refs(definition):
                 self.dependency(reference)
         elif type(recipe) is PopulationCountResolver:
             self.contexts.append(recipe.population._context)
             self.capture_identity_keys(recipe.population._identity_keys)
             self.has_population_count = True
-            from marivo._definition.graph import computation_fingerprint
-
-            self.token("population_count", computation_fingerprint(recipe.population._definition))
+            self.token(
+                "population_count",
+                DefinitionEncoder(canonical_recipe).fingerprint(recipe.population._definition),
+            )
         elif type(recipe) is CapturedDefaultTimeResolver:
             if not path or path[-1] != "parameter:time":
                 self.reject(recipe, path)
@@ -770,19 +599,6 @@ class _Inspector:
         )
 
     def literal(self, value: object, path: tuple[str, ...]) -> None:
-        from marivo._definition.graph import (
-            _collect_refs,
-            _encode,
-            computation_fingerprint,
-            direct_refs,
-            fingerprint,
-        )
-        from marivo._definition.relations import (
-            MembershipBinding,
-            PopulationParameter,
-        )
-        from marivo._grouping import Grouping
-
         if isinstance(value, _RelationshipValue):
             self.contexts.append(value._context)
             value = value._parameter
@@ -792,11 +608,11 @@ class _Inspector:
         if isinstance(value, Grouping):
             self.contexts.append(value._context)
             self.capture_identity_keys(value._identity_keys)
-            from marivo._definition.types import AxisBinding, CalendarCoordinate
-
-            value = value._binding
+            value = grouping_binding(value)
             if isinstance(value, (AxisBinding, CalendarCoordinate)):
-                self.token("grouping", fingerprint(_encode(value, {})))
+                self.token(
+                    "grouping", fingerprint(DefinitionEncoder(canonical_recipe).encode(value))
+                )
                 grouping_refs: set[ExactRef] = set()
                 _collect_refs(value, grouping_refs)
                 for reference in grouping_refs:
@@ -808,18 +624,19 @@ class _Inspector:
             if isinstance(value, PopulationParameter):
                 self.contexts.append(value._context)
                 self.capture_identity_keys(value._identity_keys)
-                self.token("population", computation_fingerprint(value._definition))
+                self.token(
+                    "population", DefinitionEncoder(canonical_recipe).fingerprint(value._definition)
+                )
                 refs.update(direct_refs(value._definition))
             else:
-                self.token("membership", fingerprint(_encode(value, {})))
+                self.token(
+                    "membership", fingerprint(DefinitionEncoder(canonical_recipe).encode(value))
+                )
                 _collect_refs(value, refs)
             for reference in refs:
                 self.dependency(reference)
             return
-        from marivo._temporal import TimeScope
-
-        if type(value) in (TimeScope, TimeScope):
-            assert isinstance(value, TimeScope)
+        if type(value) is TimeScope:
             self.token(
                 "time_scope",
                 json.dumps(
@@ -905,8 +722,6 @@ class _Inspector:
             ):
                 self.reject(recipe, path)
             symbol = name.value
-            from marivo._definition.population_parameters import parameter_role
-
             population = parameter_role(function.obj) == "population"
             if population:
                 allowed = {
@@ -1134,11 +949,8 @@ class _Inspector:
                 not isinstance(recipe.args[0], Just) or type(recipe.args[0].value) is not str
             ):
                 invalid("cast requires one immutable dtype string.", path=path)
-            if symbol == "via":
-                from marivo._definition.population_parameters import parameter_role
-
-                if parameter_role(recipe.args[0]) != "path":
-                    invalid("via requires a Path constructed with mv.path(...).", path=path)
+            if symbol == "via" and parameter_role(recipe.args[0]) != "path":
+                invalid("via requires a Path constructed with mv.path(...).", path=path)
             for parameter in ("time", "order_by"):
                 value = recipe.kwargs.get(parameter)
                 if (
@@ -1192,13 +1004,11 @@ class _Inspector:
                     "and CalendarAxis do not select attribute versions.",
                     path=path,
                 )
-            if symbol == "within":
-                from marivo._temporal import TimeScope
-
-                if not isinstance(recipe.args[0], Just) or not isinstance(
-                    recipe.args[0].value, TimeScope
-                ):
-                    invalid("within requires one immutable TimeScope.", path=path)
+            if symbol == "within" and (
+                not isinstance(recipe.args[0], Just)
+                or not isinstance(recipe.args[0].value, TimeScope)
+            ):
+                invalid("within requires one immutable TimeScope.", path=path)
             if symbol == "window" and (
                 not isinstance(recipe.args[0], Just)
                 or not isinstance(
@@ -1282,9 +1092,6 @@ class _Inspector:
 
 def parameter_recipe(recipe: Resolver) -> bool:
     """Recognize the finite helper receiver chain without evaluating it."""
-    from marivo._definition.population_parameters import ParameterResolver
-    from marivo._definition.relations import PopulationParameter
-
     if isinstance(recipe, ParameterResolver):
         return True
     if isinstance(recipe, Just):

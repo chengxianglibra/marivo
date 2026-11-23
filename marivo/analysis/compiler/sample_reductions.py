@@ -28,8 +28,8 @@ from marivo._definition.expressions import (
 from marivo._definition.observations import SampleAxisMatches, sample_key_matches
 from marivo._definition.relations import PopulationDependency, sample_population
 from marivo._definition.types import AxisBinding, CalendarCoordinate
-from marivo._source_aggregates import aggregate_operation, native_aggregate
-from marivo._temporal import Grain
+from marivo._kernel.source_aggregates import aggregate_operation, native_aggregate
+from marivo._kernel.temporal import Grain
 from marivo.analysis.compiler.native_formula import normalized_returned_key
 from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
 from marivo.analysis.compiler.source_predicates import (

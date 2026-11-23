@@ -50,8 +50,11 @@ from marivo._definition.windows import (
     TrailingDuration,
     TrailingPeriods,
 )
-from marivo._temporal import Grain
-from marivo.refs import Ref, SemanticKindTag
+from marivo._kernel.refs import (
+    Ref,
+    SemanticKindTag,
+)
+from marivo._kernel.temporal import Grain
 
 
 def _recipe_text(recipe: object, operands: tuple[str, ...]) -> str:

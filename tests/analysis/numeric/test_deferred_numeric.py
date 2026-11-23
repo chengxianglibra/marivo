@@ -21,12 +21,12 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.types import ExactRef, SumAll
+from marivo._kernel.refs import ref
 from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram, formula_columns
 from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.methods._ibis_numeric import evaluate_numeric
 from marivo.analysis.methods.local import query_combine
-from marivo.refs import ref
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,

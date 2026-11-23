@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
-from marivo.refs import Ref, SemanticKind, SemanticKindTag
+from marivo._kernel.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 from marivo.semantic.ir import (
     DateParse,

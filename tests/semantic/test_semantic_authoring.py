@@ -39,7 +39,7 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.graph import computation_fingerprint
-from marivo._symbolic import MeasureSymbol
+from marivo._kernel.symbolic import MeasureSymbol
 from marivo.semantic._authoring_context import DefinitionIR
 from marivo.semantic._deferred_semantics import (
     consume_field,

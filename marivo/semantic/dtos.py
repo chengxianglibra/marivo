@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from marivo.preview import PreviewResult
-from marivo.render import Card, RenderableResult
+from marivo._kernel.render import Card, RenderableResult
+from marivo.datasource.spi import PreviewResult
 from marivo.semantic.ir import (
     CsvSourceIR,
     EntitySourceIR,

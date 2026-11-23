@@ -9,12 +9,12 @@ from urllib.parse import urlsplit
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo._numeric_types import exact_unsigned
+from marivo._kernel.numeric_types import exact_unsigned
+from marivo._kernel.refs import ref
 from marivo.datasource.adapters import (
     BoundSource,
     SourceSession,
 )
-from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.materializer import materialize_entity_output
 from marivo.semantic.validator import Registry

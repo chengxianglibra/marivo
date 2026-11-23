@@ -11,9 +11,9 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._symbolic import native_symbol_ref
+from marivo._kernel.refs import ref as internal_ref
+from marivo._kernel.symbolic import native_symbol_ref
 from marivo.datasource.errors import DatasourceFieldInvalidError
-from marivo.refs import ref as internal_ref
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.preview_scope import _normalize_scopes

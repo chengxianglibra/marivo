@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn, Protocol, SupportsIndex
 
-from marivo._errors import MarivoError
+from marivo._kernel.errors import MarivoError
+from marivo._kernel.project import resolve_project_root
 from marivo.datasource.errors import (
     DatasourceConnectionError,
     DatasourceCredentialError,
@@ -17,7 +18,6 @@ from marivo.datasource.errors import (
     _backend_failure_summary,
     repair,
 )
-from marivo.project import resolve_project_root
 
 
 class SecretValue:

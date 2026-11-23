@@ -3,6 +3,49 @@ root_package = marivo
 exclude_type_checking_imports = false
 include_external_packages = true
 
+[importlinter:contract:top-level-layers]
+name = Every Marivo package has an explicit dependency layer
+type = layers
+containers = marivo
+exhaustive = true
+layers =
+    __main__
+    cli
+    server | skills
+    analysis : _help
+    ontology
+    semantic
+    datasource
+    _authoring
+    _definition | introspection | telemetry
+    _kernel
+# Analysis Help still resolves qualified links through the coordinator.
+# Their existing two-way dependency is scheduled for P5.
+
+[importlinter:contract:no-sibling-cycles]
+name = Shared implementation packages have no sibling import cycles
+type = acyclic_siblings
+ancestors =
+    marivo._kernel
+    marivo._definition
+    marivo._authoring
+
+[importlinter:contract:pure-layers-no-heavy-runtime]
+name = Kernel and definition primitives do not import execution dependencies
+type = forbidden
+source_modules =
+    marivo._kernel
+    marivo._definition
+forbidden_modules =
+    pandas
+    pyarrow
+    numpy
+    duckdb
+    sqlglot
+    uvicorn
+    onnxruntime
+    sentence_transformers
+
 [importlinter:contract:datasource-is-leaf]
 name = datasource must not depend on semantic or analysis
 type = forbidden
@@ -109,7 +152,6 @@ forbidden_modules =
     marivo.analysis
     marivo.server
     marivo.cli
-    marivo.doctor
 
 [importlinter:contract:ontology-no-direct-datasource]
 name = Ontology must not import datasource directly
@@ -144,7 +186,6 @@ source_modules =
 forbidden_modules =
     marivo.server
     marivo.cli
-    marivo.doctor
 
 [importlinter:contract:engines-independent]
 name = Datasource engine implementations are independent

@@ -5,16 +5,16 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TypeAlias
 
-from marivo._temporal import (
+from marivo._kernel.temporal import (
     CalendarAxis as CalendarAxis,
 )
-from marivo._temporal import (
+from marivo._kernel.temporal import (
     InstantAnchor,
     TimeScope,
     anchor_from_datetime,
     session_time_scope,
 )
-from marivo._timezones import normalize_timezone
+from marivo._kernel.timezones import normalize_timezone
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.time_grid import instant
 

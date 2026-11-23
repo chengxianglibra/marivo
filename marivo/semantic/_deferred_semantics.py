@@ -61,8 +61,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
-from marivo._definition.grouping import normalize_groupings
-from marivo._definition.population_builders import axis as field_axis
+from marivo._definition.grouping import grouping_binding, normalize_groupings
 from marivo._definition.population_builders import validate_path_read
 from marivo._definition.relations import (
     LiteralPopulation,
@@ -84,12 +83,13 @@ from marivo._definition.types import (
     RowAttributeTime,
     SumNone,
     SumPermission,
+    field_axis,
     fixed_attribute_time,
 )
-from marivo._grouping import Grouping
-from marivo._temporal import Grain, TimeScope
-from marivo.refs import SemanticKind
-from marivo.refs import ref as ref_factory
+from marivo._kernel.grouping import Grouping
+from marivo._kernel.refs import SemanticKind
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.temporal import Grain, TimeScope
 from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
 from marivo.semantic._metric_time import (
     calendar_sample_domain,
@@ -583,8 +583,8 @@ def _sample_domain(
     items: list[ComparisonAxis | MembershipBinding] = []
     for member in members[1:] if domain is not None else members:
         value = _constant(member)
-        if isinstance(value, Grouping) and isinstance(value._binding, MembershipBinding):
-            binding = value._binding
+        binding = grouping_binding(value) if isinstance(value, Grouping) else None
+        if isinstance(binding, MembershipBinding):
             if domain is None:
                 for read in binding.fields:
                     _native_sample_axis(field_axis(read))
@@ -596,10 +596,8 @@ def _sample_domain(
                 expected="per(P) or per((P, rule, ...))",
                 received=type(value).__name__,
             )
-        if isinstance(value, Grouping):
-            coordinate = value._binding
-            assert not isinstance(coordinate, MembershipBinding)
-            items.append(_native_sample_axis(coordinate))
+        if binding is not None:
+            items.append(_native_sample_axis(binding))
             continue
         axis = _consume(member)
         if (
@@ -1196,7 +1194,7 @@ def _consume(recipe: Resolver) -> _Facts:
                         pending.extend(edge.child for edge in children(node))
                 return replace(receiver, node=MetricWindow(receiver.node, rule))
             if name == "at":
-                from marivo._temporal import InstantAnchor
+                from marivo._kernel.temporal import InstantAnchor
 
                 anchor = _constant(recipe.args[0]) if len(recipe.args) == 1 else None
                 if anchor is None and len(recipe.args) == 1:

@@ -14,15 +14,15 @@ import ibis
 import ibis.expr.types as ir
 from ibis.expr.operations.relations import Relation, SQLQueryResult
 
-from marivo._compat import UTC
+from marivo._kernel.compat import UTC
+from marivo._kernel.refs import EntityKind, Ref, SemanticKindTag
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource import credentials as cr
 from marivo.datasource.errors import DatasourceError
 from marivo.datasource.ir import DatasourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import read_json_source
 from marivo.datasource.source import AuthoringScope, _apply_scope
 from marivo.datasource.table_source import table_source_expression
-from marivo.refs import EntityKind, Ref, SemanticKindTag
-from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import (
     CompiledExpressionSidecar,
     evaluate_expression_body,

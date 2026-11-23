@@ -10,7 +10,7 @@ import pytest
 
 import marivo.datasource as md
 from marivo._definition.expressions import DeclaredMetricRef
-from marivo.config import load_semantic_layer_paths
+from marivo._kernel.config import load_semantic_layer_paths
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.reader import SemanticProject

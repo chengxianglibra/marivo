@@ -32,6 +32,7 @@ from marivo.datasource.engines.base import (
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.engines.requirements import TRINO_REQUIREMENT
 from marivo.datasource.strptime import python_to_mysql_strptime
 
 if TYPE_CHECKING:
@@ -512,9 +513,7 @@ def _trino_physical_profile(
     warnings: list[MetadataWarning],
 ) -> TablePhysicalProfile | None:
     from marivo.datasource.errors import _backend_failure_summary
-    from marivo.datasource.metadata import (
-        MetadataWarning as _Warning,
-    )
+    from marivo.datasource.metadata import MetadataWarning as _Warning
     from marivo.datasource.metadata import (
         TablePhysicalProfile as _Profile,
     )
@@ -786,7 +785,7 @@ PROFILE = EngineProfile(
     name="trino",
     aliases=("presto",),
     authoring_func="trino",
-    required_modules=("ibis.backends.trino",),
+    required_modules=(TRINO_REQUIREMENT,),
     connect=connect,
     identifier_quote='"',
     table_name_parts=table_name_parts,

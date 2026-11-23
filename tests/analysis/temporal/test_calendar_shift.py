@@ -5,7 +5,8 @@ from datetime import datetime
 import pytest
 
 import marivo.analysis as mv
-from marivo._temporal_grid import CivilShiftAbsent, CivilShiftTarget, TimeShiftAbsent
+from marivo._definition.grouping import grouping_binding
+from marivo._kernel.temporal_grid import CivilShiftAbsent, CivilShiftTarget, TimeShiftAbsent
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, TimestampDataType
 from marivo.analysis.core.frame_calendar import FrozenSourceCalendar, freeze_calendar
@@ -21,7 +22,7 @@ from marivo.analysis.dsl.temporal import exact_scope
 
 
 def calendar(start: str, end: str, unit: str = "week", zone: str = "UTC") -> mv.CalendarAxis:
-    from marivo._temporal import builtin_grain
+    from marivo._kernel.temporal import builtin_grain
 
     return exact_scope(start, end, zone).by(builtin_grain(unit))
 
@@ -34,7 +35,7 @@ def frozen(
     axis: mv.CalendarAxis, token: str = "period"
 ) -> tuple[FrozenSourceCalendar, FrozenCalendarDirectory]:
     captured = freeze_calendar(
-        axis._binding,
+        grouping_binding(axis),
         token=token,
         name="period",
         key=DataColumn(f"key.{token}", "period", TimestampDataType("us", "UTC"), False),
@@ -156,7 +157,7 @@ def test_zero_offset_copies_aware_fold_instants_after_admission(
     def refuse(*args: object, **kwargs: object) -> datetime:
         raise AssertionError("zero offset must not resolve a civil instant")
 
-    monkeypatch.setattr("marivo._temporal_grid.instant", refuse)
+    monkeypatch.setattr("marivo._kernel.temporal_grid.instant", refuse)
     for rule in (mv.offset(periods=0), mv.offset(years=0)):
         baseline = current.shift(rule)
         assert baseline.grid.cells == current.grid.cells
@@ -199,7 +200,7 @@ def test_source_free_intents_distinguish_absence_from_unselected_target(
     def refuse(*args: object, **kwargs: object) -> object:
         raise AssertionError("fixed-data matching must not consult timezone rules")
 
-    monkeypatch.setattr("marivo._temporal_grid.normalize_timezone", refuse)
+    monkeypatch.setattr("marivo._kernel.temporal_grid.normalize_timezone", refuse)
     years = calendar_match_intents(current, mv.offset(years=-1))[0].result
     periods = calendar_match_intents(current, mv.offset(periods=-52))[0].result
     assert isinstance(years, CivilShiftAbsent) and years.reason == "period_absent"
@@ -215,7 +216,7 @@ def test_source_calendar_freezing_uses_original_captured_civil_facts(
     def refuse(*args: object, **kwargs: object) -> object:
         raise AssertionError("freezing must not reconstruct original civil boundaries")
 
-    monkeypatch.setattr("marivo._temporal_grid.normalize_timezone", refuse)
+    monkeypatch.setattr("marivo._kernel.temporal_grid.normalize_timezone", refuse)
     _, directory = frozen(current)
     assert directory.buckets[0].selection == "prefix"
     assert directory.buckets[0].cutoff == "2026-11-01T01:30:00.000000"
@@ -230,7 +231,7 @@ def test_frozen_prefix_matching_requires_exact_saved_progress_and_no_tz_lookup(
     def refuse(*args: object, **kwargs: object) -> object:
         raise AssertionError("fixed-data matching must not consult timezone rules")
 
-    monkeypatch.setattr("marivo._temporal_grid.normalize_timezone", refuse)
+    monkeypatch.setattr("marivo._kernel.temporal_grid.normalize_timezone", refuse)
     assert (
         build_partial_calendar_map(current, baseline, mv.offset(periods=-1))[0].right_key
         == baseline.buckets[0].key

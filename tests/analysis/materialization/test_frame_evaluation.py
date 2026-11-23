@@ -17,6 +17,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._definition.types import CalendarCoordinate
+from marivo._kernel.refs import ref
 from marivo.analysis.compiler.graph_lowering import LoweredQuery
 from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.data_types import TimestampDataType
@@ -37,7 +38,6 @@ from marivo.analysis.materialization.terminal_store import describe
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.runtime import DatasourceConnectionConfig, DatasourceConnectionService
-from marivo.refs import ref
 from marivo.semantic._expression_values import RowPredicate
 from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
 from marivo.semantic.reader import SemanticProject

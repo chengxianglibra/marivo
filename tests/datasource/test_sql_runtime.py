@@ -10,7 +10,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo import _execution_log
+from marivo._kernel import execution_log as _execution_log
 from marivo.datasource.adapters import CompiledRead, PhysicalRequirement, SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.secrets import LocalPlaintextCache

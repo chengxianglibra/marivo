@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import timezone
 from enum import Enum
 
-from marivo._compat import UTC, StrEnum, tomllib
+from marivo._kernel.compat import UTC, StrEnum, tomllib
 
 
 class _Example(StrEnum):

@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from marivo._timezones import same_timezone
+from marivo._kernel.project import resolve_project_root
+from marivo._kernel.timezones import same_timezone
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import (
     AnalysisRepair,
@@ -20,7 +21,6 @@ from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.session._lazy_read_model import SessionSummary, SessionSummaryPage
 from marivo.analysis.session.core import Session
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.project import resolve_project_root
 
 __all__ = ["get_or_create", "inspect", "recent", "resume"]
 
@@ -35,7 +35,7 @@ def _invalid(expected: str, received: str) -> DatasetConstructionError:
 
 
 def _validate_project_manifest(root: Path) -> None:
-    from marivo.config import PROJECT_MANIFEST, load_project_config
+    from marivo._kernel.config import PROJECT_MANIFEST, load_project_config
 
     try:
         load_project_config(root)

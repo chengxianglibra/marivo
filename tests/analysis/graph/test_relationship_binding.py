@@ -12,8 +12,8 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.types import AxisBinding
+from marivo._kernel.refs import ref as private_ref
 from marivo.analysis.errors import AnalysisError
-from marivo.refs import ref as private_ref
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_get, catalog_value, terminal_runs

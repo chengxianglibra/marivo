@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from marivo._definition.expressions import BuiltinSampleCoordinate
 from marivo._definition.types import CalendarCoordinate
-from marivo._temporal import grain_nests
-from marivo._timezones import same_timezone
+from marivo._kernel.temporal import grain_nests
+from marivo._kernel.timezones import same_timezone
 from marivo.analysis.core.model import reject
 
 

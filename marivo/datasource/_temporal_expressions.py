@@ -11,8 +11,8 @@ import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo._time_formats import ORDERED_TIME_FORMATS
-from marivo._timezones import normalize_timezone
+from marivo._kernel.time_formats import ORDERED_TIME_FORMATS
+from marivo._kernel.timezones import normalize_timezone
 
 
 class TemporalExpressionError(ValueError):

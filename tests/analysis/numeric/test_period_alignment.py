@@ -9,7 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._temporal import CalendarAxis
+from marivo._kernel.temporal import CalendarAxis
 from marivo.analysis.core.data_schema import (
     CalendarComparisonBinding,
     CalendarDataAxis,

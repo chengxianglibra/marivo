@@ -328,6 +328,7 @@ def test_original_contribution_and_projected_domain_skip_independent_proven_key_
 
     from marivo._definition.expressions import EntityCount
     from marivo._definition.types import ExactRef
+    from marivo._kernel.refs import ref
     from marivo.analysis.compiler.observation import ReductionInput
     from marivo.analysis.compiler.original import component_layout
     from marivo.analysis.core import data_validation
@@ -335,7 +336,6 @@ def test_original_contribution_and_projected_domain_skip_independent_proven_key_
     from marivo.analysis.core.unique_keys import UniqueKeys
     from marivo.analysis.materialization.errors import MaterializationError
     from marivo.analysis.materialization.query_components import complete_components
-    from marivo.refs import ref
 
     key = DataColumn("key.0", "group", ScalarDataType("string"), False)
     value = DataColumn("value", "count", ScalarDataType("int64"), False)

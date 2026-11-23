@@ -8,7 +8,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.project import resolve_project_root
+from marivo._kernel.project import resolve_project_root
 
 
 def test_omitted_root_uses_environment_before_manifest(

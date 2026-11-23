@@ -10,9 +10,11 @@ from pathlib import Path
 
 import tomli_w
 
-from marivo import __version__
-from marivo._compat import tomllib
-from marivo.config import (
+from marivo import skills
+from marivo._help.model import MarivoHelpSurfaceError, MarivoHelpTargetError
+from marivo._help.render import _print_help
+from marivo._kernel.compat import tomllib
+from marivo._kernel.config import (
     AGENTS_SKILLS_DIR,
     AUTHORED_DIR,
     CLAUDE_SKILLS_DIR,
@@ -21,14 +23,16 @@ from marivo.config import (
     PROJECT_MANIFEST,
     STATE_DIR,
 )
+from marivo._kernel.environment import MARIVO_VERSION
+from marivo.cli import doctor
+from marivo.server.command import serve
+from marivo.server.wire import DEFAULT_MIB, DEFAULT_SECONDS, Limits
 from marivo.telemetry import track_operation, tracked_capability
 
 
 def _skills_source_dir() -> Path:
     """Resolve the installed package's skills directory."""
-    import marivo.skills
-
-    return Path(marivo.skills.__file__).parent
+    return Path(skills.__file__).parent
 
 
 def _artifact_paths(project_dir: Path) -> dict[str, Path]:
@@ -154,20 +158,7 @@ def init_project(force: bool = False, project_dir: Path | None = None) -> None:
     _init_project_impl(force=force, project_dir=project_dir or Path.cwd())
 
 
-def main(argv: list[str] | None = None) -> None:
-    """CLI entry point for the marivo command.
-
-    Args:
-        argv: Command-line arguments. Defaults to sys.argv[1:].
-
-    Example:
-        >>> main(["init", "--force"])
-    """
-    parsed_argv = sys.argv[1:] if argv is None else argv
-    if parsed_argv == ["version"]:
-        print("Use `marivo --version`.", file=sys.stderr)
-        raise SystemExit(2)
-
+def _command_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     parser = argparse.ArgumentParser(
         prog="marivo",
         description="Marivo project tooling",
@@ -183,7 +174,7 @@ def main(argv: list[str] | None = None) -> None:
             "  marivo doctor --datasource <name> --connect"
         ),
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {MARIVO_VERSION}")
     subparsers = parser.add_subparsers(dest="command")
 
     init_parser = subparsers.add_parser(
@@ -214,8 +205,6 @@ def main(argv: list[str] | None = None) -> None:
     doctor_parser.add_argument(
         "--datasource", default=None, help="Limit datasource checks to one name"
     )
-    from marivo.server.wire import DEFAULT_MIB, DEFAULT_SECONDS
-
     serve_parser = subparsers.add_parser(
         "serve", help="Serve persisted results and semantic definitions over HTTP"
     )
@@ -276,7 +265,97 @@ def main(argv: list[str] | None = None) -> None:
         metavar="target",
         help="Complete canonical Help targets, separated by spaces",
     )
+    return parser, serve_parser
 
+
+def _run_doctor(args: argparse.Namespace) -> None:
+    report = doctor.run_doctor(
+        doctor.DoctorOptions(
+            project_root=args.project_root,
+            format=args.format,
+            fix_snap=args.fix_snap,
+            semantic=args.semantic,
+            connect=args.connect,
+            datasource=args.datasource,
+        )
+    )
+    if args.fix_snap:
+        print(doctor.render_fix_snap(report))
+    elif args.format == "json":
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+    else:
+        print(doctor.render_text(report))
+    code = doctor.exit_code(report)
+    if code:
+        raise SystemExit(code)
+
+
+def _run_serve(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> None:
+    if args.max_response_mib <= 0 or args.read_timeout_seconds <= 0:
+        serve_parser.error(
+            "--max-response-mib and --read-timeout-seconds must be positive integers."
+        )
+    try:
+        serve(
+            project_root=args.project_root,
+            host=args.host,
+            port=args.port,
+            origins=args.allow_origin,
+            certfile=args.ssl_certfile,
+            keyfile=args.ssl_keyfile,
+            limits=Limits(args.max_response_mib, args.read_timeout_seconds),
+            granite_model=args.experimental_granite_model,
+            granite_cache_dir=args.experimental_granite_cache_dir,
+        )
+    except ModuleNotFoundError as error:
+        if error.name != "uvicorn":
+            raise
+        serve_parser.error("Install the optional API dependencies with pip install 'marivo[api]'.")
+    except ValueError as error:
+        serve_parser.error(str(error))
+
+
+def _run_help(targets: list[str]) -> None:
+    try:
+        with track_operation(surface="cli", capability_kind="command", capability_id="help"):
+            failure: MarivoHelpTargetError | MarivoHelpSurfaceError | None = None
+            for target in targets or (None,):
+                try:
+                    _print_help(target, cli=True)
+                except MarivoHelpTargetError as error:
+                    print(str(error), file=sys.stderr)
+                    for candidate in error.candidates or ("authoring", "analysis"):
+                        print(f"  marivo help {candidate}", file=sys.stderr)
+                    if failure is None:
+                        failure = error
+                except MarivoHelpSurfaceError as error:
+                    print(str(error), file=sys.stderr)
+                    if not isinstance(failure, MarivoHelpSurfaceError):
+                        failure = error
+            if failure is not None:
+                # Keep the command's telemetry outcome aligned with its exit status.
+                raise failure
+    except MarivoHelpTargetError as error:
+        raise SystemExit(2) from error
+    except MarivoHelpSurfaceError as error:
+        raise SystemExit(1) from error
+
+
+def main(argv: list[str] | None = None) -> None:
+    """CLI entry point for the marivo command.
+
+    Args:
+        argv: Command-line arguments. Defaults to sys.argv[1:].
+
+    Example:
+        >>> main(["init", "--force"])
+    """
+    parsed_argv = sys.argv[1:] if argv is None else argv
+    if parsed_argv == ["version"]:
+        print("Use `marivo --version`.", file=sys.stderr)
+        raise SystemExit(2)
+
+    parser, serve_parser = _command_parser()
     args = parser.parse_args(parsed_argv)
 
     if args.command is None:
@@ -289,80 +368,8 @@ def main(argv: list[str] | None = None) -> None:
             project_dir=Path(args.project_root) if args.project_root else None,
         )
     elif args.command == "doctor":
-        from marivo.doctor import DoctorOptions, exit_code, render_fix_snap, render_text, run_doctor
-
-        report = run_doctor(
-            DoctorOptions(
-                project_root=args.project_root,
-                format=args.format,
-                fix_snap=args.fix_snap,
-                semantic=args.semantic,
-                connect=args.connect,
-                datasource=args.datasource,
-            )
-        )
-        if args.fix_snap:
-            print(render_fix_snap(report))
-        elif args.format == "json":
-            print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
-        else:
-            print(render_text(report))
-        code = exit_code(report)
-        if code:
-            raise SystemExit(code)
+        _run_doctor(args)
     elif args.command == "serve":
-        if args.max_response_mib <= 0 or args.read_timeout_seconds <= 0:
-            serve_parser.error(
-                "--max-response-mib and --read-timeout-seconds must be positive integers."
-            )
-        try:
-            from marivo.server.command import serve
-        except ModuleNotFoundError as error:
-            if error.name != "uvicorn":
-                raise
-            serve_parser.error(
-                "Install the optional API dependencies with pip install 'marivo[api]'."
-            )
-        from marivo.server.wire import Limits
-
-        try:
-            serve(
-                project_root=args.project_root,
-                host=args.host,
-                port=args.port,
-                origins=args.allow_origin,
-                certfile=args.ssl_certfile,
-                keyfile=args.ssl_keyfile,
-                limits=Limits(args.max_response_mib, args.read_timeout_seconds),
-                granite_model=args.experimental_granite_model,
-                granite_cache_dir=args.experimental_granite_cache_dir,
-            )
-        except ValueError as error:
-            serve_parser.error(str(error))
+        _run_serve(args, serve_parser)
     elif args.command == "help":
-        from marivo._help.model import MarivoHelpSurfaceError, MarivoHelpTargetError
-        from marivo._help.render import _print_help
-
-        try:
-            with track_operation(surface="cli", capability_kind="command", capability_id="help"):
-                failure: MarivoHelpTargetError | MarivoHelpSurfaceError | None = None
-                for target in args.targets or [None]:
-                    try:
-                        _print_help(target, cli=True)
-                    except MarivoHelpTargetError as error:
-                        print(str(error), file=sys.stderr)
-                        for candidate in error.candidates or ("authoring", "analysis"):
-                            print(f"  marivo help {candidate}", file=sys.stderr)
-                        if failure is None:
-                            failure = error
-                    except MarivoHelpSurfaceError as error:
-                        print(str(error), file=sys.stderr)
-                        if not isinstance(failure, MarivoHelpSurfaceError):
-                            failure = error
-                if failure is not None:
-                    # Keep the command's telemetry outcome aligned with its exit status.
-                    raise failure
-        except MarivoHelpTargetError as error:
-            raise SystemExit(2) from error
-        except MarivoHelpSurfaceError as error:
-            raise SystemExit(1) from error
+        _run_help(args.targets)

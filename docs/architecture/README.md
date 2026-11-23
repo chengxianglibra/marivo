@@ -28,6 +28,16 @@ datasource: connection / source / scoped evidence
 分析求值。固定 Frame 的后续数据操作不重新加载原语义定义或访问原来源。
 项目运行状态位于 `.marivo/`；凭据配置与保存边界见 Datasource 文档。
 
+## 静态导入边界
+
+[导入契约](../../.importlinter) 为所有顶层包声明层位，并检查 `TYPE_CHECKING` 下的导入。
+`marivo._kernel` 持有引用、路径事实、时间和输出等共享原语。`marivo._definition`
+在内核之上定义惰性计算与依赖身份，允许使用 Ibis 表达式。`_kernel`、`_definition`
+和 `_authoring` 的同级模块须保持无环。
+
+`marivo.cli` 协调命令，`marivo.cli.doctor` 归集诊断。`analysis` 与 `_help` 处于同一层，
+分析 Help 注册表通过统一路由验证跨域链接。
+
 ## 文档边界
 
 每项长期事实只在一个主题中完整定义，其它文档链接到该主题。代码定位表指向实际实现，

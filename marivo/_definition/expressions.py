@@ -11,38 +11,35 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import Literal, TypeAlias
 
 from ibis.common.deferred import Resolver
 
-from marivo._ai_context import AiContextValue
+from marivo._definition.population_types import (
+    LiteralPopulation,
+    PopulationProgram,
+    SampleDomain,
+)
+from marivo._definition.population_types import (
+    PredicateExpression as PredicateExpression,
+)
+from marivo._definition.rows import MeasureAssertion as MeasureAssertion
+from marivo._definition.rows import RowExpression as RowExpression
+from marivo._definition.rows import RowField as RowField
+from marivo._definition.rows import RowNode as RowNode
 from marivo._definition.types import (
     NUMERIC_RULE_VERSION,
     RULE_VERSION,
-    Authorization,
     AxisBinding,
-    ExactRef,
     FieldRead,
     NullPolicy,
     SourceLocation,
-    SumPermission,
-    invalid,
 )
 from marivo._definition.windows import ObservationWindow
-from marivo._temporal import Grain, InstantAnchor
-from marivo.refs import DomainKind, Ref, SemanticKind, _validate_segment
-
-if TYPE_CHECKING:
-    from marivo._definition.relations import (
-        LiteralPopulation,
-        PopulationContains,
-        PopulationProgram,
-        SampleDomain,
-    )
-
-_FIELD_KINDS = frozenset(
-    {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION, SemanticKind.MEASURE}
-)
+from marivo._kernel.ai_context import AiContextValue
+from marivo._kernel.errors import invalid
+from marivo._kernel.refs import DomainKind, ExactRef, Ref, SemanticKind, _validate_segment
+from marivo._kernel.temporal import Grain, InstantAnchor
 
 Reducer: TypeAlias = Literal[
     "sum",
@@ -68,69 +65,6 @@ def _check_quantile(reducer: Reducer, q: float | None) -> None:
             invalid(f"quantile expected q in [0, 1]; received {q!r}. Pass q such as 0.95.")
     elif q is not None:
         invalid(f"{reducer} does not accept q; received {q!r}. Remove q or use quantile.")
-
-
-@dataclass(frozen=True, slots=True)
-class RowField:
-    """Declared field on one contribution root, with its inherited unit and sum permission."""
-
-    ref: ExactRef
-    root: ExactRef
-    unit: str | None
-    permission: SumPermission
-    read: FieldRead | None = None
-    origins: tuple[ExactRef, ...] = dataclass_field(default=(), compare=False, repr=False)
-
-    def __post_init__(self) -> None:
-        if self.ref.ref.kind not in _FIELD_KINDS:
-            invalid(
-                f"row field expected a dimension, time_dimension, or measure reference; "
-                f"received {self.ref.ref.key}. Reference a declared field."
-            )
-        if self.root.ref.kind is not SemanticKind.ENTITY:
-            invalid(
-                f"row field {self.ref.ref.key} expected an entity contribution root; "
-                f"received {self.root.ref.key}. Bind the field to its owning entity."
-            )
-
-
-@dataclass(frozen=True, slots=True)
-class MeasureAssertion:
-    """Explicit new unit or sum permission declared on a row expression.
-
-    ``None`` keeps the inherited fact; only asserted values enter the
-    computation fingerprint, together with their authorization source.
-    """
-
-    operand: RowNode
-    unit: str | None
-    permission: SumPermission | None
-    authorization: Authorization
-    origins: tuple[ExactRef, ...] = dataclass_field(default=(), compare=False, repr=False)
-
-    def __post_init__(self) -> None:
-        if self.unit is None and self.permission is None:
-            invalid(
-                "measure assertion expected a unit or sum permission; received neither. "
-                "Omit the assertion when only naming the expression."
-            )
-
-
-@dataclass(frozen=True, slots=True)
-class RowExpression:
-    """An Ibis numeric or predicate recipe over ordered semantic input slots.
-
-    ``slot_0``, ``slot_1``, ... bind the corresponding inputs. The recipe is
-    Ibis's own Resolver structure; this record introduces no numeric opcode.
-    Physical values and types are supplied only during execution preparation.
-    """
-
-    recipe: Resolver
-    inputs: tuple[RowField | MeasureAssertion, ...]
-    origins: tuple[ExactRef, ...] = dataclass_field(default=(), compare=False, repr=False)
-
-
-RowNode: TypeAlias = RowField | MeasureAssertion | RowExpression
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,14 +94,6 @@ class ContributionClockBinding:
                     f"time path on {self.field.ref.key} expected relationship references; "
                     f"received {step.ref.key}. Pass declared relationships in path order."
                 )
-
-
-@dataclass(frozen=True, slots=True)
-class PredicateExpression:
-    """Native boolean recipe over inert field subtrees and membership leaves."""
-
-    recipe: Resolver
-    inputs: tuple[RowExpression | PopulationContains, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,7 +161,14 @@ class BuiltinSampleCoordinate:
         return self.sample.grain if isinstance(self.sample, FieldCalendarSample) else self.sample
 
 
-SampleDomainSpec: TypeAlias = "tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram | Grain | FieldCalendarSample"
+SampleDomainSpec: TypeAlias = (
+    tuple[AxisBinding, ...]
+    | SampleDomain
+    | LiteralPopulation
+    | PopulationProgram
+    | Grain
+    | FieldCalendarSample
+)
 
 
 @dataclass(frozen=True, slots=True)

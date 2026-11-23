@@ -10,7 +10,8 @@ import pandas as pd
 import pyarrow as pa
 
 import marivo.analysis as mv
-from marivo._temporal import builtin_grain
+from marivo._definition.grouping import grouping_binding
+from marivo._kernel.temporal import builtin_grain
 from marivo.analysis.core.data_schema import DataAxis, DataSchema
 from marivo.analysis.core.data_types import (
     DataColumn,
@@ -127,7 +128,7 @@ def produce(root: Path, *, extended: bool = False) -> dict[str, str]:
         end = (start + timedelta(days=count)).date().isoformat()
         axis = exact_scope("2000-01-01", end, "UTC").by(builtin_grain("day"))
         frozen = freeze_calendar(
-            axis._binding,
+            grouping_binding(axis),
             token="period",
             name="day",
             key=DataColumn("bucket", "bucket", TimestampDataType("us", "UTC"), False),

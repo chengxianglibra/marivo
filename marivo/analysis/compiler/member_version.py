@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from typing import TYPE_CHECKING, Literal
 
-from marivo._timezones import normalize_timezone
+from marivo._kernel.timezones import normalize_timezone
 
 if TYPE_CHECKING:
     from marivo.semantic._compiled_state import CompiledSemanticState
@@ -93,8 +93,8 @@ def _version_values(
     source_times: list[FrameSourceTime] | None,
 ) -> tuple[_VersionValue, ...]:
     """Prepare every version consumer with the same physical parser and authority."""
+    from marivo._kernel.refs import ref
     from marivo.analysis.compiler.source_time import entity_engine, source_time
-    from marivo.refs import ref
     from marivo.semantic._expression_binding import evaluate_expression_body
     from marivo.semantic._physical_contracts import validate_bound_field
     from marivo.semantic._source_timezone import effective_source_timezone

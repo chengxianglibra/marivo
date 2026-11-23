@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import cast
 
-from marivo._symbolic import native_symbol_ref
-from marivo.refs import Ref, SemanticKind, SemanticKindTag
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import Ref, SemanticKind, SemanticKindTag
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.symbolic import native_symbol_ref
 
 _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
     SemanticKind.DOMAIN: cast("Callable[[str], Ref[SemanticKindTag]]", ref_factory.domain),

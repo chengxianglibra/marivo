@@ -45,7 +45,7 @@ def test_native_mean_makes_only_nonnullable_inputs_nullable(backend: str) -> Non
 
     from marivo._definition.expressions import RowField, SourceAggregate
     from marivo._definition.types import ExactRef, SumAll
-    from marivo.refs import ref
+    from marivo._kernel.refs import ref
     from marivo.semantic._numeric_lowering import lower_source_reduction
 
     field = RowField(

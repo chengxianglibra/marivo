@@ -15,12 +15,13 @@ from unittest.mock import patch
 import duckdb
 import ibis
 
-from marivo._temporal import CalendarAxis
+from marivo._definition.grouping import grouping_binding
+from marivo._kernel.temporal import CalendarAxis
 
 if TYPE_CHECKING:
     from marivo._definition.expressions import MetricExpression, MetricNode
     from marivo._help.render import PublicHelpTarget
-    from marivo._temporal import TimeScope
+    from marivo._kernel.temporal import TimeScope
     from marivo.analysis.core.artifact_data import OutputAttachment
     from marivo.analysis.core.time_authority import TemporalExecution
     from marivo.analysis.dsl.frame import AnalysisFrame
@@ -287,8 +288,8 @@ def captured_catalog(
 
 def resolve_test_symbol(catalog: SemanticCatalog, value: object) -> ResolvedValue:
     """Resolve a native selector or private test key in an explicit compiled scope."""
-    from marivo._symbolic import native_symbol_ref
-    from marivo.refs import Ref
+    from marivo._kernel.refs import Ref
+    from marivo._kernel.symbolic import native_symbol_ref
     from marivo.semantic.expressions import resolve
 
     reference = value if type(value) is Ref else native_symbol_ref(value)
@@ -1098,7 +1099,7 @@ def numeric_program_frame(
         by=(
             ()
             if during is None
-            else (during._binding,)
+            else (grouping_binding(during),)
             if isinstance(during, CalendarAxis)
             else (_interval_coordinate(during),)
         ),

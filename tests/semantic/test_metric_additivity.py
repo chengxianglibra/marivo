@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic import authoring
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError

@@ -17,7 +17,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._temporal import CalendarAxis, TimeScope
+from marivo._kernel.temporal import CalendarAxis, TimeScope
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession

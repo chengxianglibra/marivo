@@ -9,7 +9,7 @@ import ibis.expr.types as ir
 import pandas as pd
 import pytest
 
-from marivo.preview import (
+from marivo.datasource.preview import (
     PreviewLimitError,
     PreviewSamplePolicy,
     display_column_names,

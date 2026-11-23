@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from marivo.config import PROJECT_MANIFEST
+from marivo._kernel.config import PROJECT_MANIFEST
 
 
 def resolve_project_root(start: Path | None = None) -> Path:
@@ -23,7 +23,7 @@ def resolve_project_root(start: Path | None = None) -> Path:
         directory when none exists).
 
     Example:
-        >>> from marivo.project import resolve_project_root
+        >>> from marivo._kernel.project import resolve_project_root
         >>> root = resolve_project_root()
 
     Constraints:

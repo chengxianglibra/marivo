@@ -11,6 +11,7 @@ import marivo
 import marivo.datasource as md
 from marivo._help.model import MarivoHelpTargetError
 from marivo._help.render import render_help_text
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.catalog import DatasourceCatalog
 from marivo.datasource.errors import DatasourceMissingError
 from marivo.datasource.inspection import (
@@ -21,7 +22,6 @@ from marivo.datasource.inspection import (
 )
 from marivo.datasource.snapshot import DiscoveryEvidence, SnapshotCoverage
 from marivo.introspection.live.model import SURFACE_LIMITS
-from marivo.refs import ref as ref_factory
 
 
 def test_json_help_exposes_analysis_request_and_authoring_binding_boundaries() -> None:

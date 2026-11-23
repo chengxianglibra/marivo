@@ -12,7 +12,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo._definition.correspondence import CalendarCorrespondence
-from marivo._temporal_grid import (
+from marivo._kernel.temporal_grid import (
     CivilShiftResult,
     CivilShiftTarget,
     builtin_nominal_ordinal,

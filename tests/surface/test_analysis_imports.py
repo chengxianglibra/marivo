@@ -171,7 +171,7 @@ def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
     import marivo.analysis as mv
     from marivo.datasource.metadata import TableMetadata
-    from marivo.preview import PreviewResult
+    from marivo.datasource.preview import PreviewResult
 
     assert mv.FrameSourceRead is not None
     assert TableMetadata is not None

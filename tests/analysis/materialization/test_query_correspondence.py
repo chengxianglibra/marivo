@@ -13,7 +13,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._definition.types import CalendarCoordinate
-from marivo._temporal import anchor_from_datetime, builtin_grain
+from marivo._kernel.temporal import anchor_from_datetime, builtin_grain
 from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema, OutputAttachment
 from marivo.analysis.core.data_schema import PairedDataAxis
 from marivo.analysis.core.data_types import (

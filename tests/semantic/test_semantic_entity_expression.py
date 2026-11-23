@@ -21,10 +21,10 @@ from ibis.common.deferred import Deferred
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._symbolic import EntitySymbol
+from marivo._kernel.refs import Ref, SemanticKindTag
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.symbolic import EntitySymbol
 from marivo.datasource.ir import TableSourceIR
-from marivo.refs import Ref, SemanticKindTag
-from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import ExpressionBody
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, SemanticLoadError
 from marivo.semantic.ir import EntityIR

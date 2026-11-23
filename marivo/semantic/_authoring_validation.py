@@ -125,7 +125,7 @@ def _normalize_sample_interval_value(
 
 def _validate_timezone(timezone: str) -> str:
     """Normalize one shared IANA or fixed-offset timezone declaration."""
-    from marivo._timezones import normalize_timezone
+    from marivo._kernel.timezones import normalize_timezone
 
     try:
         return normalize_timezone(timezone).name

@@ -35,7 +35,7 @@ def test_time_scope_help_routes_to_calendar_capable_producer(
     session = mv.session.get_or_create("calendar-help", timezone="UTC")
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     assert len(scope.by(mv.grain("day")).grid.cells) == 31
-    from marivo._temporal import _validate_time_scope_data
+    from marivo._kernel.temporal import _validate_time_scope_data
 
     with pytest.raises(ValueError):
         _validate_time_scope_data({"start": "2026-01-01", "end": "2026-02-01"})

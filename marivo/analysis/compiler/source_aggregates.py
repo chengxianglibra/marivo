@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import SourceAggregate
-from marivo._source_aggregates import aggregate_operation, aggregate_repair_action, native_aggregate
+from marivo._kernel.source_aggregates import (
+    aggregate_operation,
+    aggregate_repair_action,
+    native_aggregate,
+)
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.semantic._numeric_lowering import lower_row
 

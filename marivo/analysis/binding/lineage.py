@@ -20,7 +20,8 @@ from marivo._definition.types import (
     FieldRead,
     RowAttributeTime,
 )
-from marivo._temporal import Grain
+from marivo._kernel.refs import Ref
+from marivo._kernel.temporal import Grain
 from marivo.analysis.core.lineage import (
     ColumnLineage,
     FrameLineage,
@@ -32,7 +33,6 @@ from marivo.analysis.core.lineage import (
     union,
 )
 from marivo.analysis.core.model import BoundQuantity
-from marivo.refs import Ref
 from marivo.semantic._compiled_state import PublishedDeclaration
 from marivo.semantic.expressions import _Resolver
 

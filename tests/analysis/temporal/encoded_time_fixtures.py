@@ -1,6 +1,6 @@
 """Canonical time-field contracts shared by compiler and native backend tests."""
 
-from marivo.refs import RefPayloadV1, ref
+from marivo._kernel.refs import RefPayloadV1, ref
 from marivo.semantic.ir import StrptimeParse, TargetDimensionContract
 
 

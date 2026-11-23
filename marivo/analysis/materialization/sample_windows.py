@@ -41,7 +41,7 @@ from marivo._definition.types import (
     coordinate_read_keys,
     field_read_key,
 )
-from marivo._temporal import Grain, anchor_from_datetime
+from marivo._kernel.temporal import Grain, anchor_from_datetime
 from marivo.analysis.binding.windows import bind_windows
 from marivo.analysis.compiler.calendar import bind_calendar
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, lower_query

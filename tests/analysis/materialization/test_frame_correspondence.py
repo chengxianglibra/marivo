@@ -12,6 +12,7 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition.grouping import grouping_binding
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
 from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.graph_plan import (
@@ -339,14 +340,14 @@ def test_automatic_axis_mapping_requires_unique_complete_metadata(
 
 
 def test_multiple_time_axes_do_not_infer_correspondence(local: LocalFrameServices) -> None:
-    from marivo._temporal import builtin_grain
+    from marivo._kernel.temporal import builtin_grain
     from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
 
     period = exact_scope("2026-08-01", "2026-08-03", "UTC").by(builtin_grain("day"))
     first, second = (
         freeze_calendar(
-            period._binding,
+            grouping_binding(period),
             token=f"axis{i}",
             name=f"day{i}",
             key=DataColumn(f"key{i}", f"day{i}", TimestampDataType("us", "UTC"), False),
@@ -878,7 +879,7 @@ def _interval(
     amount: int | None = 5,
 ) -> AnalysisFrame:
     from marivo._definition.types import IntervalCoordinate
-    from marivo._temporal import anchor_from_datetime
+    from marivo._kernel.temporal import anchor_from_datetime
     from marivo.analysis.core.frame_calendar import freeze_interval
 
     frozen = freeze_interval(

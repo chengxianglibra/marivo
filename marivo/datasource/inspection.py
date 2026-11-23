@@ -12,7 +12,11 @@ from typing import Literal
 
 import ibis
 
-from marivo._symbolic import (
+from marivo._kernel.project import resolve_project_root
+from marivo._kernel.refs import DatasourceKind, Ref, SemanticKind
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.render import Card, RenderableResult
+from marivo._kernel.symbolic import (
     DatasourceIdentityHandle,
     DatasourceSymbol,
     native_symbol_ref,
@@ -62,10 +66,6 @@ from marivo.datasource.source import (
     TableSource,
     UnprunedScope,
 )
-from marivo.project import resolve_project_root
-from marivo.refs import DatasourceKind, Ref, SemanticKind
-from marivo.refs import ref as ref_factory
-from marivo.render import Card, RenderableResult
 
 _PARTITION_VALUE_LIMIT = 100
 

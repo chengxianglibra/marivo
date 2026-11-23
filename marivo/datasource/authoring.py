@@ -10,7 +10,10 @@ from dataclasses import MISSING, Field, dataclass, field, fields
 from pathlib import Path
 from typing import Any, ClassVar, TypeAlias, cast, get_args, get_origin
 
-from marivo._symbolic import (
+from marivo._kernel.refs import DatasourceKind, Ref, SemanticKind, _validate_segment
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.render import Card, RenderableResult
+from marivo._kernel.symbolic import (
     DatasourceSymbol,
     datasource_identity,
     native_symbol_ref,
@@ -39,9 +42,6 @@ from marivo.datasource.ir import (
     _validate_connection_options,
 )
 from marivo.datasource.typing import AiContextValue
-from marivo.refs import DatasourceKind, Ref, SemanticKind, _validate_segment
-from marivo.refs import ref as ref_factory
-from marivo.render import Card, RenderableResult
 
 
 def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:

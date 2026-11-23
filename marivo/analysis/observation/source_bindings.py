@@ -10,7 +10,8 @@ from dataclasses import InitVar, dataclass
 from math import isfinite
 from typing import SupportsIndex, TypeAlias
 
-from marivo._compat import Never
+from marivo._kernel.compat import Never
+from marivo._kernel.refs import EntityKind, Ref, RefPayloadV1, SemanticKind
 from marivo.analysis.observation._identity import CanonicalValue, _canonical_digest
 from marivo.analysis.observation.errors import ObservationBindingError
 from marivo.datasource.ir import (
@@ -19,7 +20,6 @@ from marivo.datasource.ir import (
     SourceParamIR,
     json_source_param_names,
 )
-from marivo.refs import EntityKind, Ref, RefPayloadV1, SemanticKind
 from marivo.semantic.ir import TargetEntityContract
 from marivo.semantic.validator import Registry, _snapshot_target_source
 

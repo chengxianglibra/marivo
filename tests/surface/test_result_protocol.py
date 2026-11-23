@@ -7,8 +7,10 @@ from datetime import datetime
 
 import pytest
 
-from marivo._compat import UTC
-from marivo._temporal import TimeScopeContractV1
+from marivo._kernel.compat import UTC
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult, result_repr
+from marivo._kernel.temporal import TimeScopeContractV1
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.session._lazy_read_model import SessionSummary
 from marivo.datasource.manage import (
@@ -18,9 +20,7 @@ from marivo.datasource.manage import (
     DatasourceTestResult,
     RawSqlResult,
 )
-from marivo.preview import PreviewCoverage, PreviewResult
-from marivo.refs import ref as ref_factory
-from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult, result_repr
+from marivo.datasource.preview import PreviewCoverage, PreviewResult
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringAssessment,

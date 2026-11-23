@@ -13,6 +13,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
 from marivo.datasource.engines.duckdb import PROFILE as DUCKDB_PROFILE
@@ -25,7 +26,6 @@ from marivo.datasource.errors import (
 from marivo.datasource.inspection import ExecutionCapabilities, Partitioning, PhysicalExtent
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
 from marivo.datasource.source import PartitionScope
-from marivo.refs import ref as ref_factory
 from tests.support.refs import as_ref
 
 

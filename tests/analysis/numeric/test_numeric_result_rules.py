@@ -100,9 +100,9 @@ def test_internal_weighted_samples_check_nonfinite_before_pair_mask(side: str) -
 
     from marivo._definition.expressions import PerWeightedMean, RowExpression, SourceAggregate
     from marivo._definition.types import AxisBinding, ExactRef
+    from marivo._kernel.refs import ref
     from marivo.analysis.core.data_types import ScalarDataType
     from marivo.analysis.methods._sample_numeric import reduce_samples
-    from marivo.refs import ref
 
     source = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
     axis = AxisBinding(

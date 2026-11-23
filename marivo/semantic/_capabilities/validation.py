@@ -8,10 +8,10 @@ from collections.abc import Callable
 from typing import cast
 
 from marivo._authoring.model import AuthoringCapability
+from marivo._kernel.refs import SemanticKind
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
 from marivo.introspection.live.targets import canonical_target
-from marivo.refs import SemanticKind
 from marivo.semantic._capabilities.registry import (
     INPUT_FAMILIES,
     OUTPUT_FAMILIES,

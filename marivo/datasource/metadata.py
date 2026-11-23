@@ -11,6 +11,7 @@ from typing import Any, Literal
 import ibis
 import ibis.expr.datatypes as dt
 
+from marivo._kernel.render import Card, RenderableResult
 from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource.errors import (
@@ -34,7 +35,6 @@ from marivo.datasource.ir import (
 )
 from marivo.datasource.json_source import read_json_source
 from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.render import Card, RenderableResult
 
 MetadataWarningKind = Literal[
     "comments_unavailable",

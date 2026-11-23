@@ -11,6 +11,7 @@ import pytest
 
 from marivo._definition.expressions import RowField, SourceAggregate
 from marivo._definition.types import ExactRef, SumAll
+from marivo._kernel.refs import ref
 from marivo.analysis.compiler.attribute_frequencies import frequency_read, share_frequency_reads
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import (
@@ -28,7 +29,6 @@ from marivo.analysis.materialization.graph_source_execution import (
     qualify_attribute_game_sources,
     read_stage,
 )
-from marivo.refs import ref
 from tests.datasource.source_cases import SourceData, source_case, source_params
 
 

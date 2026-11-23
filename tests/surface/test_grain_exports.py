@@ -15,7 +15,7 @@ def test_public_grain_value_and_factory() -> None:
 
 
 def test_unzoned_scope_cannot_be_created_or_rehydrated() -> None:
-    import marivo._temporal as temporal
+    import marivo._kernel.temporal as temporal
 
     assert not hasattr(temporal, "time_scope")
     assert not hasattr(temporal, "absolute_time_scope")

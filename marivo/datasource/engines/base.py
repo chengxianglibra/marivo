@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias
 import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 
+from marivo.datasource.engines.requirements import ModuleRequirement
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
 
 if TYPE_CHECKING:
@@ -139,7 +140,7 @@ class EngineProfile:
     name: str
     aliases: tuple[str, ...]
     authoring_func: str
-    required_modules: tuple[str, ...]
+    required_modules: tuple[ModuleRequirement, ...]
     connect: ConnectBackend
     identifier_quote: str
     table_name_parts: Callable[[TableRefRequest], tuple[str, ...]]

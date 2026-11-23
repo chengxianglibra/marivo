@@ -15,6 +15,7 @@ import pytest
 
 import marivo
 import marivo.datasource as md
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource import runtime as datasource_runtime
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.ir import (
@@ -24,8 +25,7 @@ from marivo.datasource.ir import (
     QueryParamScalarList,
 )
 from marivo.datasource.json_source import JsonResponseCache
-from marivo.preview import PreviewResult
-from marivo.refs import ref as ref_factory
+from marivo.datasource.preview import PreviewResult
 from marivo.semantic.catalog import (
     Domain,
     SemanticCatalog,

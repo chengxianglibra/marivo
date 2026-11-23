@@ -40,6 +40,7 @@ from marivo._definition.types import (
     coordinate_read_keys,
     field_read_key,
 )
+from marivo._kernel.refs import SemanticKind, ref
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.compiler.member_version import version_predicate
 from marivo.analysis.compiler.source_time import (
@@ -54,7 +55,6 @@ from marivo.analysis.core.frame_interpretation import (
 )
 from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.datasource._temporal_expressions import localize, timestamp
-from marivo.refs import SemanticKind, ref
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import evaluate_expression_body
 from marivo.semantic._numeric_lowering import numeric_failure
@@ -338,7 +338,7 @@ def prepare_fields(
             aliases=(table,),
         )
         validate_bound_field(result, ref=target, registry=registry)
-        from marivo._numeric_types import exact_unsigned
+        from marivo._kernel.numeric_types import exact_unsigned
 
         if target.kind is not SemanticKind.TIME_DIMENSION:
             result = exact_unsigned(result)

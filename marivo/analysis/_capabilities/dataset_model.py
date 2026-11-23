@@ -7,9 +7,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from typing import Literal
 
+from marivo._kernel.refs import SemanticKind
 from marivo.analysis._capabilities.model import ReadCapability
 from marivo.analysis.datasets.errors import DatasetRegistrationError
-from marivo.refs import SemanticKind
 
 
 def invalid(expected: str, received: str) -> DatasetRegistrationError:

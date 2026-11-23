@@ -23,6 +23,7 @@ from marivo.datasource.engines.base import (
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.engines.requirements import POSTGRES_REQUIREMENT
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
 from marivo.datasource.strptime import python_to_postgres_strptime
 
@@ -472,7 +473,7 @@ PROFILE = EngineProfile(
     name="postgres",
     aliases=("postgresql", "redshift"),
     authoring_func="postgres",
-    required_modules=("ibis.backends.postgres",),
+    required_modules=(POSTGRES_REQUIREMENT,),
     connect=connect,
     identifier_quote='"',
     table_name_parts=table_name_parts,

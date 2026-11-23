@@ -7,7 +7,7 @@ from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict
 
-from marivo._errors import MarivoError
+from marivo._kernel.errors import MarivoError
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.targets import canonical_target
 

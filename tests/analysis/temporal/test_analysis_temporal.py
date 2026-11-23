@@ -10,7 +10,8 @@ from pydantic import TypeAdapter
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._temporal_grid import BoundTimeGrid, bind_grid
+from marivo._kernel.temporal import bind_grid
+from marivo._kernel.temporal_grid import BoundTimeGrid
 from marivo.analysis.core.time_grid import instant
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.errors import AnalysisError
@@ -851,7 +852,7 @@ from unittest.mock import patch
 import duckdb, ibis
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo import _timezones as source_timezone
+from marivo._kernel import timezones as source_timezone
 from marivo.analysis import timezone as analysis_timezone
 from marivo.analysis.core import frame_calendar
 from marivo.analysis.materialization import frame_source_preparation
@@ -1044,7 +1045,7 @@ from unittest.mock import patch
 import duckdb, ibis
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo import _timezones as source_timezone
+from marivo._kernel import timezones as source_timezone
 from marivo.analysis import timezone as analysis_timezone
 from marivo.analysis.core import frame_calendar
 from marivo.analysis.materialization import frame_source_preparation

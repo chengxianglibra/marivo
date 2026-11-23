@@ -11,7 +11,7 @@ from collections.abc import Callable
 import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from marivo.refs import (
+from marivo._kernel.refs import (
     DimensionKind,
     MetricKind,
     Ref,
@@ -22,7 +22,7 @@ from marivo.refs import (
     _decode_ref_key,
     _decode_ref_payload,
 )
-from marivo.refs import (
+from marivo._kernel.refs import (
     ref as ref_factory,
 )
 

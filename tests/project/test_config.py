@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from marivo._compat import tomllib
-from marivo.config import ProjectConfig, load_project_config
+from marivo._kernel.compat import tomllib
+from marivo._kernel.config import ProjectConfig, load_project_config
 
 
 def test_missing_manifest_uses_defaults_without_writing(tmp_path: Path) -> None:

@@ -16,7 +16,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, runtime_checkable
 
-from marivo import _execution_log
+from marivo._kernel import execution_log as _execution_log
 from marivo.datasource import credentials as cr
 from marivo.datasource.errors import (
     DatasourceSourceCapabilityError,

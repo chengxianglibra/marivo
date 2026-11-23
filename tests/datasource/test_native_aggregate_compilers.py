@@ -82,7 +82,7 @@ def test_corrected_aggregates_compose_with_relational_and_scalar_operations(q: f
 
 
 def _uint64_sketch_query(table: ir.Table) -> ir.Table:
-    from marivo._numeric_types import exact_unsigned
+    from marivo._kernel.numeric_types import exact_unsigned
     from marivo.semantic._numeric_lowering import force_cast
 
     projected = table.select("k", v=exact_unsigned(table.v)).filter(lambda t: t.k != "z")
@@ -96,7 +96,7 @@ def _uint64_sketch_query(table: ir.Table) -> ir.Table:
 
 @pytest.mark.parametrize("backend", ["clickhouse", "duckdb"])
 def test_uint64_sketch_inputs_skip_the_decimal_carrier(backend: str) -> None:
-    from marivo._numeric_types import native_unsigned_aggregates
+    from marivo._kernel.numeric_types import native_unsigned_aggregates
 
     expression = _uint64_sketch_query(ibis.table({"k": "string", "v": "uint64"}, name="t"))
     rewritten = native_unsigned_aggregates(expression)
@@ -114,7 +114,7 @@ def test_uint64_sketch_inputs_skip_the_decimal_carrier(backend: str) -> None:
 def test_uint64_sketch_input_rewrite_preserves_native_results() -> None:
     import pandas as pd
 
-    from marivo._numeric_types import native_unsigned_aggregates
+    from marivo._kernel.numeric_types import native_unsigned_aggregates
 
     big = (2**53 + 1, 2**64 - 1, 2**63 + 1025, 7)
     con = ibis.duckdb.connect()
@@ -132,7 +132,7 @@ def test_uint64_sketch_input_rewrite_preserves_native_results() -> None:
 
 
 def test_uint64_rewrite_keeps_distinct_and_union_input_schemas() -> None:
-    from marivo._numeric_types import exact_unsigned, native_unsigned_aggregates
+    from marivo._kernel.numeric_types import exact_unsigned, native_unsigned_aggregates
 
     table = ibis.table({"v": "uint64"}, name="t")
     projected = table.select(v=exact_unsigned(table.v))
@@ -153,7 +153,7 @@ def test_uint64_rewrite_keeps_distinct_and_union_input_schemas() -> None:
 def test_uint64_extrema_keep_decimal_and_nulls_through_aliases(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, profile: str
 ) -> None:
-    from marivo._numeric_types import exact_unsigned, native_unsigned_aggregates
+    from marivo._kernel.numeric_types import exact_unsigned, native_unsigned_aggregates
 
     low, high = 2**53 + 1, 2**64 - 1
     source_rows: list[dict[str, object]] = [

@@ -1,4 +1,4 @@
-"""Dependency-neutral exact time ranges and natural calendar values."""
+"""Frozen time scopes and finite calendar selections."""
 
 from __future__ import annotations
 
@@ -7,63 +7,26 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Literal
+from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import core_schema
 
-from marivo._grouping import Grouping
-from marivo._timezones import normalize_timezone
-from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
+from marivo._kernel.errors import invalid
+from marivo._kernel.grouping import Grouping
+from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, result_repr
+from marivo._kernel.temporal_grid import BoundTimeGrid, TimeShiftAbsent, bind_time_grid, shift_grid
+from marivo._kernel.time_types import Grain as Grain
+from marivo._kernel.time_types import InstantAnchor as InstantAnchor
+from marivo._kernel.time_types import anchor_from_datetime as anchor_from_datetime
+from marivo._kernel.time_types import builtin_grain as builtin_grain
+from marivo._kernel.time_types import civil_midnight_width_seconds as civil_midnight_width_seconds
+from marivo._kernel.time_types import grain_nests as grain_nests
+from marivo._kernel.time_types import validate_subday_count as validate_subday_count
+from marivo._kernel.timezones import normalize_timezone
 
-if TYPE_CHECKING:
-    from marivo._definition.correspondence import CalendarCorrespondence
-    from marivo._definition.types import CalendarCoordinate
-    from marivo._temporal_grid import BoundTimeGrid
-
-_GRAIN_UNITS = frozenset({"second", "minute", "hour", "day", "week", "month", "quarter", "year"})
 _TIME_SCOPE_INTERNAL = ContextVar("marivo_time_scope_internal", default=False)
-
-
-class InstantAnchor(datetime):
-    """An immutable exact instant returned by Session.instant or scope boundaries.
-
-    This datetime subtype preserves compatibility with existing temporal consumers.
-    Construct through Session.instant; analysis constructors always return UTC.
-    """
-
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return f"<InstantAnchor {self.isoformat()}; use .show()>"
-
-    def show(self) -> None:
-        """Display the exact instant.
-
-        Args: None.
-        Returns: None.
-        Example: ``session.instant('2026-01-01').show()``.
-        Constraints: Does not consult a clock, Session, or source.
-        """
-        print(self.isoformat())
-
-
-def anchor_from_datetime(value: datetime) -> InstantAnchor:
-    """Preserve an aware datetime as an exact UTC anchor without float conversion."""
-    if value.utcoffset() is None:
-        raise ValueError("an exact instant requires an aware datetime")
-    utc = value.astimezone(timezone.utc)
-    return InstantAnchor(
-        utc.year,
-        utc.month,
-        utc.day,
-        utc.hour,
-        utc.minute,
-        utc.second,
-        utc.microsecond,
-        tzinfo=timezone.utc,
-    )
 
 
 @contextmanager
@@ -86,126 +49,30 @@ def _require_timezone(value: object) -> str:
         raise ValueError(f"invalid boundary_timezone {value!r}") from error
 
 
-@dataclass(frozen=True, slots=True, init=False)
-class Grain:
-    """One immutable natural calendar grain, acquired through mv.grain(...)."""
+@dataclass(frozen=True, slots=True, repr=False)
+class CalendarCorrespondence:
+    """One closed calendar mapping rule, without endpoint axes or source state.
 
-    unit: str
-    count: int
+    Acquire with mv.ordinal() or mv.offset(years=...)/mv.offset(periods=...).
+    Direct kind/by construction and subclass extension are unsupported.
+    """
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        raise TypeError("Grain values are returned by marivo.analysis.grain(...)")
+    kind: Literal["ordinal", "years", "periods"]
+    by: int = 0
 
-    @classmethod
-    def __get_pydantic_core_schema__(cls, _source: Any, _handler: Any) -> Any:
-        def validate(value: Any, info: Any) -> Grain:
-            if isinstance(value, Grain):
-                return value
-            if not isinstance(value, Mapping):
-                raise ValueError("grain values must be returned Grain instances")
-            if info.field_name is None:
-                raise TypeError("grain values must be returned Grain instances")
-            if (
-                set(value) != {"schema", "kind", "unit", "count"}
-                or value.get("schema") != "grain/v2"
-                or value.get("kind") != "builtin"
-            ):
-                raise ValueError("unsupported Grain payload; obtain a natural Grain")
-            return builtin_grain(value["unit"], count=value["count"])
-
-        def serialize(value: Grain) -> dict[str, object]:
-            return {
-                "schema": "grain/v2",
-                "kind": "builtin",
-                "unit": value.unit,
-                "count": value.count,
-            }
-
-        return core_schema.with_info_plain_validator_function(
-            validate, serialization=core_schema.plain_serializer_function_ser_schema(serialize)
-        )
-
-    @property
-    def _is_subday(self) -> bool:
-        return self.unit in {"second", "minute", "hour"}
-
-    def _width_seconds(self) -> int:
-        widths = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}
-        if self.unit not in widths:
-            raise ValueError(
-                f"Grain._width_seconds() is undefined for calendar-variable grain {self!r}"
-            )
-        return self.count * widths[self.unit]
-
-    def _to_token(self) -> str:
-        return self.unit if self.count == 1 else f"{self.count}{self.unit}"
+    def __post_init__(self) -> None:
+        if self.kind not in ("ordinal", "years", "periods"):
+            invalid("calendar correspondence requires ordinal, years or periods")
+        if type(self.by) is not int or (self.kind == "ordinal" and self.by != 0):
+            invalid("offset requires a non-boolean integer; ordinal has no offset")
 
     def __repr__(self) -> str:
-        return f"Grain({self._to_token()!r})"
+        suffix = f" by={self.by}" if self.kind != "ordinal" else ""
+        return f"<CalendarCorrespondence {self.kind}{suffix}; use .show()>"
 
-
-def builtin_grain(unit: str, *, count: int = 1) -> Grain:
-    """Create the natural calendar value behind mv.grain."""
-    if unit not in _GRAIN_UNITS or type(count) is not int or count < 1:
-        raise ValueError("Grain requires a supported unit and count >= 1")
-    if unit not in {"second", "minute", "hour"} and count != 1:
-        raise ValueError(f"calendar grain {unit!r} only supports count == 1")
-    if unit in _SUBDAY_UNIT_SECONDS:
-        validate_subday_count(unit, count)
-    value = object.__new__(Grain)
-    object.__setattr__(value, "unit", unit)
-    object.__setattr__(value, "count", count)
-    return value
-
-
-def grain_nests(inner: Grain, outer: Grain) -> bool:
-    """Return the supported static natural calendar containment relation."""
-    widths = {"second": 1, "minute": 60, "hour": 3600}
-    if inner.unit in widths:
-        return (
-            outer.unit not in widths
-            or (widths[outer.unit] * outer.count) % (widths[inner.unit] * inner.count) == 0
-        )
-    return inner == outer or (inner.unit, outer.unit) in {
-        ("day", "week"),
-        ("day", "month"),
-        ("day", "quarter"),
-        ("day", "year"),
-        ("month", "quarter"),
-        ("month", "year"),
-        ("quarter", "year"),
-    }
-
-
-_CIVIL_DAY_SECONDS = 86_400
-_SUBDAY_UNIT_SECONDS = {"second": 1, "minute": 60, "hour": 3_600}
-
-
-def validate_subday_count(unit: str, count: int) -> int:
-    """Validate the unique supported spelling of a civil subday width."""
-    if unit not in _SUBDAY_UNIT_SECONDS or type(count) is not int or count < 1:
-        raise ValueError(
-            "subday width requires second, minute or hour and a positive integer count"
-        )
-    width = _SUBDAY_UNIT_SECONDS[unit] * count
-    if width >= _CIVIL_DAY_SECONDS:
-        raise ValueError(
-            "subday width must be less than one nominal day; choose civil day "
-            "for calendar partitioning or timedelta for elapsed duration"
-        )
-    if unit == "second" and count % 60 == 0:
-        replacement = f"{count // 3600}hour" if count % 3600 == 0 else f"{count // 60}minute"
-        raise ValueError(f"subday width has a duplicate spelling; use {replacement}")
-    if unit == "minute" and count % 60 == 0:
-        raise ValueError(f"subday width has a duplicate spelling; use {count // 60}hour")
-    if _CIVIL_DAY_SECONDS % width:
-        raise ValueError("subday width must divide one civil day; choose a supported subdivision")
-    return width
-
-
-def civil_midnight_width_seconds(grain: Grain) -> int | None:
-    """Return the validated width for a natural civil subday grain."""
-    return validate_subday_count(grain.unit, grain.count) if grain._is_subday else None
+    def show(self) -> str:
+        """Return the finite rule; endpoint calendars bind at shift/align/compare."""
+        return repr(self)
 
 
 class TimeScopeContractV1(BaseModel):
@@ -229,8 +96,6 @@ class TimeScopeContractV1(BaseModel):
 
     def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         """Render captured scope facts without source reads."""
-        from marivo.render import Card
-
         return (
             Card(
                 identity=f"TimeScopeContractV1 start={self.start.isoformat()} end={self.end.isoformat()}",
@@ -246,8 +111,6 @@ class TimeScopeContractV1(BaseModel):
         print(self.render(max_output_bytes=max_output_bytes))
 
     def __repr__(self) -> str:
-        from marivo.render import result_repr
-
         return result_repr(
             f"TimeScopeContractV1 start={self.start.isoformat()} end={self.end.isoformat()}"
         )
@@ -406,41 +269,6 @@ class CalendarAxis(Grouping):
         """Return the calendar grouping kind without source access."""
         return "calendar"
 
-    @property
-    def _binding(self) -> CalendarCoordinate:
-        from marivo._definition.types import CalendarCoordinate, CalendarOrigin, _merge_time_ranges
-
-        grid = self.grid
-        return CalendarCoordinate(
-            grid.identity,
-            grid.grain_spec,
-            grid.boundary_timezone,
-            tuple(
-                (
-                    anchor_from_datetime(c.original_start),
-                    anchor_from_datetime(c.original_end),
-                    anchor_from_datetime(c.start),
-                    anchor_from_datetime(c.end),
-                )
-                for c in grid.cells
-            ),
-            CalendarOrigin(
-                CalendarAxis(None, grid.origin.grid)._binding,
-                grid.origin.kind,
-                grid.origin.by,
-                grid.origin.entries,
-            )
-            if grid.origin is not None
-            else None,
-            civil_bounds=grid.civil_bounds,
-            ranges=_merge_time_ranges(
-                tuple(
-                    (anchor_from_datetime(cell.start), anchor_from_datetime(cell.end))
-                    for cell in grid.cells
-                )
-            ),
-        )
-
     def shift(self, rule: CalendarCorrespondence) -> CalendarAxis:
         """Construct an exact baseline calendar and freeze its direct correspondence.
 
@@ -450,9 +278,6 @@ class CalendarAxis(Grouping):
         Constraints: Builtin unit-step week/month/year; full buckets or bucket-start
         prefixes only. Missing civil periods/cutoffs have no selected target.
         """
-        from marivo._definition.correspondence import CalendarCorrespondence
-        from marivo._temporal_grid import shift_grid
-
         if type(rule) is not CalendarCorrespondence or rule.kind == "ordinal":
             raise ValueError(
                 f"Expected offset(years=...) or offset(periods=...); received {rule!r}. "
@@ -487,8 +312,6 @@ class CalendarAxis(Grouping):
                 f"last_end={self.grid.cells[-1].end.isoformat()}; exact selected buckets only"
             )
         if self.grid.origin is not None:
-            from marivo._temporal_grid import TimeShiftAbsent
-
             origin = self.grid.origin
             missing = tuple(entry for entry in origin.entries if isinstance(entry, TimeShiftAbsent))
             print(
@@ -503,6 +326,15 @@ def calendar_axis(scope: TimeScope, grain: Grain) -> CalendarAxis:
     """Bind a finite natural calendar in the scope's frozen report timezone."""
     if not isinstance(grain, Grain):
         raise ValueError("Expected a Grain; use mv.grain(unit).")
-    from marivo._temporal_grid import bind_grid
-
     return CalendarAxis(scope, bind_grid(scope, grain))
+
+
+def bind_grid(during: TimeScope, grain: Grain) -> BoundTimeGrid:
+    """Freeze a finite grid from a validated TimeScope and Grain."""
+    if not isinstance(during, TimeScope) or not isinstance(grain, Grain):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
+        raise ValueError(
+            "Expected finite half-open time cells with exact timezone and calendar authority; "
+            "received grid requires a TimeScope and Grain. "
+            "Use an explicit non-empty range in the report timezone."
+        )
+    return bind_time_grid(during.start, during.end, during.boundary_timezone, grain)

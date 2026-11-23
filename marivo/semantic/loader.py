@@ -35,7 +35,9 @@ from marivo._authoring.loading import (
 )
 from marivo._definition.deferred import resolver_of, root_declaration
 from marivo._definition.types import InputContext
-from marivo.config import AUTHORED_DIR
+from marivo._kernel.config import AUTHORED_DIR
+from marivo._kernel.refs import FieldKind, Ref, SemanticKind, SemanticKindTag
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource._builtin import default_datasource
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
@@ -44,8 +46,6 @@ from marivo.datasource.errors import (
 )
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.loader import _load_models_datasources, _models_root_errors
-from marivo.refs import FieldKind, Ref, SemanticKind, SemanticKindTag
-from marivo.refs import ref as ref_factory
 from marivo.semantic._compiled_state import (
     CompilationGraph,
     CompiledSemanticState,
@@ -1094,7 +1094,7 @@ def find_project(start_dir: str | Path = ".") -> Any:
     If ``marivo.toml`` exists but is a non-file entry,
     raises ``SemanticLoadError`` with ``INVALID_PROJECT``.
     """
-    from marivo.config import PROJECT_MANIFEST
+    from marivo._kernel.config import PROJECT_MANIFEST
     from marivo.semantic.reader import SemanticProject
 
     current = Path(start_dir).resolve()

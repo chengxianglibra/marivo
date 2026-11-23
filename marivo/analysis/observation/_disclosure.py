@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable
 
-from marivo._temporal import Grain, TimeScope
+from marivo._kernel.temporal import Grain, TimeScope
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
     DisclosureProvider,

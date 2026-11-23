@@ -23,7 +23,7 @@ from pathlib import Path
 import ibis.expr.types as ir
 import pytest
 
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic._expression_binding import (
     CompiledExpressionSidecar,
     compile_expression_body,

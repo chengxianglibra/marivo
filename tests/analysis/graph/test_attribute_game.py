@@ -15,6 +15,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
 )
 from marivo._definition.types import AxisBinding, ExactRef, SumAll
+from marivo._kernel.refs import ref
 from marivo.analysis.binding.attribute_game import (
     AttributeGame,
     build_game,
@@ -23,7 +24,6 @@ from marivo.analysis.binding.attribute_game import (
     require_games_match,
 )
 from marivo.analysis.core.attribute_game_errors import AttributeGameError
-from marivo.refs import ref
 
 ROOT = ExactRef(ref.entity("sales.facts"), "v1")
 FIELD = RowField(ExactRef(ref.measure("sales.facts.value"), "v1"), ROOT, "1", SumAll())

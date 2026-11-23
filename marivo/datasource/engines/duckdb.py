@@ -27,6 +27,7 @@ from marivo.datasource.engines.base import (
     default_table_name_parts,
     identity_str,
 )
+from marivo.datasource.engines.requirements import DUCKDB_REQUIREMENT
 from marivo.datasource.errors import DatasourceConnectionError, repair
 
 if TYPE_CHECKING:
@@ -641,7 +642,7 @@ PROFILE = EngineProfile(
     name="duckdb",
     aliases=(),
     authoring_func="duckdb",
-    required_modules=("ibis.backends.duckdb",),
+    required_modules=(DUCKDB_REQUIREMENT,),
     connect=connect,
     connect_owned=connect_owned,
     connection_conflict=connection_conflict,

@@ -9,7 +9,9 @@ from dataclasses import dataclass, field
 from typing import Literal, NoReturn
 
 from marivo._authoring.model import AuthoringRepair
-from marivo._symbolic import EntitySymbol, MeasureSymbol, MetricSymbol, native_symbol_ref
+from marivo._kernel.refs import SemanticKind
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.symbolic import EntitySymbol, MeasureSymbol, MetricSymbol, native_symbol_ref
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.ontology.errors import InvalidOntologyRefError, InvalidSemanticEdgeError
 from marivo.ontology.types import (
@@ -18,8 +20,6 @@ from marivo.ontology.types import (
     SemanticEdgeRef,
     _make_semantic_edge_ref,
 )
-from marivo.refs import SemanticKind
-from marivo.refs import ref as ref_factory
 from marivo.semantic._authoring_values import _build_ai_context
 from marivo.semantic.ir import SourceLocation
 from marivo.semantic.typing import AiContextValue

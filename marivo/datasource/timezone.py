@@ -2,7 +2,7 @@
 
 from ibis.backends import BaseBackend
 
-from marivo._timezones import normalize_timezone
+from marivo._kernel.timezones import normalize_timezone
 from marivo.datasource.engines import profile_for_backend
 
 

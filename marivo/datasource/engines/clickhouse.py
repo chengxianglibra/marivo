@@ -26,6 +26,7 @@ from marivo.datasource.engines.base import (
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.engines.requirements import CLICKHOUSE_REQUIREMENT
 from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
 from marivo.datasource.strptime import python_to_mysql_strptime
@@ -508,9 +509,7 @@ def _clickhouse_physical_profile(
     warnings: list[MetadataWarning],
 ) -> TablePhysicalProfile | None:
     from marivo.datasource.errors import _backend_failure_summary
-    from marivo.datasource.metadata import (
-        MetadataWarning as _Warning,
-    )
+    from marivo.datasource.metadata import MetadataWarning as _Warning
     from marivo.datasource.metadata import (
         TablePhysicalProfile,
         _int_or_none,
@@ -1005,7 +1004,7 @@ PROFILE = EngineProfile(
     name="clickhouse",
     aliases=(),
     authoring_func="clickhouse",
-    required_modules=("ibis.backends.clickhouse",),
+    required_modules=(CLICKHOUSE_REQUIREMENT,),
     connect=connect,
     table_engine=table_engine,
     table_join_issue=table_join_issue,

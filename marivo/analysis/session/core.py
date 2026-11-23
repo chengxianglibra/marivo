@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Literal
 from ibis.common.deferred import Deferred
 
 from marivo._definition.types import Owner
-from marivo._grouping import Grouping
-from marivo._temporal import InstantAnchor, TimeScope
+from marivo._kernel.grouping import Grouping
+from marivo._kernel.temporal import InstantAnchor, TimeScope
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.observation.contracts import ObservationOwner
 from marivo.semantic._expression_values import (

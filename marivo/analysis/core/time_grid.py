@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from marivo._temporal_grid import instant as _instant
+from marivo._kernel.temporal_grid import instant as _instant
 from marivo.analysis.datasets.errors import DatasetConstructionError
 
 

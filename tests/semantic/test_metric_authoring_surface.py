@@ -14,7 +14,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo._definition.types import SumAll
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError

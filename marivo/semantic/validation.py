@@ -16,9 +16,23 @@ import ibis.expr.types as ir
 
 from marivo._authoring.model import AuthoringRepair
 from marivo._authoring.render import _repair_summary
-from marivo._compat import UTC
 from marivo._definition.types import DefinitionGraphError, InputContext, merge_input_contexts
-from marivo._symbolic import (
+from marivo._kernel.compat import UTC
+from marivo._kernel.refs import (
+    DatasourceKind,
+    DimensionKind,
+    EntityKind,
+    FieldKind,
+    MeasureKind,
+    Ref,
+    RelationshipKind,
+    SemanticKind,
+    SemanticKindTag,
+    TimeDimensionKind,
+)
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.render import Card, RenderableResult
+from marivo._kernel.symbolic import (
     DatasourceSymbol,
     DimensionSymbol,
     EntitySymbol,
@@ -41,20 +55,6 @@ from marivo.datasource.errors import (
 from marivo.datasource.inspection import SourceInspection, _ibis_table_type, _inspect_in_project
 from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, JsonSourceIR
 from marivo.datasource.source import AuthoringScope
-from marivo.refs import (
-    DatasourceKind,
-    DimensionKind,
-    EntityKind,
-    FieldKind,
-    MeasureKind,
-    Ref,
-    RelationshipKind,
-    SemanticKind,
-    SemanticKindTag,
-    TimeDimensionKind,
-)
-from marivo.refs import ref as ref_factory
-from marivo.render import Card, RenderableResult
 from marivo.semantic._expression_binding import evaluate_expression_body
 from marivo.semantic._physical_contracts import validate_bound_field
 from marivo.semantic.errors import ErrorKind, SemanticError, SemanticRuntimeError, _raise, repair

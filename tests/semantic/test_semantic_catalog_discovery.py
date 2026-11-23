@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 import marivo.semantic as ms
-from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
+from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES
 from marivo.semantic.catalog_entries import MetricContributionClockBinding
 from marivo.semantic.errors import SemanticError
 from tests.shared_fixtures import write_minimal_catalog_project
@@ -488,7 +488,7 @@ def test_static_definitions_are_built_once_per_catalog_and_reload_is_independent
 def test_new_resolvers_reuse_only_their_captured_state_definition_versions(tmp_path: Path) -> None:
     from unittest.mock import patch
 
-    from marivo.refs import ref as ref_factory
+    from marivo._kernel.refs import ref as ref_factory
     from marivo.semantic import _definition_identity
     from marivo.semantic.expressions import _Resolver
 

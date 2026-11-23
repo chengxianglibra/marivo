@@ -31,7 +31,7 @@ from marivo._definition.relations import (
     sample_population,
 )
 from marivo._definition.types import AxisBinding, IntervalCoordinate
-from marivo._temporal import Grain
+from marivo._kernel.temporal import Grain
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.graph_plan import (
     LocalCompute,

@@ -231,7 +231,7 @@ def test_py_file_datasource_visible_via_list(
         "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
 
-    monkeypatch.setattr("marivo.project.Path.cwd", lambda: tmp_path)
+    monkeypatch.setattr("marivo._kernel.project.Path.cwd", lambda: tmp_path)
     monkeypatch.delenv("MARIVO_PROJECT_ROOT", raising=False)
 
     summaries = md.load().list()

@@ -24,10 +24,9 @@ from marivo._definition.expressions import (
     SourceAggregate,
 )
 from marivo._definition.graph import (
-    _encode,
-    _encoded_fingerprint,
     children,
     computation_fingerprint,
+    definition_fingerprint,
     walk,
 )
 from marivo._definition.observations import SampleWindowContext
@@ -47,7 +46,7 @@ from marivo._definition.types import (
     SumAll,
     SumAllExcept,
 )
-from marivo.refs import ref
+from marivo._kernel.refs import ref
 
 ORDERS = ExactRef(ref.entity("sales.orders"), "v1")
 PAID_AT = ExactRef(ref.time_dimension("sales.orders.paid_at"), "v1")
@@ -119,7 +118,7 @@ def test_internal_name_changes_preserve_definition_encoding() -> None:
         ),
     )
     for value, previous_identity in values:
-        assert _encoded_fingerprint(_encode(value, {})) == previous_identity
+        assert definition_fingerprint(value) == previous_identity
 
 
 def test_repeated_use_keeps_two_ordered_edges() -> None:
@@ -376,10 +375,11 @@ def test_encoded_fingerprints_match_original_recursive_canonical_encoder(
     from dataclasses import fields, is_dataclass
     from datetime import date, timedelta
 
-    from marivo._definition import graph
+    from marivo._definition import graph, graph_encoding
+    from marivo._definition.graph_traversal import _is_node
     from marivo._definition.types import invalid, literal_token
-    from marivo._temporal import Grain
-    from marivo.refs import Ref
+    from marivo._kernel.refs import Ref
+    from marivo._kernel.temporal import Grain
 
     original_names: dict[type[object], str] = {
         ContributionClockBinding: "TimeBinding",
@@ -387,11 +387,11 @@ def test_encoded_fingerprints_match_original_recursive_canonical_encoder(
         SampleWindowContext: "SampleWindow",
     }
 
-    def legacy_encode(value: object, memo: dict[int, str], payloads: object = None) -> object:
+    def legacy_encode(encoder: graph_encoding.DefinitionEncoder, value: object) -> object:
         # Keep the original dispatch and recursive payload construction as an
         # independent compatibility oracle for the optimized encoder.
-        if graph._is_node(value):
-            return graph._fingerprint_node(value, memo)
+        if _is_node(value):
+            return encoder.fingerprint(value)
         if isinstance(value, Ref):
             return ["ref", value.key]
         if isinstance(value, timedelta):
@@ -401,12 +401,12 @@ def test_encoded_fingerprints_match_original_recursive_canonical_encoder(
         if value is None or isinstance(value, (str, int, float, Decimal, date)):
             return list(literal_token(value))
         if isinstance(value, tuple):
-            return [legacy_encode(item, memo) for item in value]
+            return [legacy_encode(encoder, item) for item in value]
         if is_dataclass(value) and not isinstance(value, type):
             return {
                 "type": original_names.get(type(value), type(value).__name__),
                 **{
-                    field.name: legacy_encode(getattr(value, field.name), memo)
+                    field.name: legacy_encode(encoder, getattr(value, field.name))
                     for field in fields(value)
                 },
             }
@@ -420,7 +420,7 @@ def test_encoded_fingerprints_match_original_recursive_canonical_encoder(
     )
     with monkeypatch.context() as original:
         # Use the unchanged public encoder at every recursive definition node.
-        original.setattr(graph, "_encoded_fingerprint", graph.fingerprint)
-        original.setattr(graph, "_encode", legacy_encode)
+        original.setattr(graph_encoding, "encoded_fingerprint", graph.fingerprint)
+        original.setattr(graph_encoding.DefinitionEncoder, "encode", legacy_encode)
         expected = tuple(graph.computation_fingerprint(value) for value in definitions)
     assert tuple(graph.computation_fingerprint(value) for value in definitions) == expected

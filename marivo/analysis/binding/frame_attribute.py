@@ -9,12 +9,11 @@ from ibis.common.deferred import Deferred
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.graph import direct_refs
-from marivo._definition.population_builders import axis as field_axis
+from marivo._definition.grouping import _MembershipGrouping
 from marivo._definition.relations import (
     AttributeKeys,
     FrameKeyAxis,
     LiteralPopulation,
-    MembershipBinding,
     ObserveQuery,
     PopulationProgram,
 )
@@ -23,8 +22,9 @@ from marivo._definition.types import (
     CalendarCoordinate,
     InputContext,
     IntervalCoordinate,
+    field_axis,
 )
-from marivo._grouping import Grouping
+from marivo._kernel.grouping import Grouping
 from marivo.analysis.binding.attribute_rules import (
     AttributeRule,
     build_attribute_rule,
@@ -97,11 +97,7 @@ def source_inputs(
 ) -> AttributeInputRequest:
     """Bind from captured state/config; no Catalog or executable endpoint reconstruction."""
     if game and (
-        isinstance(by, tuple)
-        and any(
-            isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding)
-            for item in by
-        )
+        isinstance(by, tuple) and any(isinstance(item, _MembershipGrouping) for item in by)
     ):
         reject(
             "unique fact-to-player classifications for replacement attribution",
@@ -185,11 +181,7 @@ def source_inputs(
                 canonical_id="analysis_frame.attribute",
             )
         fine_memberships = (
-            tuple(
-                item._binding
-                for item in bound_by
-                if isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding)
-            )
+            tuple(item._binding for item in bound_by if isinstance(item, _MembershipGrouping))
             if isinstance(bound_by, tuple)
             else ()
         )
@@ -201,7 +193,7 @@ def source_inputs(
                 for item in bound_by
                 for axis in (
                     tuple(field_axis(read) for read in item._binding.fields)
-                    if isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding)
+                    if isinstance(item, _MembershipGrouping)
                     else _axes((item,))
                 )
             )
@@ -740,8 +732,7 @@ def attribute(
                     if isinstance(item, (Deferred, RowExpression, Grouping))  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     for axis in (
                         tuple(field_axis(read) for read in item._binding.fields)
-                        if isinstance(item, Grouping)
-                        and isinstance(item._binding, MembershipBinding)
+                        if isinstance(item, _MembershipGrouping)
                         else _axes((item,))
                     )
                 )

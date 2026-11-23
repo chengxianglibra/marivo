@@ -8,7 +8,7 @@ from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.expressions import _Entity, entity_exact

@@ -1,6 +1,6 @@
 """Native disclosure for immutable data Frames and captured metadata."""
 
-from marivo._temporal import InstantAnchor, TimeScope
+from marivo._kernel.temporal import InstantAnchor, TimeScope
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
     DisclosureProvider,

@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from inspect import getdoc, signature
 from itertools import islice
 
-from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, RenderableResult, _format_row, _join_lines
+from marivo._kernel.render import (
+    _DEFAULT_MAX_OUTPUT_BYTES,
+    RenderableResult,
+    _format_row,
+    _join_lines,
+)
 
 
 def _validate_display(n: int | None, max_output_bytes: int | None) -> None:

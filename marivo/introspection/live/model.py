@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict
+
+from marivo._kernel.environment import environment_identity
 
 
 @dataclass(frozen=True)
@@ -41,13 +41,7 @@ class EnvironmentFingerprint(BaseModel):
     @classmethod
     def current(cls) -> EnvironmentFingerprint:
         """Construct a fingerprint from the current runtime environment."""
-        import marivo
-
-        return cls(
-            marivo_version=marivo.__version__,
-            python_executable=sys.executable,
-            package_path=str(Path(marivo.__file__).resolve()),
-        )
+        return cls(**environment_identity())
 
 
 class LiveHelpTarget(BaseModel):

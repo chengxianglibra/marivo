@@ -26,7 +26,7 @@ from ibis.common.deferred import (
 from ibis.common.exceptions import IbisTypeError
 
 from marivo._definition.deferred import RescaleResolver, attribute_name, canonical_recipe
-from marivo._numeric_types import bind_numeric_literal
+from marivo._kernel.numeric_types import bind_numeric_literal
 
 if TYPE_CHECKING:
     from marivo.semantic._numeric_lowering import NumericCheck, NumericValue

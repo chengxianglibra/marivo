@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from marivo._symbolic import DatasourceIdentityHandle, DatasourceSymbol
+from marivo._kernel.project import resolve_project_root
+from marivo._kernel.render import Card, RenderableResult
+from marivo._kernel.symbolic import DatasourceIdentityHandle, DatasourceSymbol
 from marivo.datasource import store as _store
 from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
 from marivo.datasource.credential_inputs import credential_labels
@@ -19,8 +21,6 @@ from marivo.datasource.manage import (
     _list_in_project,
     _test_in_project,
 )
-from marivo.project import resolve_project_root
-from marivo.render import Card, RenderableResult
 
 
 def _format_mapping(mapping: dict[str, object]) -> str:

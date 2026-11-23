@@ -10,7 +10,8 @@ from types import UnionType
 from typing import Literal, Union, get_args, get_origin, get_type_hints
 
 from marivo import __version__
-from marivo._temporal import InstantAnchor
+from marivo._kernel.refs import SemanticKind
+from marivo._kernel.temporal import InstantAnchor
 from marivo.analysis.core import frame_interpretation as frame
 from marivo.analysis.core.data_types import (
     DataType,
@@ -24,7 +25,6 @@ from marivo.analysis.core.frame_source_reads import FrameSourceRead
 from marivo.analysis.core.lineage import FrameLineage
 from marivo.analysis.session._lazy_read_model import SessionSummary
 from marivo.datasource.ir import AiContextIR
-from marivo.refs import SemanticKind
 from marivo.semantic import catalog_entries as entries
 from marivo.semantic import ir as semantic
 from marivo.server.catalog_projection import DEFINITION_FIELDS

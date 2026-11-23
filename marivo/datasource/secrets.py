@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from marivo._compat import tomllib
+from marivo._kernel.compat import tomllib
 from marivo.datasource.errors import (
     DatasourceEnvVarMissingError,
     DatasourceSecretStorePermissionsError,

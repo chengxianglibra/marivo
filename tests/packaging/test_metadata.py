@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from packaging.requirements import Requirement
 
-from marivo._compat import tomllib
+from marivo._kernel.compat import tomllib
 from marivo.datasource.backends import SUPPORTED_BACKEND_TYPES
 from tests.support.json import checked, obj
 from tests.support.paths import PROJECT_ROOT

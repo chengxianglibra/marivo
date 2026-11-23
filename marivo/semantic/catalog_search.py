@@ -22,8 +22,8 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
-from marivo._compat import tomllib
-from marivo.config import PROJECT_MANIFEST
+from marivo._kernel.compat import tomllib
+from marivo._kernel.config import PROJECT_MANIFEST
 from marivo.semantic.errors import CatalogSearchError
 
 if TYPE_CHECKING:

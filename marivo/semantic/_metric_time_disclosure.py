@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from marivo.render import Card
+from marivo._kernel.render import Card
 from marivo.semantic.catalog_entries import (
     MetricContributionClockBinding,
     MetricContributionTimeRole,

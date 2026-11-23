@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Any, TypeVar
 import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 
-from marivo import _execution_log
 from marivo._authoring.model import AuthoringRepair
+from marivo._kernel import execution_log as _execution_log
 from marivo.datasource import backends, store
 from marivo.datasource import credentials as cr
 from marivo.datasource._lifetime import BackendLease

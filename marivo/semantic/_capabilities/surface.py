@@ -55,7 +55,7 @@ def _cross_surface_owner(target: object) -> str | None:
 
 def _enrich(target: object) -> ResolvedLiveTarget[SemanticHelpDescriptor] | None:
     """Resolve concrete semantic runtime values before callable dispatch."""
-    from marivo.refs import ref as ref_factory
+    from marivo._kernel.refs import ref as ref_factory
     from marivo.semantic.validation import source_check
 
     namespace_target = None

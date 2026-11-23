@@ -25,8 +25,8 @@ Public surface::
 
 from __future__ import annotations
 
-from marivo._symbolic import symbol_factory as ref
-from marivo.refs import SemanticKind
+from marivo._kernel.refs import SemanticKind
+from marivo._kernel.symbolic import symbol_factory as ref
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic._expression_values import MetricExpression, RowExpression

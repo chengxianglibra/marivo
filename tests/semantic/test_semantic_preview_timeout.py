@@ -17,6 +17,7 @@ import pytest
 from ibis.backends import BaseBackend
 
 import marivo.datasource as md
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource import backends
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceSourceCapabilityError
@@ -33,10 +34,9 @@ from marivo.datasource.ir import (
     QueryParamScalarList,
 )
 from marivo.datasource.metadata import ColumnMetadata
+from marivo.datasource.preview import PreviewResult
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.source import AuthoringScope, TableSource
-from marivo.preview import PreviewResult
-from marivo.refs import ref as ref_factory
 from marivo.semantic import catalog as catalog_module
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticError

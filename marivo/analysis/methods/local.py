@@ -142,7 +142,7 @@ def _combine_program(
         sample_population,
     )
     from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate
-    from marivo._temporal import Grain
+    from marivo._kernel.temporal import Grain
     from marivo.analysis.compiler.observation import (
         FormulaInput,
         MemberInput,

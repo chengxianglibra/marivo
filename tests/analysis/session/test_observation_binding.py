@@ -13,7 +13,7 @@ import marivo.analysis as mv
 from marivo._definition.deferred import resolver_of, semantic_input
 from marivo._definition.observations import ObservationBinding
 from marivo._definition.types import AxisBinding, CalendarCoordinate
-from marivo._temporal import InstantAnchor
+from marivo._kernel.temporal import InstantAnchor
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -357,7 +357,7 @@ def test_same_path_definition_versions_are_not_an_admission_gate(
 def test_exact_boundaries_calendar_and_host_independence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo._temporal import _time_scope_from_contract_data, _validate_time_scope_data
+    from marivo._kernel.temporal import _time_scope_from_contract_data, _validate_time_scope_data
 
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("clock", timezone="America/New_York")

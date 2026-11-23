@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 from datetime import timezone
 from enum import Enum
-from typing import Any
 
 from typing_extensions import Never, Self
 
-tomllib: Any = importlib.import_module("tomllib" if sys.version_info >= (3, 11) else "tomli")
+if sys.version_info >= (3, 11):
+    import tomllib as tomllib
+else:
+    import tomli as tomllib
 
 
 class StrEnum(str, Enum):

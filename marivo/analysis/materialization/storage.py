@@ -11,7 +11,7 @@ from typing import Literal
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from marivo._compat import Never
+from marivo._kernel.compat import Never
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.errors import (
     IntegrityError,

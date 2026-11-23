@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from marivo._compat import tomllib
+from marivo._kernel.compat import tomllib
 
 PROJECT_MANIFEST = "marivo.toml"
 

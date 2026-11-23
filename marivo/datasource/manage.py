@@ -11,10 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
-from marivo import _execution_log
 from marivo._authoring.model import AuthoringRepair
-from marivo._data_render import _DataCard, _DataResult
-from marivo._symbolic import (
+from marivo._kernel import execution_log as _execution_log
+from marivo._kernel.data_render import _DataCard, _DataResult
+from marivo._kernel.refs import DatasourceKind, Ref
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.render import Card, RenderableResult
+from marivo._kernel.symbolic import (
     DatasourceIdentityHandle,
     DatasourceSymbol,
     native_symbol_ref,
@@ -52,9 +55,6 @@ from marivo.datasource.runtime import (
     load_datasource,
     open_backend,
 )
-from marivo.refs import DatasourceKind, Ref
-from marivo.refs import ref as ref_factory
-from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
     import pandas as pd

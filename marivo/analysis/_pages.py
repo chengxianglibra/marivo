@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from marivo.render import Card, RenderableResult
+from marivo._kernel.render import Card, RenderableResult
 
 
 def encode_keyset_cursor(committed_at: str | int, identity: str) -> str:

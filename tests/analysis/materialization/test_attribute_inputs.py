@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo._grouping import Grouping
+from marivo._kernel.grouping import Grouping
 from marivo.analysis.binding.frame_attribute import source_inputs
 from marivo.analysis.binding.frame_attribute_inputs import AttributeInputRequest
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan, CompiledSourceFrame, plan_frame

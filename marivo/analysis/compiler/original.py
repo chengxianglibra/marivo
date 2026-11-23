@@ -22,9 +22,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
-from marivo._definition.types import (
-    ExactRef,
-)
+from marivo._definition.types import ExactRef
 from marivo.analysis.compiler.observation import (
     ReductionInput,
     _reduction_axes,

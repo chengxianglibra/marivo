@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from marivo._timezones import normalize_timezone, same_timezone
+from marivo._kernel.timezones import normalize_timezone, same_timezone
 
 
 class ReportTimeAuthority(BaseModel):

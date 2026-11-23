@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo._temporal_grid import bind_grid
+from marivo._kernel.temporal import bind_grid
 from marivo.analysis.dsl.temporal import exact_scope
 from tests.analysis.statistics.pandas_workflows import daily, forecast, monthly, plain
 from tests.shared_fixtures import DslCaseFactory, run_ids

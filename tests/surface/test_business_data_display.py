@@ -5,10 +5,10 @@ from decimal import Decimal
 
 import pytest
 
-from marivo._data_render import _DataCard
+from marivo._kernel.data_render import _DataCard
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.manage import RawSqlResult
-from marivo.preview import PreviewCoverage, PreviewResult
-from marivo.refs import ref as ref_factory
+from marivo.datasource.preview import PreviewCoverage, PreviewResult
 
 
 @pytest.fixture(params=("preview", "raw_sql"))

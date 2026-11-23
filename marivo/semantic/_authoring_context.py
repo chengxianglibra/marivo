@@ -10,13 +10,13 @@ import inspect
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias
 
-from marivo._symbolic import DatasourceSymbol, DomainSymbol, EntitySymbol, native_symbol_ref
-from marivo.refs import (
+from marivo._kernel.refs import (
     EntityKind,
     Ref,
     SemanticKind,
     SemanticKindTag,
 )
+from marivo._kernel.symbolic import DatasourceSymbol, DomainSymbol, EntitySymbol, native_symbol_ref
 from marivo.semantic._expression_binding import ExpressionBody
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import (
@@ -241,7 +241,7 @@ def _domain_from_ref_id(ref_id: str) -> str:
 
 def _entity_lookup(value: Entity | EntitySymbol, *, parameter: str) -> Ref[EntityKind]:
 
-    from marivo.refs import ref as ref_factory
+    from marivo._kernel.refs import ref as ref_factory
 
     path = _require_ref_id(value, parameter=parameter, expected=(SemanticKind.ENTITY,))
     return ref_factory.entity(path)

@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TypeAlias
 
-from marivo._definition.types import invalid
-from marivo._temporal import Grain
+from marivo._kernel.errors import invalid
+from marivo._kernel.temporal import Grain
 
 
 class _Window:
@@ -120,3 +120,11 @@ def to_date(*, grain: Grain) -> ObservationWindow:
     if not isinstance(grain, Grain):
         invalid(f"Expected a Grain; received {grain!r}. Pass grain=mv.grain('month').")
     return ToDate(grain)
+
+
+@dataclass(frozen=True, slots=True)
+class SampleWindowContext:
+    """The enclosing calendar sample that supplies a window's endpoints."""
+
+    occurrence: tuple[int, ...]
+    depth: int

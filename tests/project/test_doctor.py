@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from marivo.doctor import (
+from marivo.cli.doctor import (
     DoctorCheck,
     DoctorOptions,
     DoctorReport,
@@ -1190,7 +1190,7 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
 def test_static_datasource_timezone_is_normalized_outside_connection_fields(
     tmp_path: Path, value: str
 ) -> None:
-    from marivo.doctor import _static_datasources_from_file
+    from marivo.cli.doctor.datasources import _static_datasources_from_file
 
     path = tmp_path / "warehouse.py"
     path.write_text(
@@ -1220,7 +1220,7 @@ def test_static_datasource_timezone_is_normalized_outside_connection_fields(
 def test_static_datasource_rejects_invalid_or_retired_timezone_authority(
     tmp_path: Path, declaration: str
 ) -> None:
-    from marivo.doctor import _static_datasources_from_file
+    from marivo.cli.doctor.datasources import _static_datasources_from_file
 
     path = tmp_path / "warehouse.py"
     path.write_text("import marivo.datasource as md\n" + declaration + "\n")

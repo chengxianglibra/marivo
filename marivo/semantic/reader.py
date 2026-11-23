@@ -10,13 +10,13 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from marivo._symbolic import LookupSymbol, native_symbol_ref
-from marivo.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
+from marivo._kernel.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
+from marivo._kernel.project import resolve_project_root
+from marivo._kernel.refs import Ref, SemanticKindTag
+from marivo._kernel.symbolic import LookupSymbol, native_symbol_ref
 from marivo.datasource import credentials as cr
 from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.runtime import DatasourceConnectionConfig, DatasourceConnectionService
-from marivo.project import resolve_project_root
-from marivo.refs import Ref, SemanticKindTag
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.errors import (

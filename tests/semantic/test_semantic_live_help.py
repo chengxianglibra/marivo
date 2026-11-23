@@ -9,7 +9,7 @@ import pytest
 import marivo
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
-from marivo._symbolic import native_symbol_ref
+from marivo._kernel.symbolic import native_symbol_ref
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.errors import SemanticLoadError, SemanticRuntimeError
 

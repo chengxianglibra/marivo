@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 import marivo.analysis as mv
-from marivo._compat import UTC
+from marivo._kernel.compat import UTC
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 from tests.support.execution_logs import execution_records
 from tests.support.paths import PROJECT_ROOT
@@ -118,7 +118,10 @@ def test_track_operation_writes_correlated_v3_pair(telemetry_project: Path) -> N
     assert completed["marivo.operation.status"] == "ok"
     assert started["marivo.session.id"] == "sess_test"
     assert started["marivo.session.question"] == "Why did revenue fall?"
-    assert started["marivo.project.instance_id"] == completed["marivo.project.instance_id"]
+    assert (
+        started["marivo._kernel.project.instance_id"]
+        == completed["marivo._kernel.project.instance_id"]
+    )
 
 
 def test_default_mode_omits_successful_lightweight_calls_and_keeps_failures(
@@ -302,7 +305,7 @@ def test_load_tracks_project_root_without_internal_ref_events(
     def load(*, workspace_dir: Path) -> object:
         return ms.ref.entity("sales.orders")
 
-    from marivo._symbolic import native_symbol_ref
+    from marivo._kernel.symbolic import native_symbol_ref
 
     loaded = load(workspace_dir=telemetry_project)
     expected = ms.ref.entity("sales.orders")
@@ -1548,7 +1551,7 @@ assert frame.to_pandas()["value"].tolist() == [5]
 def test_execution_logs_share_operation_identity_without_disclosing_sql_to_telemetry(
     telemetry_project: Path,
 ) -> None:
-    from marivo import _execution_log
+    from marivo._kernel import execution_log as _execution_log
     from marivo.telemetry import tracked_capability
 
     @tracked_capability(
@@ -1574,7 +1577,7 @@ def test_disabled_load_preserves_execution_context_and_resets_after_failure(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch, environment_off: bool
 ) -> None:
     import marivo.telemetry as telemetry
-    from marivo import _execution_log
+    from marivo._kernel import execution_log as _execution_log
     from tests.support.execution_logs import execution_records
 
     if environment_off:
@@ -1619,7 +1622,7 @@ def test_disabled_load_preserves_execution_context_and_resets_after_failure(
 def test_operation_captures_execution_context_once(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo import _execution_log as log
+    from marivo._kernel import execution_log as log
     from marivo.telemetry import _Operation
 
     snapshot = log.snapshot
@@ -1643,7 +1646,7 @@ def test_operation_captures_execution_context_once(
 def test_operation_scope_preserves_root_parent_annotations_and_exception_cleanup(
     telemetry_project: Path, enabled: bool, same_root: bool
 ) -> None:
-    from marivo import _execution_log as log
+    from marivo._kernel import execution_log as log
     from marivo.telemetry import _CURRENT_OPERATION, _Operation
     from tests.support.execution_logs import execution_records
 
@@ -1725,7 +1728,7 @@ def test_successful_cli_help_and_read_only_doctor_do_not_write_events(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     from marivo.cli import main
-    from marivo.doctor import DoctorReport
+    from marivo.cli.doctor import DoctorReport
 
     report = DoctorReport(
         status="ok",
@@ -1735,7 +1738,7 @@ def test_successful_cli_help_and_read_only_doctor_do_not_write_events(
         marivo_package_path="/tmp/marivo",
         sections=(),
     )
-    monkeypatch.setattr("marivo.doctor.run_doctor", lambda _options: report)
+    monkeypatch.setattr("marivo.cli.doctor.run_doctor", lambda _options: report)
 
     main(["help"])
     main(["help", "authoring", "analysis"])

@@ -3,7 +3,7 @@
 from pydantic import BaseModel
 
 import marivo.analysis as mv
-from marivo._temporal import Grain, TimeScope
+from marivo._kernel.temporal import Grain, TimeScope
 from marivo.analysis.dsl.temporal import exact_scope
 
 

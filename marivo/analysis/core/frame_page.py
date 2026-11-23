@@ -12,10 +12,10 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from marivo._kernel.render import Card, RenderableResult
 from marivo.analysis.core.frame_interpretation import FrameAxisSchema, FrameComparison
 from marivo.analysis.core.frame_interpretation import FrameKeyScalar as FrameKeyScalar
 from marivo.analysis.core.frame_schema import FrameExportColumn
-from marivo.render import Card, RenderableResult
 
 
 def detached_rows(rows: pd.DataFrame) -> pd.DataFrame:

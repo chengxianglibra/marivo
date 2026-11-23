@@ -10,12 +10,9 @@ from ibis.common.deferred import Deferred
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import DeclaredMetricRef, MetricNode
-from marivo._definition.grouping import normalize_groupings
-from marivo._definition.population_builders import axis as field_axis
+from marivo._definition.grouping import grouping_binding, normalize_groupings
 from marivo._definition.population_builders import extend
-from marivo._definition.query import (
-    ResultQuery,
-)
+from marivo._definition.query import ResultQuery
 from marivo._definition.relations import (
     MembershipBinding,
     ObserveQuery,
@@ -31,10 +28,11 @@ from marivo._definition.types import (
     IntervalCoordinate,
     LiteralValue,
     Owner,
+    field_axis,
 )
-from marivo._grouping import Grouping
-from marivo._temporal import CalendarAxis, TimeScope
-from marivo._timezones import same_timezone
+from marivo._kernel.grouping import Grouping
+from marivo._kernel.temporal import TimeScope
+from marivo._kernel.timezones import same_timezone
 from marivo.analysis.binding.observe import ObservationPeriod, bind_observation
 from marivo.analysis.core.frame_structure import value_name
 from marivo.analysis.core.graph import BoundGraph
@@ -392,13 +390,10 @@ def capture_metrics(
     )
     captured: list[ComparisonAxis | MembershipBinding] = []
     for item in () if isinstance(by, Population) else by:
-        if isinstance(item, CalendarAxis) or (
-            isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding)
-        ):
-            captured.append(item._binding)
-        elif isinstance(item, Deferred) or (
-            isinstance(item, Grouping) and isinstance(item._binding, AxisBinding)  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        ):
+        group = grouping_binding(item) if isinstance(item, Grouping) else None
+        if isinstance(group, (AxisBinding, CalendarCoordinate, MembershipBinding)):
+            captured.append(group)
+        elif isinstance(item, Deferred):
             captured.extend(_axes((item,)))
         else:
             reject(

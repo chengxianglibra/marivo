@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias, cast
 from urllib.parse import urlparse
 
-from marivo._symbolic import DatasourceSymbol, symbol_factory
+from marivo._kernel.refs import DatasourceKind, Ref
+from marivo._kernel.render import Card, RenderableResult
+from marivo._kernel.symbolic import DatasourceSymbol, symbol_factory
 from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
@@ -34,10 +36,8 @@ from marivo.datasource.ir import (
 )
 from marivo.datasource.json_source import normalize_json_source_params
 from marivo.datasource.metadata import ColumnMetadata
+from marivo.datasource.preview import normalize_preview_cell
 from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource, _apply_scope
-from marivo.preview import normalize_preview_cell
-from marivo.refs import DatasourceKind, Ref
-from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
     import pandas as pd

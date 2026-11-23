@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition.grouping import grouping_binding
 from marivo._definition.observations import CoordinateBinding, ObservationBinding
 from marivo._definition.query import LiteralValues, ResultQuery
 from marivo._definition.types import Owner
@@ -18,7 +19,7 @@ from marivo.analysis.dsl.temporal import exact_scope
 def _graph(*, calendar: bool = True, value: int = 3) -> BoundGraph:
     owner = Owner("session", "owner")
     axes = (
-        (exact_scope("2026-01-01", "2026-01-03", "UTC").by(mv.grain("day"))._binding,)
+        (grouping_binding(exact_scope("2026-01-01", "2026-01-03", "UTC").by(mv.grain("day"))),)
         if calendar
         else ()
     )
@@ -51,7 +52,7 @@ def test_fingerprint_retains_calendar_cells_beyond_authority_identity() -> None:
     memo = InvocationMemo()
     original = memo.fingerprint(graph)
     assert graph.signature.observation is not None
-    calendar = exact_scope("2026-01-01", "2026-01-03", "UTC").by(mv.grain("day"))._binding
+    calendar = grouping_binding(exact_scope("2026-01-01", "2026-01-03", "UTC").by(mv.grain("day")))
     changed_calendar = replace(
         calendar, cells=calendar.cells[:1], civil_bounds=calendar.civil_bounds[:1]
     )
@@ -81,19 +82,19 @@ def test_plain_encoding_skips_node_dispatch_but_preserves_subclass_routes(
     from enum import Enum
     from typing import TypeGuard
 
-    from marivo._definition import graph
+    from marivo._definition import graph, graph_encoding
     from marivo._definition.graph import DefinitionNode
-    from marivo._temporal import anchor_from_datetime
+    from marivo._definition.graph_traversal import _is_node
+    from marivo._kernel.temporal import anchor_from_datetime
 
     calls = 0
-    original = graph._is_node
 
     def is_node(value: object) -> TypeGuard[DefinitionNode]:
         nonlocal calls
         calls += 1
-        return original(value)
+        return _is_node(value)
 
-    monkeypatch.setattr(graph, "_is_node", is_node)
+    monkeypatch.setattr(graph_encoding, "_is_node", is_node)
     instant = datetime(2026, 1, 1, tzinfo=timezone.utc)
     payload = (
         None,
@@ -106,7 +107,7 @@ def test_plain_encoding_skips_node_dispatch_but_preserves_subclass_routes(
         instant,
         anchor_from_datetime(instant),
     )
-    assert graph._encode(payload, {}) == [
+    assert graph.encode_definition(payload) == [
         ["none", ""],
         ["bool", "true"],
         ["int", "0x1"],
@@ -122,6 +123,6 @@ def test_plain_encoding_skips_node_dispatch_but_preserves_subclass_routes(
     class Label(str, Enum):
         VALUE = "label"
 
-    assert graph._encode(Label.VALUE, {}) == ["str", Label.VALUE]
-    assert graph._encode(timedelta(days=2, seconds=3), {}) == ["timedelta", 2, 3, 0]
+    assert graph.encode_definition(Label.VALUE) == ["str", Label.VALUE]
+    assert graph.encode_definition(timedelta(days=2, seconds=3)) == ["timedelta", 2, 3, 0]
     assert calls == 2

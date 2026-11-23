@@ -13,7 +13,7 @@ import ibis.expr.rules as rlz
 import ibis.expr.types as ir
 
 from marivo._definition.types import CalendarCoordinate
-from marivo._timezones import normalize_timezone
+from marivo._kernel.timezones import normalize_timezone
 from marivo.analysis.compiler.calendar import KEY_TYPE, reusable_date_day
 from marivo.analysis.compiler.source_time import _raw_lineage, source_time
 from marivo.analysis.core.time_authority import SourceTimeAuthority

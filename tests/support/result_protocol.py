@@ -1,6 +1,6 @@
 """Shared assertions for datasource and semantic terminal result protocols."""
 
-from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult
+from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult
 
 REPR_MAX_LEN = 200
 RENDER_MAX_LINES = 1000

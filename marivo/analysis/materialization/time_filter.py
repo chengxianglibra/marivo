@@ -9,7 +9,7 @@ import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo._timezones import normalize_timezone
+from marivo._kernel.timezones import normalize_timezone
 from marivo.analysis.compiler.source_time import (
     _complement,
     _encoded_cutoff,

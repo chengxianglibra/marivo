@@ -36,7 +36,6 @@ from marivo._definition.observations import (
 from marivo._definition.observations import ContributionBinding as ContributionBinding
 from marivo._definition.observations import ObservationBinding as ObservationBinding
 from marivo._definition.observations import ObservationPeriod as ObservationPeriod
-from marivo._definition.population_builders import axis as field_axis
 from marivo._definition.population_builders import membership_anchor
 from marivo._definition.relations import (
     MembershipBinding,
@@ -56,10 +55,11 @@ from marivo._definition.types import (
     FieldRead,
     IntervalCoordinate,
     RowAttributeTime,
+    field_axis,
     field_read_key,
     fixed_attribute_time,
 )
-from marivo._temporal import Grain, InstantAnchor
+from marivo._kernel.temporal import Grain, InstantAnchor
 from marivo.analysis.binding.calendar_samples import validate_sample_parent
 from marivo.analysis.binding.coordinates import (
     CoordinateBinding,

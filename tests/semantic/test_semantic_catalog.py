@@ -14,14 +14,14 @@ from ibis.common.deferred import Deferred
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
-from marivo.datasource.snapshot import DiscoveryEvidence
-from marivo.refs import (
+from marivo._kernel.refs import (
     DimensionKind,
     MeasureKind,
     Ref,
     SemanticKindTag,
 )
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import ref as ref_factory
+from marivo.datasource.snapshot import DiscoveryEvidence
 from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.catalog import (
     AiContextView,

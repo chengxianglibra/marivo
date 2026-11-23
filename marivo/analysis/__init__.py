@@ -8,8 +8,8 @@ from marivo._definition.windows import since as since
 from marivo._definition.windows import to_date as to_date
 from marivo._definition.windows import trailing_duration as trailing_duration
 from marivo._definition.windows import trailing_periods as trailing_periods
-from marivo._temporal import Grain as Grain
-from marivo._temporal import TimeScope as TimeScope
+from marivo._kernel.temporal import Grain as Grain
+from marivo._kernel.temporal import TimeScope as TimeScope
 
 if TYPE_CHECKING:
     from marivo.analysis.core.dataframe_result import DataFrameResult as DataFrameResult
@@ -41,8 +41,8 @@ if TYPE_CHECKING:
 
     __all__: list[str]
     from marivo._definition.correspondence import CalendarCorrespondence as CalendarCorrespondence
-    from marivo._grouping import Grouping as Grouping
-    from marivo._temporal import InstantAnchor as InstantAnchor
+    from marivo._kernel.grouping import Grouping as Grouping
+    from marivo._kernel.temporal import InstantAnchor as InstantAnchor
     from marivo.analysis import session as session
     from marivo.analysis.core.frame_interpretation import (
         FrameAlignment as FrameAlignment,
@@ -209,9 +209,9 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.population import product as product
     from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
     from marivo.analysis.session.core import Session as Session
-    from marivo.semantic._paths import Path as Path
-    from marivo.semantic._paths import RelationshipStep as RelationshipStep
-    from marivo.semantic._paths import path as path
+    from marivo.semantic.paths import Path as Path
+    from marivo.semantic.paths import RelationshipStep as RelationshipStep
+    from marivo.semantic.paths import path as path
 
 
 if not TYPE_CHECKING:
@@ -271,6 +271,6 @@ def grain(
         larger units; 24hour rejects. 90second and 90minute remain legal.
         Grains have unit/count equality and hashing, with no ordering.
     """
-    from marivo._temporal import builtin_grain
+    from marivo._kernel.temporal import builtin_grain
 
     return builtin_grain(unit, count=count)

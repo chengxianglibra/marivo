@@ -14,9 +14,9 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
-from marivo._compat import UTC
+from marivo._kernel.compat import UTC
+from marivo._kernel.refs import ref as ref_factory
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.refs import ref as ref_factory
 from marivo.semantic.errors import StructuredWarning
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import (

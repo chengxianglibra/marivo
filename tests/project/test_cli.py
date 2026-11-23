@@ -11,7 +11,7 @@ import pytest
 import marivo
 import marivo.skills
 from marivo import __version__
-from marivo._compat import tomllib
+from marivo._kernel.compat import tomllib
 from marivo.cli import init_project, main
 
 
@@ -213,7 +213,7 @@ def test_doctor_command_prints_json(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.doctor import DoctorReport
+    from marivo.cli.doctor import DoctorReport
 
     report = DoctorReport(
         status="ok",
@@ -223,7 +223,7 @@ def test_doctor_command_prints_json(
         marivo_package_path="/tmp/marivo",
         sections=(),
     )
-    monkeypatch.setattr("marivo.doctor.run_doctor", lambda options: report)
+    monkeypatch.setattr("marivo.cli.doctor.run_doctor", lambda options: report)
 
     main(["doctor", "--project-root", str(tmp_path), "--format", "json"])
 
@@ -252,7 +252,7 @@ def test_doctor_command_exits_one_on_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.doctor import DoctorReport
+    from marivo.cli.doctor import DoctorReport
 
     report = DoctorReport(
         status="fail",
@@ -262,7 +262,7 @@ def test_doctor_command_exits_one_on_failure(
         marivo_package_path="/tmp/marivo",
         sections=(),
     )
-    monkeypatch.setattr("marivo.doctor.run_doctor", lambda options: report)
+    monkeypatch.setattr("marivo.cli.doctor.run_doctor", lambda options: report)
 
     with pytest.raises(SystemExit) as exc_info:
         main(["doctor", "--project-root", str(tmp_path)])
@@ -275,7 +275,7 @@ def test_doctor_command_prints_fix_snapshot(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.doctor import DoctorCheck, DoctorReport, DoctorSection
+    from marivo.cli.doctor import DoctorCheck, DoctorReport, DoctorSection
 
     report = DoctorReport(
         status="fail",
@@ -299,7 +299,7 @@ def test_doctor_command_prints_fix_snapshot(
             ),
         ),
     )
-    monkeypatch.setattr("marivo.doctor.run_doctor", lambda options: report)
+    monkeypatch.setattr("marivo.cli.doctor.run_doctor", lambda options: report)
 
     with pytest.raises(SystemExit) as exc_info:
         main(["doctor", "--project-root", str(tmp_path), "--fix-snap"])
@@ -312,7 +312,7 @@ def test_doctor_command_builds_doctor_options_from_flags(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.doctor import DoctorOptions, DoctorReport
+    from marivo.cli.doctor import DoctorOptions, DoctorReport
 
     seen: list[DoctorOptions] = []
 
@@ -329,8 +329,8 @@ def test_doctor_command_builds_doctor_options_from_flags(
         seen.append(options)
         return report
 
-    monkeypatch.setattr("marivo.doctor.run_doctor", fake_run_doctor)
-    monkeypatch.setattr("marivo.doctor.render_fix_snap", lambda report: "FIX SNAP")
+    monkeypatch.setattr("marivo.cli.doctor.run_doctor", fake_run_doctor)
+    monkeypatch.setattr("marivo.cli.doctor.render_fix_snap", lambda report: "FIX SNAP")
 
     main(
         [
@@ -366,7 +366,7 @@ def test_doctor_command_fix_snapshot_takes_precedence_over_json(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.doctor import DoctorReport
+    from marivo.cli.doctor import DoctorReport
 
     report = DoctorReport(
         status="ok",
@@ -377,8 +377,8 @@ def test_doctor_command_fix_snapshot_takes_precedence_over_json(
         sections=(),
     )
 
-    monkeypatch.setattr("marivo.doctor.run_doctor", lambda options: report)
-    monkeypatch.setattr("marivo.doctor.render_fix_snap", lambda report: "FIX SNAP WINS")
+    monkeypatch.setattr("marivo.cli.doctor.run_doctor", lambda options: report)
+    monkeypatch.setattr("marivo.cli.doctor.render_fix_snap", lambda report: "FIX SNAP WINS")
 
     main(["doctor", "--project-root", str(tmp_path), "--format", "json", "--fix-snap"])
 

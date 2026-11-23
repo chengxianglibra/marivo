@@ -19,7 +19,7 @@ from ibis.common.exceptions import IbisError
 
 from marivo._definition.expressions import BuiltinSampleCoordinate
 from marivo._definition.types import IntervalCoordinate
-from marivo._errors import MarivoError
+from marivo._kernel.errors import MarivoError
 from marivo.analysis.compiler.graph_plan import (
     ActualWindowRead,
     AttributeCoalitionRead,
@@ -1378,7 +1378,7 @@ def _qualify_clickhouse_joins(
 
 def _admit_numeric_method(source: SourceSession, stage: SourceReadStage, read: LoweredRead) -> None:
     from marivo._definition.expressions import SourceAggregate
-    from marivo._source_aggregates import native_aggregate
+    from marivo._kernel.source_aggregates import native_aggregate
 
     if source.provider.name == "duckdb":
         return
@@ -1475,7 +1475,7 @@ def _native_query_expression(
         assert isinstance(rewritten, ir.Table)
         expression = rewritten
     if source.provider.name in ("clickhouse", "duckdb"):
-        from marivo._numeric_types import native_unsigned_aggregates
+        from marivo._kernel.numeric_types import native_unsigned_aggregates
 
         expression = native_unsigned_aggregates(expression)
     prepared.native_expressions[key] = expression
@@ -1584,7 +1584,7 @@ def read_stage(
             help_target="analysis_frame.compute",
         ) from error
     except Exception as error:
-        from marivo._errors import MarivoError
+        from marivo._kernel.errors import MarivoError
 
         if isinstance(error, MarivoError):
             raise
@@ -2759,8 +2759,8 @@ def prepare_attribute_sources(
                 if observation.coordinates.parent_scope is None
                 else observation.coordinates.parent_scope.axes
             )
-            from marivo._definition.population_builders import axis as field_axis
             from marivo._definition.relations import AttributeKeys, PopulationProgram
+            from marivo._definition.types import field_axis
 
             scope = observation.coordinates.parent_scope
             fixed_parent_axes = (

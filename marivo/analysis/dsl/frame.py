@@ -105,7 +105,7 @@ CapturedSchema: TypeAlias = DataSchema | PendingDataSchema
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from marivo._grouping import Grouping
+    from marivo._kernel.grouping import Grouping
     from marivo.analysis.dsl.population import Population
     from marivo.semantic._expression_values import FieldExpression
 
@@ -1682,7 +1682,7 @@ class AnalysisFrame:
         ancestor rows, complete-result cache or fallback after a read error. Method
         facts show only counts/origins and a .method_facts pointer; no method payload read.
         """
-        from marivo.render import Card
+        from marivo._kernel.render import Card
 
         available = (
             (".compute()", ".to_pandas()", ".persist()")

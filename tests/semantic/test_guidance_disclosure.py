@@ -16,8 +16,8 @@ from marivo._authoring.model import AuthoringCapability, AuthoringRepair
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo._help.render import help as show_help
 from marivo._help.render import render_help_text
+from marivo._kernel.refs import ref as ref_factory
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.refs import ref as ref_factory
 from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._capabilities.validation import _validate_minimal_example_signature
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_row
@@ -190,7 +190,7 @@ def test_decorator_help_example_loads_the_declared_object(
     if target in {"measure", "metric"}:
         symbol = path.rsplit(".", 1)[-1]
         local_assertions = (
-            "from marivo._definition.deferred import root_declaration\n"
+            "from marivo._definition.deferred_values import root_declaration\n"
             "from marivo.semantic._expression_values import _as_deferred\n"
             "from marivo.semantic._deferred_semantics import consume_metric, consume_row\n"
             "from marivo._definition.graph import computation_fingerprint\n"

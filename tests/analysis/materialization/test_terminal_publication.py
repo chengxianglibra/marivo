@@ -90,7 +90,7 @@ def result_metadata() -> FrameResultMetadata:
 
 def calendar_constant(session: Session, calendar: mv.CalendarAxis) -> AnalysisFrame:
     from marivo._definition.types import CalendarCoordinate
-    from marivo._temporal import anchor_from_datetime
+    from marivo._kernel.temporal import anchor_from_datetime
     from marivo.analysis.core.frame_calendar import freeze_calendar
 
     grid = calendar.grid

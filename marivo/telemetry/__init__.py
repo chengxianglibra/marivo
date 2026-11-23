@@ -21,10 +21,12 @@ from pathlib import Path
 from time import monotonic
 from typing import Literal, ParamSpec, TypeVar, cast
 
-from marivo import __version__, _execution_log, _jsonl
-from marivo._compat import UTC
-from marivo.config import ANALYSIS_STORE_GENERATION, STATE_DIR, load_project_config
-from marivo.project import resolve_project_root
+from marivo._kernel import execution_log, jsonl
+from marivo._kernel.compat import UTC
+from marivo._kernel.config import ANALYSIS_STORE_GENERATION, STATE_DIR, load_project_config
+from marivo._kernel.environment import MARIVO_VERSION
+from marivo._kernel.input_context import InputContext
+from marivo._kernel.project import resolve_project_root
 
 TelemetryScalar = str | int | float | bool
 TelemetryValue = TelemetryScalar | tuple[str, ...]
@@ -200,7 +202,7 @@ def _entry_date(entry: dict[str, object]) -> date:
 
 
 def _output_path(root: Path, *, event_date: date, payload_bytes: int) -> Path:
-    return _jsonl.output_path(
+    return jsonl.output_path(
         _output_dir(root),
         _EVENT_FILE_PREFIX,
         event_date=event_date,
@@ -210,7 +212,7 @@ def _output_path(root: Path, *, event_date: date, payload_bytes: int) -> Path:
 
 
 def _prune_historical_files(directory: Path, *, current_date: date) -> None:
-    _jsonl.prune(
+    jsonl.prune(
         directory,
         _EVENT_FILE_PREFIX,
         current_date=current_date,
@@ -272,7 +274,7 @@ def _attribute(key: str, value: TelemetryValue) -> dict[str, object]:
 def _resource_attributes() -> list[dict[str, object]]:
     return [
         _attribute("service.name", "marivo"),
-        _attribute("service.version", __version__),
+        _attribute("service.version", MARIVO_VERSION),
         _attribute("telemetry.sdk.name", "marivo"),
         _attribute("telemetry.sdk.language", "python"),
         _attribute("process.runtime.version", platform.python_version()),
@@ -333,7 +335,7 @@ def _write_entry(root: Path, entry: dict[str, object]) -> None:
             payload = (json.dumps(entry, separators=(",", ":")) + "\n").encode()
             event_date = _entry_date(entry)
             path = _output_path(root, event_date=event_date, payload_bytes=len(payload))
-            _jsonl.append(path, payload)
+            jsonl.append(path, payload)
             _DROPPED_EVENTS = 0
             with suppress(Exception):
                 _prune_historical_files(path.parent, current_date=event_date)
@@ -364,8 +366,6 @@ def _path_from_value(value: object) -> Path | None:
 
 
 def _captured_project_root(value: object) -> Path | None:
-    from marivo._definition.types import InputContext
-
     if isinstance(value, tuple):
         for item in value:
             root = _captured_project_root(item)
@@ -750,7 +750,7 @@ class _Operation:
     started: float = field(default_factory=monotonic)
     phase_durations_ms: dict[str, int] = field(default_factory=dict)
     result: object = None
-    _log_scope: AbstractContextManager[_execution_log.ExecutionContext] | None = None
+    _log_scope: AbstractContextManager[execution_log.ExecutionContext] | None = None
     _stack_token: Token[tuple[_ActiveOperation, ...]] | None = None
     _current_token: Token[object | None] | None = None
     _record_success: bool = False
@@ -761,10 +761,10 @@ class _Operation:
 
     def __enter__(self) -> _Operation:
         # Nested operations inherit this scope's canonical project root.
-        self._log_scope = _execution_log.scope(self.root)
+        self._log_scope = execution_log.scope(self.root)
         context = self._log_scope.__enter__()
         self.root = context.root
-        fields: dict[str, _execution_log.LogValue] = {
+        fields: dict[str, execution_log.LogValue] = {
             "operation_id": self.operation_id,
             "parent_operation_id": context.fields.get("operation_id"),
             "session_id": (
@@ -802,7 +802,7 @@ class _Operation:
 
     def _common_attributes(self, *, status: str) -> dict[str, TelemetryValue]:
         attrs: dict[str, TelemetryValue] = {
-            "marivo.project.instance_id": _instance_id(self.root),
+            "marivo._kernel.project.instance_id": _instance_id(self.root),
             "marivo.surface": self.surface,
             "marivo.capability.id": self.capability_id,
             "marivo.capability.kind": self.capability_kind,

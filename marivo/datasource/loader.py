@@ -16,7 +16,7 @@ from marivo._authoring.loading import (
     _new_module_prefix,
     _source_loading,
 )
-from marivo.config import AUTHORED_DIR, DATASOURCES_DIR, PROJECT_MANIFEST
+from marivo._kernel.config import AUTHORED_DIR, DATASOURCES_DIR, PROJECT_MANIFEST
 from marivo.datasource._builtin import require_user_datasource_name
 from marivo.datasource.authoring import _DATASOURCE_CTX, DatasourceLoaderContext
 from marivo.datasource.errors import (

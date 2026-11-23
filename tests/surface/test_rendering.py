@@ -6,7 +6,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from marivo.render import Card
+from marivo._kernel.render import Card
 
 
 @pytest.mark.parametrize("budget", (180, 400, 8192))

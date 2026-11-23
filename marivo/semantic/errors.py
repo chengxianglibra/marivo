@@ -13,9 +13,9 @@ from typing import Any, Literal, NoReturn
 
 from marivo._authoring.errors import ContractScopeErrorPayload
 from marivo._authoring.model import AuthoringRepair
-from marivo._compat import StrEnum
 from marivo._definition.types import DefinitionGraphError
-from marivo._errors import MarivoError
+from marivo._kernel.compat import StrEnum
+from marivo._kernel.errors import MarivoError
 from marivo.introspection.live.errors import HelpTargetErrorPayload
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.constraints import (

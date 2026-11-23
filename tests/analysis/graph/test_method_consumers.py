@@ -9,10 +9,10 @@ from typing import Literal, TypeAlias
 import ibis
 import pytest
 
+from marivo._kernel.refs import RefPayloadV1, ref
 from marivo.analysis.compiler.source_time import source_time
 from marivo.datasource.adapters import PhysicalRequirement, provider_for
 from marivo.datasource.errors import DatasourceConnectionError
-from marivo.refs import RefPayloadV1, ref
 from marivo.semantic.ir import TargetDimensionContract, TimestampParse
 from tests.datasource.source_cases import SourceData, source_case
 from tests.shared_fixtures import declared_test_timezone

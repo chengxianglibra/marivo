@@ -10,10 +10,10 @@ from typing import Literal, cast
 from marivo._definition.deferred import root_declaration
 from marivo._definition.expressions import MetricNode, RowNode
 from marivo._definition.graph import computation_fingerprint, direct_refs
+from marivo._kernel.refs import Ref, SemanticKindTag
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.ir import AiContextIR
 from marivo.datasource.typing import AiContextValue
-from marivo.refs import Ref, SemanticKindTag
-from marivo.refs import ref as ref_factory
 from marivo.semantic._definition_identity import definition_fingerprint
 from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1, AdditivityPolicy
 from marivo.semantic._expression_binding import CompiledExpressionSidecar

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import ibis
 import pytest
 
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 

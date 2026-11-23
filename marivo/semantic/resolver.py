@@ -9,9 +9,7 @@ from typing import Any, TypeVar
 import ibis
 import ibis.expr.types as ir
 
-from marivo.datasource.ir import QueryParamScalar, QueryParamScalarList
-from marivo.datasource.source import AuthoringScope
-from marivo.refs import (
+from marivo._kernel.refs import (
     EntityKind,
     FieldKind,
     MeasureKind,
@@ -19,6 +17,8 @@ from marivo.refs import (
     SemanticKind,
     SemanticKindTag,
 )
+from marivo.datasource.ir import QueryParamScalar, QueryParamScalarList
+from marivo.datasource.source import AuthoringScope
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.materializer import Materializer

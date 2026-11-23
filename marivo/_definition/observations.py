@@ -11,22 +11,28 @@ from marivo._definition.expressions import (
     BuiltinSampleCoordinate,
     ContributionClockBinding,
     MetricNode,
-    PredicateExpression,
 )
-from marivo._definition.relations import (
+from marivo._definition.graph import definition_fingerprint
+from marivo._definition.population_types import (
     MembershipBinding,
     PopulationDependency,
+    PredicateExpression,
 )
 from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
     EntityIdentityRead,
-    ExactRef,
     FieldRead,
     IntervalCoordinate,
 )
-from marivo._definition.windows import ObservationWindow
-from marivo._temporal import InstantAnchor
+from marivo._definition.windows import (
+    ObservationWindow,
+)
+from marivo._definition.windows import (
+    SampleWindowContext as SampleWindowContext,
+)
+from marivo._kernel.refs import ExactRef
+from marivo._kernel.temporal import InstantAnchor
 
 CalendarGrouping: TypeAlias = CalendarCoordinate | IntervalCoordinate | BuiltinSampleCoordinate
 SampleAxis: TypeAlias = AxisBinding | CalendarGrouping
@@ -93,14 +99,6 @@ class ObservationPeriod:
 
 
 @dataclass(frozen=True, slots=True)
-class SampleWindowContext:
-    """The enclosing calendar sample that supplies a window's endpoints."""
-
-    occurrence: tuple[int, ...]
-    depth: int
-
-
-@dataclass(frozen=True, slots=True)
 class ContributionBinding:
     """One source reduction usage, before any physical fusion or source reading."""
 
@@ -147,6 +145,4 @@ class ObservationBinding:
 
     @property
     def fingerprint(self) -> str:
-        from marivo._definition.graph import _encode, _encoded_fingerprint
-
-        return _encoded_fingerprint(_encode(self, {}))
+        return definition_fingerprint(self)

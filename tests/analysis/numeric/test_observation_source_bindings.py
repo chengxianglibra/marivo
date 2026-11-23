@@ -9,6 +9,7 @@ from typing import TypeAlias
 
 import pytest
 
+from marivo._kernel.refs import ref
 from marivo.analysis.observation.errors import ObservationBindingError
 from marivo.analysis.observation.source_bindings import (
     SourceParameterScopes,
@@ -23,7 +24,6 @@ from marivo.datasource.ir import (
     SourceParamIR,
     TableSourceIR,
 )
-from marivo.refs import ref
 from marivo.semantic.ir import EntityIR, SourceLocation, TargetEntityContract
 from marivo.semantic.validator import Registry, normalize_target_entity
 

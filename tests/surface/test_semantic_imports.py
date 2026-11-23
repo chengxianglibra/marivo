@@ -23,7 +23,7 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
-from marivo.refs import RefPayloadV1
+from marivo._kernel.refs import RefPayloadV1
 from marivo.semantic import errors as errors_mod
 from marivo.semantic import typing as typing_mod
 from marivo.semantic.check import _error_to_dict
@@ -466,8 +466,8 @@ def test_sql_provenance_has_no_public_entry() -> None:
 
 
 def test_removed_temporal_models_have_no_direct_entry_or_ref_factory() -> None:
-    import marivo._temporal as temporal
-    import marivo.refs as refs
+    import marivo._kernel.refs as refs
+    import marivo._kernel.temporal as temporal
     import marivo.semantic.catalog as catalog
 
     for owner, names in (

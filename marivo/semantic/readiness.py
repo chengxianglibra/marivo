@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING, ClassVar, Literal
 
 from marivo._authoring.model import AuthoringRepair
 from marivo._authoring.render import _repair_summary
-from marivo._compat import UTC
-from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
-from marivo.refs import ref as ref_factory
-from marivo.render import Card, RenderableResult
+from marivo._kernel.compat import UTC
+from marivo._kernel.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.render import Card, RenderableResult
 from marivo.semantic.errors import repair
 
 if TYPE_CHECKING:

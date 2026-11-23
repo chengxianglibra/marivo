@@ -22,14 +22,15 @@ from marivo._definition.deferred import (
 )
 from marivo._definition.expressions import ContributionFilter, PredicateExpression, RowExpression
 from marivo._definition.graph import (
-    _encode_fields,
     canonical_bytes,
     computation_fingerprint,
     direct_refs,
     walk,
 )
+from marivo._definition.graph_encoding import DefinitionEncoder
 from marivo._definition.relations import FrameKeyAxis, FrameKeys, PopulationProgram
 from marivo._definition.types import AxisBinding, ExactRef
+from marivo._kernel.refs import ref
 from marivo.analysis.core.artifact_data import (
     ArtifactData,
     BuiltinCalendarData,
@@ -65,7 +66,6 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.terminal_store import describe
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
-from marivo.refs import ref
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_predicate
 from marivo.semantic._expression_values import RowExpression as RowValue
 from marivo.semantic.expressions import _Resolver
@@ -199,7 +199,7 @@ def test_factory_is_metadata_only_and_definition_is_inert(
     closure = walk((population._definition,), resolve=lambda _: None)
     assert closure.order == (leaf, population._definition)
     assert consume_field(region).reference in direct_refs(population._definition)
-    encoded = canonical_bytes(_encode_fields(leaf, {})).decode()
+    encoded = canonical_bytes(DefinitionEncoder(canonical_recipe).encode_node(leaf)).decode()
     assert frame._input_id in encoded and "FrameKeys" in encoded
     assert all(word not in encoded for word in ("AnalysisFrame", "Session", "_rows", "connection"))
     population.show()

@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import cast
 
 from marivo._definition.graph import fingerprint
+from marivo._kernel.refs import Ref, SemanticKindTag
+from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult
 from marivo.ontology._authoring import _CONTEXT, _OntologyAuthoringContext, _repair
 from marivo.ontology.errors import (
     InvalidOntologyRefError,
@@ -18,8 +20,6 @@ from marivo.ontology.errors import (
     OntologyLoadError,
 )
 from marivo.ontology.types import SemanticEdgeIR
-from marivo.refs import Ref, SemanticKindTag
-from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.ir import SourceLocation

@@ -8,6 +8,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._definition.expressions import PerReduce
+from marivo._definition.grouping import grouping_binding
 from marivo._definition.relations import (
     LiteralPopulation,
     ObserveQuery,
@@ -189,7 +190,7 @@ def test_membership_expansion_preserves_interleaved_fields_and_capture_purity(
         ) == ("sales.order.channel", "sales.customer.region", "sales.order.status")
         observation = source_graph(interleaved).signature.observation
         assert observation is not None
-        assert observation.coordinates.memberships == (rule._binding,)
+        assert observation.coordinates.memberships == (grouping_binding(rule),)
         assert (
             consume_metric(revenue.per(rule).mean()).node
             == consume_metric(revenue.per((rule, status)).mean()).node
@@ -266,7 +267,7 @@ def test_complete_population_keeps_axis_order_and_rule_scope(
     assert isinstance(sampled, PerReduce) and isinstance(sampled.samples, SampleDomain)
     assert sampled.samples.population == domain._definition
     assert sampled.samples.axes == domain._definition.axes
-    assert sampled.samples.memberships == (rule._binding,)
+    assert sampled.samples.memberships == (grouping_binding(rule),)
 
 
 def test_interleaved_rules_and_nested_samples_have_independent_numeric_oracles(
@@ -313,7 +314,10 @@ def test_interleaved_rules_and_nested_samples_have_independent_numeric_oracles(
     )
     observation = source_graph(pending).signature.observation
     assert observation is not None
-    assert observation.coordinates.memberships == (channels._binding, customers._binding)
+    assert observation.coordinates.memberships == (
+        grouping_binding(channels),
+        grouping_binding(customers),
+    )
     computed = pending.compute()
     result = computed.to_pandas()
     keys = ordinary_columns(computed)
@@ -327,11 +331,11 @@ def test_interleaved_rules_and_nested_samples_have_independent_numeric_oracles(
     reversed_layers = revenue.per((customers, region)).mean().per((channels, status)).mean()
     captured = consume_metric(nested).node
     assert isinstance(captured, PerReduce) and isinstance(captured.samples, SampleDomain)
-    assert captured.samples.memberships == (customers._binding,)
+    assert captured.samples.memberships == (grouping_binding(customers),)
     assert isinstance(captured.operand, PerReduce) and isinstance(
         captured.operand.samples, SampleDomain
     )
-    assert captured.operand.samples.memberships == (channels._binding,)
+    assert captured.operand.samples.memberships == (grouping_binding(channels),)
     values = (
         session.observe(
             {

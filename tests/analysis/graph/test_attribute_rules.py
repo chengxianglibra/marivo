@@ -42,7 +42,8 @@ from marivo._definition.types import (
     SumPermission,
 )
 from marivo._definition.windows import AllHistory
-from marivo._temporal import anchor_from_datetime, builtin_grain
+from marivo._kernel.refs import ref
+from marivo._kernel.temporal import anchor_from_datetime, builtin_grain
 from marivo.analysis.binding.attribute_rules import (
     AdditiveRule,
     AdditiveSource,
@@ -62,7 +63,6 @@ from marivo.analysis.binding.attribute_rules import (
     rules_match,
 )
 from marivo.analysis.dsl.temporal import exact_scope
-from marivo.refs import ref
 
 ROOT = ExactRef(ref.entity("sales.order"), "v1")
 GROUP = ExactRef(ref.dimension("sales.order.channel"), "v1")

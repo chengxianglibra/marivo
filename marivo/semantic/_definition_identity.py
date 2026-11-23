@@ -9,8 +9,8 @@ from collections.abc import Mapping, Sequence
 from enum import Enum
 from pathlib import PurePath
 
+from marivo._kernel.refs import Ref, RefPayloadV1, SemanticKindTag
 from marivo.datasource.ir import TableSourceIR
-from marivo.refs import Ref, RefPayloadV1, SemanticKindTag
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 
 _EXCLUDED_FIELDS = frozenset({"location", "python_symbol", "file", "line", "_context"})

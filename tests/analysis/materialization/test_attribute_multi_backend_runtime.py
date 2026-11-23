@@ -509,7 +509,7 @@ def test_native_shapley_queries_keep_original_reducers_and_actual_read_costs(
             "float_condition": (amount.sum() > 4).ifelse(1, 0),
             "native_distinct": category.count_distinct() * amount.sum(),
         }
-        from marivo._source_aggregates import native_aggregate
+        from marivo._kernel.source_aggregates import native_aggregate
 
         if native_aggregate(backend, "quantile", ibis.dtype("float64")) is not None:
             metrics["quantile"] = amount.quantile(0.5) * weight.sum()

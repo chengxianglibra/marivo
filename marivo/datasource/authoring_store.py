@@ -15,12 +15,13 @@ from typing import Literal, TypeAlias, cast
 
 from typing_extensions import TypeAliasType
 
-from marivo._compat import UTC
-from marivo.config import (
+from marivo._kernel.compat import UTC
+from marivo._kernel.config import (
     AUTHORING_DIR,
     AUTHORING_SNAPSHOT_DIR,
     STATE_DIR,
 )
+from marivo._kernel.refs import DatasourceKind, Ref, RefPayloadV1
 from marivo.datasource.ir import DatasourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.snapshot import (
     ColumnProfile,
@@ -36,7 +37,6 @@ from marivo.datasource.source import (
     UnprunedScope,
     time_range,
 )
-from marivo.refs import DatasourceKind, Ref, RefPayloadV1
 
 EVIDENCE_FORMAT_VERSION = 4
 SNAPSHOT_TTL = timedelta(hours=24)

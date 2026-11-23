@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, overload
 
 from marivo._definition.correspondence import ComparisonAxis, coordinate_matches
-from marivo._definition.relations import MembershipBinding, validate_memberships
+from marivo._definition.population_types import MembershipBinding
+from marivo._definition.relations import validate_memberships
+from marivo._definition.temporal_bridge import calendar_coordinate
 from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
-    InputContext,
     IntervalCoordinate,
-    invalid,
+    field_axis,
 )
-from marivo._grouping import Grouping
+from marivo._kernel.errors import invalid
+from marivo._kernel.grouping import Grouping
+from marivo._kernel.input_context import InputContext
+from marivo._kernel.temporal import CalendarAxis
 
 
 def normalize_groupings(
@@ -23,8 +27,6 @@ def normalize_groupings(
     population_axes: tuple[ComparisonAxis, ...] | None = None,
 ) -> tuple[tuple[ComparisonAxis, ...], tuple[MembershipBinding, ...]]:
     """Expand rules after collecting every explicit field position in this layer."""
-    from marivo._definition.population_builders import axis as field_axis
-
     bindings = tuple(item for item in items if isinstance(item, MembershipBinding))
     explicit = tuple(item for item in items if not isinstance(item, MembershipBinding))
     if population_axes is not None:
@@ -56,8 +58,52 @@ def normalize_groupings(
     return tuple(axes), bindings
 
 
+class _DefinitionGrouping(Grouping):
+    """A grouping whose definition coordinate is already captured."""
+
+    __slots__ = ()
+
+    @property
+    def _binding(self) -> ComparisonAxis | MembershipBinding:
+        raise NotImplementedError
+
+    def __repr__(self) -> str:
+        binding = self._binding
+        if isinstance(binding, (CalendarCoordinate, IntervalCoordinate)):
+            identity = binding.identity[:48]
+        elif isinstance(binding, MembershipBinding):
+            identity = f"fields={len(binding.fields)} paths={len(binding.paths)}"
+        else:
+            identity = (binding.field or binding.entity).ref.key[:96]
+        return f"<Grouping kind={self.kind} id={identity}; use .show()>"
+
+    def show(self) -> None:
+        """Print bounded captured grouping facts.
+
+        Args: None.
+        Returns: None.
+        Example: ``population.axes[0].show()``.
+        Constraints: Reads frozen metadata only; never enumerates domain keys.
+        """
+        binding = self._binding
+        print(repr(self))
+        if isinstance(binding, CalendarCoordinate):
+            print(f"grain={binding.grain} timezone={binding.timezone} cells={len(binding.cells)}")
+        elif isinstance(binding, IntervalCoordinate):
+            print(f"start={binding.start} end={binding.end} timezone={binding.timezone}")
+        elif isinstance(binding, MembershipBinding):
+            print(f"unmatched={binding.unmatched}")
+            for read in binding.fields[:8]:
+                print(read.field.ref.key[:200])
+            for path in binding.paths[:8]:
+                print("via=" + " -> ".join(step.ref.ref.key for step in path.relationships)[:400])
+        else:
+            print(f"path={tuple(step.ref.key for step in binding.path)!r}"[:600])
+            print(f"at={binding.at}")
+
+
 @dataclass(frozen=True, slots=True, repr=False)
-class _CoordinateGrouping(Grouping):
+class _CoordinateGrouping(_DefinitionGrouping):
     _value: AxisBinding | CalendarCoordinate | IntervalCoordinate
     _context: InputContext = field(default_factory=InputContext, compare=False)
     _identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = field(default=(), compare=False)
@@ -78,7 +124,7 @@ class _CoordinateGrouping(Grouping):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class _MembershipGrouping(Grouping):
+class _MembershipGrouping(_DefinitionGrouping):
     _value: MembershipBinding
     _context: InputContext = field(default_factory=InputContext, compare=False)
     _identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = field(default=(), compare=False)
@@ -90,3 +136,20 @@ class _MembershipGrouping(Grouping):
     @property
     def _binding(self) -> MembershipBinding:
         return self._value
+
+
+@overload
+def grouping_binding(value: CalendarAxis) -> CalendarCoordinate: ...
+
+
+@overload
+def grouping_binding(value: Grouping) -> ComparisonAxis | MembershipBinding: ...
+
+
+def grouping_binding(value: Grouping) -> ComparisonAxis | MembershipBinding:
+    """Read the exact definition binding of a supported grouping."""
+    if isinstance(value, CalendarAxis):
+        return calendar_coordinate(value.grid)
+    if isinstance(value, _DefinitionGrouping):
+        return value._binding
+    invalid("Expected a captured Grouping from Marivo.")

@@ -372,7 +372,7 @@ class FrameSchema:
         Constraints: Metadata only, with an 8192-byte budget and representative
         entries; typed directories retain every captured fact.
         """
-        from marivo.render import Card
+        from marivo._kernel.render import Card
 
         card = Card(
             identity=repr(self),

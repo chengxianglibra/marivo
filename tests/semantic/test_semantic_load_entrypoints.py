@@ -11,7 +11,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.refs import Ref, SemanticKindTag
+from marivo._kernel.refs import Ref, SemanticKindTag
 from marivo.semantic import _catalog_definition
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.catalog_entries import EntryDefinition

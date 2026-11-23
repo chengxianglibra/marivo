@@ -12,7 +12,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef, MetricWindow, SourceAggregate
 from marivo._definition.windows import AllHistory, ToDate, TrailingDuration
-from marivo._symbolic import MeasureSymbol, TimeDimensionSymbol
+from marivo._kernel.symbolic import MeasureSymbol, TimeDimensionSymbol
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._dsl_authoring import AdditivityPolicy
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext

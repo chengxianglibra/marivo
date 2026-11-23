@@ -17,6 +17,7 @@ import sqlglot.expressions as sge
 
 import marivo.analysis as mv
 from marivo._definition.expressions import BuiltinSampleCoordinate
+from marivo._definition.grouping import grouping_binding
 from marivo.analysis.compiler.calendar import (
     KEY_TYPE,
     builtin_key,
@@ -120,7 +121,7 @@ def test_unbound_calendar_does_not_assume_duckdb_functions() -> None:
     table = ibis.table({"point": "timestamp('UTC', 6)"}, name="events")
     calendar = exact_scope("2026-11-01", "2026-11-02", "UTC").by(mv.grain("hour"))
     # Generic reduction/attribute compilers can bind the key before its engine is known.
-    key = builtin_key(table.point, calendar._binding)
+    key = builtin_key(table.point, grouping_binding(calendar))
     assert key.type() == KEY_TYPE
 
 
@@ -141,7 +142,7 @@ def test_unbound_calendar_does_not_assume_duckdb_functions() -> None:
 def test_date_day_keys_match_native_civil_grouping(
     source_zone: str, report_zone: str, start: str, end: str, fast: bool
 ) -> None:
-    calendar = exact_scope(start, end, report_zone).by(mv.grain("day"))._binding
+    calendar = grouping_binding(exact_scope(start, end, report_zone).by(mv.grain("day")))
     backend = ibis.duckdb.connect(TimeZone="UTC")
     try:
         first, stop = date.fromisoformat(start), date.fromisoformat(end)
@@ -319,14 +320,12 @@ def test_clickhouse_date_axes_prune_partitions(historical: bool) -> None:
                     filtered = projected.filter(
                         (projected.clock >= start) & (projected.clock < end)
                     )
-                    coordinate = (
+                    coordinate = grouping_binding(
                         exact_scope(
                             start,
                             end,
                             "Asia/Shanghai",
-                        )
-                        .by(mv.grain("day"))
-                        ._binding
+                        ).by(mv.grain("day"))
                     )
                     key = deferred_day_key(
                         filtered, filtered.point, coordinate, "Asia/Shanghai", "clickhouse"
@@ -400,7 +399,7 @@ def test_encoded_day_keys_restore_native_groups_after_aggregation(
     from marivo.semantic._source_timezone import DeclaredSourceTimezone
     from tests.analysis.temporal.encoded_time_fixtures import axis
 
-    calendar = exact_scope(start, end, report_zone).by(mv.grain("day"))._binding
+    calendar = grouping_binding(exact_scope(start, end, report_zone).by(mv.grain("day")))
     fmt = "%Y-%m-%d" if encoding == "dashed" else "%Y%m%d"
     contract = axis(fmt)
     first, stop = date.fromisoformat(start), date.fromisoformat(end)

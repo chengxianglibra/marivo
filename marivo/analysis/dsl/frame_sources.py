@@ -16,8 +16,8 @@ from marivo._definition.types import (
     Owner,
     RowAttributeTime,
 )
-from marivo._grouping import Grouping
-from marivo._temporal import TimeScope
+from marivo._kernel.grouping import Grouping
+from marivo._kernel.temporal import TimeScope
 from marivo.analysis.binding.lineage import observation_contexts
 from marivo.analysis.binding.time_guidance import (
     REPORT_CLOCK_GUIDANCE,

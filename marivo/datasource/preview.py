@@ -8,7 +8,7 @@ from datetime import date, datetime, time
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from zoneinfo import ZoneInfo
 
-from marivo._data_render import _DataCard, _DataResult
+from marivo._kernel.data_render import _DataCard, _DataResult
 
 if TYPE_CHECKING:
     import ibis.expr.types as ir
@@ -254,7 +254,7 @@ def display_column_names(columns: Iterable[Any]) -> tuple[str, ...]:
 
 
 def _is_missing(value: Any) -> bool:
-    from pandas import isna
+    from pandas import isna  # noqa: PLC0415  # Keep pandas out of datasource discovery imports.
 
     try:
         missing = isna(value)
@@ -273,7 +273,7 @@ def _is_missing(value: Any) -> bool:
 
 
 def normalize_preview_cell(value: Any, *, report_tz: str | None = None) -> object:
-    import pandas as pd
+    import pandas as pd  # noqa: PLC0415  # Load pandas only when normalizing actual rows.
 
     if _is_missing(value):
         return None

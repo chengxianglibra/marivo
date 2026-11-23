@@ -10,7 +10,7 @@ import ibis.expr.types as ir
 import pytest
 
 from marivo._definition.deferred import inspect_deferred
-from marivo.refs import ref
+from marivo._kernel.refs import ref
 from marivo.semantic._expression_binding import compile_expression_body
 from marivo.semantic.errors import SemanticLoadError
 from tests.shared_fixtures import load_inline_semantic

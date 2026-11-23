@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo._grouping import Grouping
+from marivo._kernel.grouping import Grouping
 from marivo.analysis.core.attribute import (
     AttributeFineFiber,
     AttributeInputError,

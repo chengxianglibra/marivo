@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 from ibis.common.deferred import Deferred
 
 from marivo._definition.types import InputContext, merge_input_contexts
-from marivo._symbolic import DimensionSymbol, TimeDimensionSymbol
+from marivo._kernel.symbolic import DimensionSymbol, TimeDimensionSymbol
 
 if TYPE_CHECKING:
     from marivo.semantic.catalog import Dimension, TimeDimension
-from marivo.refs import Ref, SemanticKind
+from marivo._kernel.refs import Ref, SemanticKind
 
 _TOKEN = object()
 CoordinateRef: TypeAlias = DimensionSymbol | TimeDimensionSymbol

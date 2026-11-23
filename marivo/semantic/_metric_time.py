@@ -25,7 +25,7 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.relations import LiteralPopulation, PopulationProgram, SampleDomain
 from marivo._definition.types import CalendarCoordinate, ExactRef, IntervalCoordinate
-from marivo._temporal import Grain
+from marivo._kernel.temporal import Grain
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 
 _TimeLeaf = SourceAggregate | SourceWeightedMean | EntityCount | MemberCount

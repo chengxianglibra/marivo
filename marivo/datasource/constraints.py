@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from marivo._compat import StrEnum
+from marivo._kernel.compat import StrEnum
 from marivo.datasource.engines import SUPPORTED_BACKEND_TYPES
 from marivo.introspection.constraints import Constraint, Phase
 

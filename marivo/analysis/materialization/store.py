@@ -14,7 +14,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Literal
 
-from marivo._compat import UTC
+from marivo._kernel.compat import UTC
 from marivo.analysis.materialization.contracts import (
     ResourceRecord,
     RunFailure,
@@ -338,7 +338,7 @@ class SessionStore:
             raise invalid("Session report timezone origin is missing") from None
         if origin not in ("explicit", "system"):
             raise invalid("unknown report timezone origin")
-        from marivo._timezones import normalize_timezone
+        from marivo._kernel.timezones import normalize_timezone
 
         timezone_name = _text(row, "report_timezone_name")
         try:

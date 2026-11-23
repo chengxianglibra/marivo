@@ -16,8 +16,8 @@ from marivo._definition.types import (
     RelationshipStepParameter,
     merge_input_contexts,
 )
-from marivo._symbolic import PathSymbol, RelationshipSymbol
-from marivo._temporal import InstantAnchor
+from marivo._kernel.symbolic import PathSymbol, RelationshipSymbol
+from marivo._kernel.temporal import InstantAnchor
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.catalog import Entity, Relationship
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError

@@ -2,7 +2,7 @@
 
 import ibis.expr.types as ir
 
-from marivo._temporal import Grain
+from marivo._kernel.temporal import Grain
 
 
 def bucket_start_expr(value: ir.Value, grain: Grain) -> ir.Value:

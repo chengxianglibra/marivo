@@ -11,7 +11,7 @@ from marivo._definition.windows import (
     TrailingPeriods,
     _Window,
 )
-from marivo._grouping import Grouping
+from marivo._kernel.grouping import Grouping
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
     DisclosureProvider,
@@ -38,7 +38,7 @@ from marivo.analysis.dsl.windows import (
     trailing_duration,
     trailing_periods,
 )
-from marivo.semantic._paths import Path, RelationshipStep, path
+from marivo.semantic.paths import Path, RelationshipStep, path
 
 
 def provider() -> DisclosureProvider:

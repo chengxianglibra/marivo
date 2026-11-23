@@ -4,7 +4,7 @@ import ast
 
 import pytest
 
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic._definition_display import describe_display
 from marivo.semantic._definition_expression import describe_expression
 from marivo.semantic._definition_expression_types import _ExpressionDisplay, _Literal

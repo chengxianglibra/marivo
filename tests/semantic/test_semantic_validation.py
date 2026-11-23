@@ -16,12 +16,12 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.semantic.validation as validation_module
+from marivo._kernel.refs import DatasourceKind, Ref
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.credentials import remember_injected
 from marivo.datasource.inspection import SourceInspection, _ibis_table_type, _inspect_in_project
 from marivo.datasource.metadata import ColumnMetadata
 from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.refs import DatasourceKind, Ref
-from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
 from tests.shared_fixtures import catalog_get

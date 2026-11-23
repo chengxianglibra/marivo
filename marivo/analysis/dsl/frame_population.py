@@ -5,9 +5,9 @@ from __future__ import annotations
 from ibis.common.deferred import Deferred
 
 from marivo._definition.correspondence import coordinate_matches
-from marivo._definition.population_builders import axis as field_axis
 from marivo._definition.relations import FrameKeyAxis, FrameKeys, PopulationProgram
-from marivo._definition.types import AxisBinding, InputContext
+from marivo._definition.types import AxisBinding, InputContext, field_axis
+from marivo._kernel.refs import SemanticKind
 from marivo.analysis.binding.coordinates import bind_read, native_read
 from marivo.analysis.core.frame_structure import axis_role, column_kind
 from marivo.analysis.core.lineage import ColumnLineage
@@ -18,7 +18,6 @@ from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.population import Population, _read
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.observation.relationship_binding import RelationshipResolver
-from marivo.refs import SemanticKind
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._consumption import bind_field_in_state, validate_context
 from marivo.semantic._expression_values import FieldExpression, RowExpression

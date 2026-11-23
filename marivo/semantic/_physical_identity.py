@@ -8,7 +8,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from marivo._definition.graph import fingerprint
-from marivo.refs import Ref, RefPayloadV1, SemanticKind, _create_ref
+from marivo._kernel.refs import Ref, RefPayloadV1, SemanticKind, _create_ref
 
 if TYPE_CHECKING:
     from marivo.semantic.validator import Registry

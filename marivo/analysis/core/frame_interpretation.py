@@ -10,10 +10,10 @@ from typing import TYPE_CHECKING, Literal, TypeAlias, get_args
 
 import pyarrow as pa
 
+from marivo._kernel.render import Card, RenderableResult
 from marivo.analysis.core.data_types import DataType, require_data_text
 from marivo.analysis.core.lineage import SemanticObjectIdentity
 from marivo.analysis.core.model import reject
-from marivo.render import Card, RenderableResult
 
 ValueKind: TypeAlias = Literal[
     "numeric", "boolean", "string", "date", "timestamp", "duration", "unresolved"
@@ -274,7 +274,7 @@ def capture_source_times(
     authorities: tuple[SourceTimeAuthority, ...], *, consumption_timezone: str
 ) -> tuple[FrameSourceTime, ...]:
     """Copy resolved source authority as inert scalars at the actual consumption boundary."""
-    from marivo._timezones import normalize_timezone
+    from marivo._kernel.timezones import normalize_timezone
     from marivo.analysis.core.time_authority import CivilDateSourceTime, WallClockSourceTime
 
     consumption_timezone = normalize_timezone(consumption_timezone).name
@@ -327,7 +327,7 @@ def validate_source_times(values: tuple[FrameSourceTime, ...]) -> None:
 
 def source_time_summary(value: FrameSourceTime) -> str:
     """Describe one consumed field, including the civil-day assignment limitation."""
-    from marivo._timezones import same_timezone
+    from marivo._kernel.timezones import same_timezone
 
     text = f"{value.axis}: {value.kind}"
     if isinstance(value, FrameInstantSourceTime):

@@ -23,6 +23,7 @@ from marivo.datasource.engines.base import (
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.engines.requirements import MYSQL_REQUIREMENT
 from marivo.datasource.errors import (
     DatasourceConnectionError,
     DatasourceSourceCapabilityError,
@@ -630,7 +631,7 @@ PROFILE = EngineProfile(
     name="mysql",
     aliases=(),
     authoring_func="mysql",
-    required_modules=("pymysql",),
+    required_modules=(MYSQL_REQUIREMENT,),
     connect=connect,
     query_packet_limit=query_packet_limit,
     verify_named_timezone=verify_source_timezone,

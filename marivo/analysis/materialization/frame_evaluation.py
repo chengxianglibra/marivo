@@ -10,7 +10,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from marivo._errors import MarivoError
+from marivo._kernel.errors import MarivoError
 from marivo.analysis.compiler.frame_filter_fusion import fuse_frame_filters
 from marivo.analysis.compiler.frame_plan import (
     CompiledFramePlan,

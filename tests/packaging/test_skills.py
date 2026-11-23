@@ -15,7 +15,7 @@ SEMANTIC_SKILL_DIR = REPO_ROOT / "marivo" / "skills" / "marivo-semantic"
 
 
 def test_packaged_workflows_have_only_semantic_and_analysis() -> None:
-    from marivo.config import PACKAGED_SKILLS
+    from marivo._kernel.config import PACKAGED_SKILLS
 
     expected = {"marivo-semantic", "marivo-analysis"}
     assert set(PACKAGED_SKILLS) == expected

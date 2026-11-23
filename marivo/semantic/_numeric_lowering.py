@@ -30,10 +30,8 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.types import ExactRef
-from marivo._numeric_types import bind_numeric_literal, decimal_result_type
-from marivo.refs import (
-    SemanticKind,
-)
+from marivo._kernel.numeric_types import bind_numeric_literal, decimal_result_type
+from marivo._kernel.refs import SemanticKind
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -122,7 +120,7 @@ def lower_row(node: RowNode, fields: Mapping[str, ir.Value]) -> NumericValue:
             )
         if node.ref.ref.kind is SemanticKind.MEASURE and not value.type().is_numeric():
             numeric_failure(f"a numeric physical type for {node.ref.ref.path}", str(value.type()))
-        from marivo._numeric_types import exact_unsigned
+        from marivo._kernel.numeric_types import exact_unsigned
 
         value = exact_unsigned(value)
         return NumericValue(value)

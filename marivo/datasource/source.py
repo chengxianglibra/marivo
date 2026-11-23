@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import ibis
 
-from marivo._compat import UTC
+from marivo._kernel.compat import UTC
+from marivo._kernel.render import Card, RenderableResult
 from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceObservedEffects, repair
 from marivo.datasource.ir import (
     CsvSourceIR,
@@ -22,7 +23,6 @@ from marivo.datasource.ir import (
     TableSourceIR,
     normalize_json_body,
 )
-from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
     import ibis.expr.types as ir

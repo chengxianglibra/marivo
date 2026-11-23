@@ -2,6 +2,7 @@
 
 from inspect import cleandoc, signature
 
+from marivo._kernel.render import RenderableResult
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
     DisclosureProvider,
@@ -93,7 +94,6 @@ from marivo.analysis.core.frame_source_reads import (
     FrameSourceReadScope,
 )
 from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.render import RenderableResult
 
 
 def provider() -> DisclosureProvider:

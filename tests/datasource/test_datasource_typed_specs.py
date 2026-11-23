@@ -13,6 +13,7 @@ import pytest
 import marivo.datasource as md
 import marivo.datasource.catalog as catalog_module
 import marivo.semantic as ms
+from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource import store as datasource_store
 from marivo.datasource.authoring import (
     ClickHouseSpec,
@@ -28,7 +29,6 @@ from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
 )
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
-from marivo.refs import ref as ref_factory
 from tests.support.refs import as_ref
 from tests.support.result_protocol import assert_conforms
 

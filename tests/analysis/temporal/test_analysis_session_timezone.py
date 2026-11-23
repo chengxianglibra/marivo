@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-import marivo._timezones as timezone_names
+import marivo._kernel.timezones as timezone_names
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import ReportTimezoneUnresolved, SessionStateError
 from tests.support.paths import PROJECT_ROOT

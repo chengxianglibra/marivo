@@ -23,7 +23,7 @@ import pandas as pd
 import pyarrow as pa
 from ibis.backends import BaseBackend
 
-from marivo import _execution_log
+from marivo._kernel import execution_log as _execution_log
 from marivo.datasource import credentials as cr
 from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.engines import (

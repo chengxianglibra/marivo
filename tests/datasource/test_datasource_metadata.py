@@ -9,6 +9,7 @@ import ibis
 import pytest
 
 import marivo.datasource as md
+from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES
 from marivo.datasource import backends
 from marivo.datasource.authoring import (
     ClickHouseSpec,
@@ -30,7 +31,6 @@ from marivo.datasource.metadata import (
 from marivo.datasource.metadata import (
     inspect_table as _inspect_table,
 )
-from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
 
 
 def test_table_metadata_to_dict_is_json_safe() -> None:
@@ -2210,7 +2210,7 @@ def _make_table_metadata(
 
 
 def test_table_metadata_default_inspection_contract() -> None:
-    from marivo.render import AgentResult
+    from marivo._kernel.render import AgentResult
 
     metadata = _make_table_metadata()
     assert isinstance(metadata, AgentResult)

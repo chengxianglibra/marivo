@@ -13,9 +13,9 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._kernel.refs import ref
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.refs import ref
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._metric_time import metric_time_occurrences
 from marivo.semantic.errors import SemanticError, SemanticLoadFailed
@@ -444,7 +444,7 @@ def test_default_changes_only_for_new_definitions_and_is_deterministic_on_cold_l
     script = """
 import sys
 import marivo.semantic as ms
-from marivo.refs import ref
+from marivo._kernel.refs import ref
 catalog = ms.load(workspace_dir=sys.argv[1])
 print(catalog._state._definition_version(ref.metric("sales.inherited_amount")))
 """

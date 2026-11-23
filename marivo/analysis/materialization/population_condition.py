@@ -26,7 +26,7 @@ from marivo._definition.types import (
     field_read_key,
     fixed_attribute_time,
 )
-from marivo._temporal import InstantAnchor
+from marivo._kernel.temporal import InstantAnchor
 from marivo.analysis.binding.membership import membership_reads
 from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.compiler.predicate import population_key

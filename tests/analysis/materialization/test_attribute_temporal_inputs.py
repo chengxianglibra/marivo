@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo._grouping import Grouping
+from marivo._kernel.grouping import Grouping
 from marivo.analysis.compiler.graph_plan import SourceReadStage, require_reduction
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.session.core import Session

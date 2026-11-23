@@ -12,12 +12,9 @@ from marivo._definition import population_builders as build
 from marivo._definition.correspondence import (
     ComparisonAxis,
 )
-from marivo._definition.deferred import (
-    PopulationContainsResolver,
-    inspect_capture,
-)
+from marivo._definition.deferred import PopulationContainsResolver, inspect_capture
 from marivo._definition.graph import computation_fingerprint
-from marivo._definition.grouping import _CoordinateGrouping, _MembershipGrouping
+from marivo._definition.grouping import _CoordinateGrouping, _MembershipGrouping, grouping_binding
 from marivo._definition.population_parameters import (
     ContainsParameter,
     CoordinatesParameter,
@@ -26,9 +23,7 @@ from marivo._definition.population_parameters import (
     ProductParameter,
     parameter,
 )
-from marivo._definition.population_parameters import (
-    has_parameters as _native_parameters,
-)
+from marivo._definition.population_parameters import has_parameters as _native_parameters
 from marivo._definition.relations import (
     CalendarKeys,
     LiteralPopulation,
@@ -54,11 +49,12 @@ from marivo._definition.types import (
     IntervalCoordinate,
     Owner,
     PathParameter,
+    field_axis,
     merge_input_contexts,
 )
-from marivo._grouping import Grouping
-from marivo._symbolic import EntitySymbol, PathSymbol
-from marivo._temporal import CalendarAxis, TimeScope
+from marivo._kernel.grouping import Grouping
+from marivo._kernel.symbolic import EntitySymbol, PathSymbol
+from marivo._kernel.temporal import CalendarAxis, TimeScope
 from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.model import reject
 from marivo.analysis.dsl._frame_inputs import (
@@ -75,9 +71,9 @@ from marivo.semantic._expression_values import (
     RowPredicate,
     _as_deferred,
 )
-from marivo.semantic._paths import Path
 from marivo.semantic.catalog import Entity
 from marivo.semantic.expressions import _Entity, entity_exact
+from marivo.semantic.paths import Path
 
 if TYPE_CHECKING:
     from pathlib import Path as FilesystemPath
@@ -248,7 +244,7 @@ def _read(value: Deferred | FieldExpression) -> FieldRead:
 
 
 def _axis(read: FieldRead) -> AxisBinding:
-    return build.axis(read)
+    return field_axis(read)
 
 
 def _axes(
@@ -261,7 +257,7 @@ def _axes(
         if isinstance(item, TimeScope):
             axes.append(_interval_coordinate(item))
         elif isinstance(item, Grouping):
-            binding = item._binding
+            binding = grouping_binding(item)
             if isinstance(binding, MembershipBinding):
                 reject(
                     "ordinary coordinate groupings",
@@ -286,11 +282,8 @@ def _axes(
 def _subject(on: Grouping | None, location: str) -> ComparisonAxis | None:
     if on is None and location != "population.identities":
         return None
-    if (
-        not isinstance(on, Grouping)
-        or not isinstance(on._binding, AxisBinding)
-        or on.kind != "identity"
-    ):
+    binding = grouping_binding(on) if isinstance(on, Grouping) else None
+    if not isinstance(binding, AxisBinding) or binding.role != "identity":
         reject(
             "an existing complete identity Grouping",
             on.kind if isinstance(on, Grouping) else type(on).__name__,
@@ -298,7 +291,7 @@ def _subject(on: Grouping | None, location: str) -> ComparisonAxis | None:
             location,
             canonical_id=location,
         )
-    return on._binding
+    return binding
 
 
 def _native(value: object) -> Deferred:
@@ -792,7 +785,7 @@ def in_population(population: Population | Deferred) -> Deferred | RowPredicate:
 
 
 def _interval_coordinate(scope: TimeScope) -> IntervalCoordinate:
-    from marivo._temporal import TimeScope, anchor_from_datetime
+    from marivo._kernel.temporal import TimeScope, anchor_from_datetime
     from marivo.analysis.core.time_grid import instant
 
     if not isinstance(scope, TimeScope):
@@ -821,7 +814,7 @@ def _interval_population(scope: TimeScope) -> Population:
 
 
 def _calendar_population(calendar: CalendarAxis) -> Population:
-    coordinate = calendar._binding
+    coordinate = grouping_binding(calendar)
     return Population(PopulationProgram(CalendarKeys(coordinate), None, (coordinate,)))
 
 

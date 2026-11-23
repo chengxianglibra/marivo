@@ -11,11 +11,16 @@ from marivo._definition.types import (
     FieldRead,
     RowAttributeTime,
 )
+from marivo._kernel.refs import (
+    Ref,
+    RelationshipKind,
+    SemanticKind,
+    ref,
+)
 from marivo.analysis.core.model import reject
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.observation.relationship_binding import RelationshipResolver
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.refs import Ref, RelationshipKind, SemanticKind, ref
 from marivo.semantic.expressions import _Resolver
 from marivo.semantic.ir import SnapshotVersioningIR
 from marivo.semantic.validator import Registry, normalize_target_relationship

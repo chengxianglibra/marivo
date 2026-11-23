@@ -8,9 +8,9 @@ from types import MappingProxyType
 from typing import Literal
 
 from marivo._authoring.model import AuthoringCapability, RepairKind
+from marivo._kernel.refs import SemanticKind
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.reflect import callable_identity
-from marivo.refs import SemanticKind
 
 SemanticRootGroup = Literal["tasks"]
 AuthoringPlacementKind = Literal["domain_entrypoint", "domain_module"]

@@ -30,14 +30,14 @@ from marivo._definition.types import (
     merge_input_contexts,
 )
 from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
-from marivo._temporal import Grain, InstantAnchor, TimeScope
-from marivo.render import Card, RenderableResult
+from marivo._kernel.render import Card, RenderableResult
+from marivo._kernel.temporal import Grain, InstantAnchor, TimeScope
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 
 if TYPE_CHECKING:
     from marivo._definition.relations import PopulationParameter
-    from marivo._grouping import Grouping
-    from marivo._symbolic import PathSymbol
+    from marivo._kernel.grouping import Grouping
+    from marivo._kernel.symbolic import PathSymbol
     from marivo.semantic._paths import Path
 
 RowRole: TypeAlias = Literal["dimension", "time", "numeric", "boolean"]
@@ -103,7 +103,7 @@ def _stage_error(
 def _parameter(value: object) -> Resolver:
     from marivo._definition.deferred import RelationshipParameter
     from marivo._definition.relations import PopulationParameter
-    from marivo._grouping import Grouping
+    from marivo._kernel.grouping import Grouping
     from marivo.semantic._paths import Path
     from marivo.semantic.catalog import Relationship
 
@@ -155,7 +155,7 @@ def _parameter(value: object) -> Resolver:
 
 def _contexts(value: object) -> tuple[InputContext, ...]:
     from marivo._definition.relations import PopulationParameter
-    from marivo._grouping import Grouping
+    from marivo._kernel.grouping import Grouping
     from marivo.semantic._paths import Path
     from marivo.semantic.catalog import _SemanticObject
 
@@ -195,7 +195,7 @@ def _formula(recipe: Resolver, depth: int = 0) -> str:
         SemanticResolver,
         attribute_name,
     )
-    from marivo._symbolic import SymbolResolver
+    from marivo._kernel.symbolic import SymbolResolver
 
     if depth > 5:
         return "..."
@@ -2393,11 +2393,11 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
             and the actual contributions. An explicit field selects the sample
             time independently of the contribution's time role.
         """
-        from marivo._temporal import CalendarAxis
+        from marivo._kernel.temporal import CalendarAxis
 
         if grain is not _GRAIN_OMITTED:
             from marivo._definition.deferred import _captured_field_kind, _captured_scalar_path
-            from marivo.refs import SemanticKind
+            from marivo._kernel.refs import SemanticKind
 
             field = _parameter(by)
             if (

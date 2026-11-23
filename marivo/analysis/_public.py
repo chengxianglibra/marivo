@@ -2,10 +2,10 @@
 
 import marivo.analysis.session as session
 from marivo._definition.correspondence import CalendarCorrespondence as CalendarCorrespondence
-from marivo._grouping import Grouping as Grouping
-from marivo._temporal import Grain as Grain
-from marivo._temporal import InstantAnchor as InstantAnchor
-from marivo._temporal import TimeScope as TimeScope
+from marivo._kernel.grouping import Grouping as Grouping
+from marivo._kernel.temporal import Grain as Grain
+from marivo._kernel.temporal import InstantAnchor as InstantAnchor
+from marivo._kernel.temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
 from marivo.analysis.core.dataframe_result import DataFrameResult as DataFrameResult
 from marivo.analysis.core.frame_interpretation import (
@@ -203,9 +203,9 @@ from marivo.analysis.dsl.windows import trailing_periods as trailing_periods
 from marivo.analysis.results import persist_dataframe as persist_dataframe
 from marivo.analysis.results import read_dataframe as read_dataframe
 from marivo.analysis.session.core import Session as Session
-from marivo.semantic._paths import Path as Path
-from marivo.semantic._paths import RelationshipStep as RelationshipStep
-from marivo.semantic._paths import path as path
+from marivo.semantic.paths import Path as Path
+from marivo.semantic.paths import RelationshipStep as RelationshipStep
+from marivo.semantic.paths import path as path
 
 __all__ = [
     "AnalysisFrame",

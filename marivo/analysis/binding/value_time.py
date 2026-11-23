@@ -24,7 +24,7 @@ from marivo._definition.windows import (
     TrailingDuration,
     TrailingPeriods,
 )
-from marivo._temporal import Grain
+from marivo._kernel.temporal import Grain
 from marivo.analysis.core.frame_interpretation import (
     FrameAllHistoryWindow,
     FrameBuiltinGrain,

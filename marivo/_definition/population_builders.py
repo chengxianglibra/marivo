@@ -15,8 +15,8 @@ from marivo._definition.correspondence import (
     coordinate_matches,
     coordinate_position,
 )
-from marivo._definition.expressions import PredicateExpression
-from marivo._definition.relations import (
+from marivo._definition.graph_traversal import walk
+from marivo._definition.population_types import (
     LiteralPopulation,
     MembershipBinding,
     PopulationClassify,
@@ -28,8 +28,15 @@ from marivo._definition.relations import (
     PopulationProgram,
     PopulationProject,
     PopulationSet,
+    PredicateExpression,
+)
+from marivo._definition.relations import (
     condition_populations,
     merge_time_axis,
+)
+from marivo._definition.rows import (
+    RowExpression,
+    RowField,
 )
 from marivo._definition.types import (
     AttributeTime,
@@ -37,32 +44,20 @@ from marivo._definition.types import (
     CalendarCoordinate,
     CoordinateValue,
     EntityIdentityRead,
-    ExactRef,
     FieldRead,
     IntervalCoordinate,
-    Owner,
+    RowAttributeTime,
+    field_axis,
+    field_read_key,
+)
+from marivo._kernel.errors import invalid
+from marivo._kernel.input_context import Owner
+from marivo._kernel.paths import (
     PathParameter,
     RelationshipStepParameter,
-    RowAttributeTime,
-    invalid,
 )
-from marivo._temporal import InstantAnchor
-
-
-def axis(read: FieldRead) -> AxisBinding:
-    return AxisBinding(
-        read.entity,
-        read.field,
-        read.path,
-        "field",
-        read.at,
-        source_at=read.source_at,
-        step_ats=read.step_ats,
-        path_root=read.path_root,
-        path_facts=read.path_facts,
-        versioned=read.versioned,
-        unit=read.unit,
-    )
+from marivo._kernel.refs import ExactRef
+from marivo._kernel.temporal import InstantAnchor
 
 
 def axes(values: tuple[ComparisonAxis, ...]) -> tuple[ComparisonAxis, ...]:
@@ -76,11 +71,6 @@ def axes(values: tuple[ComparisonAxis, ...]) -> tuple[ComparisonAxis, ...]:
                     f"both bind {axis_description(left)}. Remove the repeated coordinate."
                 )
     return values
-
-
-def anchor(value: InstantAnchor | None) -> None:
-    if value is not None and (not isinstance(value, InstantAnchor) or value.utcoffset() is None):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
-        invalid("an identity version selection requires an exact InstantAnchor")
 
 
 def validate_path_read(
@@ -170,7 +160,7 @@ def membership(
         starts.add(path.source.ref)
         terminal_at = membership_anchor(reads, path)
         validate_path_read(path, terminal_at, True, source_row=True, scalar=False)
-    axes(tuple(axis(read) for read in reads))
+    axes(tuple(field_axis(read) for read in reads))
     return MembershipBinding(reads, paths, unmatched)
 
 
@@ -585,17 +575,13 @@ def predicate_fields(
     values: tuple[ComparisonAxis, ...], predicate: PredicateExpression
 ) -> tuple[tuple[str, int], ...]:
     """Bind predicate reads to existing field coordinates, including qualified roles."""
-    from marivo._definition.expressions import RowExpression, RowField
-    from marivo._definition.graph import walk
-    from marivo._definition.types import field_read_key
-
     slots: dict[str, int] = {}
     leaves = tuple(item for item in predicate.inputs if isinstance(item, RowExpression))
     for item in walk(leaves, resolve=lambda _: None).order:
         if not isinstance(item, RowField):
             continue
         read = item.read or FieldRead(item.ref, item.root)
-        requested = axis(read)
+        requested = field_axis(read)
         matches = [i for i, value in enumerate(values) if coordinate_matches(value, requested)]
         if not matches and not read.path:
             matches = [

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from zoneinfo import ZoneInfoNotFoundError
 
-from marivo._timezones import NormalizedTimezone, SystemTimezoneUnresolvedError, normalize_timezone
-from marivo._timezones import resolve_system_timezone as _resolve_system_timezone
+from marivo._kernel.timezones import (
+    NormalizedTimezone,
+    SystemTimezoneUnresolvedError,
+    normalize_timezone,
+)
+from marivo._kernel.timezones import resolve_system_timezone as _resolve_system_timezone
 from marivo.analysis.errors import AnalysisRepair, ReportTimezoneUnresolved, TimezoneInvalidError
 from marivo.introspection.live.model import LiveHelpTarget
 

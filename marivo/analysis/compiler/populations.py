@@ -17,6 +17,7 @@ from marivo._definition.relations import (
     PopulationSet,
     condition_populations,
 )
+from marivo._kernel.refs import SemanticKind
 from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
 from marivo.analysis.compiler.query_program import FrameParameter, ResultProgram
 from marivo.analysis.core.calendar_keys import time_key_type
@@ -24,7 +25,6 @@ from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn
 from marivo.analysis.core.frame_structure import axis_role, column_kind
 from marivo.analysis.core.model import reject
-from marivo.refs import SemanticKind
 
 
 def population_atoms(definition: PopulationDependency) -> tuple[PopulationDependency, ...]:

@@ -11,8 +11,8 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
-from marivo.refs import Ref, SemanticKindTag
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import Ref, SemanticKindTag
+from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_field, consume_predicate
 from marivo.semantic._definition_expression import describe_expression
 from marivo.semantic._definition_expression_types import (

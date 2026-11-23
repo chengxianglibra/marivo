@@ -11,9 +11,9 @@ from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Literal, TypeAlias, cast, get_args
 
+from marivo._kernel.render import Card, RenderableResult
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization.errors import IntegrityError
-from marivo.render import Card, RenderableResult
 
 
 def parse_timestamp(value: str) -> datetime:

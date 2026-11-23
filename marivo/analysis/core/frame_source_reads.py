@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from marivo._kernel.render import Card, RenderableResult
 from marivo.analysis.core.model import reject
-from marivo.render import Card, RenderableResult
 
 
 def _text(value: str) -> None:

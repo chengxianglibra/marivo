@@ -11,8 +11,8 @@ from pathlib import PurePosixPath
 from typing import Any, Literal, TypeAlias
 from zoneinfo import ZoneInfoNotFoundError
 
-from marivo._ai_context import _normalize_aliases
-from marivo._timezones import normalize_timezone
+from marivo._kernel.ai_context import _normalize_aliases
+from marivo._kernel.timezones import normalize_timezone
 from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceObservedEffects, repair
 
 __all__ = [

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from marivo._ai_context import AiContextValue as AiContextValue
+from marivo._kernel.ai_context import AiContextValue as AiContextValue
 from marivo.datasource.table_source import TableLookupBackend
 
 if TYPE_CHECKING:

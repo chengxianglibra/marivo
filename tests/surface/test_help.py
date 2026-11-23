@@ -303,7 +303,7 @@ def test_attribute_discovery_does_not_execute_getters(monkeypatch: pytest.Monkey
 def test_attribute_access_uses_owning_frozen_model_contracts() -> None:
     from pydantic import BaseModel, Field
 
-    from marivo._temporal import TimeScopeContractV1
+    from marivo._kernel.temporal import TimeScopeContractV1
     from marivo.introspection.live.attributes import public_attributes
 
     # Required time identity fields need no construction to discover immutability.

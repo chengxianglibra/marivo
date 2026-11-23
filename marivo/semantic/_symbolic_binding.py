@@ -44,9 +44,13 @@ from marivo._definition.types import (
     RelationshipStepParameter,
     SumNone,
 )
-from marivo._symbolic import SymbolResolver
-from marivo.refs import Ref, SemanticKind, SemanticKindTag
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import (
+    Ref,
+    SemanticKind,
+    SemanticKindTag,
+)
+from marivo._kernel.refs import ref as ref_factory
+from marivo._kernel.symbolic import SymbolResolver
 from marivo.semantic._compiled_state import CompilationGraph, dependent_closure
 from marivo.semantic._deferred_semantics import (
     capture_source_time,
@@ -220,7 +224,7 @@ def bind_recipe(
         child = bind(recipe.recipe)
         declaration = recipe.declaration
         if declaration.pending_assertion:
-            from marivo._symbolic import symbol_factory
+            from marivo._kernel.symbolic import symbol_factory
             from marivo.semantic._dsl_authoring import (
                 AdditivityPolicy,
                 additive_all,

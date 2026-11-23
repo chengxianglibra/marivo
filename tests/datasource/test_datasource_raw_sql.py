@@ -15,6 +15,7 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._help.render import render_help_text
+from marivo._kernel.refs import ref as ref_factory
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource import store
 from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
@@ -24,7 +25,6 @@ from marivo.datasource.errors import (
     DatasourceRawSqlError,
     DatasourceSourceCapabilityError,
 )
-from marivo.refs import ref as ref_factory
 from tests.support.refs import as_ref
 
 

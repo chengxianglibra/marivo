@@ -34,7 +34,31 @@ from ibis.common.deferred import Deferred, Resolver
 
 from marivo._definition.deferred import RelationshipParameter, _RelationshipValue, root_declaration
 from marivo._definition.types import InputContext
-from marivo._symbolic import (
+from marivo._kernel.refs import (
+    DatasourceKind,
+    DimensionKind,
+    DomainKind,
+    EntityKind,
+    FieldKind,
+    MeasureKind,
+    MetricKind,
+    Ref,
+    RelationshipKind,
+    SemanticKind,
+    SemanticKindTag,
+    TimeDimensionKind,
+)
+from marivo._kernel.refs import (
+    ref as ref_factory,
+)
+from marivo._kernel.render import (
+    Card,
+    FieldSection,
+    ListSection,
+    RenderableResult,
+    Section,
+)
+from marivo._kernel.symbolic import (
     DatasourceIdentityHandle,
     DatasourceSymbol,
     DomainSymbol,
@@ -58,7 +82,7 @@ from marivo.datasource.ir import (
 )
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.source import AuthoringScope
-from marivo.preview import (
+from marivo.datasource.spi import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
     PreviewExecutionLimits,
@@ -68,30 +92,6 @@ from marivo.preview import (
     preview_from_pandas,
     preview_ibis_table,
     validate_preview_limit,
-)
-from marivo.refs import (
-    DatasourceKind,
-    DimensionKind,
-    DomainKind,
-    EntityKind,
-    FieldKind,
-    MeasureKind,
-    MetricKind,
-    Ref,
-    RelationshipKind,
-    SemanticKind,
-    SemanticKindTag,
-    TimeDimensionKind,
-)
-from marivo.refs import (
-    ref as ref_factory,
-)
-from marivo.render import (
-    Card,
-    FieldSection,
-    ListSection,
-    RenderableResult,
-    Section,
 )
 from marivo.semantic._expression_values import (
     _OMITTED_TIME,
@@ -176,7 +176,7 @@ if TYPE_CHECKING:
     from ibis.backends import BaseBackend
 
     from marivo._authoring.model import AuthoringRepair
-    from marivo._temporal import InstantAnchor
+    from marivo._kernel.temporal import InstantAnchor
     from marivo.semantic._compiled_state import CompiledSemanticState
     from marivo.semantic._paths import RelationshipStep
     from marivo.semantic.reader import SemanticProject
@@ -1625,7 +1625,7 @@ class SemanticCatalog(RenderableResult):
         object.__setattr__(self, "_documents", None)
         object.__setattr__(self, "_documents_lock", Lock())
         object.__setattr__(self, "_index", _CatalogIndex(self, project, self._reg))
-        from marivo.config import AUTHORED_DIR, load_semantic_layer_paths
+        from marivo._kernel.config import AUTHORED_DIR, load_semantic_layer_paths
 
         object.__setattr__(self, "_search_config", load_search_config(self.workspace_dir))
         object.__setattr__(

@@ -14,8 +14,8 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._grouping import Grouping
-from marivo._temporal import TimeScope
+from marivo._kernel.grouping import Grouping
+from marivo._kernel.temporal import TimeScope
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import (
     LocalCompute,

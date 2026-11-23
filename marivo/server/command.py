@@ -12,32 +12,10 @@ from importlib.util import find_spec
 from pathlib import Path
 from urllib.parse import urlsplit
 
-import uvicorn
-
 from marivo import __version__
-from marivo.project import resolve_project_root
-from marivo.server.http import ReadApplication
+from marivo._kernel.project import resolve_project_root
+from marivo.server import granite_model as granite_assets
 from marivo.server.wire import API_VERSION, Limits
-
-
-class _Server(uvicorn.Server):
-    async def startup(self, sockets: list[socket.socket] | None = None) -> None:
-        await super().startup(sockets=sockets)
-        if self.started:
-            bound = self.servers[0].sockets[0].getsockname()
-            print(
-                json.dumps(
-                    {
-                        "host": bound[0],
-                        "port": bound[1],
-                        "protocol": "https" if self.config.is_ssl else "http",
-                        "pid": os.getpid(),
-                        "marivo_version": __version__,
-                        "api_version": API_VERSION,
-                    }
-                ),
-                flush=True,
-            )
 
 
 def _origin(value: str) -> bytes:
@@ -74,6 +52,10 @@ def serve(
     granite_model: Path | None = None,
     granite_cache_dir: Path | None = None,
 ) -> None:
+    import uvicorn
+
+    from marivo.server.http import ReadApplication
+
     token = os.environ.get("MARIVO_API_TOKEN", "")
     if re.fullmatch(r"[A-Za-z0-9._~+/=-]+", token) is None:
         raise ValueError("Set MARIVO_API_TOKEN to a valid administrator-configured Bearer token.")
@@ -90,9 +72,7 @@ def serve(
     if find_spec("onnxruntime") is None or find_spec("tokenizers") is None:
         raise ValueError("Install the API runtime with pip install 'marivo[api]'.")
     if granite_model is None:
-        from marivo.server.granite_model import prepare_granite_model
-
-        granite_model = prepare_granite_model()
+        granite_model = granite_assets.prepare_granite_model()
     app = ReadApplication(
         root,
         token.encode("ascii"),
@@ -123,5 +103,25 @@ def serve(
         raise ValueError(
             "Could not load the TLS certificate and key. Check the PEM files and key pairing."
         ) from None
+
+    class _Server(uvicorn.Server):
+        async def startup(self, sockets: list[socket.socket] | None = None) -> None:
+            await super().startup(sockets=sockets)
+            if self.started:
+                bound = self.servers[0].sockets[0].getsockname()
+                print(
+                    json.dumps(
+                        {
+                            "host": bound[0],
+                            "port": bound[1],
+                            "protocol": "https" if self.config.is_ssl else "http",
+                            "pid": os.getpid(),
+                            "marivo_version": __version__,
+                            "api_version": API_VERSION,
+                        }
+                    ),
+                    flush=True,
+                )
+
     with contextlib.suppress(KeyboardInterrupt):
         _Server(config).run()

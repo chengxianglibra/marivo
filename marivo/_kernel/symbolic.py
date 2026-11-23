@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, NewType, NoReturn, TypeAlias
 from ibis.common.bases import FrozenSlotted
 from ibis.common.deferred import Deferred, Resolver
 
-from marivo.refs import DatasourceKind, Ref, SemanticKind, SemanticKindTag
-from marivo.refs import ref as ref_factory
+from marivo._kernel.refs import DatasourceKind, Ref, SemanticKind, SemanticKindTag
+from marivo._kernel.refs import ref as ref_factory
 
 DomainSymbol = NewType("DomainSymbol", Deferred)
 DatasourceSymbol = NewType("DatasourceSymbol", Deferred)

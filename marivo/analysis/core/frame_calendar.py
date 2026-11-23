@@ -9,7 +9,7 @@ from typing import Literal
 import pandas as pd
 
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
-from marivo._temporal_grid import TimeShiftAbsent, TimeShiftMatch, builtin_nominal_ordinal
+from marivo._kernel.temporal_grid import TimeShiftAbsent, TimeShiftMatch, builtin_nominal_ordinal
 from marivo.analysis.core.artifact_data import (
     BuiltinCalendarData,
     CalendarDataAxis,

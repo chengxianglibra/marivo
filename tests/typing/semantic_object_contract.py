@@ -9,7 +9,7 @@ from typing_extensions import assert_type
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._symbolic import EntitySymbol
+from marivo._kernel.symbolic import EntitySymbol
 
 
 def object_types(catalog: ms.SemanticCatalog) -> None:
