@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, TypeAlias
 
@@ -117,6 +117,65 @@ class ContributionBinding:
     metric: str = ""
     sample_time_slots: tuple[str, ...] = ()
     sample_interval_ranges: tuple[tuple[str, SampleIntervalRanges], ...] = ()
+    # Endpoint expansion can retain a schema-only read with no physical rule.
+    # The authored rule already participates in the observation graph's identity.
+    window_intent: ObservationWindow | None = field(
+        default=None, compare=False, repr=False, metadata={"definition_identity": False}
+    )
+
+    @property
+    def logical_window_rule(self) -> ObservationWindow | None:
+        return self.window_rule or self.window_intent
+
+    @property
+    def window_group_id(self) -> tuple[int, ...] | None:
+        """Identify the reduction before expansion into independent window reads."""
+        return (
+            (self.logical_occurrence or self.occurrence)
+            if self.logical_window_rule is not None
+            else None
+        )
+
+    @property
+    def report_calendar(self) -> CalendarCoordinate | None:
+        """Return this contribution's own report calendar, if it has one."""
+        return next(
+            (
+                calendar
+                for slot, calendar in self.calendars
+                if isinstance(calendar, CalendarCoordinate) and slot not in self.sample_time_slots
+            ),
+            None,
+        )
+
+    @property
+    def report_window_endpoint(self) -> WindowEndpoint | None:
+        """Expose only endpoints whose contribution time range has been bound."""
+        if (
+            self.window_rule is None
+            or self.period is None
+            or self.logical_occurrence is None
+            or self.sample_window is not None
+            or self.window_coordinates
+        ):
+            return None
+        return WindowEndpoint(self.window_key, self.period)
+
+
+@dataclass(frozen=True, slots=True)
+class WindowEndpoint:
+    key: int | datetime | None
+    period: ObservationPeriod
+
+
+@dataclass(frozen=True, slots=True)
+class WindowGroup:
+    """The report rule and resolved endpoint grid for one logical reduction."""
+
+    window_group_id: tuple[int, ...]
+    window_rule: ObservationWindow
+    report_calendar: CalendarCoordinate | None
+    endpoint_grid: tuple[WindowEndpoint, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,3 +195,31 @@ class ObservationBinding:
     @property
     def fingerprint(self) -> str:
         return definition_fingerprint(self)
+
+    @property
+    def window_groups(self) -> tuple[WindowGroup, ...]:
+        """View window bindings without adding derived data to the saved identity."""
+        groups: dict[tuple[int, ...], list[ContributionBinding]] = {}
+        for contribution in self.contributions:
+            group_id = contribution.window_group_id
+            if group_id is not None:
+                groups.setdefault(group_id, []).append(contribution)
+        result: list[WindowGroup] = []
+        report_calendar = next(
+            (axis for axis in self.coordinates.axes if isinstance(axis, CalendarCoordinate)),
+            None,
+        )
+        for group_id, members in groups.items():
+            rule = members[0].logical_window_rule
+            assert rule is not None
+            endpoints = tuple(
+                endpoint
+                for member in members
+                if (endpoint := member.report_window_endpoint) is not None
+            )
+            result.append(
+                WindowGroup(
+                    group_id, rule, members[0].report_calendar or report_calendar, endpoints
+                )
+            )
+        return tuple(result)

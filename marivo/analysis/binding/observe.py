@@ -52,6 +52,7 @@ from marivo._definition.types import (
     RowAttributeTime,
     field_axis,
 )
+from marivo._definition.windows import ObservationWindow
 from marivo._kernel.temporal import Grain, InstantAnchor
 from marivo.analysis.binding.contribution_binding import (
     ContributionGeometry,
@@ -309,10 +310,16 @@ class _ObservationBinder:
         filters: tuple[PredicateExpression, ...],
         sample_axes: tuple[SampleAxis, ...] = (),
         sample_layers: tuple[SampleLayer, ...] = (),
+        window_intent: ObservationWindow | None = None,
     ) -> None:
         if isinstance(node, DeclaredMetricRef):
             self.visit(
-                self.declared[node.ref], (*occurrence, 0), filters, sample_axes, sample_layers
+                self.declared[node.ref],
+                (*occurrence, 0),
+                filters,
+                sample_axes,
+                sample_layers,
+                window_intent,
             )
             return
         if isinstance(node, ContributionFilter):
@@ -327,13 +334,14 @@ class _ObservationBinder:
                 ),
                 sample_axes,
                 sample_layers,
+                window_intent,
             )
             return
         if isinstance(node, MemberCount):
             self._bind_count(node, sample_axes)
             return
         if isinstance(node, (PerReduce, PerWeightedMean)):
-            self._bind_sample(node, occurrence, filters, sample_axes, sample_layers)
+            self._bind_sample(node, occurrence, filters, sample_axes, sample_layers, window_intent)
             return
         if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
             state, resolver, paths = self.state, self.resolver, self.paths
@@ -357,11 +365,21 @@ class _ObservationBinder:
                     self.condition,
                     sample_axes,
                     sample_layers,
+                    window_intent=window_intent,
                 )
             )
             return
+        if isinstance(node, MetricWindow):
+            window_intent = node.rule
         for edge in children(node):
-            self.visit(edge.child, (*occurrence, edge.index), filters, sample_axes, sample_layers)
+            self.visit(
+                edge.child,
+                (*occurrence, edge.index),
+                filters,
+                sample_axes,
+                sample_layers,
+                window_intent,
+            )
 
     def _bind_count(self, node: MemberCount, sample_axes: tuple[SampleAxis, ...]) -> None:
         domain = node.population
@@ -391,6 +409,7 @@ class _ObservationBinder:
         filters: tuple[PredicateExpression, ...],
         sample_axes: tuple[SampleAxis, ...],
         sample_layers: tuple[SampleLayer, ...],
+        window_intent: ObservationWindow | None,
     ) -> None:
         sample_domain = node.samples
         inner_domain_axes: tuple[object, ...]
@@ -423,6 +442,7 @@ class _ObservationBinder:
                     filters,
                     (*sample_axes, *inner_axes),
                     (*sample_layers, sample_layer),
+                    window_intent,
                 )
         if (
             isinstance(sample_domain, (Grain, FieldCalendarSample))

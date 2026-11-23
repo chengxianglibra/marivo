@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -12,9 +13,14 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition.observations import ObservationBinding
 from marivo._definition.windows import TrailingDuration
 from marivo.analysis.binding.windows import _reset
-from marivo.analysis.core.frame_data import MemoryFrameBacking
+from marivo.analysis.core.frame_data import (
+    ExpressionFrameBacking,
+    MemoryFrameBacking,
+    SourceFrameBinding,
+)
 from marivo.analysis.core.frozen_calendar import read_calendar_directory
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.model.data_schema import CalendarDataAxis
@@ -638,6 +644,75 @@ def test_scalar_to_date_uses_endpoint_not_display_start(window_session: Session)
             .to_pandas()
         )
         assert result["mtd"].tolist() == [20]
+
+
+def _window_observation(query: mv.AnalysisFrame) -> ObservationBinding:
+    backing = query._backing
+    assert isinstance(backing, ExpressionFrameBacking)
+    assert isinstance(backing.root, SourceFrameBinding)
+    observation = backing.root.graph.signature.observation
+    assert observation is not None
+    return observation
+
+
+@pytest.mark.parametrize("calendar", [False, True])
+def test_window_group_records_bound_endpoints_per_reduction(
+    window_session: Session, calendar: bool
+) -> None:
+    session = window_session
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    rule = mv.all_history()
+    window = revenue.window(rule)
+    scope = session.time_scope(start="2026-10-07", end="2026-10-09")
+    day = mv.grain("day")
+    query = session.observe(
+        {"first": window, "second": window, "ordinary": revenue},
+        where=scope if not calendar else None,
+        by=(scope.by(day),) if calendar else (),
+    )
+    observation = _window_observation(query)
+    groups = observation.window_groups
+    assert [group.window_group_id[0] for group in groups] == [0, 1]
+    for group in groups:
+        assert group.window_rule == rule
+        assert (group.report_calendar is not None) is calendar
+        start = datetime(2026, 10, 7, tzinfo=timezone.utc)
+        end = datetime(2026, 10, 9, tzinfo=timezone.utc)
+        expected = (
+            ((start, start + timedelta(days=1)), (start + timedelta(days=1), end))
+            if calendar
+            else ((None, end),)
+        )
+        assert tuple((item.key, item.period.end) for item in group.endpoint_grid) == expected
+        assert all(item.period.start is None for item in group.endpoint_grid)
+
+
+def test_empty_calendar_retains_logical_window_without_physical_endpoints(
+    window_session: Session,
+) -> None:
+    session = window_session
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    axis = (
+        session.time_scope(start="2024-01-01", end="2024-02-29")
+        .by(mv.grain("year"))
+        .shift(mv.offset(years=-1))
+    )
+    rule = mv.all_history()
+    query = session.observe({"history": revenue.window(rule)}, by=(axis,))
+    observation = _window_observation(query)
+    (group,) = observation.window_groups
+    assert group.window_rule == rule
+    assert group.report_calendar is not None and not group.report_calendar.cells
+    assert group.endpoint_grid == ()
+    assert all(item.window_rule is None for item in observation.contributions)
+    before = replace(
+        observation,
+        contributions=tuple(
+            replace(item, window_intent=None) for item in observation.contributions
+        ),
+    )
+    assert observation.fingerprint == before.fingerprint
+    assert query.compute().to_pandas().empty
 
 
 def test_partial_month_windows_stop_at_actual_endpoint(

@@ -16,6 +16,7 @@ from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.compiler.query_stages import (
+    CommonRead,
     LocalCompute,
     RuleDecision,
     SourceReadStage,
@@ -159,6 +160,15 @@ def _required_coordinates(
     return table.select(__population_unit=ibis.literal(True)).distinct()
 
 
+def _source_required_key_domains(stage: SourceReadStage) -> tuple[SourceReadStage, ...]:
+    """Expose each reduction's required key domain inside a shared source read."""
+    if isinstance(stage.program, CommonRead):
+        return stage.program.members
+    if read_members(stage) or read_components(stage) is not None:
+        return ()
+    return (stage,)
+
+
 def _attach_coverage_witnesses(
     original: LoweredRead, missing: ir.Table, keys: tuple[str, ...], name: str
 ) -> ir.Table:
@@ -217,11 +227,12 @@ def _fold_output_coverage(prepared: PreparedSources, lowered: LoweredQuery) -> L
         sources: list[SourceReadStage] = []
         for binding in program.values:
             stage = by_id.get(binding.stage_id)
-            if (
-                not isinstance(stage, SourceReadStage)
-                or read_members(stage)
-                or read_components(stage) is not None
-            ):
+            if not isinstance(stage, SourceReadStage):
+                break
+            domains = _source_required_key_domains(stage)
+            # A shared block needs member-specific support columns. Keep that
+            # boundary until the shared-domain coverage pass handles them.
+            if not domains or domains[0] is not stage:
                 break
             if stage not in sources:
                 sources.append(stage)

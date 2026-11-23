@@ -147,6 +147,7 @@ class DefinitionEncoder:
                     field.name: self.encode(getattr(value, field.name))
                     for field in fields(value)
                     if field.name not in {"_from_default_time", "_context"}
+                    and field.metadata.get("definition_identity", True)
                 },
             }
             # Captured dataclasses are immutable. Keep the input alive against ID

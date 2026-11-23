@@ -26,8 +26,12 @@ def window_endpoint_keys(
     """Keep each logical window's selected native keys, independently of facts."""
     endpoints: dict[tuple[int, ...], list[datetime]] = {}
     for contribution in contributions:
-        if contribution.window_rule is not None and isinstance(contribution.window_key, datetime):
-            occurrence = contribution.logical_occurrence or contribution.occurrence
+        occurrence = contribution.window_group_id
+        if (
+            contribution.window_rule is not None
+            and occurrence is not None
+            and isinstance(contribution.window_key, datetime)
+        ):
             endpoints.setdefault(occurrence, []).append(contribution.window_key)
     return tuple((occurrence, tuple(dict.fromkeys(keys))) for occurrence, keys in endpoints.items())
 

@@ -44,6 +44,7 @@ from marivo._definition.types import (
     field_read_key,
     fixed_attribute_time,
 )
+from marivo._definition.windows import ObservationWindow
 from marivo.analysis.binding.calendar_samples import validate_sample_parent
 from marivo.analysis.binding.coordinates import (
     bind_identity,
@@ -464,6 +465,8 @@ def bind_contribution(
     condition: PredicateExpression | None,
     sample_axes: tuple[SampleAxis, ...],
     sample_layers: tuple[SampleLayer, ...],
+    *,
+    window_intent: ObservationWindow | None = None,
 ) -> ContributionBinding:
     fields = row_fields(node)
     root = _resolve_root(node, fields, state, resolver)
@@ -508,4 +511,5 @@ def bind_contribution(
         sample_time_slots=calendars.sample_time_slots,
         sample_interval_ranges=calendars.sample_interval_ranges,
         population_reads=population_reads,
+        window_intent=window_intent,
     )
