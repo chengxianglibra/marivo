@@ -26,18 +26,18 @@ from marivo.datasource.spi import (
     timestamp,
     timestamp_is_instant,
 )
-from marivo.semantic._physical_contracts import time_type_issue
-from marivo.semantic._source_timezone import DeclaredSourceTimezone
-from marivo.semantic.ir import (
+from marivo.semantic.spi import (
     DateParse,
+    DeclaredSourceTimezone,
     HourPrefixParse,
+    Registry,
     StrptimeParse,
     TargetDimensionContract,
     TargetEntityContract,
     TimestampParse,
     is_time_bearing_format,
+    time_type_issue,
 )
-from marivo.semantic.validator import Registry
 
 
 def ordered_time_literal(point: datetime, fmt: str, *, strict: bool = False) -> str | None:

@@ -90,7 +90,6 @@ from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.kernels import FrequencyState, FrequencyValue
 from marivo.analysis.model.time_facts import FrameSourceTime, merge_source_times
 from marivo.analysis.model.unique_keys import UniqueKeys
-from marivo.datasource.ir import JsonSourceIR
 from marivo.datasource.spi import (
     DURATION_UNIT_METADATA_KEY,
     TIMESTAMP_UNIT_METADATA_KEY,
@@ -98,14 +97,13 @@ from marivo.datasource.spi import (
     CompiledRead,
     DatasourceConnectionService,
     JsonResponseCache,
+    JsonSourceIR,
     PhysicalRequirement,
     QualifiedSource,
     SourceSession,
     query_policy,
 )
-from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic._numeric_lowering import NumericCheck
-from marivo.semantic.validator import normalize_target_entity
+from marivo.semantic.spi import CompiledSemanticState, NumericCheck, normalize_target_entity
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -151,8 +149,7 @@ def qualify_original_strings(
     prepared: PreparedSources, table: ir.Table, columns: tuple[str, ...]
 ) -> str | None:
     """Qualify remote strings, retaining MySQL's native comparison semantics."""
-    from marivo.datasource.ir import TableSourceIR
-    from marivo.datasource.spi import physical_fields
+    from marivo.datasource.spi import TableSourceIR, physical_fields
 
     for column in columns:
         value = table[column]
@@ -201,9 +198,8 @@ def qualify_original_source(
         SourceAggregate,
         SourceWeightedMean,
     )
-    from marivo.datasource.ir import TableSourceIR
-    from marivo.datasource.spi import physical_fields
-    from marivo.semantic._numeric_lowering import lower_row
+    from marivo.datasource.spi import TableSourceIR, physical_fields
+    from marivo.semantic.spi import lower_row
 
     if not reads:
         return "original fiber has no source reads"
@@ -362,7 +358,7 @@ def qualify_original_source(
 def qualify_attribute_game_sources(prepared: PreparedSources, plan: QueryPlan) -> None:
     """Reuse native physical-input and collation qualification before capture."""
     from marivo.analysis.compiler.attribute_inputs import input_failure
-    from marivo.datasource.ir import TableSourceIR
+    from marivo.datasource.spi import TableSourceIR
 
     for path, bound in prepared.bound.items():
         owner = prepared.sources.get(path, prepared.source)
@@ -1068,7 +1064,10 @@ def qualify_source_inputs(graph: BoundGraph, state: CompiledSemanticState) -> tu
     """Check the closed source declarations without connections or HTTP requests."""
     entities = _query_entities(graph, state)
     from marivo.analysis.materialization.graph_preflight import _local_file
-    from marivo.datasource.ir import CsvSourceIR, json_source_param_names
+    from marivo.datasource.spi import (
+        CsvSourceIR,
+        json_source_param_names,
+    )
 
     for path in entities:
         contract = normalize_target_entity(state.registry, path)
@@ -1257,7 +1256,7 @@ def _qualify_join_topology(source: SourceSession, qualified: tuple[QualifiedSour
         "join" in item.requirement.operations for item in qualified
     ):
         return
-    from marivo.datasource.ir import TableSourceIR
+    from marivo.datasource.spi import TableSourceIR
 
     for item in qualified:
         physical = item.binding.source
@@ -1833,7 +1832,7 @@ def _source_check_failure(
     coordinates: pd.DataFrame,
 ) -> NoReturn:
     """Keep the owning preparation/numeric failure for actual or known-empty input."""
-    from marivo.semantic._numeric_lowering import numeric_failure
+    from marivo.semantic.spi import numeric_failure
 
     received = (
         f"{received}; source={stage.source_id}; coordinates={coordinates.to_dict(orient='records')}"
@@ -1906,7 +1905,7 @@ def _complete_source_frame(
         frame, component = complete_components(require_components(stage), frame)
         components = (component,)
     _validate_source_checks(stage, frame, numeric_checks)
-    from marivo.semantic._numeric_lowering import numeric_failure
+    from marivo.semantic.spi import numeric_failure
 
     retained_checks = {column.slot_id for column in stage.columns}
     if "__numeric_present" in frame.columns and "__numeric_present" not in retained_checks:
@@ -2509,7 +2508,7 @@ def prepare_attribute_sources(
         input_failure,
     )
     from marivo.analysis.materialization.query_preparation import prepare_fields
-    from marivo.datasource.ir import TableSourceIR
+    from marivo.datasource.spi import TableSourceIR
 
     observation = graph.signature.observation
     assert observation is not None

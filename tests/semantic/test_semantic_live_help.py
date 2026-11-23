@@ -11,6 +11,7 @@ import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo._kernel.symbolic import native_symbol_ref
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.reflect import callable_identity
 from marivo.semantic.errors import SemanticLoadError, SemanticRuntimeError
 
 
@@ -204,7 +205,7 @@ def test_expression_display_has_one_owner_for_all_receiver_forms() -> None:
     owners = [
         row.canonical_id
         for row in REGISTRY.descriptors
-        if row.callable_path == "marivo.semantic.catalog._SemanticObject.show"
+        if row.callable_path == callable_identity(ms.Entity.show)
     ]
     assert owners == ["semantic_object.show"]
 

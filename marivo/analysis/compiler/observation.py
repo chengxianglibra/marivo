@@ -49,8 +49,7 @@ from marivo.analysis.model.data_types import (
     DurationDataType,
 )
 from marivo.datasource.spi import DEFAULT_BACKEND_TYPE
-from marivo.semantic._numeric_duration import recipe_duration
-from marivo.semantic._numeric_lowering import (
+from marivo.semantic.spi import (
     NumericCheck,
     NumericValue,
     lower_metric_formula,
@@ -58,6 +57,7 @@ from marivo.semantic._numeric_lowering import (
     lower_source_reduction,
     numeric_binary,
     numeric_failure,
+    recipe_duration,
 )
 
 

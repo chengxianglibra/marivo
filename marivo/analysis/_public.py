@@ -135,9 +135,9 @@ from marivo.analysis.model.time_facts import FrameWallClockSourceTime as FrameWa
 from marivo.analysis.results import persist_dataframe as persist_dataframe
 from marivo.analysis.results import read_dataframe as read_dataframe
 from marivo.analysis.session.core import Session as Session
-from marivo.semantic.paths import Path as Path
-from marivo.semantic.paths import RelationshipStep as RelationshipStep
-from marivo.semantic.paths import path as path
+from marivo.semantic.spi import Path as Path
+from marivo.semantic.spi import RelationshipStep as RelationshipStep
+from marivo.semantic.spi import path as path
 
 __all__ = [
     "AnalysisFrame",

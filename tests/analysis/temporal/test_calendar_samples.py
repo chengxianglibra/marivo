@@ -22,7 +22,10 @@ from marivo.analysis.session.core import Session
 from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._expression_values import MetricExpression
-from marivo.semantic.catalog import Entity, Metric
+from marivo.semantic.catalog_model.objects import (
+    Entity,
+    Metric,
+)
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, time_population

@@ -38,7 +38,11 @@ from marivo.analysis.model.disclosure import (
     value_type,
     with_sealed_variants,
 )
-from marivo.semantic.paths import Path, RelationshipStep, path
+from marivo.semantic.spi import (
+    Path,
+    RelationshipStep,
+    path,
+)
 
 
 def provider() -> DisclosureProvider:

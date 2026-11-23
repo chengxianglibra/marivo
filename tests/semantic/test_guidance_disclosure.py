@@ -29,7 +29,10 @@ from marivo.semantic.errors import (
 from marivo.semantic.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessIssue, ReadinessReport
-from marivo.semantic.validation import ValidationCheckResult, ValidationReport
+from marivo.semantic.runtime_check.results import (
+    ValidationCheckResult,
+    ValidationReport,
+)
 from tests.shared_fixtures import catalog_value
 from tests.shared_fixtures import resolve_test_symbol as resolve
 from tests.support.refs import as_ref
@@ -69,7 +72,7 @@ def test_definition_read_does_not_prescribe_readiness(
     )
     catalog = ms.load(workspace_dir=tmp_path)
     assert marivo.help is show_help
-    monkeypatch.setattr("marivo.semantic.catalog.load", _no_io)
+    monkeypatch.setattr("marivo.semantic.catalog_load.load", _no_io)
     monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", _no_io)
     monkeypatch.setattr("marivo.datasource.runtime.backends.build_backend", _no_io)
 
@@ -180,7 +183,7 @@ def test_decorator_help_example_loads_the_declared_object(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.semantic._capabilities.naming import semantic_target
+    from marivo.introspection.live.targets import semantic_target
 
     descriptor = REGISTRY.by_canonical_id(semantic_target(target))
     assert isinstance(descriptor, AuthoringCapability)
@@ -191,7 +194,7 @@ def test_decorator_help_example_loads_the_declared_object(
         symbol = path.rsplit(".", 1)[-1]
         local_assertions = (
             "from marivo._definition.deferred_values import root_declaration\n"
-            "from marivo.semantic._expression_values import _as_deferred\n"
+            "from marivo.semantic.expressions.inputs import _as_deferred\n"
             "from marivo.semantic._deferred_semantics import consume_metric, consume_row\n"
             "from marivo._definition.graph import computation_fingerprint\n"
             f"assert isinstance({symbol}, ms.{'RowExpression' if target == 'measure' else 'MetricExpression'})\n"

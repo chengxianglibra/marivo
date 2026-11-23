@@ -69,9 +69,9 @@ from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_contracts import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.model.layout_facts import FrameValueContext
 from marivo.analysis.model.lineage import all_origins
-from marivo.semantic._consumption import bind_field_in_state, validate_context
-from marivo.semantic._expression_values import FieldExpression, RowExpression
+from marivo.semantic import RowExpression
 from marivo.semantic.errors import SemanticError
+from marivo.semantic.spi import FieldExpression, bind_field_in_state, validate_context
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame
@@ -364,7 +364,7 @@ def source_inputs(
 
             from marivo._definition.expressions import PredicateExpression
             from marivo.analysis.dsl.population import in_population
-            from marivo.semantic._deferred_semantics import consume_predicate
+            from marivo.semantic.spi import consume_predicate
 
             ordinary_scope = projection.project(by=projection.axes[: len(ordinary)])
             if fixed_keys:

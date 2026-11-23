@@ -394,10 +394,13 @@ def prepare_managed_model():
 granite_model.prepare_granite_model = prepare_managed_model
 
 class Encoder:
+    dimensions = 384
+
     def __init__(self, path, *, asset_fingerprint=None):
         self.failure = path.with_name("fail-index")
+        self.model_fingerprint = asset_fingerprint
 
-    def encode(self, texts):
+    def encode_texts(self, texts):
         result = np.zeros((len(texts), 384), dtype=np.float32)
         for row, text in enumerate(texts):
             if text.startswith("id: ") and self.failure.exists():
@@ -532,7 +535,7 @@ def _record_document_encodings(trace: Path) -> str:
     return f"""
 import json
 
-original_encode = Encoder.encode
+original_encode = Encoder.encode_texts
 
 def record_documents(self, texts):
     documents = [text for text in texts if text.startswith("id: ")]
@@ -541,7 +544,7 @@ def record_documents(self, texts):
             stream.writelines(json.dumps(document) + "\\n" for document in documents)
     return original_encode(self, texts)
 
-Encoder.encode = record_documents
+Encoder.encode_texts = record_documents
 """
 
 

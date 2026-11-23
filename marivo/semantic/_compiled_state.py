@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
-from types import MappingProxyType
+from dataclasses import dataclass
 from typing import Literal, cast
 
 from marivo._definition.deferred import root_declaration
@@ -12,11 +11,16 @@ from marivo._definition.expressions import MetricNode, RowNode
 from marivo._definition.graph import computation_fingerprint, direct_refs
 from marivo._kernel.refs import Ref, SemanticKindTag
 from marivo._kernel.refs import ref as ref_factory
-from marivo.datasource.ir import AiContextIR
+from marivo.datasource.spi import AiContextIR
 from marivo.datasource.typing import AiContextValue
+from marivo.semantic._deferred_semantics import consume_metric, consume_row
 from marivo.semantic._definition_identity import definition_fingerprint
-from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1, AdditivityPolicy
-from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic.compiled_types import (
+    CompiledRootIdentity,
+    CompiledSemanticState,
+    PublishedDeclaration,
+)
+from marivo.semantic.expressions.ir import CompiledExpressionSidecar
 from marivo.semantic.ir import (
     DimensionIR,
     EntityIR,
@@ -27,70 +31,12 @@ from marivo.semantic.ir import (
     SnapshotVersioningIR,
     ValidityVersioningIR,
 )
-from marivo.semantic.validator import Registry
-
-
-@dataclass(frozen=True, slots=True)
-class CompiledRootIdentity:
-    """Semantic source-root role and configured order, without machine paths."""
-
-    role: str
-    order: int
-
-
-@dataclass(frozen=True, slots=True)
-class CompiledSemanticState:
-    """One immutable interpretation of the selected authored semantic world."""
-
-    definition_fingerprint: str
-    selected_roots: tuple[CompiledRootIdentity, ...]
-    filtered_domains: tuple[str, ...]
-    registry: Registry
-    definitions: Mapping[Ref[SemanticKindTag], object]
-    dependencies: Mapping[Ref[SemanticKindTag], tuple[Ref[SemanticKindTag], ...]]
-    sidecar: CompiledExpressionSidecar
-    _scoped_fingerprints: dict[Ref[SemanticKindTag], str] = field(
-        default_factory=dict, init=False, repr=False, compare=False
-    )
-
-    def _definition_version(self, root: Ref[SemanticKindTag]) -> str:
-        from marivo.semantic._definition_identity import scoped_definition_fingerprint
-
-        version = self._scoped_fingerprints.get(root)
-        if version is None:
-            version = scoped_definition_fingerprint(
-                root=root,
-                definitions=self.definitions,
-                dependencies=self.dependencies,
-                sidecar=self.sidecar,
-            )
-            self._scoped_fingerprints[root] = version
-        return version
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "selected_roots", tuple(self.selected_roots))
-        object.__setattr__(self, "filtered_domains", tuple(self.filtered_domains))
-        object.__setattr__(self, "definitions", MappingProxyType(dict(self.definitions)))
-        object.__setattr__(
-            self,
-            "dependencies",
-            MappingProxyType({ref: tuple(values) for ref, values in self.dependencies.items()}),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class PublishedDeclaration:
-    """Definition row of one published pure declaration.
-
-    Its identity is the computation it consumes; names and sites stay on the
-    original declaration, which is never rewritten.
-    """
-
-    stage: Literal["measure", "metric"]
-    name: str
-    computation: str
-    unit: str | None
-    ai_context: AiContextIR
+from marivo.semantic.policies import (
+    AdditiveAllV1,
+    AdditiveOverV1,
+    AdditivityPolicy,
+)
+from marivo.semantic.static_check.registry import Registry
 
 
 def _captured_context(context: AiContextValue | None) -> AiContextIR:
@@ -104,7 +50,6 @@ def _captured_context(context: AiContextValue | None) -> AiContextIR:
 
 
 def _published_nodes(registry: Registry) -> dict[Ref[SemanticKindTag], MetricNode | RowNode]:
-    from marivo.semantic._deferred_semantics import consume_metric, consume_row
 
     nodes: dict[Ref[SemanticKindTag], MetricNode | RowNode] = {}
     for key, measure in registry.declared_measures.items():
@@ -143,7 +88,6 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
         (cast("Ref[SemanticKindTag]", ref_factory.relationship(key)), value)
         for key, value in registry.relationships.items()
     )
-    from marivo.semantic._deferred_semantics import consume_metric, consume_row
 
     for key, measure in registry.declared_measures.items():
         declaration = root_declaration(measure)

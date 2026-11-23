@@ -158,9 +158,9 @@ if TYPE_CHECKING:
         FrameWallClockSourceTime as FrameWallClockSourceTime,
     )
     from marivo.analysis.session.core import Session as Session
-    from marivo.semantic.paths import Path as Path
-    from marivo.semantic.paths import RelationshipStep as RelationshipStep
-    from marivo.semantic.paths import path as path
+    from marivo.semantic.spi import Path as Path
+    from marivo.semantic.spi import RelationshipStep as RelationshipStep
+    from marivo.semantic.spi import path as path
 
 
 if not TYPE_CHECKING:

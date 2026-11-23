@@ -39,7 +39,10 @@ from marivo.analysis.model.data_types import (
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.session.core import Session
 from marivo.datasource.runtime.adapters import SourceSession
-from marivo.semantic.catalog import Dimension, Entity
+from marivo.semantic.catalog_model.objects import (
+    Dimension,
+    Entity,
+)
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 

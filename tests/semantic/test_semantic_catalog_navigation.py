@@ -11,11 +11,9 @@ from typing import TYPE_CHECKING
 import pytest
 
 from marivo._kernel.refs import SemanticKind
-from marivo.semantic.catalog import (
-    Domain,
-    SemanticCatalog,
-    _normalize_semantic_input,
-)
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.catalog_model.inputs import _normalize_semantic_input
+from marivo.semantic.catalog_model.objects import Domain
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from tests.shared_fixtures import catalog_entry, catalog_value
 

@@ -45,7 +45,7 @@ from marivo.analysis.model.data_types import (
 )
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frozen_keys import FrozenKey
-from marivo.semantic._numeric_lowering import numeric_failure
+from marivo.semantic.spi import numeric_failure
 
 
 def _pair_values(

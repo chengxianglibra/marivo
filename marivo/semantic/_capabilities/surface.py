@@ -7,6 +7,7 @@ from types import MappingProxyType
 from typing import NoReturn
 
 from marivo._authoring.model import AuthoringCapability
+from marivo._kernel.refs import ref as ref_factory
 from marivo.introspection.live.errors import build_help_target_error_payload
 from marivo.introspection.live.resolve import (
     LiveSurface,
@@ -17,6 +18,7 @@ from marivo.introspection.live.resolve import (
 from marivo.semantic._capabilities.model import SemanticHelpDescriptor, SemanticObjectContract
 from marivo.semantic._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
 from marivo.semantic.errors import SemanticHelpTargetError
+from marivo.semantic.runtime_check.source_checks import source_check
 
 
 class _NeverSemanticError(Exception):
@@ -55,8 +57,6 @@ def _cross_surface_owner(target: object) -> str | None:
 
 def _enrich(target: object) -> ResolvedLiveTarget[SemanticHelpDescriptor] | None:
     """Resolve concrete semantic runtime values before callable dispatch."""
-    from marivo._kernel.refs import ref as ref_factory
-    from marivo.semantic.validation import source_check
 
     namespace_target = None
     if target is ref_factory:

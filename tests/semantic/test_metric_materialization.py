@@ -11,8 +11,8 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.materializer import Materializer
 from marivo.semantic.reader import SemanticProject
+from marivo.semantic.runtime_check.materializer import Materializer
 from tests.shared_fixtures import catalog_value
 
 _MODEL = """import marivo.datasource as md

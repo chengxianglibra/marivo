@@ -20,6 +20,7 @@ from marivo._help.route import (
     route_help_target,
 )
 from marivo._help.topics import render_authoring, render_root
+from marivo._kernel.environment import MARIVO_VERSION
 from marivo.introspection.live.attributes import public_attributes, render_attribute
 from marivo.introspection.live.model import HelpSurface
 from marivo.introspection.live.targets import canonical_target
@@ -50,11 +51,10 @@ def _topic_text(route: TopicHelpRoute) -> str:
 
 
 def _header(text: str, target: str, kind: str) -> str:
-    from marivo import __version__
     from marivo.introspection.live.render import bounded_help
 
     return bounded_help(
-        f"Target: {target}\nKind: {kind}\nMarivo: {__version__}\n\n{text}",
+        f"Target: {target}\nKind: {kind}\nMarivo: {MARIVO_VERSION}\n\n{text}",
         root=target in ("root", "authoring", "analysis", "semantic", "datasource", "ontology"),
     )
 

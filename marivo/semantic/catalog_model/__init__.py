@@ -1,0 +1,1 @@
+"""Semantic catalog model implementation."""

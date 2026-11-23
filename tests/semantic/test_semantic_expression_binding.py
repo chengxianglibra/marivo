@@ -20,13 +20,15 @@ from marivo._kernel.refs import (
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.symbolic import symbol_from_ref
 from marivo.semantic._expression_binding import (
-    CompiledExpressionSidecar,
-    ExpressionBody,
     bind,
     compile_expression_body,
     evaluate_expression_body,
 )
 from marivo.semantic.errors import ErrorKind, SemanticLoadError, SemanticRuntimeError
+from marivo.semantic.expressions.ir import (
+    CompiledExpressionSidecar,
+    ExpressionBody,
+)
 
 ORDERS = ref_factory.entity("sales.orders")
 USERS = ref_factory.entity("sales.users")
@@ -462,7 +464,7 @@ def _table_alias_amount(rows: ibis.expr.types.Table) -> ibis.expr.types.Value:
 
 
 def test_local_bindings_preserve_renaming_and_column_facts() -> None:
-    from marivo.semantic._expression_binding import expression_column_accesses
+    from marivo.semantic.expressions.ir import expression_column_accesses
 
     first = compile_expression_body(_local_amount, owning_ref=AMOUNT, ordered_entity_refs=(ORDERS,))
     second = compile_expression_body(
@@ -501,7 +503,7 @@ def test_expression_owners_accept_local_bindings(owner: Ref[SemanticKindTag]) ->
 
 
 def test_constant_local_retains_proven_column_free_expression() -> None:
-    from marivo.semantic._expression_binding import expression_column_accesses
+    from marivo.semantic.expressions.ir import expression_column_accesses
 
     def constant(rows: ir.Table) -> ir.Value:
         value = ibis.literal(7)

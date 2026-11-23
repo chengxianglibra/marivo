@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import fields, replace
 from types import MappingProxyType
 from typing import Literal, get_args
 
@@ -20,9 +20,14 @@ from marivo._authoring.model import (
     MutationEffect,
     RepairKind,
 )
+from marivo._kernel.ai_context import AiContextValue
 from marivo._kernel.data_render import _display_help
 from marivo._kernel.refs import SemanticKind
+from marivo._kernel.symbolic import symbol_factory as ref_factory
+from marivo.datasource.help_spi import REGISTRY as DATASOURCE_REGISTRY
+from marivo.datasource.spi import PreviewResult
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.targets import canonical_target, semantic_target
 from marivo.semantic._capabilities.inputs import authoring_guidance, authoring_inputs
 from marivo.semantic._capabilities.model import (
     SEMANTIC_HELP_RENDER_BUDGETS,
@@ -41,12 +46,60 @@ from marivo.semantic._capabilities.model import (
     SemanticObjectDecision,
     SemanticObjectIndexEntry,
     SemanticObjectRelationship,
-    SemanticRepairContract,
     SemanticRootGroup,
     SemanticRootSection,
     SemanticTypeContract,
 )
-from marivo.semantic._capabilities.naming import semantic_target
+from marivo.semantic._expression_values import MetricExpression, RowExpression
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.catalog_entries import (
+    CatalogFilters,
+    CatalogPage,
+    CatalogScope,
+    DatasourceDefinition,
+    DomainDefinition,
+    EntityDefinition,
+    EntryProvenance,
+    FieldDefinition,
+    MetricContributionClockBinding,
+    MetricContributionTimeRole,
+    MetricDefinition,
+    MetricNoContributionClockBinding,
+    RelationshipDefinition,
+)
+from marivo.semantic.catalog_model.objects import (
+    Datasource,
+    Dimension,
+    Domain,
+    Entity,
+    Measure,
+    Metric,
+    Relationship,
+    TimeDimension,
+)
+from marivo.semantic.dtos import PreviewBatchResult
+from marivo.semantic.error_repairs import ERROR_REPAIRS, SemanticRepairContract
+from marivo.semantic.errors import (
+    CatalogSearchError,
+    DeclaredTimezoneContradiction,
+    SemanticContractScopeError,
+    SemanticDecoratorError,
+    SemanticError,
+    SemanticExpressionError,
+    SemanticHelpTargetError,
+    SemanticLoadError,
+    SemanticLoadFailed,
+    SemanticRuntimeError,
+    SourceTimezoneMissing,
+)
+from marivo.semantic.expressions.objects import ExpressionContract
+from marivo.semantic.ir import DateParse, JoinKey
+from marivo.semantic.readiness import ReadinessInputSummary, ReadinessIssue, ReadinessReport
+from marivo.semantic.runtime_check.results import (
+    ValidationCheckResult,
+    ValidationReport,
+)
+from marivo.semantic.runtime_check.source_checks import SourceCheckNamespace
 
 OUTPUT_FAMILIES = frozenset(
     {
@@ -1171,208 +1224,6 @@ def _root_sections() -> tuple[SemanticRootSection, ...]:
     )
 
 
-def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
-    """Build exact repair routes for deterministic authoring/layout failures."""
-
-    rows = (
-        SemanticRepairContract(
-            error_kind="outside_loader_context",
-            kind="reauthor",
-            help_target=_target("load"),
-            action=(
-                "Move physical declarations into a semantic model loaded through "
-                "ms.load(); compose native symbols directly and retrieve closed inputs from the Catalog."
-            ),
-            snippet=(
-                "# models/semantic/<domain>/<module>.py\n"
-                "import marivo.semantic as ms\n"
-                "# declaration fragment evaluated by ms.load()"
-            ),
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="missing_domain",
-            kind="reauthor",
-            help_target=_target("objects.domain"),
-            action=(
-                "Declare the domain with an accountable owner in its _domain.py, "
-                "or pass an existing typed domain ref."
-            ),
-            snippet=(
-                "# models/semantic/<domain>/_domain.py\n"
-                "import marivo.semantic as ms\n"
-                "ms.domain(name='<domain>', owner=accountable_owner)"
-            ),
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="invalid_binding_ref",
-            kind="reauthor",
-            help_target=_target("bind"),
-            action=(
-                "Assign a native field symbol or closed physical field value to a module-level "
-                "name before the decorator, then pass that bare name to ms.bind. For a "
-                "cross-file field, use ms.ref.<kind>(the field's exact existing path). "
-                "Use ms.bind only in the retained Ibis Dimension/TimeDimension bodies."
-            ),
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="missing_time_fold",
-            kind="reauthor",
-            help_target=_target("Metric.per"),
-            action=(
-                "Keep the sampled status_time_dimension in additive_except(...) "
-                "and express the temporal reduction with per(time_field).reducer()."
-            ),
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="binding_target_missing",
-            kind="reauthor",
-            help_target=_target("bind"),
-            action=(
-                "Check the field Ref path named in this error against the loaded catalog. "
-                "Declare the missing field or correct its module-level Ref, then reload "
-                "before binding it to its owning Entity parameter."
-            ),
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="binding_alias_not_direct",
-            kind="reauthor",
-            help_target=_target("bind"),
-            action=(
-                "Call ms.bind(field_ref, entity_parameter) with two positional bare names: "
-                "an exact field Ref visible before decoration and a direct Entity parameter. "
-                "Move Ref construction outside the body; remove attribute/factory arguments "
-                "and transformed or locally aliased Entity arguments."
-            ),
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="binding_entity_mismatch",
-            kind="reauthor",
-            help_target=_target("bind"),
-            action=(
-                "Use the direct Entity parameter that owns the referenced field. Compare "
-                "the expected and received Entity refs in this error before changing either "
-                "the field Ref or the metric's Entity parameters."
-            ),
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="invalid_filter",
-            kind="reauthor",
-            help_target=_target("Metric.where"),
-            action=(
-                "Declare every filter dimension on the metric's target entity, then use "
-                "one finite scalar equality value or a non-empty tuple/list of finite "
-                "membership values."
-            ),
-            snippet=(
-                "status = ms.dimension_column(\n"
-                "    name='status', entity=orders, column='physical_status'\n"
-                ")\n"
-                "failed = orders.count().where(\n"
-                "    (status == 'FAILED') | (status == 'ERROR')\n"
-                ")"
-            ),
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="filter_value_runtime_incompatible",
-            kind="user_choice",
-            help_target=_target("Metric.where"),
-            action=(
-                "Preserve the authored filter literals. Do not replace business codes with "
-                "physical labels or other sampled values. Ask the user or accountable business "
-                "owner to confirm any code-to-physical-value mapping; until then, report runtime "
-                "evidence as unavailable and continue only query-free static verification and "
-                "semantic_static readiness."
-            ),
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="invalid_project",
-            kind="configure",
-            help_target=_target("load"),
-            action=(
-                "Point ms.load(workspace_dir=...) at the intended project root and repair "
-                "any explicit invalid configuration or authored model files. Missing "
-                "marivo.toml and models/ are valid empty-project defaults."
-            ),
-            snippet="catalog = ms.load(workspace_dir='<project root>')",
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="domain_file_missing",
-            kind="reauthor",
-            help_target=_target("objects.domain"),
-            action=(
-                "Create the required domain entrypoint and supply its accountable owner "
-                "before loading again."
-            ),
-            snippet=(
-                "# models/semantic/<domain>/_domain.py\n"
-                "import marivo.semantic as ms\n"
-                "ms.domain(name='<domain>', owner=accountable_owner)"
-            ),
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="domain_file_mismatch",
-            kind="reauthor",
-            help_target=_target("domain"),
-            action="Make the domain directory and ms.domain(name=...) use the same exact name.",
-            snippet=(
-                "# models/semantic/<domain>/_domain.py\n"
-                "ms.domain(name='<domain>', owner=accountable_owner)"
-            ),
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="entity_constructor_as_decorator",
-            kind="reauthor",
-            help_target=_target("entity"),
-            action="Assign ms.entity(name=...) to a name, or omit name and return one Table expression.",
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="duplicate_identity_key",
-            kind="reauthor",
-            help_target=_target("entity"),
-            action="Remove repeated names from primary_key.",
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="missing_identity_key_column",
-            kind="reauthor",
-            help_target=_target("entity"),
-            action="Add each missing identity key to columns=... or omit the source projection.",
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="identity_version_overlap",
-            kind="reauthor",
-            help_target=_target("entity"),
-            action="Remove version coordinates from primary_key and keep them in versioning.",
-            preserves_evidence=True,
-        ),
-        SemanticRepairContract(
-            error_kind="organization_error",
-            kind="reauthor",
-            help_target=_target("load"),
-            action=(
-                "Read the original exception and traceback when present, repair the failing "
-                "declaration or import, then restart Python and reload the catalog."
-            ),
-            preserves_evidence=True,
-        ),
-    )
-    return MappingProxyType({row.error_kind: row for row in rows})
-
-
 _SEMANTIC_NAVIGATION_DESCRIPTOR_TYPES = (
     SemanticNavigationTopic,
     SemanticBuilderTopic,
@@ -1515,7 +1366,6 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
         "semantic_catalog",
         "semantic_object",
     }
-    from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 
     def validate_target(target: LiveHelpTarget, *, owner: str) -> None:
         target_id = target.canonical_id
@@ -1782,7 +1632,6 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
 def _canonical_link(target: LiveHelpTarget) -> LiveHelpTarget:
     if target.canonical_id is None:
         return target
-    from marivo.introspection.live.targets import canonical_target
 
     identity = (
         semantic_target(target.canonical_id)
@@ -2082,7 +1931,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
     return (
         _capability(
             "source_check.not_null",
-            "marivo.semantic.validation.SourceCheckNamespace.not_null",
+            "marivo.semantic.runtime_check.source_checks.SourceCheckNamespace.not_null",
             "Require one field to contain no null values.",
             kind="method",
             output="NotNullSourceCheck",
@@ -2099,7 +1948,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
         ),
         _capability(
             "source_check.allowed_values",
-            "marivo.semantic.validation.SourceCheckNamespace.allowed_values",
+            "marivo.semantic.runtime_check.source_checks.SourceCheckNamespace.allowed_values",
             "Require one categorical or temporal field to use only the declared values.",
             kind="method",
             output="AllowedValuesSourceCheck",
@@ -2120,7 +1969,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
         ),
         _capability(
             "source_check.unique",
-            "marivo.semantic.validation.SourceCheckNamespace.unique",
+            "marivo.semantic.runtime_check.source_checks.SourceCheckNamespace.unique",
             "Require a non-empty same-Entity field tuple to be unique.",
             kind="method",
             output="UniqueSourceCheck",
@@ -2137,7 +1986,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
         ),
         _capability(
             "source_check.freshness",
-            "marivo.semantic.validation.SourceCheckNamespace.freshness",
+            "marivo.semantic.runtime_check.source_checks.SourceCheckNamespace.freshness",
             "Require one time dimension's maximum value to be within a declared age.",
             kind="method",
             output="FreshnessSourceCheck",
@@ -2155,7 +2004,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
         ),
         _capability(
             "source_check.relationship_matches",
-            "marivo.semantic.validation.SourceCheckNamespace.relationship_matches",
+            "marivo.semantic.runtime_check.source_checks.SourceCheckNamespace.relationship_matches",
             "Check unmatched relationship keys only within the selected bounded source scopes.",
             kind="method",
             output="RelationshipMatchesSourceCheck",
@@ -2172,7 +2021,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
         ),
         _capability(
             "source_check.relationship_cardinality",
-            "marivo.semantic.validation.SourceCheckNamespace.relationship_cardinality",
+            "marivo.semantic.runtime_check.source_checks.SourceCheckNamespace.relationship_cardinality",
             "Require current relationship multiplicity to match one exact expectation.",
             kind="method",
             output="RelationshipCardinalitySourceCheck",
@@ -2488,7 +2337,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             rows.append(
                 _capability(
                     f"{prefix}.{method}",
-                    f"marivo.semantic.catalog.Entity.{method}"
+                    f"marivo.semantic.catalog_model.objects.Entity.{method}"
                     if prefix == "Entity"
                     else f"marivo.semantic._expression_values.{'RowExpression' if prefix == 'row' else 'MetricExpression' if prefix == 'Metric' else '_MetricSamples'}.{method}",
                     summary,
@@ -2562,7 +2411,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
     rows.append(
         _capability(
             "Relationship.at",
-            "marivo.semantic.catalog.Relationship.at",
+            "marivo.semantic.catalog_model.objects.Relationship.at",
             "Capture an exact version anchor at this relationship step’s versioned target. The next step in mv.path(...) uses that same node version.",
             kind="method",
             output="RelationshipStep",
@@ -2626,16 +2475,22 @@ def _result_method_capabilities() -> tuple[AuthoringCapability, ...]:
     rows: list[AuthoringCapability] = []
     for module, owner, name, output, example in (
         (
-            "catalog",
+            "catalog_model.objects",
             "SemanticObject",
             "related",
             "CatalogPage",
             'entry.related("dependencies").show()',
         ),
-        ("catalog", "SemanticObject", "to_dict", "dict[str, JsonValue]", "data = entry.to_dict()"),
-        ("catalog", "SemanticObject", "to_json", "Text", "text = entry.to_json()"),
         (
-            "catalog",
+            "catalog_model.objects",
+            "SemanticObject",
+            "to_dict",
+            "dict[str, JsonValue]",
+            "data = entry.to_dict()",
+        ),
+        ("catalog_model.objects", "SemanticObject", "to_json", "Text", "text = entry.to_json()"),
+        (
+            "catalog_model.objects",
             "SemanticObject",
             "show",
             "None",
@@ -2677,8 +2532,8 @@ def _result_method_capabilities() -> tuple[AuthoringCapability, ...]:
         ("readiness", "ReadinessReport"),
         ("readiness", "ReadinessInputSummary"),
         ("readiness", "ReadinessIssue"),
-        ("validation", "ValidationReport"),
-        ("validation", "ValidationCheckResult"),
+        ("runtime_check.results", "ValidationReport"),
+        ("runtime_check.results", "ValidationCheckResult"),
     ):
         rows.append(
             _capability(
@@ -2700,7 +2555,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
     descriptor_rows = (
         _capability(
             "load",
-            "marivo.semantic.catalog.load",
+            "marivo.semantic.catalog_load.load",
             "Load the read-only semantic catalog.\n  workspace_dir is an exact project root; when omitted: MARIVO_PROJECT_ROOT > nearest ancestor manifest > current directory.\n  Always loads the local models/ root; marivo.toml [semantic].layer_paths adds external models/ roots containing datasources/ and semantic/.\n  domains=None or an empty sequence loads all domains. A name or nonempty sequence selects only those domain directories without automatic dependency expansion. Include every required domain. Filtered Relationship references may warn. Fields require their owning Entity, and Metrics require their dependencies in scope.",
             output="SemanticCatalog",
             effects=_LOCAL,
@@ -2715,7 +2570,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         *_ref_factory_capabilities(),
         _capability(
             "domain",
-            "marivo.semantic._authoring_declarations.domain",
+            "marivo.semantic.authoring.declarations.domain",
             "Declare a semantic domain namespace.",
             output="DomainSymbol",
             inputs=(
@@ -2728,7 +2583,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "entity",
-            "marivo.semantic._authoring_decorators.entity",
+            "marivo.semantic.authoring.entity.entity",
             "Declare an Entity over one datasource source. Table columns map output names to physical names; md.inspect supplies current names and types.\n  Explicit name declares directly; omitting name returns a one-expression Table decorator whose output schema and grain own downstream fields and identity.\n  Entity bodies admit the injected Table, inline literals, deterministic public ibis root symbols and typed scalar builtin UDFs from ibis.udf.scalar.builtin with at least one argument and concrete argument/return types. Python UDF bodies are not executed. Arbitrary helpers, Ibis submodules and Python/Pandas/Arrow UDFs are rejected.",
             output="EntitySymbol",
             inputs=(
@@ -2753,7 +2608,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "dimension",
-            "marivo.semantic._authoring_decorators.dimension",
+            "marivo.semantic.authoring.fields.dimension",
             "Declare a calculated dimension on an entity.",
             output="DimensionSymbol",
             inputs=(
@@ -2767,7 +2622,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "dimension_column",
-            "marivo.semantic._authoring_decorators.dimension_column",
+            "marivo.semantic.authoring.fields.dimension_column",
             "Declare a column-backed dimension on an entity.",
             output="DimensionSymbol",
             inputs=(
@@ -2781,7 +2636,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "time_dimension",
-            "marivo.semantic._authoring_decorators.time_dimension",
+            "marivo.semantic.authoring.fields.time_dimension",
             "Declare a calculated time dimension on an entity.",
             output="TimeDimensionSymbol",
             inputs=(
@@ -2804,7 +2659,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "time_dimension_column",
-            "marivo.semantic._authoring_decorators.time_dimension_column",
+            "marivo.semantic.authoring.fields.time_dimension_column",
             "Declare a column-backed time dimension on an entity.",
             output="TimeDimensionSymbol",
             inputs=(
@@ -2827,7 +2682,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "measure",
-            "marivo.semantic._authoring_decorators.measure",
+            "marivo.semantic.authoring.fields.measure",
             "Name a pure numeric row expression over established quantities; it does not convert a Dimension. For one numeric Entity output column, use dimension_column and measure_column with different semantic names for grouping and quantity roles. Omitted unit/additivity inherit facts; new assertions preserve compatible units and fixed time constraints. Additivity selects existing axes by kind/path. Naming and ai_context do not change computation. No loader, registration or source access.",
             output="NumericRow",
             inputs=(
@@ -2843,7 +2698,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "measure_column",
-            "marivo.semantic._authoring_decorators.measure_column",
+            "marivo.semantic.authoring.fields.measure_column",
             "Declare a column-backed measure on an entity." + _ADDITIVITY_HELP,
             output="MeasureSymbol",
             inputs=(
@@ -2861,7 +2716,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "relationship",
-            "marivo.semantic._authoring_decorators.relationship",
+            "marivo.semantic.authoring.relationship.relationship",
             "Declare a directed Entity mapping; key coverage derives structural cardinality, not required matches.",
             output="RelationshipSymbol",
             inputs=(
@@ -2882,7 +2737,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "join_on",
-            "marivo.semantic._authoring_values.join_on",
+            "marivo.semantic.authoring.values.join_on",
             "Build a join-key specification for a relationship.",
             output="JoinKey",
             inputs=(
@@ -2909,7 +2764,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "bind",
-            "marivo.semantic._authoring_values.bind",
+            "marivo.semantic._expression_binding.bind",
             "Apply a constructed leaf field or native lookup symbol to a direct Entity table parameter inside a restricted Ibis Dimension/TimeDimension declaration. Loader binding checks kind and ownership in the completed consumer scope; lookup symbols allow forward dependencies. Pure Measure/Metric bodies use constructed fields directly.",
             output="IbisValue",
             inputs=(
@@ -2925,7 +2780,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "metric",
-            "marivo.semantic._authoring_declarations.metric",
+            "marivo.semantic.authoring.declarations.metric",
             "Name a Metric with a zero-parameter pure expression body. The decorator returns a Metric expression. Fresh locals, a leading docstring, and tuple/list literal arguments are allowed; lists are frozen as tuples. Arbitrary calls, table parameters, Ibis returns and ms.bind are rejected. Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric. Fix contribution time on a source reduction with time=field, or omit time= to inherit its Entity's default_time when available. Explicit time=None or omission without a default makes the reduction report independent. Composed Metrics retain their branch clocks. Reporting with where=scope or by=(scope.by(grain),) filters clocked branches only; independent branches retain their scope. Use explicit field comparisons for fixed source predicates.",
             output="NumericMetric",
             inputs=(
@@ -2944,7 +2799,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "ai_context",
-            "marivo.semantic._authoring_values.ai_context",
+            "marivo.semantic.authoring.values.ai_context",
             "Build captured business context, guardrails and normalized explicit search aliases. Aliases do not register new semantic identities.",
             output="AiContextValue",
             effects=_AUTHOR,
@@ -2953,7 +2808,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "snapshot",
-            "marivo.semantic._authoring_values.snapshot",
+            "marivo.semantic.authoring.values.snapshot",
             "Declare daily Entity snapshots with required partition_field and business timezone. The field owns encoding; date D applies from D midnight and exact missing days remain absent.",
             output="ValiditySpec",
             inputs=(_parameter_input("dependency", "TimeDimensionSymbol", "partition_field"),),
@@ -2963,7 +2818,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "validity",
-            "marivo.semantic._authoring_values.validity",
+            "marivo.semantic.authoring.values.validity",
             "Declare validity bounds with required valid_from, valid_to, interval and open_end. DATE bounds derive their common business timezone from field declarations; timestamp bounds use their own field source authority.",
             output="ValiditySpec",
             inputs=(
@@ -2974,7 +2829,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "additive_over",
-            "marivo.semantic._authoring_values.additive_over",
+            "marivo.semantic.authoring.values.additive_over",
             "Declare exactly the native coordinates on which values may be added. Pass one or more Dimension or TimeDimension fields positionally; unpack a collection with *axes.",
             output="Additivity",
             inputs=(
@@ -2991,7 +2846,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "additive_all",
-            "marivo.semantic._authoring_values.additive_all",
+            "marivo.semantic.authoring.values.additive_all",
             "Declare additivity on all native coordinates. Accepts no arguments. Use additive_except for fixed axes, or additive_over to permit only named axes. This does not prove coverage.",
             output="Additivity",
             effects=_AUTHOR,
@@ -3000,7 +2855,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "additive_except",
-            "marivo.semantic._authoring_values.additive_except",
+            "marivo.semantic.authoring.values.additive_except",
             "Declare additivity on all native coordinates except one or more fixed axes, passed positionally. Unpack a collection with *axes. Fixed axes do not select a temporal reduction or declare a status-time role. A physical Measure declares status_time_dimension separately and includes it among these axes. Temporal sample reduction is explicit in per(time_field).reducer().",
             output="Additivity",
             constraints=("ref_shape",),
@@ -3018,7 +2873,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "non_additive",
-            "marivo.semantic._dsl_authoring.non_additive",
+            "marivo.semantic.authoring.additivity.non_additive",
             "Declare that displayed values cannot be added across native coordinates.",
             output="Additivity",
             effects=_AUTHOR,
@@ -3026,7 +2881,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "date",
-            "marivo.semantic._authoring_values.date",
+            "marivo.semantic.authoring.values.date",
             "Declare a native DATE and its business-day timezone. Omission uses Datasource wall_clock_timezone; missing declarations reject before data reads. Projection preserves DATE labels. Time consumption assigns the business-day start to the report range or bucket; it cannot reconstruct event-day totals.",
             output="DateSpec",
             effects=_AUTHOR,
@@ -3034,7 +2889,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "timestamp",
-            "marivo.semantic._authoring_values.timestamp",
+            "marivo.semantic.authoring.values.timestamp",
             "Interpret a native timestamp using its parser or Datasource wall_clock_timezone declaration. Projection and raw local-clock membership use the executor's native gap/fold behavior. Aware sources reject parser timezone. Applies only to the TimeDimension projection; it does not rewrite Entity primary_key. Naive identity keeps its original wall-clock value and precision.",
             output="TimestampSpec",
             effects=_AUTHOR,
@@ -3042,7 +2897,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "strptime",
-            "marivo.semantic._authoring_values.strptime",
+            "marivo.semantic.authoring.values.strptime",
             "Declare encoded time. Ordered year/month/day formats require valid, fixed-width, zero-padded values with exact separators. Eligible ranges compare the original column to same-type source-time constants. Other formats and unqualified endpoints retain native parsing. Projection retains native gap/fold behavior: rejected data becomes NULL except on PostgreSQL, where native to_timestamp can fail the query. Source timezone comes from the parser or Datasource wall_clock_timezone. ClickHouse 22.3 supports ordered formats with Date32/DateTime64; other formats require 23.3+. No on_error, trimming, guessing or retry.",
             output="StrptimeSpec",
             effects=_AUTHOR,
@@ -3051,7 +2906,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "hour_prefix",
-            "marivo.semantic._authoring_values.hour_prefix",
+            "marivo.semantic.authoring.values.hour_prefix",
             "Combine a 0..23 integer or canonical '00'..'23' string with a civil-date prefix, inheriting its source timezone. Use the loaded combined field explicitly as a source reduction's time= for partition-hour reports; report grain never replaces an existing Metric's clock. NULL hours have no time membership; changing clocks, timezones or ranges can change totals. To retain a DATE-clock Metric, classify by a separate ordinary hour-label Dimension. Hour 24 violates the declaration; no source scan or uniform parse-error policy. Qualified positive same-day ranges, including midnight starts, compare original columns. Whole-day, cross-day and one-sided ranges can add qualified original date bounds while retaining the exact predicate. SQL NULL retains native semantics. Partition pruning depends on the backend plan. No independent timezone parameter.",
             output="HourPrefixSpec",
             effects=_AUTHOR,
@@ -3251,7 +3106,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         descriptor_rows,
         root_sections=_root_sections(),
         source_contracts=_source_contracts(object_contracts, descriptor_rows),
-        repair_contracts=_repair_contracts(),
+        repair_contracts=ERROR_REPAIRS,
         help_descriptors=(
             *descriptor_rows,
             *(
@@ -3505,52 +3360,7 @@ REGISTRY = _build_registry()
 
 
 def _type_contracts() -> Mapping[type, SemanticTypeContract]:
-    from dataclasses import fields
-
-    from marivo.semantic.catalog_entries import (
-        CatalogFilters,
-        CatalogPage,
-        CatalogScope,
-        DatasourceDefinition,
-        DomainDefinition,
-        EntityDefinition,
-        EntryProvenance,
-        FieldDefinition,
-        MetricContributionClockBinding,
-        MetricContributionTimeRole,
-        MetricDefinition,
-        MetricNoContributionClockBinding,
-        RelationshipDefinition,
-    )
-
     """Build private type contracts without exposing constructors as help targets."""
-
-    from marivo._kernel.refs import SemanticKind
-    from marivo._kernel.symbolic import symbol_factory as ref_factory
-    from marivo.datasource.spi import PreviewResult
-    from marivo.semantic.catalog import (
-        Datasource,
-        Dimension,
-        Domain,
-        Entity,
-        Measure,
-        Metric,
-        Relationship,
-        SemanticCatalog,
-        TimeDimension,
-    )
-    from marivo.semantic.dtos import PreviewBatchResult
-    from marivo.semantic.ir import DateParse, JoinKey
-    from marivo.semantic.readiness import (
-        ReadinessInputSummary,
-        ReadinessIssue,
-        ReadinessReport,
-    )
-    from marivo.semantic.validation import (
-        SourceCheckNamespace,
-        ValidationCheckResult,
-        ValidationReport,
-    )
 
     show_render = ("show", "render")
     contracts: dict[type, SemanticTypeContract] = {}
@@ -3861,8 +3671,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ),
         methods=("to_dict",),
     )
-    from marivo.semantic._expression_values import MetricExpression, RowExpression
-    from marivo.semantic.expressions import ExpressionContract
 
     add(
         RowExpression,
@@ -3915,7 +3723,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "SemanticKind",
         (),
     )
-    from marivo._kernel.ai_context import AiContextValue
 
     add(
         AiContextValue,
@@ -3930,19 +3737,6 @@ TYPE_CONTRACTS = _type_contracts()
 
 
 def _error_types() -> Mapping[str, type]:
-    from marivo.semantic.errors import (
-        CatalogSearchError,
-        DeclaredTimezoneContradiction,
-        SemanticContractScopeError,
-        SemanticDecoratorError,
-        SemanticError,
-        SemanticExpressionError,
-        SemanticHelpTargetError,
-        SemanticLoadError,
-        SemanticLoadFailed,
-        SemanticRuntimeError,
-        SourceTimezoneMissing,
-    )
 
     return MappingProxyType(
         {

@@ -68,7 +68,7 @@ def finish_decimal(values: pd.Series, precision: int, scale: int) -> pd.Series:
 
     Decimal quantize avoids Arrow's input-precision carry limit, including p=38.
     """
-    from marivo.semantic._numeric_lowering import numeric_failure
+    from marivo.semantic.spi import numeric_failure
 
     missing = typed_null_mask(values)
     try:
@@ -114,7 +114,7 @@ def nullable_arithmetic(
     """Delegate arithmetic to the actual carrier, retaining NULL and zero division."""
     import operator
 
-    from marivo.semantic._numeric_lowering import numeric_failure
+    from marivo.semantic.spi import numeric_failure
 
     left_missing, right_missing = typed_null_mask(left), typed_null_mask(right)
     a, b = left, right
@@ -187,7 +187,7 @@ def duration_arithmetic(
     output: DurationDataType | ScalarDataType,
 ) -> pd.Series:
     """Execute already typed Duration arithmetic in its exact original ticks."""
-    from marivo.semantic._numeric_lowering import numeric_failure
+    from marivo.semantic.spi import numeric_failure
 
     def operand(series: pd.Series, dtype: DataType) -> pd.Series:
         if not isinstance(dtype, DurationDataType):

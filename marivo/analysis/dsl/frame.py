@@ -106,7 +106,7 @@ if TYPE_CHECKING:
 
     from marivo._kernel.grouping import Grouping
     from marivo.analysis.dsl.population import Population
-    from marivo.semantic._expression_values import FieldExpression
+    from marivo.semantic.spi import FieldExpression
 
 
 @dataclass(frozen=True, init=False, repr=False, eq=False)

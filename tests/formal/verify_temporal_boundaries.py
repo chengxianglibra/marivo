@@ -18,10 +18,13 @@ from marivo.analysis.compiler.member_version import version_predicate
 from marivo.analysis.compiler.source_time import source_time, source_time_predicate
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.analysis.session.core import Session
-from marivo.semantic._source_timezone import DeclaredSourceTimezone
 from marivo.semantic.ir import TimestampParse
 from marivo.semantic.reader import SemanticProject
-from marivo.semantic.validator import normalize_target_entity, normalize_target_version_selection
+from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
+from marivo.semantic.static_check.targets import (
+    normalize_target_entity,
+    normalize_target_version_selection,
+)
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.formal._smt import prove_unsat
 from tests.shared_fixtures import catalog_value

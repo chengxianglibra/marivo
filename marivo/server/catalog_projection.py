@@ -9,19 +9,19 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO
 
-from marivo.datasource.ir import TableSourceIR
-from marivo.semantic import load
-from marivo.semantic.catalog import SemanticObject
-from marivo.semantic.catalog_entries import (
+from marivo.datasource.spi import TableSourceIR
+from marivo.semantic import (
     DatasourceDefinition,
     DomainDefinition,
     EntityDefinition,
     FieldDefinition,
     MetricDefinition,
     RelationshipDefinition,
-    _json_value,
+    SemanticObject,
+    load,
 )
 from marivo.semantic.errors import ErrorKind, SemanticLoadFailed
+from marivo.semantic.spi import iter_catalog_entries, serialize_catalog_json_value
 
 if TYPE_CHECKING:
     from marivo.server.wire import JsonObject, JsonValue
@@ -98,7 +98,7 @@ def _safe_identifier(value: str) -> bool:
 def _detail(entry: SemanticObject, root: Path) -> JsonObject:
     definition = entry.definition
     public = {
-        name: _json_value(getattr(definition, name))
+        name: serialize_catalog_json_value(getattr(definition, name))
         for name in DEFINITION_FIELDS[type(definition)].split()
     }
     if isinstance(definition, EntityDefinition):
@@ -156,7 +156,7 @@ def _catalog(root: Path, output: BinaryIO, maximum: int) -> None:
         output.write(chunk)
 
     write('{"entries":[')
-    for index, entry in enumerate(catalog._index.entries()):
+    for index, entry in enumerate(iter_catalog_entries(catalog)):
         detail = _detail(entry, root)
         related: JsonObject = {}
         outside: list[JsonValue] = []

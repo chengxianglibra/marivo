@@ -21,7 +21,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic._deferred_semantics import consume_field, consume_predicate
 from marivo.semantic._expression_values import RowExpression
-from marivo.semantic.catalog import Entity
+from marivo.semantic.catalog_model.objects import Entity
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 

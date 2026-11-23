@@ -25,10 +25,13 @@ from marivo._kernel.refs import Ref, SemanticKindTag
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.symbolic import EntitySymbol
 from marivo.datasource.ir import TableSourceIR
-from marivo.semantic._expression_binding import ExpressionBody
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, SemanticLoadError
+from marivo.semantic.expressions.ir import ExpressionBody
 from marivo.semantic.ir import EntityIR
-from marivo.semantic.loader import _LOADER_CTX, LoaderContext
+from marivo.semantic.loading_context import (
+    _LOADER_CTX,
+    LoaderContext,
+)
 from tests.support.refs import as_ref
 
 if TYPE_CHECKING:

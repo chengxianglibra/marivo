@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from marivo.semantic.catalog import Entity, SemanticCatalog
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.catalog_model.objects import Entity
 from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.ir import ValidityVersioningIR
 from marivo.semantic.reader import SemanticProject

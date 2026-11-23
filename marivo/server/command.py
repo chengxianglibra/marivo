@@ -12,9 +12,10 @@ from importlib.util import find_spec
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from marivo import __version__
+from marivo._kernel.environment import MARIVO_VERSION
 from marivo._kernel.project import resolve_project_root
 from marivo.server import granite_model as granite_assets
+from marivo.server.http import ReadApplication
 from marivo.server.wire import API_VERSION, Limits
 
 
@@ -52,9 +53,7 @@ def serve(
     granite_model: Path | None = None,
     granite_cache_dir: Path | None = None,
 ) -> None:
-    import uvicorn
-
-    from marivo.server.http import ReadApplication
+    import uvicorn  # noqa: PLC0415 - Only the serve command needs the API extra.
 
     token = os.environ.get("MARIVO_API_TOKEN", "")
     if re.fullmatch(r"[A-Za-z0-9._~+/=-]+", token) is None:
@@ -116,7 +115,7 @@ def serve(
                             "port": bound[1],
                             "protocol": "https" if self.config.is_ssl else "http",
                             "pid": os.getpid(),
-                            "marivo_version": __version__,
+                            "marivo_version": MARIVO_VERSION,
                             "api_version": API_VERSION,
                         }
                     ),

@@ -14,7 +14,7 @@ from marivo._definition.expressions import PerReduce, PerWeightedMean
 from marivo.analysis.methods.numeric_state import typed_null_mask
 from marivo.analysis.model.data_types import DataType, DecimalDataType
 from marivo.analysis.model.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
-from marivo.semantic._numeric_lowering import numeric_failure
+from marivo.semantic.spi import numeric_failure
 
 
 def reduce_samples(

@@ -14,8 +14,12 @@ import marivo.semantic as ms
 from marivo._definition.deferred import inspect_deferred
 from marivo._definition.types import LiteralValue, SumAxes
 from marivo.semantic._consumption import bind_field, bind_metric
-from marivo.semantic._expression_values import MetricExpression, RowExpression, _as_deferred
+from marivo.semantic._expression_values import (
+    MetricExpression,
+    RowExpression,
+)
 from marivo.semantic.errors import SemanticError
+from marivo.semantic.expressions.inputs import _as_deferred
 from tests.shared_fixtures import write_minimal_catalog_project
 
 

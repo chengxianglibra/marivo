@@ -19,38 +19,15 @@ from marivo._definition.types import (
 from marivo._kernel.symbolic import PathSymbol, RelationshipSymbol
 from marivo._kernel.temporal import InstantAnchor
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.semantic.catalog import Entity, Relationship
+from marivo.semantic.catalog_model.objects import (
+    Entity,
+    Relationship,
+    RelationshipStep,
+    _step,
+)
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 
 _PATH_HELP = LiveHelpTarget(surface="analysis", canonical_id="path.define")
-
-
-@final
-@dataclass(frozen=True, slots=True, init=False, repr=False)
-class RelationshipStep:
-    """One captured directed Relationship and optional target version instant."""
-
-    relationship: Relationship = field(compare=False, hash=False)
-    target_at: InstantAnchor | None
-    _parameter: RelationshipStepParameter
-
-    def __init__(self) -> None:
-        raise TypeError("Use relationship.at(anchor) or mv.path(...).steps.")
-
-    def __init_subclass__(cls) -> NoReturn:
-        raise TypeError("RelationshipStep is a closed value type.")
-
-    @property
-    def _context(self) -> InputContext:
-        return self.relationship._context
-
-    def __repr__(self) -> str:
-        return f"<RelationshipStep {self.relationship.id[:150]}; use .show()>"
-
-    def show(self) -> None:
-        """Print the captured Relationship identity and target instant."""
-        print(repr(self))
-        print(f"target_at={self.target_at}")
 
 
 @final
@@ -90,25 +67,6 @@ class Path(_PathValue):
             print(f"{step.relationship.id[:150]} target_at={step.target_at}")
         if len(self.steps) > 8:
             print(f"... {len(self.steps) - 8} more steps")
-
-
-def _step(relationship: Relationship, anchor: InstantAnchor | None) -> RelationshipStep:
-    try:
-        facts = RelationshipStepParameter(relationship._parameter, anchor)
-    except DefinitionGraphError as error:
-        raise SemanticExpressionError(
-            kind=ErrorKind.INVALID_TIME_PATH,
-            message="Relationship target version selection is invalid.",
-            expected="an exact anchor on a versioned Relationship target",
-            received=str(error),
-            action="Use relationship.at(session.instant(...)) on a versioned target or omit its anchor.",
-            help_target="relationship.at",
-        ) from error
-    value = object.__new__(RelationshipStep)
-    object.__setattr__(value, "relationship", relationship)
-    object.__setattr__(value, "target_at", anchor)
-    object.__setattr__(value, "_parameter", facts)
-    return value
 
 
 @overload

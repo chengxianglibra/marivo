@@ -13,8 +13,8 @@ from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind
-from marivo.semantic.materializer import Materializer
 from marivo.semantic.reader import SemanticProject
+from marivo.semantic.runtime_check.materializer import Materializer
 from tests.shared_fixtures import patch_semantic_connections
 
 ProjectFactory = Callable[[dict[str, str]], SemanticProject]

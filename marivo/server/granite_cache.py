@@ -13,6 +13,8 @@ from zipfile import ZIP_STORED, BadZipFile, ZipFile
 import numpy as np
 import numpy.typing as npt
 
+from marivo.semantic.spi import valid_embedding_shape
+
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import IO
@@ -98,7 +100,7 @@ class GraniteCache:
                         return None
                     shape, fortran_order, dtype = _read_header(stream)
                     if (
-                        shape != (rows, _DIMENSIONS)
+                        not valid_embedding_shape(shape, rows, _DIMENSIONS)
                         or fortran_order
                         or dtype != _DTYPE
                         or matrix_member.file_size - stream.tell() != expected_bytes
@@ -132,7 +134,7 @@ class GraniteCache:
         ) or len(set(row_keys)) != len(row_keys):
             raise ValueError("Expected a unique 32-byte fingerprint for each Granite vector.")
         if (
-            matrix.shape != (len(row_keys), _DIMENSIONS)
+            not valid_embedding_shape(matrix.shape, len(row_keys), _DIMENSIONS)
             or matrix.dtype != _DTYPE
             or not matrix.flags.c_contiguous
         ):

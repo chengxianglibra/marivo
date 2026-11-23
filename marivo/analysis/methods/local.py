@@ -49,8 +49,8 @@ def _attribute_formula_failure(
 ) -> NoReturn:
     """Annotate the existing numeric failure from its actual check coordinates."""
     from marivo.analysis.core.frozen_calendar import frozen_key_rows
-    from marivo.semantic._numeric_lowering import numeric_failure
     from marivo.semantic.errors import SemanticExpressionError
+    from marivo.semantic.spi import numeric_failure
 
     source_parent = frozen_key_rows(coordinates, context.source_parent_columns)[0]
     parent = dict(context.parent_mapping)[source_parent]
@@ -86,7 +86,7 @@ def query_combine(
     sample_domains: Mapping[tuple[int, ...], pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
     """Combine completed Metric samples and check only demanded numeric values."""
-    from marivo.semantic._numeric_lowering import numeric_failure
+    from marivo.semantic.spi import numeric_failure
 
     program = stage.program
     assert isinstance(program, FormulaProgram)
@@ -155,7 +155,7 @@ def _combine_program(
     from marivo.analysis.methods._ibis_numeric import evaluate_numeric
     from marivo.analysis.methods._sample_numeric import reduce_samples
     from marivo.analysis.methods.carriers.data_validation import stage_arrow_type
-    from marivo.semantic._numeric_lowering import (
+    from marivo.semantic.spi import (
         NumericCheck,
         NumericValue,
         lower_metric_formula,

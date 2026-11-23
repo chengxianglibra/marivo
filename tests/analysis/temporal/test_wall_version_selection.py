@@ -11,7 +11,10 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.compiler.member_version import version_predicate
 from marivo.semantic.reader import SemanticProject
-from marivo.semantic.validator import normalize_target_entity, normalize_target_version_selection
+from marivo.semantic.static_check.targets import (
+    normalize_target_entity,
+    normalize_target_version_selection,
+)
 from tests.shared_fixtures import catalog_value
 
 

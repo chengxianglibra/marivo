@@ -105,7 +105,7 @@ from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.programs import FormulaInput
 from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.datasource.spi import query_dialect, query_policy
-from marivo.semantic._numeric_lowering import NumericCheck, NumericValue, numeric_binary
+from marivo.semantic.spi import NumericCheck, NumericValue, numeric_binary
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.graph_source_execution import PreparedSources

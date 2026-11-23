@@ -12,15 +12,14 @@ layers =
     __main__
     cli
     server | skills
-    analysis : _help
+    _help
+    analysis
     ontology
     semantic
     datasource
     _authoring
     _definition | introspection | telemetry
     _kernel
-# Analysis Help still resolves qualified links through the coordinator.
-# Their existing two-way dependency is scheduled for P5.
 
 [importlinter:contract:no-sibling-cycles]
 name = Shared implementation packages have no sibling import cycles
@@ -35,6 +34,13 @@ ancestors =
     marivo.datasource.inspection
     marivo.datasource.runtime
     marivo.datasource.store
+    marivo.semantic
+    marivo.semantic.authoring
+    marivo.semantic.catalog_model
+    marivo.semantic.expressions
+    marivo.semantic.runtime_check
+    marivo.semantic.search
+    marivo.semantic.static_check
 
 [importlinter:contract:pure-layers-no-heavy-runtime]
 name = Pure analysis and shared primitives exclude execution dependencies
@@ -207,3 +213,124 @@ protected_modules =
     marivo.datasource.engines.clickhouse_query
 allowed_importers =
     marivo.datasource.engines
+
+[importlinter:contract:spi-only-cross-domain]
+name = Semantic implementation imports stay inside the owning domain
+type = protected
+protected_modules =
+    marivo.semantic._aggregate_accuracy
+    marivo.semantic._capabilities
+    marivo.semantic._catalog_definition
+    marivo.semantic._compiled_state
+    marivo.semantic._consumption
+    marivo.semantic._deferred_semantics
+    marivo.semantic._definition_display
+    marivo.semantic._definition_expression
+    marivo.semantic._definition_expression_types
+    marivo.semantic._definition_identity
+    marivo.semantic._expression_binding
+    marivo.semantic._expression_values
+    marivo.semantic._formula_display
+    marivo.semantic._ibis_builtin_udf
+    marivo.semantic._metric_time_disclosure
+    marivo.semantic._model_source
+    marivo.semantic._numeric_duration
+    marivo.semantic._numeric_lowering
+    marivo.semantic._numeric_recipe
+    marivo.semantic._paths
+    marivo.semantic._rescale
+    marivo.semantic._symbolic_binding
+    marivo.semantic.authoring
+    marivo.semantic.catalog
+    marivo.semantic.catalog_consumption
+    marivo.semantic.catalog_discovery
+    marivo.semantic.catalog_entries
+    marivo.semantic.catalog_load
+    marivo.semantic.catalog_model
+    marivo.semantic.catalog_previews
+    marivo.semantic.check
+    marivo.semantic.compiled_types
+    marivo.semantic.constraints
+    marivo.semantic.declaration_records
+    marivo.semantic.declaration_scope
+    marivo.semantic.definition_resolution
+    marivo.semantic.dtos
+    marivo.semantic.error_repairs
+    marivo.semantic.expressions
+    marivo.semantic.input_scope
+    marivo.semantic.ir
+    marivo.semantic.loader
+    marivo.semantic.loading_context
+    marivo.semantic.metric_time_bindings
+    marivo.semantic.numeric_operations
+    marivo.semantic.paths
+    marivo.semantic.policies
+    marivo.semantic.reader
+    marivo.semantic.readiness
+    marivo.semantic.runtime_check
+    marivo.semantic.search
+    marivo.semantic.state_consumption
+    marivo.semantic.static_check
+    marivo.semantic.time_format
+    marivo.semantic.unit_algebra
+allowed_importers =
+    marivo.semantic
+
+[importlinter:contract:datasource-spi-only]
+name = Datasource implementation imports stay inside the owning domain
+type = protected
+protected_modules =
+    marivo.datasource._capabilities
+    marivo.datasource._expression_fields
+    marivo.datasource._lifetime
+    marivo.datasource.arrow_types
+    marivo.datasource.constraints
+    marivo.datasource.credentials
+    marivo.datasource.engines
+    marivo.datasource.inspection
+    marivo.datasource.ir
+    marivo.datasource.locations
+    marivo.datasource.metadata_types
+    marivo.datasource.runtime
+    marivo.datasource.source
+    marivo.datasource.store
+    marivo.datasource.temporal_primitives
+allowed_importers =
+    marivo.datasource
+
+[importlinter:contract:analysis-read-spi-only]
+name = Analysis implementation imports stay inside the owning domain
+type = protected
+protected_modules =
+    marivo.analysis._capabilities
+    marivo.analysis._public
+    marivo.analysis._scope
+    marivo.analysis.binding
+    marivo.analysis.compiler
+    marivo.analysis.core
+    marivo.analysis.dsl
+    marivo.analysis.materialization
+    marivo.analysis.methods
+    marivo.analysis.model
+    marivo.analysis.session._disclosure
+    marivo.analysis.session._lazy_frames
+    marivo.analysis.session._lazy_history
+    marivo.analysis.session._lazy_read_model
+    marivo.analysis.session._lazy_runtime_reads
+    marivo.analysis.session._lazy_sources
+    marivo.analysis.session._method_disclosure
+    marivo.analysis.session.core
+    marivo.analysis.timezone
+allowed_importers =
+    marivo.analysis
+
+[importlinter:contract:ontology-spi-only]
+name = Ontology implementation imports stay inside the owning domain
+type = protected
+protected_modules =
+    marivo.ontology._authoring
+    marivo.ontology._capabilities
+    marivo.ontology.catalog
+    marivo.ontology.types
+allowed_importers =
+    marivo.ontology

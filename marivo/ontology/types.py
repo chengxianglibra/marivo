@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal, SupportsIndex, TypeAlias, cast, final
 
+from pydantic_core import core_schema
+
+from marivo._kernel.ai_context import AiContextIR
 from marivo._kernel.compat import Never, Self
 from marivo._kernel.refs import EntityKind, MeasureKind, MetricKind, Ref, RefPayloadV1
-from marivo.semantic.ir import AiContextIR, SourceLocation
+from marivo.semantic.spi import SourceLocation
 
 OntologyEndpointKind: TypeAlias = EntityKind | MeasureKind | MetricKind
 OntologyEndpointRef: TypeAlias = Ref[OntologyEndpointKind]
@@ -79,7 +82,6 @@ class SemanticEdgeRef:
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: object, handler: object) -> Any:
         del cls, source_type, handler
-        from pydantic_core import core_schema
 
         def validate_python(value: object) -> SemanticEdgeRef:
             if type(value) is not SemanticEdgeRef:

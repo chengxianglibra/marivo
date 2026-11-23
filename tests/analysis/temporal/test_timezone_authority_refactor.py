@@ -15,8 +15,8 @@ from marivo.analysis.compiler.source_time import (
 )
 from marivo.analysis.model.time_authority import CivilDateSourceTime
 from marivo.datasource.engines.temporal_lowering import lower_temporal
-from marivo.semantic._source_timezone import DeclaredSourceTimezone
 from marivo.semantic.ir import DateParse, TimestampParse
+from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
 from tests.analysis.temporal.encoded_time_fixtures import axis
 
 

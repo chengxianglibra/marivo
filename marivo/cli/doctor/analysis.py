@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.layout import MaterializationLayout
-from marivo.analysis.materialization.prior_generations import (
+from marivo.analysis.session.read_spi import (
+    MaterializationLayout,
+    check_existing_store,
     discover_prior_generations,
     prior_generation_guidance,
 )
-from marivo.analysis.materialization.store import SessionStore
 from marivo.cli.doctor.report import DoctorCheck, DoctorSection
 
 
@@ -74,7 +74,7 @@ def state_section(root: Path) -> DoctorSection:
         # Let the owning Store validator report unavailable current state below.
         pass
     try:
-        SessionStore.open_existing(root)
+        check_existing_store(root)
     except (AnalysisError, OSError) as exc:
         checks.append(
             DoctorCheck(

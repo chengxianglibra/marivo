@@ -393,7 +393,7 @@ def test_source_check_batches_compile_as_one_summary_per_scope(dialect: str) -> 
         _attach_relation_checks,
     )
     from marivo.analysis.model.data_types import DataColumn, ScalarDataType
-    from marivo.semantic._numeric_lowering import NumericCheck
+    from marivo.semantic.numeric_operations import NumericCheck
 
     table = ibis.table(
         {"key.0": "int64", "a": "float64", "b": "float64", "bad_a": "boolean", "bad_b": "boolean"},
@@ -820,7 +820,7 @@ def test_check_witness_preserves_duckdb_collation_with_empty_output(collation_sc
         _attach_relation_checks,
     )
     from marivo.analysis.model.data_types import DataColumn, ScalarDataType
-    from marivo.semantic._numeric_lowering import NumericCheck
+    from marivo.semantic.numeric_operations import NumericCheck
 
     connection = ibis.duckdb.connect(threads=1)
     try:

@@ -32,7 +32,7 @@ from marivo.analysis.compiler.graph_plan import (
 )
 from marivo.analysis.compiler.unique_keys import relation_unique_keys
 from marivo.analysis.model.unique_keys import UniqueKeys
-from marivo.semantic._numeric_lowering import NumericCheck
+from marivo.semantic.spi import NumericCheck
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -151,7 +151,7 @@ def lower_query(
             from marivo._definition.expressions import SourceAggregate, SourceWeightedMean
             from marivo.analysis.core.value_types import data_type
             from marivo.analysis.errors import AnalysisStageUnavailableError
-            from marivo.semantic._numeric_lowering import lower_row
+            from marivo.semantic.spi import lower_row
 
             fields = {path: filtered[name] for path, name in columns.items()}
             for member in read_members(stage) or (stage,):

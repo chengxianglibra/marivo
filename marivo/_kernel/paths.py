@@ -103,3 +103,4 @@ class _PathValue:
 
     __slots__ = ()
     _parameter: PathParameter
+    _context: InputContext

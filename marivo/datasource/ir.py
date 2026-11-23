@@ -11,7 +11,7 @@ from pathlib import PurePosixPath
 from typing import Any, Literal, TypeAlias
 from zoneinfo import ZoneInfoNotFoundError
 
-from marivo._kernel.ai_context import _normalize_aliases
+from marivo._kernel.ai_context import AiContextIR
 from marivo._kernel.timezones import normalize_timezone
 from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceObservedEffects, repair
 from marivo.datasource.locations import DatasourceSourceLocation as DatasourceSourceLocation
@@ -38,18 +38,6 @@ __all__ = [
     "source_name",
     "source_to_dict",
 ]
-
-
-@dataclass(frozen=True)
-class AiContextIR:
-    """Immutable AI-facing context stored on semantic and datasource objects."""
-
-    business_definition: str | None = None
-    guardrails: tuple[str, ...] = ()
-    aliases: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "aliases", _normalize_aliases(self.aliases))
 
 
 DatasourceAiContextIR = AiContextIR

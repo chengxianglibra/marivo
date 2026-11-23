@@ -51,7 +51,7 @@ if TYPE_CHECKING:
         RuleDecision,
     )
     from marivo.analysis.compiler.original import ComponentLayout
-    from marivo.semantic._compiled_state import CompiledSemanticState
+    from marivo.semantic.spi import CompiledSemanticState
 
 
 @dataclass(frozen=True, slots=True)

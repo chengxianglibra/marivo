@@ -17,8 +17,8 @@ from marivo._kernel.refs import ref
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.runtime.connections import DatasourceConnectionService
 from marivo.semantic._deferred_semantics import consume_metric
-from marivo.semantic._metric_time import metric_time_occurrences
 from marivo.semantic.errors import SemanticError, SemanticLoadFailed
+from marivo.semantic.expressions.metric_time import metric_time_occurrences
 from tests.shared_fixtures import catalog_get, write_minimal_catalog_project
 
 _MODEL = """

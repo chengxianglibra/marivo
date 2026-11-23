@@ -32,7 +32,7 @@ from marivo.analysis.model.data_types import (
 )
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_structure import ValueKind
-from marivo.semantic._numeric_lowering import numeric_failure
+from marivo.semantic.spi import NumericValue, numeric_binary, numeric_failure
 
 
 def literal_kind(value: LiteralValue) -> ValueKind:
@@ -182,7 +182,6 @@ def expression_value(
                 "Use arithmetic on compatible numeric Columns.",
                 "Query.prepare",
             )
-        from marivo.semantic._numeric_lowering import NumericValue, numeric_binary
 
         return numeric_binary(
             {"add": "add", "sub": "subtract", "mul": "multiply", "div": "divide"}[

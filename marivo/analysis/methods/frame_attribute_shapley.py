@@ -61,14 +61,14 @@ from marivo.analysis.model.frozen_keys import FrozenKey
 from marivo.analysis.model.kernels import FrequencyState
 from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
 from marivo.analysis.model.method_values import FrameMethodValue
-from marivo.semantic._numeric_lowering import (
+from marivo.semantic.errors import SemanticExpressionError
+from marivo.semantic.spi import (
     NumericCheck,
     NumericValue,
     lower_metric_formula,
     numeric_binary,
     numeric_failure,
 )
-from marivo.semantic.errors import SemanticExpressionError
 
 _Number: TypeAlias = int | float | Decimal
 

@@ -14,8 +14,8 @@ from marivo.datasource.ir import (
     SourceParamIR,
     TableSourceIR,
 )
-from marivo.semantic._expression_binding import ExpressionBody
 from marivo.semantic.errors import SemanticLoadError
+from marivo.semantic.expressions.ir import ExpressionBody
 from marivo.semantic.ir import (
     DateParse,
     DimensionIR,
@@ -30,9 +30,9 @@ from marivo.semantic.ir import (
     TargetValiditySelection,
     ValidityVersioningIR,
 )
-from marivo.semantic.validator import (
-    Registry,
-    normalize_target_dimension,
+from marivo.semantic.static_check.dimensions import normalize_target_dimension
+from marivo.semantic.static_check.registry import Registry
+from marivo.semantic.static_check.targets import (
     normalize_target_entity,
     normalize_target_version_selection,
 )

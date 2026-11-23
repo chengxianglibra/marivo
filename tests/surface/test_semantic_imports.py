@@ -396,7 +396,7 @@ def test_ai_context_value_uses_existing_typing_namespace() -> None:
 
 
 def test_loader_context_dataclass() -> None:
-    from marivo.semantic.loader import LoaderContext
+    from marivo.semantic.loading_context import LoaderContext
 
     ctx = LoaderContext()
     assert ctx.current_model_file is None

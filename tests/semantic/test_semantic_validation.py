@@ -15,7 +15,6 @@ from trino.exceptions import TrinoUserError
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-import marivo.semantic.validation as validation_module
 from marivo._kernel.refs import DatasourceKind, Ref
 from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.credentials import remember_injected
@@ -26,6 +25,8 @@ from marivo.datasource.metadata_types import ColumnMetadata
 from marivo.datasource.runtime.connections import DatasourceConnectionService
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
+from marivo.semantic.runtime_check import inspection as validation_module
+from marivo.semantic.runtime_check import physical
 from tests.shared_fixtures import catalog_get
 from tests.support.refs import as_ref
 
@@ -190,18 +191,15 @@ def test_validate_without_declared_checks_is_metadata_only(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog, _database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
+    state_root = catalog.workspace_dir / ".marivo"
     state_files_before = {
-        path.relative_to(catalog._project.state_root)
-        for path in catalog._project.state_root.rglob("*")
-        if path.is_file()
+        path.relative_to(state_root) for path in state_root.rglob("*") if path.is_file()
     }
 
     report = catalog.validate([catalog_get(catalog, "measure:sales.orders.amount", kind="measure")])
     schema = next(check for check in report.checks if check.kind == "schema")
     state_files_after = {
-        path.relative_to(catalog._project.state_root)
-        for path in catalog._project.state_root.rglob("*")
-        if path.is_file()
+        path.relative_to(state_root) for path in state_root.rglob("*") if path.is_file()
     }
 
     assert report.status == "current"
@@ -878,7 +876,7 @@ def test_unavailable_column_preserves_other_field_checks_and_names_the_cause(
     # Exercise the real remote type mapper with injected catalog metadata;
     # the local datasource supplies only the metadata/probe connection.
     monkeypatch.setattr(
-        validation_module,
+        physical,
         "ibis_table_type",
         lambda name, *, backend_type: _ibis_table_type(
             name, backend_type=engine if name == "unsupported_physical_type" else backend_type
@@ -930,7 +928,7 @@ def test_unavailable_column_repair_identifies_physical_type(
 
     monkeypatch.setattr(validation_module, "inspect_in_project", inspect_with_unavailable)
     monkeypatch.setattr(
-        validation_module,
+        physical,
         "ibis_table_type",
         lambda name, *, backend_type: _ibis_table_type(
             name, backend_type="mysql" if name == "unsupported_physical_type" else backend_type
@@ -1062,7 +1060,7 @@ def test_char_columns_are_usable_but_not_numeric(
 
     monkeypatch.setattr(validation_module, "inspect_in_project", inspect_char)
     monkeypatch.setattr(
-        validation_module,
+        physical,
         "ibis_table_type",
         lambda name, *, backend_type: _ibis_table_type(
             name, backend_type=engine if name == "char(8)" else backend_type

@@ -16,8 +16,11 @@ from marivo._kernel.symbolic import EntitySymbol
 from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.expressions import _Entity as Entity
-from marivo.semantic.loader import LoaderContext, loader_context
+from marivo.semantic.expressions.objects import _Entity as Entity
+from marivo.semantic.loading_context import (
+    LoaderContext,
+    loader_context,
+)
 from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
 from tests.shared_fixtures import resolve_test_symbol as resolve
 from tests.support.refs import as_ref

@@ -4,8 +4,19 @@ from __future__ import annotations
 
 from collections import Counter
 
+from ibis.common.deferred import (
+    Attr,
+    BinaryOperator,
+    Call,
+    Item,
+    Just,
+    Sequence,
+    UnaryOperator,
+    Variable,
+)
 from typing_extensions import assert_never
 
+from marivo._definition.deferred import RescaleResolver
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
@@ -59,18 +70,6 @@ from marivo._kernel.temporal import Grain
 
 def _recipe_text(recipe: object, operands: tuple[str, ...]) -> str:
     """Render admitted native operations without exposing Marivo resolver records."""
-    from ibis.common.deferred import (
-        Attr,
-        BinaryOperator,
-        Call,
-        Item,
-        Just,
-        Sequence,
-        UnaryOperator,
-        Variable,
-    )
-
-    from marivo._definition.deferred import RescaleResolver
 
     def render(value: object) -> str:
         if isinstance(value, RescaleResolver):

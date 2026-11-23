@@ -9,39 +9,35 @@ from typing import TYPE_CHECKING
 from ibis.common.deferred import Deferred
 
 from marivo._definition.deferred import inspect_capture, resolver_of
-from marivo._definition.types import DefinitionGraphError, InputContext, Owner, merge_input_contexts
+from marivo._definition.types import Owner
 from marivo._kernel.refs import Ref, SemanticKindTag
+from marivo._kernel.refs import ref as ref_factory
+from marivo.semantic._deferred_semantics import (
+    consume_field,
+    consume_metric,
+    consume_predicate,
+    consume_row,
+)
 from marivo.semantic._expression_values import (
     FieldExpression,
     MetricPredicate,
     NumericMetric,
     NumericRow,
     RowPredicate,
-    _as_deferred,
 )
+from marivo.semantic._symbolic_binding import bind_recipe
+from marivo.semantic.catalog_model.objects import Entity, Relationship
+from marivo.semantic.definition_resolution import _Resolver, author_value
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
+from marivo.semantic.expressions.inputs import _as_deferred
+from marivo.semantic.expressions.objects import _Entity, _Relationship
+from marivo.semantic.input_scope import (
+    validate_context,
+)
 
 if TYPE_CHECKING:
-    from marivo.semantic._compiled_state import CompiledSemanticState
-    from marivo.semantic.catalog import Entity, Relationship, SemanticCatalog
-    from marivo.semantic.expressions import _Entity, _Relationship
-
-
-def validate_context(
-    context: InputContext, *, project_root: Path, owner: Owner | None = None
-) -> None:
-    """Check captured project and existing owner constraints before normalization."""
-    try:
-        merge_input_contexts(context, InputContext(project_root.resolve(), owner))
-        if context.owner is not None and owner is None:
-            raise DefinitionGraphError(
-                "A Session-owned input requires its owning Session receiver.",
-                kind="ownership_conflict",
-            )
-    except DefinitionGraphError as error:
-        raise SemanticExpressionError.from_definition(
-            error, operation="semantic input binding"
-        ) from error
+    from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.compiled_types import CompiledSemanticState
 
 
 def _bind_recipe(
@@ -51,7 +47,6 @@ def _bind_recipe(
     owner: Owner | None,
     lookup: Callable[[Ref[SemanticKindTag]], object],
 ) -> Deferred:
-    from marivo.semantic._symbolic_binding import bind_recipe
 
     validate_context(value._context, project_root=project_root, owner=owner)
     recipe = _as_deferred(value)
@@ -65,8 +60,6 @@ def _bind_recipe(
             received="unbound authoring symbols",
             action="Save the declaration in the model and load its complete scope, then obtain the object from the receiving Catalog.",
         )
-    from marivo._kernel.refs import ref as ref_factory
-    from marivo.semantic.expressions import _Entity
 
     for identity, captured_keys in inspection.identity_keys:
         entity = lookup(ref_factory.entity(identity.removeprefix("entity:")))
@@ -90,7 +83,6 @@ def _bind(
     *,
     owner: Owner | None,
 ) -> Deferred:
-    from marivo.semantic.expressions import author_value
 
     def lookup(reference: Ref[SemanticKindTag]) -> object:
         entry = catalog.get(reference.key)
@@ -107,7 +99,6 @@ def _bind_in_state(
     owner: Owner | None = None,
 ) -> Deferred:
     """Bind a new classification in one Frame target's captured source scope."""
-    from marivo.semantic.expressions import _Resolver, author_value
 
     resolver = _Resolver(state)
 
@@ -139,7 +130,6 @@ def bind_field_in_state(
     owner: Owner | None = None,
 ) -> Deferred:
     """Bind one typed field in an explicitly captured source scope."""
-    from marivo.semantic._deferred_semantics import consume_field
 
     result = _bind_in_state(value, state, project_root=project_root, owner=owner)
     consume_field(result)
@@ -154,7 +144,6 @@ def bind_metric_in_state(
     owner: Owner | None = None,
 ) -> Deferred:
     """Bind one typed metric in an explicitly captured source scope."""
-    from marivo.semantic._deferred_semantics import consume_metric
 
     result = _bind_in_state(value, state, project_root=project_root, owner=owner)
     consume_metric(result)
@@ -169,7 +158,6 @@ def bind_predicate_in_state(
     owner: Owner | None = None,
 ) -> Deferred:
     """Bind one typed predicate in an explicitly captured source scope."""
-    from marivo.semantic._deferred_semantics import consume_predicate
 
     result = _bind_in_state(value, state, project_root=project_root, owner=owner)
     consume_predicate(result)
@@ -177,8 +165,6 @@ def bind_predicate_in_state(
 
 
 def bind_entity(value: Entity, catalog: SemanticCatalog, *, owner: Owner | None = None) -> _Entity:
-    from marivo.semantic.catalog import Entity
-    from marivo.semantic.expressions import _Entity
 
     if not isinstance(value, Entity):
         raise TypeError("Expected a loaded Entity object.")
@@ -193,8 +179,6 @@ def bind_entity(value: Entity, catalog: SemanticCatalog, *, owner: Owner | None 
 def bind_relationship(
     value: Relationship, catalog: SemanticCatalog, *, owner: Owner | None = None
 ) -> _Relationship:
-    from marivo.semantic.catalog import Relationship
-    from marivo.semantic.expressions import _Relationship
 
     if not isinstance(value, Relationship):
         raise TypeError("Expected a loaded Relationship object.")
@@ -209,7 +193,6 @@ def bind_relationship(
 def bind_field(
     value: FieldExpression, catalog: SemanticCatalog, *, owner: Owner | None = None
 ) -> Deferred:
-    from marivo.semantic._deferred_semantics import consume_field
 
     result = _bind(value, catalog, owner=owner)
     consume_field(result)
@@ -219,7 +202,6 @@ def bind_field(
 def bind_row(
     value: NumericRow, catalog: SemanticCatalog, *, owner: Owner | None = None
 ) -> Deferred:
-    from marivo.semantic._deferred_semantics import consume_row
 
     result = _bind(value, catalog, owner=owner)
     consume_row(result)
@@ -229,7 +211,6 @@ def bind_row(
 def bind_metric(
     value: NumericMetric, catalog: SemanticCatalog, *, owner: Owner | None = None
 ) -> Deferred:
-    from marivo.semantic._deferred_semantics import consume_metric
 
     result = _bind(value, catalog, owner=owner)
     consume_metric(result)
@@ -239,7 +220,6 @@ def bind_metric(
 def bind_predicate(
     value: RowPredicate, catalog: SemanticCatalog, *, owner: Owner | None = None
 ) -> Deferred:
-    from marivo.semantic._deferred_semantics import consume_predicate
 
     result = _bind(value, catalog, owner=owner)
     consume_predicate(result)

@@ -39,7 +39,7 @@ from marivo.analysis.materialization.native_calendar import (
 from marivo.analysis.materialization.query_parameters import instantiate, parameter_data
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_schema import DataSchema
-from marivo.semantic._compiled_state import CompiledSemanticState
+from marivo.semantic.spi import CompiledSemanticState
 
 
 def prepare_actual_window_plan(

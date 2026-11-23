@@ -35,8 +35,8 @@ from marivo.analysis.model.lineage import (
     merge,
     union,
 )
-from marivo.semantic._compiled_state import PublishedDeclaration
-from marivo.semantic.expressions import _Resolver
+from marivo.semantic.spi import DefinitionResolver as _Resolver
+from marivo.semantic.spi import PublishedDeclaration
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.graph import BoundGraph
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from marivo.analysis.model.data_schema import DataSchema
     from marivo.analysis.model.frame_structure import PendingDataSchema, PendingFrameAxis
     from marivo.analysis.model.layout_facts import FrameValueContext
-    from marivo.semantic._compiled_state import CompiledSemanticState
+    from marivo.semantic.spi import CompiledSemanticState
 
 
 def _capture(

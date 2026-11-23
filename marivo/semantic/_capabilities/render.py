@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from marivo._authoring.model import AuthoringCapability
 from marivo._authoring.render import effect_lines, input_lines
-from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.model import EnvironmentFingerprint, LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
 from marivo.introspection.live.render import bounded_help as _bounded
 from marivo.introspection.live.render import enforce_budget, render_fingerprint
@@ -129,7 +129,6 @@ def _constraints(descriptor: AuthoringCapability) -> tuple[str, ...]:
 
 def render_root_help() -> str:
     """Render the compact semantic root from registry-owned sections."""
-    from marivo.introspection.live.model import EnvironmentFingerprint
 
     lines = [
         "marivo.semantic",

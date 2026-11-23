@@ -491,12 +491,14 @@ relationship completeness from a declaration, or treat a field label as identity
 
 ## Implementation map
 
-The public constructors are in [authoring.py](../../../marivo/semantic/authoring.py);
-physical records are in [ir.py](../../../marivo/semantic/ir.py).
-[validator.py](../../../marivo/semantic/validator.py) restricts authored bodies,
-[materializer.py](../../../marivo/semantic/materializer.py) constructs bound Ibis
-relations, and [resolver.py](../../../marivo/semantic/resolver.py) resolves their
-dependencies. Analysis consumes these definitions through its explicit
+The public constructors live in [Authoring](../../../marivo/semantic/authoring/).
+[ir.py](../../../marivo/semantic/ir.py) defines the physical records.
+[Static AST rules](../../../marivo/semantic/static_check/ast_rules.py) restrict authored
+bodies. The [materializer](../../../marivo/semantic/runtime_check/materializer.py)
+constructs bound Ibis relations, and the
+[runtime resolver](../../../marivo/semantic/runtime_check/resolver.py) resolves their
+dependencies. Analysis consumes these definitions through the
+[Semantic SPI](../../../marivo/semantic/spi.py) and its explicit
 [Population and observation bindings](../analysis/populations-and-observation.md).
 
 ### Fact-row attribute selection

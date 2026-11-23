@@ -32,22 +32,22 @@ if TYPE_CHECKING:
     from marivo.analysis.model.time_authority import TemporalExecution
     from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
-    from marivo.semantic._source_timezone import DeclaredSourceTimezone
-    from marivo.semantic.catalog import (
+    from marivo.semantic.catalog import CatalogProject, SemanticCatalog
+    from marivo.semantic.catalog_model.objects import (
         Dimension,
         Domain,
         Entity,
         Measure,
         Metric,
         Relationship,
-        SemanticCatalog,
         SemanticObject,
         TimeDimension,
     )
-    from marivo.semantic.expressions import ResolvedValue
+    from marivo.semantic.definition_resolution import ResolvedValue
     from marivo.semantic.ir import TargetDimensionContract
-    from marivo.semantic.loader import LoaderContext, LoadResult
-    from marivo.semantic.reader import SemanticProject
+    from marivo.semantic.loader import LoadResult
+    from marivo.semantic.loading_context import LoaderContext
+    from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
 
 # Bump the version string when seeded schema or rows change so cached
 # copies rebuild automatically.
@@ -216,7 +216,7 @@ class _PreviewConnections:
 
 @contextmanager
 def patch_semantic_connections(
-    project: SemanticProject,
+    project: CatalogProject,
     factory: Callable[[str], object],
 ) -> Iterator[_PreviewConnections]:
     """Use one supplied source factory for resolver and bounded preview owners.
@@ -251,15 +251,15 @@ def captured_catalog(
     consumer tests source-free without a second public finalization workflow.
     """
     from marivo.semantic._compiled_state import build_compiled_state
+    from marivo.semantic._symbolic_binding import publish_declarations
     from marivo.semantic.catalog import SemanticCatalog
     from marivo.semantic.loader import (
-        _LOADER_CTX,
         _build_registry,
-        _publish_declarations,
         _semantic_duplicate_errors,
     )
+    from marivo.semantic.loading_context import _LOADER_CTX
     from marivo.semantic.reader import SemanticProject
-    from marivo.semantic.validator import assembly_validate
+    from marivo.semantic.static_check.assembly import assembly_validate
 
     if contexts is None:
         context = _LOADER_CTX.get()
@@ -270,7 +270,7 @@ def captured_catalog(
     registry, sidecar, build_errors = _build_registry(list(contexts), datasource_irs=datasource_irs)
     errors = [*build_errors, *_semantic_duplicate_errors(contexts)]
     if not errors:
-        errors.extend(_publish_declarations(contexts, registry, sidecar))
+        errors.extend(publish_declarations(contexts, registry, sidecar))
     validation_errors, warnings = assembly_validate(registry, sidecar)
     errors.extend(validation_errors)
     if errors:
@@ -290,7 +290,7 @@ def resolve_test_symbol(catalog: SemanticCatalog, value: object) -> ResolvedValu
     """Resolve a native selector or private test key in an explicit compiled scope."""
     from marivo._kernel.refs import Ref
     from marivo._kernel.symbolic import native_symbol_ref
-    from marivo.semantic.expressions import resolve
+    from marivo.semantic.definition_resolution import resolve
 
     reference = value if type(value) is Ref else native_symbol_ref(value)
     assert reference is not None
@@ -301,8 +301,8 @@ def declared_test_timezone(
     axis: TargetDimensionContract, fallback: str | None = "UTC", inherited_from: str | None = None
 ) -> DeclaredSourceTimezone | None:
     """Supply explicit timezone declarations to focused compiler input fixtures."""
-    from marivo.semantic._source_timezone import DeclaredSourceTimezone
     from marivo.semantic.ir import DateParse, StrptimeParse, TimestampParse
+    from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
 
     parse = axis.parse
     zone = parse.timezone if isinstance(parse, (DateParse, TimestampParse, StrptimeParse)) else None

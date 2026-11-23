@@ -26,6 +26,9 @@ from marivo._definition.expressions import (
 from marivo._definition.graph import dataclass_identity_name
 from marivo._definition.types import ExactRef
 from marivo.analysis.model.attribute_game_errors import AttributeGameError
+from marivo.semantic.errors import SemanticExpressionError
+from marivo.semantic.spi import NumericValue, lower_metric_formula
+from marivo.semantic.spi import rename_deferred_slots as _rename_slots
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,7 +151,6 @@ def build_game(
         elif isinstance(current, SourceWeightedMean):
             kind = "weighted_mean"
             from marivo._definition.expressions import MeasureAssertion
-            from marivo.semantic._deferred_semantics import _rename_slots
 
             inputs: list[RowField | MeasureAssertion] = []
 
@@ -209,9 +211,6 @@ def build_game(
     # Static operation admission uses the owning numeric lowerer. Physical input
     # types are still qualified by the prepared source plan before any data read.
     import ibis
-
-    from marivo.semantic._numeric_lowering import NumericValue, lower_metric_formula
-    from marivo.semantic.errors import SemanticExpressionError
 
     static = ibis.table(
         {f"leaf_{index}": "float64" for index in range(len(leaves))}, name="_attribute_static_types"

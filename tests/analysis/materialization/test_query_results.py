@@ -16,7 +16,7 @@ from marivo.analysis.dsl.column import row_count
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic._expression_values import FieldExpression
-from marivo.semantic.catalog import Entity
+from marivo.semantic.catalog_model.objects import Entity
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, terminal_runs
 

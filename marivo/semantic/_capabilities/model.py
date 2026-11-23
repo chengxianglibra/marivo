@@ -7,10 +7,11 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal
 
-from marivo._authoring.model import AuthoringCapability, RepairKind
+from marivo._authoring.model import AuthoringCapability
 from marivo._kernel.refs import SemanticKind
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.reflect import callable_identity
+from marivo.semantic.error_repairs import SemanticRepairContract
 
 SemanticRootGroup = Literal["tasks"]
 AuthoringPlacementKind = Literal["domain_entrypoint", "domain_module"]
@@ -216,18 +217,6 @@ class AuthoringSourceContract:
     path_template: str
     catalog_kind: str
     canonical_identity_template: str
-
-
-@dataclass(frozen=True)
-class SemanticRepairContract:
-    """Deterministic structured repair for one semantic authoring error kind."""
-
-    error_kind: str
-    kind: RepairKind
-    help_target: LiveHelpTarget
-    action: str
-    snippet: str | None = None
-    preserves_evidence: bool | None = None
 
 
 @dataclass(frozen=True)

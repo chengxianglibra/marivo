@@ -57,20 +57,25 @@ from marivo.semantic._deferred_semantics import (
     consume_predicate,
     consume_row,
 )
-from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
+from marivo.semantic._expression_values import _ExpressionCarrier
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.errors import ErrorKind, SemanticError, SemanticExpressionError
-from marivo.semantic.expressions import Dimension, Field, Measure, TimeField
-from marivo.semantic.expressions import (
-    _Entity as Entity,
-)
-from marivo.semantic.expressions import (
-    _Relationship as CapturedRelationship,
-)
-from marivo.semantic.expressions import (
+from marivo.semantic.definition_resolution import Field
+from marivo.semantic.definition_resolution import (
     resolve as resolve_private,
 )
-from marivo.semantic.loader import LoaderContext, loader_context
+from marivo.semantic.errors import ErrorKind, SemanticError, SemanticExpressionError
+from marivo.semantic.expressions.inputs import _as_deferred
+from marivo.semantic.expressions.objects import (
+    Dimension,
+    Measure,
+    TimeField,
+)
+from marivo.semantic.expressions.objects import _Entity as Entity
+from marivo.semantic.expressions.objects import _Relationship as CapturedRelationship
+from marivo.semantic.loading_context import (
+    LoaderContext,
+    loader_context,
+)
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import captured_catalog, catalog_value
 from tests.shared_fixtures import resolve_test_symbol as resolve
@@ -368,7 +373,7 @@ def test_declared_constructors_capture_catalog_versions_without_business_reads(
     catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.datasource.runtime import backends as backends
-    from marivo.semantic.loader import loader_context
+    from marivo.semantic.loading_context import loader_context
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError("constructor read a business source")
@@ -415,7 +420,7 @@ def test_declared_constructors_capture_catalog_versions_without_business_reads(
 def test_constructor_snapshots_bind_explicit_time_in_either_declaration_order(
     catalog: SemanticCatalog,
 ) -> None:
-    from marivo.semantic.validator import assembly_validate
+    from marivo.semantic.static_check.assembly import assembly_validate
 
     field_first: bool
     for field_first in (False, True):
@@ -496,7 +501,7 @@ def test_constructor_snapshots_accept_later_declared_permission_axis(
 def test_constructor_snapshots_close_retained_ibis_forward_dependencies(
     catalog: SemanticCatalog,
 ) -> None:
-    from marivo.semantic.validator import assembly_validate
+    from marivo.semantic.static_check.assembly import assembly_validate
 
     ctx = LoaderContext(
         default_domain="sales", datasource_irs=tuple(catalog._state.registry.datasources.values())
@@ -859,7 +864,7 @@ def test_measure_declaration_names_the_ad_hoc_graph_without_loader(
     catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.datasource.runtime import backends as backends
-    from marivo.semantic.loader import _LOADER_CTX
+    from marivo.semantic.loading_context import _LOADER_CTX
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError("measure declaration opened a datasource backend")

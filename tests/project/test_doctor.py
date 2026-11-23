@@ -670,7 +670,7 @@ def test_doctor_semantic_flag_uses_semantic_check(
             },
         }
 
-    monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
+    monkeypatch.setattr("marivo.cli.doctor.semantic.semantic_check", fake_run_check)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
 
@@ -752,7 +752,7 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
             },
         }
 
-    monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
+    monkeypatch.setattr("marivo.cli.doctor.semantic.semantic_check", fake_run_check)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
 
@@ -830,7 +830,7 @@ def test_doctor_semantic_warnings_surface_as_warning_status(
             },
         }
 
-    monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
+    monkeypatch.setattr("marivo.cli.doctor.semantic.semantic_check", fake_run_check)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
 
@@ -880,7 +880,7 @@ def test_doctor_semantic_advisories_keep_domain_ok(
             },
         }
 
-    monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
+    monkeypatch.setattr("marivo.cli.doctor.semantic.semantic_check", fake_run_check)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
 
@@ -933,7 +933,7 @@ def test_doctor_semantic_partitions_readiness_by_domain(
             },
         }
 
-    monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
+    monkeypatch.setattr("marivo.cli.doctor.semantic.semantic_check", fake_run_check)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
 
@@ -982,7 +982,7 @@ def test_doctor_semantic_load_errors_single_check_without_domains(
             },
         }
 
-    monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
+    monkeypatch.setattr("marivo.cli.doctor.semantic.semantic_check", fake_run_check)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
 
@@ -1010,7 +1010,7 @@ def test_doctor_semantic_no_domains_skipped(
             "readiness_by_domain": {},
         }
 
-    monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
+    monkeypatch.setattr("marivo.cli.doctor.semantic.semantic_check", fake_run_check)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
 
@@ -1046,7 +1046,7 @@ def test_doctor_connect_flag_uses_no_persist_connect_helper(
         calls.append((str(name), project_root))
         return FakeResult()
 
-    monkeypatch.setattr("marivo.datasource.inspection.manage.test_no_persist", fake_test_no_persist)
+    monkeypatch.setattr("marivo.cli.doctor.datasources.test_no_persist", fake_test_no_persist)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, connect=True, datasource="warehouse"))
 
@@ -1076,7 +1076,7 @@ def test_doctor_connect_flag_uses_layered_datasource_lookup(
         calls.append((str(name), project_root))
         return FakeResult()
 
-    monkeypatch.setattr("marivo.datasource.inspection.manage.test_no_persist", fake_test_no_persist)
+    monkeypatch.setattr("marivo.cli.doctor.datasources.test_no_persist", fake_test_no_persist)
 
     report = run_doctor(
         DoctorOptions(project_root=project_root, connect=True, datasource="warehouse")
@@ -1104,7 +1104,7 @@ def test_doctor_connect_flag_reports_failure(
         repair = type("Repair", (), {"action": "Reconnect warehouse."})()
 
     monkeypatch.setattr(
-        "marivo.datasource.inspection.manage.test_no_persist",
+        "marivo.cli.doctor.datasources.test_no_persist",
         lambda name, *, project_root=None: FakeResult(),
     )
 

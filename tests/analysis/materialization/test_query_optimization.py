@@ -1586,7 +1586,7 @@ def test_grouped_common_completion_preserves_joint_rows_without_merge(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from marivo.analysis.materialization import graph_source_execution as execution
-    from marivo.semantic._numeric_lowering import NumericCheck
+    from marivo.semantic.numeric_operations import NumericCheck
 
     session = optimization_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")

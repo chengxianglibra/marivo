@@ -14,14 +14,17 @@ from marivo._kernel.compat import Never
 from marivo._kernel.refs import EntityKind, Ref, RefPayloadV1, SemanticKind
 from marivo.analysis.model.errors import ObservationBindingError
 from marivo.analysis.model.observation_identity import CanonicalValue, _canonical_digest
-from marivo.datasource.ir import (
+from marivo.datasource.spi import (
     EntitySourceIR,
     JsonSourceIR,
     SourceParamIR,
     json_source_param_names,
 )
-from marivo.semantic.ir import TargetEntityContract
-from marivo.semantic.validator import Registry, snapshot_target_source
+from marivo.semantic.spi import (
+    Registry,
+    TargetEntityContract,
+    snapshot_target_source,
+)
 
 SourceParameterScalar: TypeAlias = str | bool | int | float
 SourceParameterValue: TypeAlias = (

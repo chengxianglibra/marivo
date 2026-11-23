@@ -24,7 +24,7 @@ from marivo.datasource.spi import (
     localize,
     render,
 )
-from marivo.semantic.ir import StrptimeParse
+from marivo.semantic.spi import StrptimeParse
 
 _PROBE = ibis.timestamp("2000-01-01")
 _LOCALIZE = type(localize("UTC", _PROBE).op())

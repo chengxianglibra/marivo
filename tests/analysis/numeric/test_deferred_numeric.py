@@ -29,14 +29,14 @@ from marivo.analysis.methods._ibis_numeric import evaluate_numeric
 from marivo.analysis.methods.local import query_combine
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.programs import FormulaInput
-from marivo.semantic._numeric_lowering import (
-    NumericCheck,
-    NumericValue,
-    lower_source_reduction,
-    numeric_binary,
-)
+from marivo.semantic._numeric_lowering import lower_source_reduction
 from marivo.semantic._numeric_recipe import lower_recipe
 from marivo.semantic.errors import SemanticExpressionError
+from marivo.semantic.numeric_operations import (
+    NumericCheck,
+    NumericValue,
+    numeric_binary,
+)
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 

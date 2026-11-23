@@ -17,10 +17,14 @@ from marivo._kernel.refs import SemanticKind
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.symbolic import native_symbol_ref
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
-from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
+from marivo.semantic._expression_values import _ExpressionCarrier
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
-from marivo.semantic.loader import LoaderContext, loader_context
+from marivo.semantic.expressions.inputs import _as_deferred
+from marivo.semantic.loading_context import (
+    LoaderContext,
+    loader_context,
+)
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import (
     captured_catalog,
@@ -538,7 +542,7 @@ def test_publication_graph_matches_full_reconstruction_and_survives_failed_reloa
     semantic_project_factory: ProjectFactory,
 ) -> None:
     from marivo.semantic._compiled_state import definition_graph
-    from marivo.semantic.expressions import _Resolver
+    from marivo.semantic.definition_resolution import _Resolver
 
     metrics = """
 @ms.measure()

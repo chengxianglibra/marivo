@@ -23,14 +23,14 @@ from marivo._kernel.symbolic import (
     MeasureSymbol,
 )
 from marivo.semantic import bind
-from marivo.semantic.catalog import (
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.catalog_entries import CatalogPage
+from marivo.semantic.catalog_model.objects import (
     Domain,
     Entity,
     Measure,
     Metric,
-    SemanticCatalog,
 )
-from marivo.semantic.catalog_entries import CatalogPage
 
 assert_type(ref_factory.datasource("warehouse"), Ref[DatasourceKind])
 assert_type(ref_factory.entity("sales.orders"), Ref[EntityKind])

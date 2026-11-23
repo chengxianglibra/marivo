@@ -44,7 +44,11 @@ from marivo.analysis.methods.frame_attribute_shapley import (
 )
 from marivo.analysis.model.data_types import DataColumn, DataType
 from marivo.analysis.model.method_values import FrameMethodValue
-from marivo.semantic._numeric_lowering import NumericValue, lower_metric_formula, lower_row
+from marivo.semantic.spi import (
+    NumericValue,
+    lower_metric_formula,
+    lower_row,
+)
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.graph_source_execution import PreparedSources
@@ -359,7 +363,7 @@ def run_native_game(
                     .fillna(False)
                     .any()
                 ):
-                    from marivo.semantic._numeric_lowering import numeric_failure
+                    from marivo.semantic.spi import numeric_failure
 
                     numeric_failure(check.expected, check.received)
             return CoalitionValue(

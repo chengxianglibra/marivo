@@ -413,8 +413,8 @@ def test_loaded_json_project_materializes_entity(tmp_path: Path) -> None:
     source_path = _write_ndjson_files(tmp_path)
     _write_project_with_json_entity(tmp_path, source_path)
 
-    from marivo.semantic.materializer import Materializer
     from marivo.semantic.reader import SemanticProject
+    from marivo.semantic.runtime_check.materializer import Materializer
 
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
@@ -444,8 +444,8 @@ def test_loaded_wrapped_json_project_materializes_records(tmp_path: Path) -> Non
         records_path="$.result.items",
     )
 
-    from marivo.semantic.materializer import Materializer
     from marivo.semantic.reader import SemanticProject
+    from marivo.semantic.runtime_check.materializer import Materializer
 
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()

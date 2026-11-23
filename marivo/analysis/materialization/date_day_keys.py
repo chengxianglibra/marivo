@@ -15,7 +15,10 @@ from marivo.analysis.compiler.source_time import _raw_lineage, source_time
 from marivo.analysis.materialization.time_filter import _raw_for, _resolved
 from marivo.analysis.model.time_authority import SourceTimeAuthority
 from marivo.datasource.spi import localize, query_dialect, timestamp
-from marivo.semantic.ir import StrptimeParse, TargetDimensionContract
+from marivo.semantic.spi import (
+    StrptimeParse,
+    TargetDimensionContract,
+)
 
 
 class _DeferredDayKey(ops.Value):  # type: ignore[misc]  # Ibis operation bases have no typing stubs.

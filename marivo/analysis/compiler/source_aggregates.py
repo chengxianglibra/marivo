@@ -14,7 +14,7 @@ from marivo.datasource.spi import (
     aggregate_repair_action,
     native_aggregate,
 )
-from marivo.semantic._numeric_lowering import lower_row
+from marivo.semantic.spi import lower_row
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.observation import ReductionInput

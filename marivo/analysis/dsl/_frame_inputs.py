@@ -23,7 +23,7 @@ from marivo._definition.relations import PopulationParameter
 from marivo._definition.types import Owner
 from marivo.analysis.core.frame_data import FrameKeyDependency
 from marivo.analysis.model.frame_contracts import merge_frame_key_inputs
-from marivo.semantic._expression_values import _ExpressionCarrier
+from marivo.semantic.spi import ExpressionCarrier as _ExpressionCarrier
 
 
 def _recipe_inputs(recipe: Resolver) -> tuple[FrameKeyDependency, ...]:

@@ -17,7 +17,8 @@ from marivo.datasource.ir import AiContextIR
 from marivo.datasource.store import declarations as datasource_store
 from marivo.datasource.store.authoring import DuckDBSpec
 from marivo.datasource.typing import AiContextValue
-from marivo.semantic._compiled_state import PublishedDeclaration, build_compiled_state
+from marivo.semantic._compiled_state import build_compiled_state
+from marivo.semantic.compiled_types import PublishedDeclaration
 from marivo.semantic.errors import SemanticDecoratorError
 from marivo.semantic.reader import SemanticProject
 

@@ -13,15 +13,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event
 from time import monotonic
-from typing import TYPE_CHECKING, Literal, TypedDict, cast
+from typing import Literal, TypedDict, cast
 from uuid import uuid4
 
-from marivo.semantic.catalog_search import SearchDocument
+from marivo.semantic.spi import SearchDocument
+from marivo.server import granite_search
 from marivo.server.frames import directory, scope_cursor, unscoped_cursor
+from marivo.server.granite_cache import GraniteCache, fingerprint_model
 from marivo.server.wire import HELP, JsonObject, JsonValue, Limits, ServiceError, stale_cursor
-
-if TYPE_CHECKING:
-    from marivo.server.granite_search import GraniteEncoder, GraniteIndex
 
 Relation = Literal["dependencies", "dependents"]
 _SUMMARY_FIELDS = ("id", "kind", "path", "name", "domain", "business_definition")
@@ -90,7 +89,7 @@ class CatalogSnapshot:
     loaded_at: str
     entries: dict[str, Entry]
     documents: tuple[SearchDocument, ...]
-    vector_index: GraniteIndex
+    vector_index: granite_search.GraniteIndex
     index_build_ms: float
 
     def objects(
@@ -180,7 +179,7 @@ class CatalogReads:
         self._task: asyncio.Task[CatalogSnapshot] | None = None
         self._granite_model = granite_model
         self._granite_cache_dir = granite_cache_dir
-        self._encoder: GraniteEncoder | None = None
+        self._encoder: granite_search.GraniteEncoder | None = None
         self._encoder_fingerprint: str | None = None
         self._closed = Event()
 
@@ -272,8 +271,7 @@ class CatalogReads:
 
     def _build_vector_index(
         self, model: Path, documents: tuple[SearchDocument, ...], deadline: float
-    ) -> GraniteIndex:
-        from marivo.server.granite_search import GraniteEncoder, GraniteIndex
+    ) -> granite_search.GraniteIndex:
 
         def check_budget() -> None:
             if self._closed.is_set() or monotonic() >= deadline:
@@ -284,24 +282,22 @@ class CatalogReads:
             cache = None
             fingerprint = None
             if self._granite_cache_dir is not None:
-                from marivo.server.granite_cache import GraniteCache, fingerprint_model
-
                 fingerprint = fingerprint_model(model, check_budget=check_budget)
                 if (
                     self._encoder_fingerprint is not None
                     and self._encoder_fingerprint != fingerprint
                 ):
                     raise ValueError("Granite model assets changed. Restart the read service.")
-                cache = (GraniteCache(self._granite_cache_dir, self.root), fingerprint)
+                cache = GraniteCache(self._granite_cache_dir, self.root)
             encoder = self._encoder
             if encoder is None:
                 encoder = (
-                    GraniteEncoder(model, asset_fingerprint=fingerprint)
+                    granite_search.GraniteEncoder(model, asset_fingerprint=fingerprint)
                     if fingerprint is not None
-                    else GraniteEncoder(model)
+                    else granite_search.GraniteEncoder(model)
                 )
             current = self.current
-            index = GraniteIndex.build(
+            index = granite_search.GraniteIndex.build(
                 encoder,
                 documents,
                 check_budget,

@@ -18,7 +18,10 @@ from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.expressions import _Entity, entity_exact
+from marivo.semantic.expressions.objects import (
+    _Entity,
+    entity_exact,
+)
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 from tests.shared_fixtures import resolve_test_symbol as resolve

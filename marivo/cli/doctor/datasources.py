@@ -14,30 +14,28 @@ from marivo._kernel.compat import tomllib
 from marivo._kernel.config import DATASOURCES_DIR
 from marivo.cli.doctor.environment import LayerPathInspection
 from marivo.cli.doctor.report import DoctorCheck, DoctorSection, DoctorStatus
-from marivo.datasource.credentials.inputs import (
+from marivo.datasource.errors import DatasourceFieldInvalidError
+from marivo.datasource.spi import (
+    DEFAULT_DATASOURCE_DESCRIPTION,
+    DEFAULT_DATASOURCE_NAME,
+    ENGINE_PROFILES,
+    SUPPORTED_BACKEND_TYPES,
+    ClickHouseSpec,
+    DatasourceIR,
+    DatasourceSourceLocation,
+    DatasourceSpec,
     DuckDBSecret,
+    DuckDBSpec,
     EnvRef,
+    MySQLSpec,
+    PostgresSpec,
+    TrinoSpec,
+    default_datasource,
     env,
     http_bearer_secret,
     http_headers_secret,
     s3_secret,
-)
-from marivo.datasource.engines import ENGINE_PROFILES, SUPPORTED_BACKEND_TYPES
-from marivo.datasource.errors import DatasourceFieldInvalidError
-from marivo.datasource.inspection import manage as datasource_manage
-from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
-from marivo.datasource.spi import (
-    DEFAULT_DATASOURCE_DESCRIPTION,
-    DEFAULT_DATASOURCE_NAME,
-    default_datasource,
-)
-from marivo.datasource.store.authoring import (
-    ClickHouseSpec,
-    DatasourceSpec,
-    DuckDBSpec,
-    MySQLSpec,
-    PostgresSpec,
-    TrinoSpec,
+    test_no_persist,
 )
 
 
@@ -493,7 +491,7 @@ def secrets_section(datasources: Sequence[DatasourceIR], *, project_root: Path) 
 def connect_section(datasources: Sequence[DatasourceIR], *, project_root: Path) -> DoctorSection:
     checks: list[DoctorCheck] = []
     for datasource in sorted(datasources, key=lambda item: item.name):
-        result = datasource_manage.test_no_persist(
+        result = test_no_persist(
             datasource.name,
             project_root=project_root,
         )

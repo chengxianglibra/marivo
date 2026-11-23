@@ -1012,7 +1012,7 @@ def test_field_ref_resolves_after_load(semantic_project_factory: _SemanticProjec
 
 def test_find_project_in_current_dir(tmp_path: Path) -> None:
     """find_project should find marivo.toml in the start_dir."""
-    from marivo.semantic.loader import find_project
+    from marivo.semantic.catalog_discovery import find_project
 
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     sem_dir = tmp_path / "models" / "semantic"
@@ -1024,7 +1024,7 @@ def test_find_project_in_current_dir(tmp_path: Path) -> None:
 
 def test_find_project_in_parent_dir(tmp_path: Path) -> None:
     """find_project should find marivo.toml in a parent directory."""
-    from marivo.semantic.loader import find_project
+    from marivo.semantic.catalog_discovery import find_project
 
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     sem_dir = tmp_path / "models" / "semantic"
@@ -1038,7 +1038,7 @@ def test_find_project_in_parent_dir(tmp_path: Path) -> None:
 
 def test_find_project_returns_none_when_not_found(tmp_path: Path) -> None:
     """find_project should return None when no marivo.toml exists."""
-    from marivo.semantic.loader import find_project
+    from marivo.semantic.catalog_discovery import find_project
 
     project = find_project(start_dir=tmp_path)
     assert project is None
@@ -1046,7 +1046,7 @@ def test_find_project_returns_none_when_not_found(tmp_path: Path) -> None:
 
 def test_find_project_finds_marivo_toml_without_semantic(tmp_path: Path) -> None:
     """find_project should succeed when marivo.toml exists but models/semantic/ does not."""
-    from marivo.semantic.loader import find_project
+    from marivo.semantic.catalog_discovery import find_project
 
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     project = find_project(start_dir=tmp_path)

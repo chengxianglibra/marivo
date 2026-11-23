@@ -7,7 +7,6 @@ branch demand before a source backend or the local operation adapter consumes th
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING
 
 import ibis
 import ibis.expr.operations as ops
@@ -27,9 +26,12 @@ from ibis.common.exceptions import IbisTypeError
 
 from marivo._definition.deferred import RescaleResolver, attribute_name, canonical_recipe
 from marivo._kernel.numeric_types import bind_numeric_literal
-
-if TYPE_CHECKING:
-    from marivo.semantic._numeric_lowering import NumericCheck, NumericValue
+from marivo.semantic.numeric_operations import (
+    NumericCheck,
+    NumericValue,
+    numeric_binary,
+    numeric_failure,
+)
 
 
 def lower_recipe(
@@ -37,7 +39,6 @@ def lower_recipe(
     inputs: tuple[NumericValue, ...],
 ) -> NumericValue:
     """Bind a checked recipe to actual typed slots, preserving per-use checks."""
-    from marivo.semantic._numeric_lowering import numeric_failure
 
     names = tuple(f"slot_{i}" for i in range(len(inputs)))
     canonical_recipe(recipe, slots=names)
@@ -97,7 +98,6 @@ def lower_recipe(
 
 
 def _masked(checks: tuple[NumericCheck, ...], demand: ir.Value) -> tuple[NumericCheck, ...]:
-    from marivo.semantic._numeric_lowering import NumericCheck
 
     return tuple(
         NumericCheck(demand.fill_null(False) & check.violation, check.expected, check.received)
@@ -106,12 +106,6 @@ def _masked(checks: tuple[NumericCheck, ...], demand: ir.Value) -> tuple[Numeric
 
 
 def _lower_operation(node: ops.Value, slots: Mapping[str, NumericValue]) -> NumericValue:
-    from marivo.semantic._numeric_lowering import (
-        NumericCheck,
-        NumericValue,
-        numeric_binary,
-        numeric_failure,
-    )
 
     def visit(value: ops.Value) -> NumericValue:
         return _lower_operation(value, slots)

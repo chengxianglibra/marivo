@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Literal, NoReturn
 
 from marivo._authoring.model import AuthoringRepair
+from marivo._kernel.ai_context import AiContextValue, InvalidAiContextError, capture_ai_context
 from marivo._kernel.refs import SemanticKind
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.symbolic import EntitySymbol, MeasureSymbol, MetricSymbol, native_symbol_ref
@@ -20,9 +21,7 @@ from marivo.ontology.types import (
     SemanticEdgeRef,
     _make_semantic_edge_ref,
 )
-from marivo.semantic._authoring_values import _build_ai_context
-from marivo.semantic.ir import SourceLocation
-from marivo.semantic.typing import AiContextValue
+from marivo.semantic.spi import SourceLocation
 
 _EDGE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$")
 _ENDPOINT_KINDS = {SemanticKind.ENTITY, SemanticKind.MEASURE, SemanticKind.METRIC}
@@ -112,13 +111,11 @@ def _edge(
             repair=_repair("Rename the edge with lowercase snake_case path segments."),
         )
     try:
-        context = _build_ai_context(ai_context)
-    except Exception as error:
-        if getattr(error, "kind", None) != "invalid_ai_context":
-            raise
+        context = capture_ai_context(ai_context)
+    except InvalidAiContextError as error:
         raise InvalidSemanticEdgeError(
             kind="invalid_ai_context",
-            message=str(getattr(error, "message", error)),
+            message=str(error),
             expected="AiContextValue from ms.ai_context(...) ",
             received=type(ai_context).__name__,
             location=location,

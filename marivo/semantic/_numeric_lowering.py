@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import NoReturn
 
 import ibis
 import ibis.expr.datatypes as dt
-import ibis.expr.operations as ops
 import ibis.expr.types as ir
-from ibis.common.exceptions import IbisTypeError
 
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
     MeasureAssertion,
+    MemberCount,
     MetricExpression,
     MetricNode,
     MetricWindow,
@@ -29,88 +26,25 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
-from marivo._definition.types import ExactRef
-from marivo._kernel.numeric_types import bind_numeric_literal, decimal_result_type
+from marivo._definition.relations import PopulationContains
+from marivo._definition.types import ExactRef, field_read_key
+from marivo._kernel.numeric_types import exact_unsigned
 from marivo._kernel.refs import SemanticKind
-
-
-@dataclass(frozen=True, slots=True, eq=False)
-class NumericCheck:
-    """A temporary boolean violation expression, consumed before publication."""
-
-    violation: ir.BooleanValue
-    expected: str
-    received: str
-
-
-@dataclass(frozen=True, slots=True, eq=False)
-class NumericValue:
-    value: ir.Value
-    checks: tuple[NumericCheck, ...] = ()
-
-
-def numeric_failure(expected: str, received: str) -> NoReturn:
-    from marivo.semantic.errors import ErrorKind, SemanticExpressionError
-
-    action = "Repair the input values to satisfy the expected numeric/type constraints, then retry."
-    if expected == "non-NULL internal calendar sample time":
-        action = "Filter the named TimeField with where=sample_field.notnull(), or correct its source values."
-    elif "non-NA" in expected:
-        action = "Supply non-NA inputs, or explicitly select nulls='ignore' on this reducer."
-    elif "native" in expected or "demanded numeric" in expected:
-        action = (
-            "Inspect the native numeric error and operand dtypes. If a wider carrier is intended, "
-            "author .cast(ibis.dtype('decimal(38,0)')) in the Entity expression before reduction, "
-            "or rescale the inputs to the intended unit. Rebuild the expression and retry; "
-            "Marivo does not widen or switch kernels automatically."
-        )
-    raise SemanticExpressionError(
-        kind=ErrorKind.INVALID_EXPRESSION_VALUE,
-        message="The numeric operation cannot produce an admitted nullable value.",
-        expected=expected,
-        received=received,
-        action=action,
-    )
-
-
-def numeric_binary(operation: str, left: NumericValue, right: NumericValue) -> NumericValue:
-    """Emit arithmetic with the denominator masked before division."""
-    a, b = bind_numeric_literal(left.value), bind_numeric_literal(right.value)
-    if a.type().is_floating() and b.type().is_decimal():
-        b = b.cast("float64")
-    elif b.type().is_floating() and a.type().is_decimal():
-        a = a.cast("float64")
-    checks = (*left.checks, *right.checks)
-    if operation == "divide":
-        zero = b == 0
-        safe = zero.ifelse(ibis.null().cast(b.type().copy(nullable=True)), b)
-        # Cast operands before division: Trino otherwise truncates an integer
-        # quotient before the explicit float64 result cast can preserve it.
-        a, safe = a.cast("float64"), safe.cast("float64")
-        # Preserve the float64 result boundary in SQL. In particular, ClickHouse
-        # can rewrite AVG(x / NULL) and fail while extracting the NULL constant;
-        # AVG(CAST(x / NULL AS Float64)) keeps the nullable division intact.
-        value = force_cast(a / safe, dt.float64)
-    elif operation == "add":
-        value = add_numeric(a, b)
-    elif operation == "subtract":
-        value = _binary_numeric("subtract", a, b)
-    elif operation == "multiply":
-        value = multiply_numeric(a, b)
-    else:
-        numeric_failure("add/subtract/multiply/divide", operation)
-    return NumericValue(value, checks)
+from marivo.semantic._numeric_recipe import lower_recipe
+from marivo.semantic.numeric_operations import (
+    NumericCheck,
+    NumericValue,
+    force_cast,
+    numeric_binary,
+    numeric_failure,
+)
 
 
 def lower_row(node: RowNode, fields: Mapping[str, ir.Value]) -> NumericValue:
     """Lower one closed Row expression over already prepared physical fields."""
     if isinstance(node, RowExpression):
-        from marivo.semantic._numeric_recipe import lower_recipe
-
         return lower_recipe(node.recipe, tuple(lower_row(item, fields) for item in node.inputs))
     if isinstance(node, RowField):
-        from marivo._definition.types import field_read_key
-
         value = fields.get(
             field_read_key(node.read) if node.read is not None else node.ref.ref.path
         )
@@ -120,7 +54,6 @@ def lower_row(node: RowNode, fields: Mapping[str, ir.Value]) -> NumericValue:
             )
         if node.ref.ref.kind is SemanticKind.MEASURE and not value.type().is_numeric():
             numeric_failure(f"a numeric physical type for {node.ref.ref.path}", str(value.type()))
-        from marivo._kernel.numeric_types import exact_unsigned
 
         value = exact_unsigned(value)
         return NumericValue(value)
@@ -142,8 +75,6 @@ def lower_predicate(
     memberships: tuple[ir.BooleanValue, ...] = (),
 ) -> NumericValue:
     """Bind each boolean slot and retain all field checks on the input domain."""
-    from marivo._definition.relations import PopulationContains
-    from marivo.semantic._numeric_recipe import lower_recipe
 
     inputs: list[NumericValue] = []
     markers = iter(memberships)
@@ -167,11 +98,6 @@ def lower_predicate(
     if not result.value.type().is_boolean():
         numeric_failure("a physical boolean predicate", str(result.value.type()))
     return NumericValue(result.value, (*checks, *result.checks))
-
-
-def force_cast(value: ir.Value, dtype: dt.DataType) -> ir.Value:
-    """Retain a result CAST in SQL even when Ibis infers the same type."""
-    return ops.Cast(value, to=dtype).to_expr()
 
 
 def _source_sum(value: ir.Value) -> ir.Value:
@@ -304,14 +230,11 @@ def lower_metric_formula(
     """Compose completed reductions only; never join contribution rows."""
     if occurrence in values:
         return values[occurrence]
-    from marivo._definition.expressions import MemberCount
 
     if isinstance(node, MemberCount):
         # Type preparation only; the local member input supplies completed counts.
         return NumericValue(ibis.literal(0).cast("int64"))
     if isinstance(node, MetricExpression):
-        from marivo.semantic._numeric_recipe import lower_recipe
-
         return lower_recipe(
             node.recipe,
             tuple(
@@ -354,64 +277,3 @@ def lower_metric_formula(
         "ordinary source reductions and Metric arithmetic",
         f"{type(node).__name__}; Population/sample preparation is delivered in R3",
     )
-
-
-def _binary_numeric(operation: str, left: ir.Value, right: ir.Value) -> ir.Value:
-    a, b = left.type(), right.type()
-    if a.is_floating() and b.is_decimal():
-        right = right.cast(a)
-    elif b.is_floating() and a.is_decimal():
-        left = left.cast(b)
-    target = decimal_result_type(operation, a, b)
-    if target is not None:
-        if a.is_decimal() and b.is_integer():
-            precision = len(str(2 ** (b.nbytes * 8 - int(b.is_signed_integer())) - 1))
-            right = right.cast(dt.Decimal(precision, 0))
-        elif b.is_decimal() and a.is_integer():
-            precision = len(str(2 ** (a.nbytes * 8 - int(a.is_signed_integer())) - 1))
-            left = left.cast(dt.Decimal(precision, 0))
-    try:
-        result = (
-            left * right
-            if operation == "multiply"
-            else left - right
-            if operation == "subtract"
-            else left + right
-        )
-    except IbisTypeError:
-        if target is None:
-            raise
-        # Ibis requires comparable Decimal metadata for some mixed p/s pairs.
-        scale = max(
-            a.scale or 0 if isinstance(a, dt.Decimal) else 0,
-            b.scale or 0 if isinstance(b, dt.Decimal) else 0,
-        )
-        common = dt.Decimal(38, scale)
-        left, right = left.cast(common), right.cast(common)
-        result = (
-            left * right
-            if operation == "multiply"
-            else left - right
-            if operation == "subtract"
-            else left + right
-        )
-    if target is not None:
-        left_scale = (a.scale or 0) if isinstance(a, dt.Decimal) else 0
-        right_scale = (b.scale or 0) if isinstance(b, dt.Decimal) else 0
-        scale = (
-            left_scale + right_scale if operation == "multiply" else max(left_scale, right_scale)
-        )
-        if target.scale < scale:
-            result = result.round(target.scale)
-        return force_cast(result, target)
-    return result
-
-
-def multiply_numeric(left: ir.Value, right: ir.Value) -> ir.Value:
-    """Multiply with a bound Decimal result cast and native backend arithmetic."""
-    return _binary_numeric("multiply", left, right)
-
-
-def add_numeric(left: ir.Value, right: ir.Value) -> ir.Value:
-    """Add with a bound Decimal result cast and native backend arithmetic."""
-    return _binary_numeric("add", left, right)

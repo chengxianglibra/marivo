@@ -6,22 +6,44 @@ import ast
 import copy
 import hashlib
 import inspect
-import json
 import operator
 import textwrap
-from collections.abc import Callable, Mapping, Sequence
-from contextvars import ContextVar
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from types import FunctionType, MappingProxyType, ModuleType
-from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, cast
+from types import FunctionType, ModuleType
+from typing import TYPE_CHECKING, Literal, NoReturn, cast
 
 import ibis
+import ibis.expr.types as ibis_ir
 import ibis.expr.types as ir
 from ibis.common.deferred import Attr, Call, Deferred
 
-from marivo._definition.types import InputContext
+from marivo._definition.deferred import (
+    NATIVE_METHODS,
+    SEMANTIC_METHODS,
+    admitted_function,
+    capture_function_call,
+    inspect_capture,
+    inspect_deferred,
+    resolver_of,
+)
+from marivo._definition.population_parameters import parameter_role
+from marivo._definition.relations import PopulationParameter
+from marivo._definition.types import DefinitionGraphError, InputContext
+from marivo._definition.windows import (
+    AllHistory,
+    Since,
+    ToDate,
+    TrailingDuration,
+    TrailingPeriods,
+    all_history,
+    since,
+    to_date,
+    trailing_duration,
+    trailing_periods,
+)
+from marivo._kernel.grouping import Grouping
 from marivo._kernel.refs import (
     EntityKind,
     FieldKind,
@@ -29,30 +51,56 @@ from marivo._kernel.refs import (
     RefPayloadV1,
     SemanticKind,
     SemanticKindTag,
-    _decode_ref_payload,
+)
+from marivo._kernel.symbolic import native_symbol_ref
+from marivo._kernel.temporal import Grain, InstantAnchor, TimeScope
+from marivo.semantic import _rescale
+from marivo.semantic._deferred_semantics import (
+    capture_source_time,
+    consume_field,
+    consume_metric,
+    consume_row,
 )
 from marivo.semantic._definition_expression import describe_expression
-from marivo.semantic._definition_expression_types import (
-    ExpressionDescription,
-    _UnsupportedExpression,
-)
 from marivo.semantic._expression_values import (
+    MetricExpression,
     NumericMetric,
     NumericRow,
-    _as_deferred,
+    RowExpression,
     _ExpressionCarrier,
+    _merge,
+    _parameter,
 )
 from marivo.semantic._ibis_builtin_udf import builtin_udf_token
+from marivo.semantic._paths import Path, path
+from marivo.semantic.catalog_model.objects import Entity as CatalogEntity
+from marivo.semantic.catalog_model.objects import Relationship as CatalogRelationship
+from marivo.semantic.catalog_model.objects import RelationshipStep
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
     SemanticExpressionError,
     SemanticLoadError,
-    SemanticRuntimeError,
     repair,
 )
-from marivo.semantic.validator import (
-    _return_expr,
+from marivo.semantic.expressions.inputs import _as_deferred
+from marivo.semantic.expressions.ir import (
+    _EXPRESSION_BINDING_CONTEXT,
+    _FIELD_KINDS,
+    CompiledExpressionSidecar,
+    ExpressionBindingContext,
+    ExpressionBindingV1,
+    ExpressionBody,
+    ExpressionBodyFrame,
+    ScalarConstant,
+    _binding_runtime_error,
+    _require_exact_ref,
+)
+from marivo.semantic.expressions.objects import Dimension, Measure, TimeField
+from marivo.semantic.expressions.objects import _Entity as Entity
+from marivo.semantic.expressions.objects import _Relationship as Relationship
+from marivo.semantic.loading_context import _LOADER_CTX
+from marivo.semantic.static_check.ast_rules import (
     _stable_ast_dump,
     validate_declaration_body_ast,
     validate_entity_table_body_ast,
@@ -60,287 +108,7 @@ from marivo.semantic.validator import (
 )
 
 if TYPE_CHECKING:
-    from marivo.semantic.expressions import Field
-
-_FIELD_KINDS = frozenset(
-    {
-        SemanticKind.DIMENSION,
-        SemanticKind.TIME_DIMENSION,
-        SemanticKind.MEASURE,
-    }
-)
-ScalarConstant: TypeAlias = str | int | float | bool
-
-
-@dataclass(frozen=True, slots=True)
-class ExpressionBindingV1:
-    """One declared field-ref application and its entity argument position."""
-
-    field_ref: RefPayloadV1
-    entity_position: int
-
-    def __post_init__(self) -> None:
-        if self.field_ref.kind not in _FIELD_KINDS:
-            raise ValueError(
-                "expression binding field_ref must be a dimension, time_dimension, or measure"
-            )
-        if type(self.entity_position) is not int or self.entity_position < 0:
-            raise ValueError("expression binding entity_position must be a non-negative int")
-
-    def to_ref(self) -> Ref[FieldKind]:
-        return cast("Ref[FieldKind]", _decode_ref_payload(self.field_ref))
-
-
-@dataclass(frozen=True, slots=True)
-class ExpressionBody:
-    """Process-local callable plus deterministic definition identity."""
-
-    callable: Callable[..., object]
-    body_ast_hash: str
-    parameter_count: int
-    bindings: tuple[ExpressionBindingV1, ...]
-    source_column: str | None = None
-    source_columns: tuple[str, ...] = ()
-    source_syntax: str | None = field(default=None, repr=False)
-    _function_ast: ast.FunctionDef | None = field(default=None, repr=False, compare=False)
-    _bound_calls: frozenset[int] = field(default_factory=frozenset, repr=False, compare=False)
-    description: ExpressionDescription = field(
-        default_factory=lambda: _UnsupportedExpression("description_unavailable")
-    )
-
-    def __post_init__(self) -> None:
-        if not callable(self.callable):
-            raise TypeError("expression body callable must be callable")
-        if type(self.body_ast_hash) is not str or not self.body_ast_hash:
-            raise ValueError("expression body hash must be a non-empty string")
-        if type(self.parameter_count) is not int or self.parameter_count < 0:
-            raise ValueError("expression body parameter_count must be a non-negative int")
-        if self.source_column is not None and (
-            type(self.source_column) is not str or not self.source_column
-        ):
-            raise ValueError("expression body source_column must be non-empty when provided")
-        if any(type(column) is not str or not column for column in self.source_columns):
-            raise ValueError("expression body source_columns must contain non-empty strings")
-        if len(set(self.source_columns)) != len(self.source_columns):
-            raise ValueError("expression body source_columns must be unique")
-        for binding in self.bindings:
-            if binding.entity_position >= self.parameter_count:
-                raise ValueError("expression binding entity_position must be below parameter_count")
-
-    @classmethod
-    def for_column(cls, column: str) -> ExpressionBody:
-        """Create one deterministic source-free direct-column body."""
-        if type(column) is not str or not column:
-            raise ValueError("direct-column expression requires a non-empty column name")
-
-        def accessor(entity_alias: ir.Table) -> ir.Value:
-            return entity_alias[column]
-
-        encoded = json.dumps(
-            {
-                "schema": "marivo.expression_body.column/v1",
-                "column": column,
-            },
-            ensure_ascii=True,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode()
-        return cls(
-            callable=accessor,
-            body_ast_hash=f"sha256:{hashlib.sha256(encoded).hexdigest()}",
-            parameter_count=1,
-            bindings=(),
-            source_column=column,
-            source_columns=(column,),
-        )
-
-
-def expression_column_accesses(body: ExpressionBody) -> tuple[tuple[int, str], ...]:
-    """Resolve parameter-owned column syntax without invoking the captured function."""
-    if body.source_column is not None:
-        return ((0, body.source_column),)
-    try:
-        function = body._function_ast
-        if function is None:
-            tree = ast.parse(
-                body.source_syntax
-                if body.source_syntax is not None
-                else textwrap.dedent(inspect.getsource(body.callable))
-            )
-            function = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef))
-        parameters = (*function.args.posonlyargs, *function.args.args)
-        if len(parameters) != body.parameter_count:
-            raise ValueError("expression arity mismatch")
-        positions = {parameter.arg: index for index, parameter in enumerate(parameters)}
-        parents = {
-            id(child): parent
-            for parent in ast.walk(function)
-            for child in ast.iter_child_nodes(parent)
-        }
-        accesses: list[tuple[int, str]] = []
-        for node in ast.walk(function):
-            if not isinstance(node, ast.Name) or node.id not in positions:
-                continue
-            parent = parents.get(id(node))
-            column: str | None = None
-            if isinstance(parent, ast.Attribute) and parent.value is node:
-                column = parent.attr
-            elif isinstance(parent, ast.Subscript) and parent.value is node:
-                if isinstance(parent.slice, ast.Constant) and isinstance(parent.slice.value, str):
-                    column = parent.slice.value
-                else:
-                    raise ValueError("dynamic column access")
-            elif (
-                isinstance(parent, ast.Call)
-                and (
-                    id(parent) in body._bound_calls
-                    or (isinstance(parent.func, ast.Attribute) and parent.func.attr == "bind")
-                )
-                and body.bindings
-            ):
-                continue
-            else:
-                raise ValueError("unknown Entity expression")
-            access = (positions[node.id], column)
-            if access not in accesses:
-                accesses.append(access)
-        if not accesses and not body.bindings:
-            returns = [node.value for node in function.body if isinstance(node, ast.Return)]
-            if len(returns) != 1:
-                raise ValueError("unknown constant expression")
-            value = _return_expr(body.callable, function)
-            if not (
-                isinstance(value, ast.Constant)
-                or (
-                    isinstance(value, ast.Call)
-                    and isinstance(value.func, ast.Attribute)
-                    and isinstance(value.func.value, ast.Name)
-                    and (
-                        (
-                            value.func.value.id == "ibis"
-                            and value.func.attr == "literal"
-                            and all(isinstance(arg, ast.Constant) for arg in value.args)
-                        )
-                        or (
-                            value.func.value.id == "ms"
-                            and value.func.attr == "all_rows"
-                            and not value.args
-                        )
-                    )
-                )
-            ):
-                raise ValueError("unproven column-free expression")
-        return tuple(accesses)
-    except (OSError, TypeError, SyntaxError, StopIteration, ValueError) as exc:
-        raise SemanticRuntimeError(
-            kind=ErrorKind.COMPILE_ERROR,
-            message="Expression column dependencies cannot be resolved.",
-            expected="static column accesses on exact Entity parameters",
-            received="an unknown or unavailable expression dependency",
-            hint="Use declared column fields and statically bound Entity expressions.",
-        ) from exc
-
-
-@dataclass(frozen=True, slots=True)
-class CompiledExpressionSidecar:
-    """Immutable expression bodies and ownership facts for one catalog."""
-
-    bodies: Mapping[Ref[SemanticKindTag], ExpressionBody]
-    field_owners: Mapping[Ref[FieldKind], Ref[EntityKind]]
-    catalog_refs: frozenset[Ref[SemanticKindTag]]
-
-    def __post_init__(self) -> None:
-        bodies = dict(self.bodies)
-        owners = dict(self.field_owners)
-        refs = frozenset(self.catalog_refs)
-        for ref in bodies:
-            _require_exact_ref(ref, parameter="bodies key")
-        for field_ref, entity_ref in owners.items():
-            _require_exact_ref(field_ref, allowed=_FIELD_KINDS, parameter="field owner key")
-            _require_exact_ref(
-                entity_ref,
-                allowed=frozenset({SemanticKind.ENTITY}),
-                parameter="field owner value",
-            )
-        for ref in refs:
-            _require_exact_ref(ref, parameter="catalog ref")
-        object.__setattr__(self, "bodies", MappingProxyType(bodies))
-        object.__setattr__(self, "field_owners", MappingProxyType(owners))
-        object.__setattr__(self, "catalog_refs", refs)
-
-
-@dataclass(frozen=True, slots=True)
-class ExpressionBodyFrame:
-    """One active expression body and its exact entity aliases."""
-
-    owning_ref: Ref[SemanticKindTag]
-    ordered_entity_refs: tuple[Ref[EntityKind], ...]
-    ordered_entity_aliases: tuple[ir.Table, ...]
-    declared_bindings: tuple[ExpressionBindingV1, ...]
-
-    def __post_init__(self) -> None:
-        _require_exact_ref(self.owning_ref, parameter="owning_ref")
-        if len(self.ordered_entity_refs) != len(self.ordered_entity_aliases):
-            raise ValueError("expression frame entity refs and aliases must have equal arity")
-
-
-@dataclass(frozen=True, slots=True)
-class ExpressionBindingContext:
-    """Task-local catalog and nested expression-body stack."""
-
-    catalog_definition_fingerprint: str
-    expression_sidecar: CompiledExpressionSidecar
-    body_frames: tuple[ExpressionBodyFrame, ...]
-
-    def __post_init__(self) -> None:
-        if not self.catalog_definition_fingerprint:
-            raise ValueError("catalog definition fingerprint must be non-empty")
-        if not self.body_frames:
-            raise ValueError("expression binding context requires one body frame")
-
-
-_EXPRESSION_BINDING_CONTEXT: ContextVar[ExpressionBindingContext | None] = ContextVar(
-    "_EXPRESSION_BINDING_CONTEXT",
-    default=None,
-)
-
-
-def _require_exact_ref(
-    value: object,
-    *,
-    allowed: frozenset[SemanticKind] | None = None,
-    parameter: str,
-) -> Ref[SemanticKindTag]:
-    if type(value) is not Ref:
-        raise TypeError(f"{parameter} must be an exact Ref; received {type(value).__name__}")
-    ref = cast("Ref[SemanticKindTag]", value)
-    if allowed is not None and ref.kind not in allowed:
-        expected = ", ".join(sorted(kind.value for kind in allowed))
-        raise TypeError(f"{parameter} must have kind in {{{expected}}}; received {ref.kind.value}")
-    return ref
-
-
-def _binding_runtime_error(
-    kind: ErrorKind,
-    message: str,
-    *,
-    refs: Sequence[Ref[SemanticKindTag]] = (),
-    expected: str | None = None,
-    received: str | None = None,
-    details: dict[str, object] | None = None,
-) -> SemanticRuntimeError:
-    return SemanticRuntimeError(
-        kind=kind,
-        message=message,
-        refs=tuple(ref.key for ref in refs),
-        hint=(
-            "Use ms.bind(field_ref, entity_alias) with one declared field-kind ref inside "
-            "the active loaded semantic expression body."
-        ),
-        expected=expected,
-        received=received,
-        details=dict(details or {}),
-    )
+    from marivo.semantic.definition_resolution import Field
 
 
 def _find_function_node(tree: ast.Module, fn_name: str) -> ast.FunctionDef:
@@ -359,7 +127,6 @@ def _find_function_node(tree: ast.Module, fn_name: str) -> ast.FunctionDef:
 
 
 def _load_function_ast(fn: Callable[..., object]) -> tuple[ast.FunctionDef, int]:
-    from marivo.semantic.loader import _LOADER_CTX
 
     ctx = _LOADER_CTX.get()
     try:
@@ -442,18 +209,6 @@ class _DeclarationExpressionBuilder:
         )
 
     def dependency(self, value: object, node: ast.Name) -> object:
-        from marivo._definition.relations import PopulationParameter
-        from marivo._definition.windows import (
-            AllHistory,
-            Since,
-            ToDate,
-            TrailingDuration,
-            TrailingPeriods,
-        )
-        from marivo._kernel.grouping import Grouping
-        from marivo._kernel.temporal import Grain, InstantAnchor, TimeScope
-        from marivo.semantic.expressions import _Entity as Entity
-        from marivo.semantic.expressions import _Relationship as Relationship
 
         if type(value) is tuple:
             return tuple(self.dependency(item, node) for item in value)
@@ -465,9 +220,6 @@ class _DeclarationExpressionBuilder:
         if isinstance(value, _ExpressionCarrier):
             self.input_contexts.append(value._context)
             value = _as_deferred(value)
-        from marivo.semantic._paths import Path, RelationshipStep
-        from marivo.semantic.catalog import Entity as CatalogEntity
-        from marivo.semantic.catalog import Relationship as CatalogRelationship
 
         if isinstance(value, (CatalogEntity, CatalogRelationship, Path, RelationshipStep)):
             # Preserve the named boundary; controlled count/path capture owns conversion.
@@ -514,8 +266,6 @@ class _DeclarationExpressionBuilder:
         )
 
     def capture(self, value: Deferred) -> None:
-        from marivo._definition.deferred import inspect_capture
-        from marivo._definition.types import DefinitionGraphError
 
         try:
             self.input_contexts.append(inspect_capture(value).context)
@@ -525,18 +275,6 @@ class _DeclarationExpressionBuilder:
             ) from error
 
     def _function(self, node: ast.expr) -> Callable[..., object] | None:
-        from types import ModuleType
-
-        from marivo._definition.deferred import admitted_function
-        from marivo._definition.windows import (
-            all_history,
-            since,
-            to_date,
-            trailing_duration,
-            trailing_periods,
-        )
-        from marivo.semantic._paths import path
-        from marivo.semantic._rescale import rescale
 
         semantic_factories = (
             all_history,
@@ -544,7 +282,7 @@ class _DeclarationExpressionBuilder:
             to_date,
             trailing_duration,
             trailing_periods,
-            rescale,
+            _rescale.rescale,
             path,
         )
 
@@ -606,9 +344,6 @@ class _DeclarationExpressionBuilder:
             )
 
     def value(self, node: ast.expr) -> object:
-        from marivo._definition.deferred import NATIVE_METHODS, SEMANTIC_METHODS
-        from marivo.semantic.catalog import Entity as CatalogEntity
-        from marivo.semantic.expressions import _Entity as Entity
 
         if isinstance(node, ast.Name):
             if node.id not in self.symbols:
@@ -707,9 +442,6 @@ class _DeclarationExpressionBuilder:
                 receiver = self.value(node.func.value)
                 name = node.func.attr
                 if isinstance(receiver, Deferred) and name in NATIVE_METHODS | SEMANTIC_METHODS:
-                    from marivo._definition.deferred import resolver_of
-                    from marivo._definition.population_parameters import parameter_role
-
                     if parameter_role(resolver_of(receiver)) in {"population", "grouping", "axes"}:
                         self.fail(
                             node,
@@ -722,8 +454,6 @@ class _DeclarationExpressionBuilder:
                 elif isinstance(receiver, (Entity, CatalogEntity)) and name == "count":
                     method = receiver.count
                 else:
-                    from marivo.semantic.catalog import Relationship as CatalogRelationship
-
                     if isinstance(receiver, CatalogRelationship) and name == "at":
                         method = receiver.at
             if method is None:
@@ -733,20 +463,15 @@ class _DeclarationExpressionBuilder:
                     ast.unparse(node.func),
                 )
             args = [self.value(arg) for arg in node.args]
-            from marivo.semantic._rescale import rescale
 
             kwargs = {
                 keyword.arg: self._rescale_divisor(keyword.value)
-                if method is rescale and keyword.arg == "divisor"
+                if method is _rescale.rescale and keyword.arg == "divisor"
                 else self.value(keyword.value)
                 for keyword in node.keywords
                 if keyword.arg is not None
             }
             if deferred_receiver is not None:
-                from marivo._definition.deferred import resolver_of
-                from marivo.semantic._deferred_semantics import capture_source_time
-                from marivo.semantic._expression_values import _parameter
-
                 target, operation = deferred_receiver
                 if operation == "via" and not kwargs:
                     return Deferred(
@@ -762,8 +487,6 @@ class _DeclarationExpressionBuilder:
                 )
                 if default is not None:
                     kwargs["time"] = Deferred(default)
-            from marivo._definition.deferred import admitted_function, capture_function_call
-            from marivo._definition.types import DefinitionGraphError
 
             if admitted_function(method):
                 try:
@@ -816,7 +539,6 @@ def _construct_declaration_expression(
             value = builder.value(stmt.value)
             if isinstance(value, Deferred):
                 builder.capture(value)
-                from marivo._kernel.symbolic import native_symbol_ref
 
                 native = native_symbol_ref(value)
                 if native is not None and native.kind not in {
@@ -828,7 +550,6 @@ def _construct_declaration_expression(
                     builder.fail(
                         stmt.value, "a numeric row or completed Metric expression", native.key
                     )
-            from marivo.semantic._expression_values import _merge
 
             return value, _merge(*builder.input_contexts)
     raise AssertionError("validated declaration has no final return")
@@ -836,12 +557,9 @@ def _construct_declaration_expression(
 
 def construct_measure_expression(fn: Callable[[], Deferred | NumericRow]) -> NumericRow:
     """Capture a pure declaration and validate its row-stage semantic facts."""
-    from marivo.semantic._deferred_semantics import consume_row
 
     result, context = _construct_declaration_expression(fn, stage="measure")
     if isinstance(result, Deferred):
-        from marivo._definition.deferred import inspect_deferred
-
         if not inspect_deferred(result).symbols:
             try:
                 consume_row(result)
@@ -860,8 +578,6 @@ def construct_measure_expression(fn: Callable[[], Deferred | NumericRow]) -> Num
                     }
                 ):
                     raise
-        from marivo._definition.deferred import resolver_of
-        from marivo.semantic._expression_values import RowExpression
 
         return RowExpression(resolver_of(result), context, "numeric")
     raise SemanticExpressionError(
@@ -877,12 +593,9 @@ def construct_metric_expression(
     fn: Callable[[], Deferred | NumericMetric],
 ) -> NumericMetric:
     """Capture a pure declaration and validate its completed Metric stage."""
-    from marivo.semantic._deferred_semantics import consume_metric
 
     result, context = _construct_declaration_expression(fn, stage="metric")
     if isinstance(result, Deferred):
-        from marivo._definition.deferred import inspect_deferred, resolver_of
-
         inspection = inspect_deferred(result)
         if not inspection.symbols:
             try:
@@ -902,7 +615,6 @@ def construct_metric_expression(
                     }
                 ):
                     raise
-        from marivo.semantic._expression_values import MetricExpression
 
         return MetricExpression(resolver_of(result), context, "numeric")
     raise SemanticExpressionError(
@@ -915,14 +627,8 @@ def construct_metric_expression(
 
 
 def _binding_field_ref(value: object) -> Ref[SemanticKindTag] | None:
-    from marivo.semantic.expressions import Dimension, Measure, TimeField
-    from marivo.semantic.expressions import _Entity as Entity
-    from marivo.semantic.expressions import _Relationship as Relationship
 
     if isinstance(value, Deferred):
-        from marivo._kernel.symbolic import native_symbol_ref
-        from marivo.semantic._deferred_semantics import consume_field
-
         native = native_symbol_ref(value)
         if native is not None:
             return native
@@ -943,14 +649,26 @@ def _binding_field_ref(value: object) -> Ref[SemanticKindTag] | None:
     return None
 
 
-def _is_bind_target(node: ast.expr, symbols: Mapping[str, object]) -> bool:
-    from marivo.semantic._authoring_values import bind as public_bind
+def bind(field: Deferred, entity_alias: ibis_ir.Table) -> ibis_ir.Value:
+    """Apply a physical semantic field in a restricted Ibis field body.
 
+    Args:
+        field: Constructed physical field or native lookup symbol, supplied as a bare name.
+        entity_alias: Direct Entity table parameter of the Dimension/TimeDimension body.
+    Returns: The owning field's Ibis value on that Entity alias.
+    Example: ``return ms.bind(region, rows).upper()`` inside @ms.dimension(entity=orders).
+    Constraints: Loader binding checks field kind and ownership in the completed consumer scope; lookup symbols allow forward dependencies. Pure Measure/Metric bodies use constructed fields directly.
+    """
+    return _bind_physical_field(field, entity_alias)
+
+
+def _is_bind_target(node: ast.expr, symbols: Mapping[str, object]) -> bool:
     if isinstance(node, ast.Name):
-        return symbols.get(node.id) is public_bind or symbols.get(node.id) is bind
+        value = symbols.get(node.id)
+        return value is bind or value is _bind_physical_field
     if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
         owner = symbols.get(node.value.id)
-        return getattr(owner, node.attr, None) in (bind, public_bind)
+        return getattr(owner, node.attr, None) in (bind, _bind_physical_field)
     return False
 
 
@@ -1243,8 +961,6 @@ def _entity_table_source_columns(
     return tuple(columns)
 
 
-# Attribute access on the injected Table that materializes or compiles the
-# expression instead of building one. Rejected as an execution escape hatch.
 _ENTITY_EXECUTION_ATTRS: frozenset[str] = frozenset(
     {
         "compile",
@@ -1263,10 +979,6 @@ _ENTITY_EXECUTION_ATTRS: frozenset[str] = frozenset(
     }
 )
 
-# Ibis symbols whose value depends on execution time or backend state. The
-# design bans clock reads, random values, and hidden external data from an
-# Entity body; aliasing these names does not bypass the ban because the
-# check resolves symbol identity, not spelling.
 _ENTITY_NONDETERMINISTIC_IBIS_NAMES: frozenset[str] = frozenset(
     {
         "now",
@@ -1277,13 +989,8 @@ _ENTITY_NONDETERMINISTIC_IBIS_NAMES: frozenset[str] = frozenset(
     }
 )
 
-# Deferred instance names on the ibis module admitted in an Entity body.
 _ENTITY_DEFERRED_IBIS_NAMES: frozenset[str] = frozenset({"_", "t"})
 
-# Deterministic public Ibis expression symbols admitted in an Entity body:
-# the root module's __all__ minus the nondeterministic clock/random symbols.
-# Attributes outside __all__ (submodules, options, backends) are rejected so
-# body spelling cannot reach execution or connection surfaces.
 _ENTITY_IBIS_ADMITTED_NAMES: frozenset[str] = (
     frozenset(getattr(ibis, "__all__", ())) - _ENTITY_NONDETERMINISTIC_IBIS_NAMES
 )
@@ -1378,7 +1085,6 @@ def _validate_entity_table_closed_symbols(
                 received=ast.dump(node.func, include_attributes=False),
                 hint="Read source columns from the injected parameter instead of ms.bind.",
             )
-    import ibis
 
     body_root = _entity_table_body_nodes(function)
     for node in ast.walk(body_root):
@@ -1815,42 +1521,8 @@ def evaluate_expression_body(
         _EXPRESSION_BINDING_CONTEXT.reset(token)
 
 
-def bind(field: Deferred | Field, entity_alias: ir.Table, /) -> ir.Value:
-    """Apply a semantic field ref to an entity alias in an expression body.
-
-    Parameters
-    ----------
-    field:
-        Constructed physical field or dimension, time-dimension, or measure
-        lookup Ref, passed as a bare name resolvable before decoration. A
-        constructed field resolves by kind/path in the completed consumer scope.
-        For cross-file fields, assign ``ms.ref.<kind>(exact_path)`` to a
-        module-level name; the declaration need not be in this file.
-    entity_alias:
-        Direct entity parameter of the active decorated expression body.
-
-    Returns
-    -------
-    ibis.expr.types.Value
-        The referenced field expression evaluated on ``entity_alias``.
-
-    Example
-    -------
-    >>> orders = ms.ref.entity("sales.orders")
-    >>> amount = ms.ref.measure("sales.orders.amount")
-    >>> @ms.dimension(entity=orders)
-    ... def has_amount(rows):
-    ...     return ms.bind(amount, rows) > 0
-
-    Constraints
-    -----------
-    Only valid inside a loaded Ibis Dimension/TimeDimension body; pure Measure/Metric bodies consume constructed fields directly. The field must belong
-    to the bound entity. Both arguments are direct positional names. Inline
-    attribute access, factory/ref construction, transformed tables, and local
-    Entity aliases are rejected so the loader can capture static dependencies
-    and prove ownership. ``rows.amount`` reads a physical column; ``bind``
-    evaluates the declared semantic field expression.
-    """
+def _bind_physical_field(field: Deferred | Field, entity_alias: ir.Table, /) -> ir.Value:
+    """Evaluate a declared field binding on its owning Entity alias."""
     ref = _binding_field_ref(field)
     if ref is None:
         raise _binding_runtime_error(
@@ -1859,16 +1531,15 @@ def bind(field: Deferred | Field, entity_alias: ir.Table, /) -> ir.Value:
             expected="Ref[dimension | time_dimension | measure]",
             received=type(ref).__name__,
         )
-    candidate = ref
-    if candidate.kind not in _FIELD_KINDS:
+    if ref.kind not in _FIELD_KINDS:
         raise _binding_runtime_error(
             ErrorKind.INVALID_BINDING_REF,
-            f"Ref {candidate.key!r} is not a bindable semantic field ref.",
-            refs=(candidate,),
+            f"Ref {ref.key!r} is not a bindable semantic field ref.",
+            refs=(ref,),
             expected="dimension, time_dimension, or measure Ref",
-            received=candidate.kind.value,
+            received=ref.kind.value,
         )
-    field_ref = candidate
+    field_ref = ref
     context = _EXPRESSION_BINDING_CONTEXT.get()
     if context is None:
         raise _binding_runtime_error(

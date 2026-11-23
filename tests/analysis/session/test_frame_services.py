@@ -21,7 +21,7 @@ from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.model.execution_errors import SessionBusyError
 from marivo.analysis.session.core import Session
 from marivo.datasource import credentials as cr
-from marivo.semantic import catalog
+from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, terminal_run, terminal_runs
 
 
@@ -58,7 +58,7 @@ def test_local_metadata_reads_never_prepare_sources_mutate_or_read_payload(
     artifact = _publish(session)
     local = session._runtime.local
     monkeypatch.setattr(Session, "_sources", _forbidden)
-    monkeypatch.setattr(catalog, "load", _forbidden)
+    monkeypatch.setattr(SemanticProject, "load", _forbidden)
     monkeypatch.setattr(cr, "current_resolver", _forbidden)
     monkeypatch.setattr(cr, "check_binding", _forbidden)
     monkeypatch.setattr(DatasetRuntime, "connection_service", _forbidden)
@@ -91,7 +91,7 @@ def test_local_data_reads_use_receipts_and_do_not_cache_results(
 ) -> None:
     artifact = _publish(session)
     local = session._runtime.local
-    monkeypatch.setattr(catalog, "load", _forbidden)
+    monkeypatch.setattr(SemanticProject, "load", _forbidden)
     monkeypatch.setattr(cr, "check_binding", _forbidden)
     monkeypatch.setattr(DatasetRuntime, "connection_service", _forbidden)
     monkeypatch.setattr(SessionStore, "_write", _forbidden)
@@ -177,7 +177,7 @@ def test_retained_local_service_does_not_keep_runtime_session_hook_or_resolver(
     backing = local.open_frame(artifact.artifact_id)
     assert local.read_complete(backing).data.copy_rows().iloc[0, 0] == 7
     monkeypatch.setattr(Session, "_sources", _forbidden)
-    monkeypatch.setattr(catalog, "load", _forbidden)
+    monkeypatch.setattr(SemanticProject, "load", _forbidden)
     monkeypatch.setattr(DatasetRuntime, "connection_service", _forbidden)
     computed = derived.compute()
     assert computed.to_pandas()["copy"].tolist() == [7]

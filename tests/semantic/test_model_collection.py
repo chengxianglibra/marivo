@@ -17,8 +17,12 @@ from marivo._definition.types import DefinitionGraphError, ExactRef
 from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
 from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.catalog_consumption import catalog_metric_definition
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
-from marivo.semantic.expressions import _Entity, catalog_metric_definition, entity_exact
+from marivo.semantic.expressions.objects import (
+    _Entity,
+    entity_exact,
+)
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 from tests.shared_fixtures import resolve_test_symbol as resolve
@@ -96,7 +100,7 @@ def test_catalog_metric_resolves_through_declared_metric_ref(
 def test_catalog_closure_expands_to_the_stored_declaration_body(
     semantic_project_factory: ProjectFactory,
 ) -> None:
-    from marivo.semantic.expressions import catalog_closure
+    from marivo.semantic.catalog_consumption import catalog_closure
 
     catalog = _catalog(semantic_project_factory)
     revenue = resolve(catalog, ms.ref.metric("sales.revenue"))
@@ -241,7 +245,7 @@ def test_graph_failures_keep_their_definition_kind(
 def test_catalog_closure_reports_an_unpublished_metric(
     semantic_project_factory: ProjectFactory,
 ) -> None:
-    from marivo.semantic.expressions import catalog_closure
+    from marivo.semantic.catalog_consumption import catalog_closure
 
     catalog = _catalog(semantic_project_factory)
     revenue = resolve(catalog, ms.ref.metric("sales.revenue"))
@@ -331,7 +335,7 @@ def _changed_catalog(
 def test_closure_resolves_an_updated_metric_by_current_path(
     semantic_project_factory: ProjectFactory, tmp_path: Path
 ) -> None:
-    from marivo.semantic.expressions import catalog_closure
+    from marivo.semantic.catalog_consumption import catalog_closure
 
     first = _catalog(semantic_project_factory)
     old_revenue = first.get("metric:sales.revenue")
@@ -362,7 +366,7 @@ def test_closure_resolves_an_updated_metric_by_current_path(
 def test_closure_rechecks_where_scope_against_the_current_definition(
     semantic_project_factory: ProjectFactory, tmp_path: Path
 ) -> None:
-    from marivo.semantic.expressions import catalog_closure
+    from marivo.semantic.catalog_consumption import catalog_closure
 
     first = _catalog(semantic_project_factory)
     status = catalog_value(first, "sales.orders.status", kind="field")

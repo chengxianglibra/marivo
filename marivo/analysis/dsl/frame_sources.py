@@ -62,22 +62,22 @@ from marivo.analysis.model.lineage import SemanticObjectIdentity
 from marivo.analysis.model.time_facts import FrameRowAttributeTime
 from marivo.analysis.model.value_names import value_name
 from marivo.datasource.spi import DatasourceConnectionConfig
-from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic._consumption import (
+from marivo.semantic import (
+    MetricExpression,
+    RowExpression,
+    TimeDimension,
+)
+from marivo.semantic.spi import (
+    CompiledSemanticState,
+    DimensionExpression,
+    FieldExpression,
+    NumericMetric,
+    RowPredicate,
     bind_field_in_state,
     bind_metric_in_state,
     bind_predicate_in_state,
     validate_context,
 )
-from marivo.semantic._expression_values import (
-    DimensionExpression,
-    FieldExpression,
-    MetricExpression,
-    NumericMetric,
-    RowExpression,
-    RowPredicate,
-)
-from marivo.semantic.catalog import TimeDimension
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -376,9 +376,7 @@ def frame(
 ) -> AnalysisFrame:
     validate_context(population._context, project_root=connection.project_root, owner=local.owner)
     if state is None:
-        from marivo.semantic._compiled_state import build_compiled_state
-        from marivo.semantic._expression_binding import CompiledExpressionSidecar
-        from marivo.semantic.validator import Registry
+        from marivo.semantic.spi import CompiledExpressionSidecar, Registry, build_compiled_state
 
         state = build_compiled_state(
             registry=Registry(),

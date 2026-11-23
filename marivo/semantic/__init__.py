@@ -25,10 +25,13 @@ Public surface::
 
 from __future__ import annotations
 
+import sys
+
 from marivo._kernel.refs import SemanticKind
 from marivo._kernel.symbolic import symbol_factory as ref
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
+from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._expression_values import MetricExpression, RowExpression
 from marivo.semantic.authoring import (
     additive_all,
@@ -80,21 +83,7 @@ from marivo.semantic.authoring import (
 from marivo.semantic.authoring import (
     where as where,
 )
-from marivo.semantic.catalog import (
-    Datasource,
-    Dimension,
-    Domain,
-    Entity,
-    Measure,
-    Metric,
-    Relationship,
-    SemanticCatalog,
-    TimeDimension,
-    load,
-)
-from marivo.semantic.catalog import (
-    SemanticObject as SemanticObject,
-)
+from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.catalog_entries import (
     CatalogFilters,
     CatalogPage,
@@ -110,19 +99,32 @@ from marivo.semantic.catalog_entries import (
     MetricNoContributionClockBinding,
     RelationshipDefinition,
 )
+from marivo.semantic.catalog_load import load
+from marivo.semantic.catalog_model.objects import (
+    Datasource,
+    Dimension,
+    Domain,
+    Entity,
+    Measure,
+    Metric,
+    Relationship,
+    TimeDimension,
+)
+from marivo.semantic.catalog_model.objects import SemanticObject as SemanticObject
 from marivo.semantic.dtos import PreviewBatchResult
-from marivo.semantic.expressions import ExpressionContract
+from marivo.semantic.expressions.objects import ExpressionContract
 from marivo.semantic.ir import (
     JoinKey,
 )
 from marivo.semantic.readiness import (
     ReadinessReport,
 )
-from marivo.semantic.validation import (
+from marivo.semantic.runtime_check.results import ValidationReport
+from marivo.semantic.runtime_check.source_checks import (
     SourceCheck,
-    ValidationReport,
     source_check,
 )
+from marivo.telemetry import install_surface_instrumentation
 
 __all__ = [
     "CatalogFilters",
@@ -190,10 +192,6 @@ __all__ = [
 
 
 def _install_telemetry() -> None:
-    import sys
-
-    from marivo.semantic._capabilities.registry import REGISTRY
-    from marivo.telemetry import install_surface_instrumentation
 
     install_surface_instrumentation(
         surface="semantic",

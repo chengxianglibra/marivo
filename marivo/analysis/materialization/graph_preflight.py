@@ -15,9 +15,7 @@ from marivo.datasource.spi import (
     BoundSource,
     SourceSession,
 )
-from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic.materializer import materialize_entity_output
-from marivo.semantic.validator import Registry
+from marivo.semantic.spi import CompiledExpressionSidecar, Registry, materialize_entity_output
 
 
 def _local_file(path: str) -> bool:

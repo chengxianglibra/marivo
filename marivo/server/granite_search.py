@@ -18,14 +18,14 @@ from typing import TYPE_CHECKING, Protocol, cast
 import numpy as np
 import numpy.typing as npt
 
-from marivo.semantic.catalog_search import exact_identity_matches
+from marivo.semantic.spi import EmbeddingBackend, exact_identity_matches, rank_similarity
+from marivo.server.granite_cache import CachedVectors, GraniteCache, fingerprint_model
 from marivo.server.wire import HELP, ServiceError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from marivo.semantic.catalog_search import SearchDocument
-    from marivo.server.granite_cache import CachedVectors, GraniteCache
+    from marivo.semantic.spi import SearchDocument
 
 _DIMENSIONS = 384
 _BATCH_SIZE = 8
@@ -81,11 +81,19 @@ def _release_tokenizer_scratch() -> None:
 
 
 class GraniteEncoder:
+    dimensions = _DIMENSIONS
+
     def __init__(self, model_path: Path, *, asset_fingerprint: str | None = None) -> None:
         self._model_path = model_path
         self._asset_fingerprint = asset_fingerprint
         self._lock = Lock()
         self._engine = self._load_engine() if asset_fingerprint is None else None
+
+    @property
+    def model_fingerprint(self) -> str:
+        if self._asset_fingerprint is not None:
+            return self._asset_fingerprint
+        return fingerprint_model(self._model_path)
 
     def _load_engine(self) -> tuple[_Tokenizer, _Session]:
         model_path = self._model_path
@@ -115,14 +123,14 @@ class GraniteEncoder:
                 str(model_path), sess_options=options, providers=["CPUExecutionProvider"]
             ),
         )
-        if self._asset_fingerprint is not None:
-            from marivo.server.granite_cache import fingerprint_model
-
-            if fingerprint_model(model_path) != self._asset_fingerprint:
-                raise ValueError("Granite model assets changed. Restart the read service.")
+        if (
+            self._asset_fingerprint is not None
+            and fingerprint_model(model_path) != self._asset_fingerprint
+        ):
+            raise ValueError("Granite model assets changed. Restart the read service.")
         return tokenizer, session
 
-    def encode(self, texts: list[str]) -> npt.NDArray[np.float32]:
+    def encode_texts(self, texts: list[str]) -> npt.NDArray[np.float32]:
         with self._lock:
             if self._engine is None:
                 self._engine = self._load_engine()
@@ -169,18 +177,18 @@ def _document_text(doc: SearchDocument) -> str:
 
 @dataclass(frozen=True)
 class GraniteIndex:
-    encoder: GraniteEncoder
+    encoder: EmbeddingBackend[npt.NDArray[np.float32]]
     matrix: npt.NDArray[np.float32]
     row_keys: tuple[bytes, ...]
 
     @classmethod
     def build(
         cls,
-        encoder: GraniteEncoder,
+        encoder: EmbeddingBackend[npt.NDArray[np.float32]],
         documents: tuple[SearchDocument, ...],
         check_budget: Callable[[], None],
         *,
-        cache: tuple[GraniteCache, str] | None = None,
+        cache: GraniteCache | None = None,
         previous: GraniteIndex | None = None,
     ) -> GraniteIndex:
         texts = tuple(_document_text(doc) for doc in documents)
@@ -192,18 +200,20 @@ class GraniteIndex:
             reusable = previous
         key = None
         if cache is not None:
-            artifact_cache, fingerprint = cache
             recipe = (
                 f"granite-cls-unit-f32-single-document-v2/{_MAX_TOKENS}/{system()}/{machine()}/"
                 f"{version('onnxruntime')}/{version('tokenizers')}/{np.__version__}"
             )
-            key = artifact_cache.key(fingerprint, recipe)
+            key = cache.key(encoder.model_fingerprint, recipe)
             if reusable is None:
-                reusable = artifact_cache.load(key)
+                reusable = cache.load(key)
         if reusable is not None and reusable.row_keys == row_keys:
             return cls(encoder, reusable.matrix, row_keys)
 
-        matrix = np.empty((len(texts), _DIMENSIONS), dtype=np.float32)
+        dimensions = encoder.dimensions
+        if dimensions is None:
+            raise ValueError("An index requires known embedding dimensions.")
+        matrix = np.empty((len(texts), dimensions), dtype=np.float32)
         old_rows = (
             {row_key: row for row, row_key in enumerate(reusable.row_keys)}
             if reusable is not None
@@ -221,11 +231,11 @@ class GraniteIndex:
         for offset in range(0, len(pending), _BATCH_SIZE):
             check_budget()
             rows = pending[offset : offset + _BATCH_SIZE]
-            matrix[rows] = encoder.encode([texts[row] for row in rows])
+            matrix[rows] = encoder.encode_texts([texts[row] for row in rows])
         if cache is not None and key is not None:
             check_budget()
             try:
-                cache[0].store(key, row_keys, matrix)
+                cache.store(key, row_keys, matrix)
             except OSError:
                 logging.getLogger("uvicorn.error").warning(
                     "Granite vector cache could not be written", exc_info=True
@@ -239,19 +249,15 @@ class GraniteIndex:
         if not selected:
             return ()
         try:
-            scores = self.matrix @ self.encoder.encode([query])[0]
+            scores = self.matrix @ self.encoder.encode_texts([query])[0]
         except Exception as exc:
             logging.getLogger("uvicorn.error").exception("Granite query encoding failed")
             raise _encode_error() from exc
-        candidates = [
-            (document.id, score)
-            for row, document in selected
-            if (score := float(scores[row])) >= _MIN_SIMILARITY
-        ]
-        ranked = [
-            identity
-            for identity, _ in sorted(candidates, key=lambda hit: (-hit[1], hit[0]))[:window]
-        ]
+        candidates = rank_similarity(
+            ((document.id, float(scores[row])) for row, document in selected),
+            minimum=_MIN_SIMILARITY,
+        )
+        ranked = [identity for identity, _ in candidates[:window]]
         exact = exact_identity_matches((document for _, document in selected), query)
         return (
             *(identity for identity in ranked if identity in exact),

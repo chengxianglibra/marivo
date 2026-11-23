@@ -55,8 +55,8 @@ from marivo.analysis.materialization.query_parameters import instantiate
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.programs import FormulaInput
-from marivo.datasource.runtime.adapters import SourceSession
-from marivo.semantic._numeric_lowering import NumericCheck
+from marivo.datasource.spi import SourceSession
+from marivo.semantic.spi import NumericCheck
 
 
 def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:

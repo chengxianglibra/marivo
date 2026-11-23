@@ -50,21 +50,19 @@ from marivo.analysis.model.time_facts import (
     merge_source_times,
 )
 from marivo.datasource.spi import localize, timestamp
-from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic._expression_binding import evaluate_expression_body
-from marivo.semantic._numeric_lowering import numeric_failure
-from marivo.semantic._physical_contracts import validate_bound_field
-from marivo.semantic._source_timezone import effective_source_timezone
-from marivo.semantic.ir import (
+from marivo.semantic.spi import (
+    CompiledSemanticState,
     HourPrefixParse,
     StrptimeParse,
     TargetDimensionContract,
-)
-from marivo.semantic.validator import (
+    effective_source_timezone,
+    evaluate_expression_body,
     normalize_target_dimension,
     normalize_target_entity,
     normalize_target_relationship,
     normalize_target_version_selection,
+    numeric_failure,
+    validate_bound_field,
 )
 
 

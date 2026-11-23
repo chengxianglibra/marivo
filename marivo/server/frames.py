@@ -5,28 +5,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from marivo.analysis.dsl.frame_reopening import reopen_frame
 from marivo.analysis.errors import SessionStateError
-from marivo.analysis.materialization.frame_paging import read_frame_page, read_frame_periods
-from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.model.data_schema import (
+from marivo.analysis.session.read_spi import (
     CalendarComparisonBinding,
     CalendarDataAxis,
+    DataType,
+    FrameAxisSchema,
+    FrameComparison,
     IntervalComparisonBinding,
     IntervalDataAxis,
     PairedDataAxis,
+    StoredSession,
+    axis_export_layout,
+    comparison_id,
+    decode_keyset_cursor,
+    digest,
+    encode_keyset_cursor,
+    export_layout,
+    find_sessions,
+    frame_reference,
+    session_page_after,
 )
-from marivo.analysis.model.data_types import DataType
-from marivo.analysis.model.frame_schema import axis_export_layout, comparison_id, export_layout
-from marivo.analysis.model.layout_facts import FrameComparison
-from marivo.analysis.model.pages import decode_keyset_cursor, encode_keyset_cursor
-from marivo.analysis.model.receipts import digest
-from marivo.analysis.model.result_reference import FrameReference
-from marivo.analysis.model.time_facts import FrameAxisSchema
-from marivo.analysis.session import _lazy_history
-from marivo.analysis.session._lazy_frames import persisted_frames
-from marivo.analysis.session._lazy_runtime_reads import page_after
 from marivo.server.frame_projection import fact, page_rows, period, scalar
 from marivo.server.wire import Budget, JsonObject, JsonValue, ServiceError, stale_cursor
 
@@ -46,7 +45,7 @@ def unscoped_cursor(cursor: str, *scope: object) -> str | int:
 
 
 def frame_ref(store_id: str, session_id: str, artifact_id: str) -> JsonObject:
-    result = fact(FrameReference._create(store_id, session_id, artifact_id).to_dict(), "ref")
+    result = fact(frame_reference(store_id, session_id, artifact_id), "ref")
     assert isinstance(result, dict)
     return result
 
@@ -60,11 +59,11 @@ class FrameReads:
     root: Path
 
     def store_id(self) -> str | None:
-        store = SessionStore.find_existing(self.root)
+        store = find_sessions(self.root)
         return store.store_id if store is not None else None
 
     def sessions(self, limit: int, cursor: str | None) -> JsonObject:
-        store = SessionStore.find_existing(self.root)
+        store = find_sessions(self.root)
         if store is None:
             if cursor is not None:
                 raise stale_cursor()
@@ -76,10 +75,10 @@ class FrameReads:
             if not isinstance(inner, str):
                 raise stale_cursor()
             try:
-                after = page_after(limit, inner)
+                after = session_page_after(limit, inner)
             except SessionStateError:
                 raise stale_cursor() from None
-        page = _lazy_history.recent(store, limit=limit, after=after)
+        page = store.recent(limit, after)
         return directory(
             [
                 {
@@ -98,8 +97,8 @@ class FrameReads:
             scope_cursor(page.next_cursor, *scope) if page.next_cursor is not None else None,
         )
 
-    def local(self, session_id: str, *, store_id: str | None = None) -> LocalFrameServices:
-        store = SessionStore.find_existing(self.root)
+    def local(self, session_id: str, *, store_id: str | None = None) -> StoredSession:
+        store = find_sessions(self.root)
         if store is not None and store_id is not None and store.store_id != store_id:
             raise ServiceError(
                 "invalid_result_reference",
@@ -108,7 +107,8 @@ class FrameReads:
                 "Use the service bound to the original Store.",
                 "analysis.results.service.http",
             )
-        if store is None or store.session(session_id) is None:
+        selected = store.session(session_id) if store is not None else None
+        if selected is None:
             raise ServiceError(
                 "not_found",
                 "The Session does not exist in this project's Store.",
@@ -116,18 +116,18 @@ class FrameReads:
                 "Check the project binding and select an ID from GET /v2/sessions.",
                 "analysis.session.recent",
             )
-        return LocalFrameServices(store, session_id)
+        return selected
 
     def frames(self, session_id: str, limit: int, cursor: str | None) -> JsonObject:
         local = self.local(session_id)
         try:
-            page = persisted_frames(local, limit=limit, cursor=cursor)
+            page = local.frames(limit, cursor)
         except SessionStateError:
             raise stale_cursor() from None
         return directory(
             [
                 {
-                    "ref": frame_ref(local.store.store_id, session_id, item.artifact_id),
+                    "ref": frame_ref(local.store_id, session_id, item.artifact_id),
                     "committed_at": item.committed_at.isoformat(),
                     "description": item.description,
                     "schema": fact(item.schema, "schema"),
@@ -141,19 +141,17 @@ class FrameReads:
     def report(
         self, session_id: str, artifact_id: str, budget: Budget, *, store_id: str | None = None
     ) -> bytes:
-        local = self.local(session_id, store_id=store_id)
-        frame = reopen_frame(local, artifact_id)
-        backing = frame._require_stored("detail")
-        schema = backing.data.schema
-        public = frame.schema
+        snapshot = self.local(session_id, store_id=store_id).frame(artifact_id)
+        schema = snapshot.data_schema
+        public = snapshot.schema
         metadata: JsonObject = {
             "kind": "analysis_frame",
-            "ref": fact(frame.ref.to_dict(), "ref"),
-            "description": frame.description,
-            "committed_at": local.committed_at(backing).isoformat(),
+            "ref": fact(snapshot.ref, "ref"),
+            "description": snapshot.description,
+            "committed_at": snapshot.committed_at.isoformat(),
             "schema": fact(public, "schema"),
-            "lineage": fact(frame.lineage, "lineage"),
-            "source_reads": fact(frame.source_reads, "source_reads"),
+            "lineage": fact(snapshot.lineage, "lineage"),
+            "source_reads": fact(snapshot.source_reads, "source_reads"),
         }
         prefix = bytearray()
         budget.write(prefix, metadata)
@@ -187,16 +185,10 @@ class FrameReads:
         count = 0
         while True:
             budget.check()
-            page = read_frame_page(
-                input_id=public.input_id,
-                schema=schema,
-                backing=backing,
-                local=local,
-                columns=None,
+            page = snapshot.page(
                 limit=_BATCH,
                 cursor=cursor,
                 axis_names=axis_names,
-                time_details=True,
                 checkpoint=budget.check,
             )
             for row in page_rows(page):
@@ -266,12 +258,8 @@ class FrameReads:
             cursor = None
             while True:
                 budget.check()
-                page_periods = read_frame_periods(
-                    input_id=public.input_id,
-                    schema=schema,
-                    backing=backing,
-                    local=local,
-                    target=target.value,
+                page_periods = snapshot.periods(
+                    target.value,
                     limit=_BATCH,
                     cursor=cursor,
                     checkpoint=budget.check,

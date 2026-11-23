@@ -369,9 +369,10 @@ with a repair for the actual operation; backend execution failures remain
 `materialize_failed`.
 
 [loader.py](../../../marivo/semantic/loader.py) and
-[reader.py](../../../marivo/semantic/reader.py) own project assembly;
-[catalog.py](../../../marivo/semantic/catalog.py) owns public consumption and
-preview dispatch; [readiness.py](../../../marivo/semantic/readiness.py) and
-[validation.py](../../../marivo/semantic/validation.py) own their independent
-reports. [check.py](../../../marivo/semantic/check.py) exposes project checking
-through the CLI without creating another semantic state authority.
+[reader.py](../../../marivo/semantic/reader.py) own project assembly. The
+[Catalog façade](../../../marivo/semantic/catalog.py) serves public consumption and
+delegates execution to [Catalog previews](../../../marivo/semantic/catalog_previews.py).
+[readiness.py](../../../marivo/semantic/readiness.py) and
+[runtime validation](../../../marivo/semantic/runtime_check/validation.py) own their
+respective reports. [check.py](../../../marivo/semantic/check.py) exposes project
+checking through the CLI without creating another semantic state authority.

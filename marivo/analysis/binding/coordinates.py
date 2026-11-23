@@ -21,9 +21,12 @@ from marivo.analysis.binding.relationship_binding import RelationshipResolver
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.model.errors import reject
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.semantic.expressions import _Resolver
-from marivo.semantic.ir import SnapshotVersioningIR
-from marivo.semantic.validator import Registry, normalize_target_relationship
+from marivo.semantic.spi import DefinitionResolver as _Resolver
+from marivo.semantic.spi import (
+    Registry,
+    SnapshotVersioningIR,
+    normalize_target_relationship,
+)
 
 
 def identity_projection(

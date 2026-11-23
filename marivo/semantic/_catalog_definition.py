@@ -8,7 +8,7 @@ from dataclasses import fields, is_dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import Protocol
 
 from marivo._definition.expressions import (
     ContributionFilter,
@@ -29,13 +29,12 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.graph import children
+from marivo._definition.types import ExactRef
 from marivo._kernel.refs import Ref, SemanticKind, SemanticKindTag
 from marivo._kernel.temporal import Grain
-from marivo.datasource.ir import AiContextIR
-from marivo.semantic._compiled_state import PublishedDeclaration
-from marivo.semantic._deferred_semantics import MetricFacts, consume_metric, consume_row
+from marivo.datasource.spi import AiContextIR
+from marivo.semantic._deferred_semantics import consume_metric, consume_row
 from marivo.semantic._formula_display import FormulaDisplay
-from marivo.semantic._metric_time import metric_time_occurrences
 from marivo.semantic.catalog_entries import (
     DatasourceDefinition,
     DependencyContext,
@@ -43,24 +42,27 @@ from marivo.semantic.catalog_entries import (
     EntityDefinition,
     EntryDefinition,
     FieldDefinition,
-    MetricContributionClockBinding,
     MetricDefinition,
-    MetricNoContributionClockBinding,
     RelationshipDefinition,
     _freeze_json,
 )
+from marivo.semantic.catalog_model.details import DatasourceDetails
+from marivo.semantic.catalog_model.inputs import CatalogInputLookup
+from marivo.semantic.compiled_types import PublishedDeclaration
+from marivo.semantic.expressions.objects import ExpressionContract
 from marivo.semantic.ir import DimensionIR, EntityIR, RelationshipIR
+from marivo.semantic.metric_time_bindings import (
+    metric_time_bindings,
+)
+from marivo.semantic.static_check.targets import normalize_target_relationship
 
-if TYPE_CHECKING:
-    from marivo.semantic.catalog import SemanticCatalog
 
-
-def context_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> AiContextIR:
+def context_for(catalog: DefinitionLookup, ref: Ref[SemanticKindTag]) -> AiContextIR:
     definition = catalog._state.definitions.get(ref)
     context = getattr(definition, "ai_context", None)
     if isinstance(context, AiContextIR):
         return context
-    entry = catalog._index.entry(ref)
+    entry = catalog._require_index().entry(ref)
     if entry is not None:
         details = entry._details
         context = getattr(details, "context", None)
@@ -70,7 +72,7 @@ def context_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> AiContex
 
 
 def dependency_context(
-    catalog: SemanticCatalog, ref: Ref[SemanticKindTag]
+    catalog: DefinitionLookup, ref: Ref[SemanticKindTag]
 ) -> tuple[DependencyContext, ...]:
     return tuple(
         DependencyContext(
@@ -79,46 +81,12 @@ def dependency_context(
             context_for(catalog, item).guardrails,
         )
         for item in catalog._state.dependencies.get(ref, ())
-        if item in catalog._index
+        if item in catalog._require_index()
     )
-
-
-def metric_time_bindings(
-    metric: MetricFacts, display: FormulaDisplay | None = None
-) -> tuple[MetricContributionClockBinding | MetricNoContributionClockBinding, ...]:
-    """Project each captured contribution occurrence without consulting a Catalog."""
-    display = display or FormulaDisplay()
-    bindings: list[MetricContributionClockBinding | MetricNoContributionClockBinding] = []
-    for occurrence in metric_time_occurrences(metric.node, dict(metric._declared)):
-        branch = display.formula(occurrence.node)
-        if occurrence.path:
-            branch = f"{' / '.join(occurrence.path)}: {branch}"
-        time = occurrence.binding
-        if time is None:
-            assert occurrence.reason is not None
-            bindings.append(
-                MetricNoContributionClockBinding(
-                    branch,
-                    occurrence.root.ref.key if occurrence.root is not None else None,
-                    occurrence.reason,
-                )
-            )
-        else:
-            bindings.append(
-                MetricContributionClockBinding(
-                    branch,
-                    time.field.ref.key,
-                    tuple(item.ref.key for item in time.path),
-                    source=time.source,
-                    anchor=time.at,
-                )
-            )
-    return tuple(bindings)
 
 
 def _inert_text(value: object) -> str:
     """Only captured dataclass facts; never resolver or executable reprs."""
-    from marivo._definition.types import ExactRef
 
     if isinstance(value, ExactRef):
         return value.ref.key
@@ -182,7 +150,7 @@ def _null_rule(
     return f"nulls={node.nulls}: {policy}; {empty}"
 
 
-def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> EntryDefinition:
+def definition_for(catalog: DefinitionLookup, ref: Ref[SemanticKindTag]) -> EntryDefinition:
     """Project complete captured facts without execution or authored-function replay."""
 
     registry = catalog._reg
@@ -196,15 +164,13 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
             domain.default,
             tuple(
                 item.key
-                for item in catalog._index._refs
+                for item in catalog._require_index()._refs
                 if item.kind not in {SemanticKind.DOMAIN, SemanticKind.DATASOURCE}
                 and item.path.split(".")[0] == ref.path
             ),
         )
     if ref.kind is SemanticKind.DATASOURCE:
-        from marivo.semantic.catalog import DatasourceDetails
-
-        entry = catalog._index.entry(ref)
+        entry = catalog._require_index().entry(ref)
         assert entry is not None and isinstance(entry._details, DatasourceDetails)
         datasource = entry._details
         return DatasourceDefinition(
@@ -221,8 +187,6 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
         )
     captured = catalog._state.definitions[ref]
     if isinstance(captured, RelationshipIR):
-        from marivo.semantic.validator import normalize_target_relationship
-
         outside = tuple(
             path
             for path in (captured.from_entity, captured.to_entity)
@@ -265,7 +229,7 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
             else None,
             tuple(
                 item.key
-                for item in catalog._index._refs
+                for item in catalog._require_index()._refs
                 if item.kind
                 in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION, SemanticKind.MEASURE}
                 and item.path.rsplit(".", 1)[0] == ref.path
@@ -359,3 +323,7 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
         dependency_context(catalog, ref),
         contract.facts,
     )
+
+
+class DefinitionLookup(CatalogInputLookup, Protocol):
+    def _describe(self, ref: Ref[SemanticKindTag], /) -> ExpressionContract: ...

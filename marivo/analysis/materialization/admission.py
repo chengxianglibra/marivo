@@ -16,9 +16,14 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.model.time_authority import ReportTimeAuthority
-from marivo.datasource import credentials as cr
-from marivo.datasource.spi import DatasourceConnectionConfig, DatasourceConnectionService
-from marivo.semantic.catalog import SemanticCatalog
+from marivo.datasource.spi import (
+    DatasourceConnectionConfig,
+    DatasourceConnectionService,
+    bind_resolver,
+    check_binding,
+    current_resolver,
+)
+from marivo.semantic import SemanticCatalog
 
 
 class SourceOwnerFactory(Protocol):
@@ -54,9 +59,7 @@ class DatasetRuntime:
             resolution=session_record.report_timezone_resolution,
         )
         self._hook = event
-        self.connection_config = DatasourceConnectionConfig(
-            store.project_root, cr.current_resolver()
-        )
+        self.connection_config = DatasourceConnectionConfig(store.project_root, current_resolver())
 
     @property
     def store(self) -> SessionStore:
@@ -68,8 +71,8 @@ class DatasetRuntime:
 
     def connection_service(self) -> DatasourceConnectionService:
         """Create a source owner bound to this Runtime's captured host resolver."""
-        cr.check_binding(self.connection_config.resolver)
-        with cr.bind_resolver(self.connection_config.resolver):
+        check_binding(self.connection_config.resolver)
+        with bind_resolver(self.connection_config.resolver):
             return DatasourceConnectionService(self.store.project_root)
 
     @classmethod

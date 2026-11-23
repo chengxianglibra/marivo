@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from marivo.semantic.ir import HourPrefixParse
-from marivo.semantic.validator import Registry
+from marivo.semantic.spi import HourPrefixParse, Registry
 
 REPORT_CLOCK_GUIDANCE = (
     "Report grain never replaces a Metric's contribution clock; "

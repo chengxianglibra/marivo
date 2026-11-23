@@ -70,8 +70,8 @@ from marivo.analysis.binding.coordinates import (
 from marivo.analysis.binding.membership import membership_reads
 from marivo.analysis.binding.relationship_binding import RelationshipResolver
 from marivo.analysis.model.errors import reject
-from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic.expressions import _Resolver
+from marivo.semantic.spi import CompiledSemanticState
+from marivo.semantic.spi import DefinitionResolver as _Resolver
 
 
 def _membership_roles(

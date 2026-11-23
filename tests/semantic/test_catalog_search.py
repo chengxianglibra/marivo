@@ -13,19 +13,20 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from marivo.semantic import _catalog_search_model as models
-from marivo.semantic.catalog_search import (
+from marivo.semantic.errors import CatalogSearchError
+from marivo.semantic.search import sentence_transformers_backend as models
+from marivo.semantic.search.catalog_search import search_documents
+from marivo.semantic.search.models import (
     BrowseRetrieval,
     HybridSearchConfig,
     LexicalSearchConfig,
     LocalReranker,
     SearchConfig,
     SearchDocument,
+    SearchHit,
     SearchResult,
-    load_search_config,
-    search_documents,
 )
-from marivo.semantic.errors import CatalogSearchError
+from marivo.semantic.search.settings import load_search_config
 
 
 def _document(
@@ -152,7 +153,7 @@ def test_cold_lexical_ranking_is_independent_of_process_hash_seed(tmp_path: Path
     script = """
 import json, sys
 from pathlib import Path
-from marivo.semantic.catalog_search import SearchDocument, LexicalSearchConfig, search_documents
+from marivo.semantic.search.catalog_search import SearchDocument, LexicalSearchConfig, search_documents
 terms = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf"]
 documents = tuple(SearchDocument(f"metric:sales.item_{index}", "metric", f"sales.item_{index}", f"item_{index}", "sales", "sales.orders", tuple((f"part_{part}", " ".join(terms[part::index+1])) for part in range(index+1))) for index in range(7))
 documents += tuple(SearchDocument(f"metric:other.extra_{index}", "metric", f"other.extra_{index}", f"extra_{index}", "other", "other.orders", (("definition", " ".join(terms[:index+1])),)) for index in range(6))
@@ -380,7 +381,7 @@ def test_hybrid_cursor_reuses_fixed_ranking_in_a_fresh_process(
     script = """
 import json, sys
 from pathlib import Path
-from marivo.semantic.catalog_search import HybridSearchConfig, SearchDocument, search_documents
+from marivo.semantic.search.catalog_search import HybridSearchConfig, SearchDocument, search_documents
 root = Path(sys.argv[1])
 documents = tuple(SearchDocument(f"metric:sales.orders_{i}", "metric", f"sales.orders_{i}", f"orders_{i}", "sales", "sales.orders", (("business_definition", "Orders"),)) for i in range(3))
 config = HybridSearchConfig("test/local", "a" * 40, "external-boundary-test-v1", 0.8, query_prefix="query: ", document_prefix="passage: ")
@@ -420,7 +421,7 @@ def test_local_model_paths_cannot_ignore_the_declared_revision(
 def test_observed_corruption_never_unlinks_a_concurrently_published_ranking(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.semantic.catalog_search as search
+    import marivo.semantic.search.catalog_search as search
 
     documents = tuple(_document(name, name) for name in ("one", "two", "three"))
     winner = _search(tmp_path, documents, limit=1)
@@ -431,9 +432,7 @@ def test_observed_corruption_never_unlinks_a_concurrently_published_ranking(
     read = search._read_ranking
     first = True
 
-    def concurrent_publish(
-        cache_path: Path, key: str, allowed: set[str]
-    ) -> tuple[search.SearchHit, ...]:
+    def concurrent_publish(cache_path: Path, key: str, allowed: set[str]) -> tuple[SearchHit, ...]:
         nonlocal first
         if first:
             first = False

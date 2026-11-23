@@ -22,7 +22,7 @@ from marivo.analysis.model.data_schema import DataAxis, DataSchema
 from marivo.analysis.model.data_types import ScalarDataType
 from marivo.analysis.model.frame_contracts import CheckedStageInputT
 from marivo.datasource.spi import query_dialect
-from marivo.semantic._numeric_lowering import NumericCheck
+from marivo.semantic.spi import NumericCheck
 
 
 def _bounded_read(

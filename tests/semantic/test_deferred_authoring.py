@@ -16,9 +16,10 @@ from marivo._definition.deferred import (
 )
 from marivo._definition.expressions import MetricExpression, PerReduce, SourceAggregate
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
-from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
+from marivo.semantic._expression_values import _ExpressionCarrier
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticExpressionError
+from marivo.semantic.expressions.inputs import _as_deferred
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 

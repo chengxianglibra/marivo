@@ -13,7 +13,10 @@ from marivo._definition.graph import computation_fingerprint
 from marivo._definition.relations import PopulationContains, PopulationDependency
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.datasource.spi import query_dialect
-from marivo.semantic._numeric_lowering import NumericValue, lower_predicate
+from marivo.semantic.spi import (
+    NumericValue,
+    lower_predicate,
+)
 
 
 def population_key(population: PopulationDependency) -> str:

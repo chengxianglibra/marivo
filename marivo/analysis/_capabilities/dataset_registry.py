@@ -12,6 +12,7 @@ from types import MappingProxyType
 from typing import Literal, NoReturn
 
 from marivo.analysis._capabilities.dataset_navigation import navigation
+from marivo.analysis._capabilities.external_help import validate_external_link
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.model.disclosure import (
     CallableInput,
@@ -370,11 +371,7 @@ class DatasetDisclosureRegistry:
                     if target == "authoring" or target.startswith(
                         ("semantic.", "datasource.", "ontology.")
                     ):
-                        # Cross-surface links retain their actual owner. Resolve only
-                        # the qualified target, never build a local shadow descriptor.
-                        from marivo._help.route import route_help_target
-
-                        route_help_target(target)
+                        validate_external_link(target)
                     else:
                         raise invalid("independently resolvable linked target", target)
         for descriptor in self.descriptors:

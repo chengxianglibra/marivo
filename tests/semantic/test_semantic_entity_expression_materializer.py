@@ -18,8 +18,8 @@ import marivo.datasource as md
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
-from marivo.semantic.materializer import Materializer
 from marivo.semantic.reader import SemanticProject
+from marivo.semantic.runtime_check.materializer import Materializer
 from tests.shared_fixtures import patch_semantic_connections
 
 if TYPE_CHECKING:

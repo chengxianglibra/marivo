@@ -37,7 +37,7 @@ from marivo.datasource.runtime import backends as backends
 from marivo.datasource.runtime.connections import DatasourceConnectionService
 from marivo.datasource.runtime.preview import PreviewResult
 from marivo.datasource.source import AuthoringScope, TableSource
-from marivo.semantic import catalog as catalog_module
+from marivo.semantic import catalog_previews as catalog_module
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.reader import SemanticProject

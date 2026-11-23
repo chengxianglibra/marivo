@@ -127,6 +127,7 @@ select = [
     "RUF",
     "PLC0415",
     "TID251",
+    "SLF001",
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
@@ -139,6 +140,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"!marivo/{ontology,server}/**/*.py" = ["SLF001"]
 "marivo/analysis/__init__.py" = [
     "PLC0415",
     "F401",    # re-exports not in __all__ are intentional facade imports
@@ -257,51 +259,7 @@ ignore = [
 "marivo/datasource/errors.py" = ["PLC0415"]
 "marivo/introspection/live/model.py" = ["PLC0415"]
 "marivo/introspection/live/resolve.py" = ["PLC0415"]
-"marivo/ontology/_capabilities/registry.py" = ["PLC0415"]
-"marivo/ontology/types.py" = ["PLC0415"]
 "marivo/preview.py" = ["PLC0415"]
-"marivo/semantic/__init__.py" = ["PLC0415"]
-"marivo/semantic/_authoring_context.py" = ["PLC0415"]
-"marivo/semantic/_authoring_declarations.py" = ["PLC0415"]
-"marivo/semantic/_authoring_decorators.py" = ["PLC0415"]
-"marivo/semantic/_authoring_validation.py" = ["PLC0415"]
-"marivo/semantic/_authoring_values.py" = ["PLC0415"]
-"marivo/semantic/_capabilities/registry.py" = ["PLC0415"]
-"marivo/semantic/_capabilities/render.py" = ["PLC0415"]
-"marivo/semantic/_capabilities/surface.py" = ["PLC0415"]
-"marivo/semantic/_catalog_definition.py" = ["PLC0415"]
-"marivo/semantic/_compiled_state.py" = ["PLC0415"]
-"marivo/semantic/_consumption.py" = ["PLC0415"]
-"marivo/semantic/_deferred_semantics.py" = ["PLC0415"]
-"marivo/semantic/_dsl_authoring.py" = ["PLC0415"]
-"marivo/semantic/_expression_binding.py" = ["PLC0415"]
-"marivo/semantic/_expression_values.py" = ["PLC0415"]
-"marivo/semantic/_formula_display.py" = ["PLC0415"]
-"marivo/semantic/_metric_time.py" = ["PLC0415"]
-"marivo/semantic/_numeric_duration.py" = ["PLC0415"]
-"marivo/semantic/_numeric_lowering.py" = ["PLC0415"]
-"marivo/semantic/_numeric_preview.py" = ["PLC0415"]
-"marivo/semantic/_numeric_recipe.py" = ["PLC0415"]
-"marivo/semantic/_physical_contracts.py" = ["PLC0415"]
-"marivo/semantic/_source_timezone.py" = ["PLC0415"]
-"marivo/semantic/_symbolic_binding.py" = ["PLC0415"]
-"marivo/semantic/authoring.py" = ["PLC0415"]
-"marivo/semantic/catalog.py" = ["PLC0415"]
-"marivo/semantic/catalog_entries.py" = ["PLC0415"]
-"marivo/semantic/catalog_search.py" = ["PLC0415"]
-"marivo/semantic/errors.py" = ["PLC0415"]
-"marivo/semantic/expressions.py" = ["PLC0415"]
-"marivo/semantic/ir.py" = ["PLC0415"]
-"marivo/semantic/loader.py" = ["PLC0415"]
-"marivo/semantic/materializer.py" = ["PLC0415"]
-"marivo/semantic/preview_scope.py" = ["PLC0415"]
-"marivo/semantic/reader.py" = ["PLC0415"]
-"marivo/semantic/readiness.py" = ["PLC0415"]
-"marivo/semantic/validation.py" = ["PLC0415"]
-"marivo/semantic/validator.py" = ["PLC0415"]
-"marivo/server/catalog_reads.py" = ["PLC0415"]
-"marivo/server/command.py" = ["PLC0415"]
-"marivo/server/granite_search.py" = ["PLC0415"]
 "marivo/telemetry/__init__.py" = ["PLC0415"]
 "tests/analysis/graph/execution_fixtures.py" = ["TID251"]
 "tests/analysis/graph/physical_workloads.py" = ["PLC0415"]

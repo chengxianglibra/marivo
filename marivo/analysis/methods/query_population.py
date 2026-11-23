@@ -143,7 +143,7 @@ def evaluate_population(
             from marivo._definition.population_builders import predicate_fields
             from marivo.analysis.compiler.predicate import lower_condition, population_key
             from marivo.analysis.methods._ibis_numeric import evaluate_numeric
-            from marivo.semantic._numeric_lowering import numeric_failure
+            from marivo.semantic.spi import numeric_failure
 
             operand = rows(node.operand)
             values: dict[str, pd.Series] = {}

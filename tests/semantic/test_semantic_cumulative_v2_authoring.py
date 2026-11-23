@@ -14,8 +14,11 @@ from marivo._definition.expressions import DeclaredMetricRef, MetricWindow, Sour
 from marivo._definition.windows import AllHistory, ToDate, TrailingDuration
 from marivo._kernel.symbolic import MeasureSymbol, TimeDimensionSymbol
 from marivo.semantic._deferred_semantics import consume_metric
-from marivo.semantic._dsl_authoring import AdditivityPolicy
-from marivo.semantic.loader import _LOADER_CTX, LoaderContext
+from marivo.semantic.loading_context import (
+    _LOADER_CTX,
+    LoaderContext,
+)
+from marivo.semantic.policies import AdditivityPolicy
 from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
 from tests.shared_fixtures import resolve_test_symbol as resolve
 

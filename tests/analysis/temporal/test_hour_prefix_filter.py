@@ -21,9 +21,9 @@ from marivo.analysis.compiler.source_time import source_time, source_time_predic
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.analysis.model.errors import CoreRuleError
 from marivo.analysis.model.time_authority import SourceTimeAuthority
-from marivo.semantic._source_timezone import DeclaredSourceTimezone
 from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse, TargetDimensionContract
 from marivo.semantic.reader import SemanticProject
+from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.documentation import _example as documentation_example

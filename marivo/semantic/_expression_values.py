@@ -6,6 +6,7 @@ import operator
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from inspect import unwrap
 from typing import (
     TYPE_CHECKING,
     Generic,
@@ -17,10 +18,25 @@ from typing import (
     overload,
 )
 
+import ibis
 from ibis.common.deferred import Attr, BinaryOperator, Call, Deferred, Just, Resolver, UnaryOperator
 from ibis.common.deferred import Sequence as RecipeSequence
 
-from marivo._definition.deferred import inspect_capture, resolver_of
+from marivo._definition.deferred import (
+    CapturedDefaultTimeResolver,
+    DeclarationResolver,
+    NamedResolver,
+    RelationshipParameter,
+    RescaleResolver,
+    SemanticResolver,
+    _captured_field_kind,
+    _captured_scalar_path,
+    attribute_name,
+    inspect_capture,
+    resolver_of,
+)
+from marivo._definition.population_parameters import has_parameters
+from marivo._definition.relations import PopulationParameter
 from marivo._definition.types import (
     DefinitionGraphError,
     InputContext,
@@ -30,21 +46,43 @@ from marivo._definition.types import (
     merge_input_contexts,
 )
 from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
+from marivo._kernel.grouping import Grouping
+from marivo._kernel.paths import _PathValue as Path
+from marivo._kernel.refs import SemanticKind
 from marivo._kernel.render import Card, RenderableResult
-from marivo._kernel.temporal import Grain, InstantAnchor, TimeScope
+from marivo._kernel.symbolic import SymbolResolver
+from marivo._kernel.temporal import CalendarAxis, Grain, InstantAnchor, TimeScope
+from marivo.semantic._deferred_semantics import (
+    capture_source_time,
+    consume_field,
+    consume_metric,
+    validate_closed_time_operation,
+)
+from marivo.semantic._metric_time_disclosure import add_metric_time
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
+from marivo.semantic.expressions.inputs import (
+    _OMITTED_TIME,
+    CatalogInput,
+    CatalogRelationshipInput,
+    RecipeInput,
+    _OmittedTime,
+)
+from marivo.semantic.metric_time_bindings import metric_time_bindings
 
 if TYPE_CHECKING:
-    from marivo._definition.relations import PopulationParameter
-    from marivo._kernel.grouping import Grouping
     from marivo._kernel.symbolic import PathSymbol
-    from marivo.semantic._paths import Path
+
 
 RowRole: TypeAlias = Literal["dimension", "time", "numeric", "boolean"]
+
 MetricRole: TypeAlias = Literal["numeric", "boolean"]
+
 _RowRoleT = TypeVar("_RowRoleT", bound=RowRole, covariant=True)
+
 _MetricRoleT = TypeVar("_MetricRoleT", bound=MetricRole, covariant=True)
+
 NumericLiteral: TypeAlias = int | float | Decimal
+
 Window: TypeAlias = AllHistory | Since | ToDate | TrailingDuration | TrailingPeriods
 
 
@@ -56,20 +94,9 @@ class _GrainOmitted:
 _GRAIN_OMITTED = _GrainOmitted()
 
 
-class _OmittedTime:
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return "<omitted>"
-
-
-_OMITTED_TIME = _OmittedTime()
-
-
 def _source_arguments(
     receiver: Resolver, time: TimeExpression | _OmittedTime | None, **kwargs: object
 ) -> dict[str, object]:
-    from marivo.semantic._deferred_semantics import capture_source_time
 
     if not isinstance(time, _OmittedTime):
         capture_source_time(receiver, _parameter(time))
@@ -101,11 +128,6 @@ def _stage_error(
 
 
 def _parameter(value: object) -> Resolver:
-    from marivo._definition.deferred import RelationshipParameter
-    from marivo._definition.relations import PopulationParameter
-    from marivo._kernel.grouping import Grouping
-    from marivo.semantic._paths import Path
-    from marivo.semantic.catalog import Relationship
 
     if isinstance(value, _ExpressionCarrier):
         return value._recipe
@@ -113,9 +135,7 @@ def _parameter(value: object) -> Resolver:
         return resolver_of(value)
     if isinstance(value, Path):
         return Just(value._parameter)
-    if isinstance(value, Relationship):
-        from marivo._definition.deferred import NamedResolver
-
+    if isinstance(value, CatalogRelationshipInput):
         return NamedResolver(value._parameter.ref, Just(value._parameter))
     if isinstance(
         value,
@@ -154,14 +174,10 @@ def _parameter(value: object) -> Resolver:
 
 
 def _contexts(value: object) -> tuple[InputContext, ...]:
-    from marivo._definition.relations import PopulationParameter
-    from marivo._kernel.grouping import Grouping
-    from marivo.semantic._paths import Path
-    from marivo.semantic.catalog import _SemanticObject
 
     if isinstance(value, (Grouping, Path, PopulationParameter)):
         return (value._context,)
-    if isinstance(value, _SemanticObject):
+    if isinstance(value, CatalogInput):
         return (value._context,)
     if isinstance(value, InputContext):
         return (value,)
@@ -187,15 +203,6 @@ def _merge(*values: object) -> InputContext:
 
 def _formula(recipe: Resolver, depth: int = 0) -> str:
     """Render captured recipe syntax, without interpreting business facts."""
-    from marivo._definition.deferred import (
-        CapturedDefaultTimeResolver,
-        DeclarationResolver,
-        NamedResolver,
-        RescaleResolver,
-        SemanticResolver,
-        attribute_name,
-    )
-    from marivo._kernel.symbolic import SymbolResolver
 
     if depth > 5:
         return "..."
@@ -249,7 +256,7 @@ def _formula(recipe: Resolver, depth: int = 0) -> str:
     return type(recipe).__name__
 
 
-class _ExpressionCarrier(RenderableResult):
+class _ExpressionCarrier(RenderableResult, RecipeInput):
     __slots__ = ("_captured_context", "_captured_recipe", "_captured_role")
     _captured_recipe: Resolver
     _captured_context: InputContext
@@ -263,8 +270,6 @@ class _ExpressionCarrier(RenderableResult):
         try:
             inspection = inspect_capture(Deferred(recipe))
             if not inspection.symbols and isinstance(self, (MetricExpression, _MetricSamples)):
-                from marivo.semantic._deferred_semantics import validate_closed_time_operation
-
                 validate_closed_time_operation(recipe)
             object.__setattr__(
                 self, "_captured_context", merge_input_contexts(context, inspection.context)
@@ -393,10 +398,6 @@ class _ExpressionCarrier(RenderableResult):
             if inspection.symbols:
                 card.field("report_time", "unknown: resolve the authoring symbols in a Catalog")
             else:
-                from marivo.semantic._catalog_definition import metric_time_bindings
-                from marivo.semantic._deferred_semantics import consume_metric
-                from marivo.semantic._metric_time_disclosure import add_metric_time
-
                 try:
                     facts = consume_metric(self)
                 except SemanticExpressionError as error:
@@ -1073,9 +1074,6 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             if all(isinstance(value, str) for value in values)
             else "numeric"
         )
-        from inspect import unwrap
-
-        import ibis
 
         return RowExpression(
             Call(
@@ -1197,7 +1195,6 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             Constraints: Captures immutable inputs without source access. The receiving
             scope validates roots, roles, units, time and operation-specific rules.
         """
-        from marivo.semantic._paths import Path
 
         if not isinstance(path, (Path, Deferred)):
             _error("via requires a Path from mv.path(...).")
@@ -1206,8 +1203,6 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def _bind_field_version(
         self, operation: Literal["via", "at"], value: object
     ) -> RowExpression[_RowRoleT]:
-        from marivo._definition.population_parameters import has_parameters
-        from marivo.semantic._deferred_semantics import consume_field
 
         recipe = self._method(operation, (value,))
         result = RowExpression(recipe, _merge(self, value), cast("_RowRoleT", self._role))
@@ -2254,9 +2249,6 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
             if all(isinstance(value, str) for value in values)
             else "numeric"
         )
-        from inspect import unwrap
-
-        import ibis
 
         return MetricExpression(
             Call(
@@ -2393,12 +2385,8 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
             and the actual contributions. An explicit field selects the sample
             time independently of the contribution's time role.
         """
-        from marivo._kernel.temporal import CalendarAxis
 
         if grain is not _GRAIN_OMITTED:
-            from marivo._definition.deferred import _captured_field_kind, _captured_scalar_path
-            from marivo._kernel.refs import SemanticKind
-
             field = _parameter(by)
             if (
                 not isinstance(grain, Grain)
@@ -2457,11 +2445,17 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
 
 
 DimensionExpression: TypeAlias = RowExpression[Literal["dimension"]]
+
 TimeExpression: TypeAlias = RowExpression[Literal["time"]]
+
 NumericRow: TypeAlias = RowExpression[Literal["numeric"]]
+
 RowPredicate: TypeAlias = RowExpression[Literal["boolean"]]
+
 NumericMetric: TypeAlias = MetricExpression[Literal["numeric"]]
+
 MetricPredicate: TypeAlias = MetricExpression[Literal["boolean"]]
+
 FieldExpression: TypeAlias = DimensionExpression | TimeExpression | NumericRow
 
 
@@ -2776,8 +2770,3 @@ class _MetricSamples(_ExpressionCarrier):
         return MetricExpression(
             self._method("approx_quantile", (q,), {"nulls": nulls}), self._context, "numeric"
         )
-
-
-def _as_deferred(value: _ExpressionCarrier) -> Deferred:
-    """Expose only the controlled internal recipe to existing semantic owners."""
-    return Deferred(value._recipe)

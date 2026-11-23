@@ -11,8 +11,12 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.methods._ibis_numeric import evaluate_numeric
 from marivo.analysis.methods.numeric_state import finish_decimal, sum_values
-from marivo.semantic._numeric_lowering import NumericValue, _source_sum, numeric_binary
+from marivo.semantic._numeric_lowering import _source_sum
 from marivo.semantic.errors import SemanticExpressionError
+from marivo.semantic.numeric_operations import (
+    NumericValue,
+    numeric_binary,
+)
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 

@@ -10,7 +10,7 @@ from marivo._definition.expressions import SourceAggregate
 from marivo._definition.graph import computation_fingerprint
 from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.errors import SemanticExpressionError
-from marivo.semantic.validator import assembly_validate
+from marivo.semantic.static_check.assembly import assembly_validate
 from tests.shared_fixtures import DslCaseFactory
 from tests.shared_fixtures import resolve_test_symbol as resolve
 

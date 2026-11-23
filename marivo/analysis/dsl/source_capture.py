@@ -48,14 +48,14 @@ from marivo.analysis.dsl.population import (
 )
 from marivo.analysis.model.errors import CoreRuleError, reject
 from marivo.analysis.model.value_names import value_name
-from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic._deferred_semantics import (
+from marivo.semantic import Metric, MetricExpression
+from marivo.semantic.spi import (
+    CompiledSemanticState,
+    NumericMetric,
     consume_metric,
     consume_metric_in_state,
     consume_predicate,
 )
-from marivo.semantic._expression_values import MetricExpression, NumericMetric
-from marivo.semantic.catalog import Metric
 
 ValueRow: TypeAlias = tuple[tuple[CoordinateValue, ...], Mapping[str, LiteralValue]]
 _MetricInputs: TypeAlias = tuple[tuple[str | None, Deferred], ...]

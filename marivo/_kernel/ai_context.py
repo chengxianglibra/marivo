@@ -64,3 +64,33 @@ class AiContextValue:
                 f"got {type(self.business_definition).__name__}. "
                 "Use ms.ai_context() to construct AiContextValue."
             )
+
+
+@dataclass(frozen=True)
+class AiContextIR:
+    """Immutable AI-facing context stored on semantic and datasource objects."""
+
+    business_definition: str | None = None
+    guardrails: tuple[str, ...] = ()
+    aliases: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "aliases", _normalize_aliases(self.aliases))
+
+
+class InvalidAiContextError(TypeError):
+    """A context argument did not originate from the typed constructor."""
+
+
+def capture_ai_context(value: AiContextValue | None) -> AiContextIR:
+    """Copy a validated context into the immutable definition representation."""
+    if value is None:
+        return AiContextIR()
+    if not isinstance(value, AiContextValue):
+        raise InvalidAiContextError(
+            "ai_context= expects an AiContextValue from ms.ai_context(...), "
+            "not a raw dict. Construct it explicitly with "
+            "ms.ai_context(business_definition=..., guardrails=[...]). "
+            "summary= and other unsupported metadata keys are not accepted."
+        )
+    return AiContextIR(value.business_definition, value.guardrails, value.aliases)

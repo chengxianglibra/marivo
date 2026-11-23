@@ -83,7 +83,7 @@ def test_corrected_aggregates_compose_with_relational_and_scalar_operations(q: f
 
 def _uint64_sketch_query(table: ir.Table) -> ir.Table:
     from marivo._kernel.numeric_types import exact_unsigned
-    from marivo.semantic._numeric_lowering import force_cast
+    from marivo.semantic.numeric_operations import force_cast
 
     projected = table.select("k", v=exact_unsigned(table.v)).filter(lambda t: t.k != "z")
     value = projected.v

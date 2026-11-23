@@ -16,7 +16,7 @@ from marivo._kernel.symbolic import native_symbol_ref
 from marivo.datasource.errors import DatasourceFieldInvalidError
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
-from marivo.semantic.preview_scope import _normalize_scopes
+from marivo.semantic.runtime_check.preview_scope import _normalize_scopes
 
 if TYPE_CHECKING:
     from tests.conftest import _SemanticProjectFactory

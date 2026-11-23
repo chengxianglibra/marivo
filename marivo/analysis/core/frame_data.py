@@ -40,7 +40,7 @@ from marivo.analysis.model.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 
 if TYPE_CHECKING:
     from marivo.datasource.spi import DatasourceConnectionConfig
-    from marivo.semantic._compiled_state import CompiledSemanticState
+    from marivo.semantic.spi import CompiledSemanticState
 
 
 def _table(

@@ -19,8 +19,8 @@ from marivo.analysis.compiler.source_time import (
     source_time_predicate,
 )
 from marivo.analysis.materialization.temporal_sql import lower_temporal
-from marivo.semantic._source_timezone import DeclaredSourceTimezone
 from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse, TimestampParse
+from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.datasource.source_cases import SourceData, source_case, source_params
 

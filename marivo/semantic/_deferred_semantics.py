@@ -1,16 +1,17 @@
 """Source-free semantic consumption of native Ibis Deferred recipes.
 
 The numerical structure remains an Ibis resolver recipe. This module adds only
-semantic boundaries and facts; binding supplies physical types later.
-"""
+semantic boundaries and facts; binding supplies physical types later."""
 
 from __future__ import annotations
 
+import hashlib
 import operator
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from decimal import Decimal
-from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, cast
+from typing import Literal, NoReturn, TypeAlias, cast
 
 from ibis.common.deferred import (
     Attr,
@@ -35,7 +36,10 @@ from marivo._definition.deferred import (
     RescaleResolver,
     SemanticInput,
     SemanticResolver,
+    _captured_field_kind,
     attribute_name,
+    canonical_recipe,
+    inspect_capture,
     inspect_deferred,
     relationship_carrier,
 )
@@ -60,6 +64,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
+from marivo._definition.graph import DefinitionNode, children, walk
 from marivo._definition.grouping import grouping_binding, normalize_groupings
 from marivo._definition.observation_time import ContributionClockBinding
 from marivo._definition.population_builders import validate_path_read
@@ -86,19 +91,25 @@ from marivo._definition.types import (
     field_axis,
     fixed_attribute_time,
 )
+from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
 from marivo._kernel.grouping import Grouping
 from marivo._kernel.refs import SemanticKind
 from marivo._kernel.refs import ref as ref_factory
-from marivo._kernel.temporal import Grain, TimeScope
-from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
-from marivo.semantic._metric_time import (
+from marivo._kernel.temporal import Grain, InstantAnchor, TimeScope
+from marivo.semantic.errors import ErrorKind, SemanticExpressionError
+from marivo.semantic.expressions.inputs import RecipeInput, _as_deferred
+from marivo.semantic.expressions.metric_time import (
     calendar_sample_domain,
     validate_metric_time_consumers,
 )
-from marivo.semantic.errors import ErrorKind, SemanticExpressionError
-
-if TYPE_CHECKING:
-    from marivo.semantic._compiled_state import CompiledSemanticState
+from marivo.semantic.expressions.objects import _Relationship as Relationship
+from marivo.semantic.expressions.operations import _arith_unit, _intersect, _nulls, _quantile
+from marivo.semantic.unit_algebra import (
+    FactorizedUnitV2,
+    linear_unit,
+    linear_units_conflict,
+    unit_state,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +153,7 @@ class _Scalar:
 
 
 _Facts: TypeAlias = RowFacts | MetricFacts | _Samples | _Scalar
+
 _REDUCERS = frozenset(
     {
         "sum",
@@ -357,12 +369,9 @@ def _compose(
             received=operation,
         )
     units = tuple(item.unit for item in children if isinstance(item, (RowFacts, MetricFacts)))
-    from marivo.semantic.expressions import _arith_unit, _intersect
 
     unit = units[0] if units else None
     if operation in {"eq", "ne", "lt", "le", "gt", "ge", "least", "greatest", "clip"}:
-        from marivo.semantic.unit_algebra import linear_unit, linear_units_conflict
-
         if linear_units_conflict(units):
             _fail(
                 "Native inputs have incompatible units.",
@@ -394,8 +403,6 @@ def _compose(
             stage="Row" if rows else "Metric",
         )
     if operation in {"ifelse", "coalesce", "nullif", "cases"}:
-        from marivo.semantic.unit_algebra import linear_unit, linear_units_conflict
-
         branch_units = tuple(
             item.unit
             for item in branches
@@ -410,10 +417,6 @@ def _compose(
             )
         unit = linear_unit(branch_units)
     if operation == "sqrt" and unit not in (None, "1"):
-        from collections import Counter
-
-        from marivo.semantic.unit_algebra import FactorizedUnitV2, unit_state
-
         state = unit_state(unit)
         if not isinstance(state, FactorizedUnitV2) or any(
             count % 2
@@ -530,8 +533,6 @@ def _constant(recipe: Resolver, default: object = None) -> object:
     if relationship is not None:
         return relationship._parameter
     if isinstance(recipe, Just):
-        from marivo.semantic.expressions import _Relationship as Relationship
-
         return recipe.value._parameter if isinstance(recipe.value, Relationship) else recipe.value
     return default
 
@@ -694,7 +695,6 @@ def capture_source_time(
     recipe: Resolver, time: Resolver | None, *, operation: str | None = None
 ) -> CapturedDefaultTimeResolver | None:
     """Check explicit time or freeze a closed receiver's default selection."""
-    from marivo._definition.deferred import _captured_field_kind, inspect_capture
 
     if operation is not None and operation not in _REDUCERS | {"weighted_mean"}:
         return None
@@ -784,7 +784,6 @@ def _reduce(
     args: tuple[Resolver, ...],
     kwargs: dict[str, Resolver],
 ) -> MetricFacts:
-    from marivo.semantic.expressions import _nulls, _quantile
 
     allowed = {"time", "nulls", "where"} if isinstance(receiver, RowFacts) else {"nulls"}
     if name in {"quantile", "approx_quantile"}:
@@ -1101,9 +1100,6 @@ def _consume(recipe: Resolver) -> _Facts:
         permission = value.permission if declaration.permission is None else declaration.permission
         if unit == value.unit and permission == value.permission:
             return value
-        import hashlib
-
-        from marivo._definition.deferred import canonical_recipe
 
         identity = hashlib.sha256(str(canonical_recipe(recipe.recipe)).encode()).hexdigest()
         authorization = Authorization(
@@ -1149,15 +1145,6 @@ def _consume(recipe: Resolver) -> _Facts:
             name = attribute_name(recipe.func)
             receiver = _consume(recipe.func.obj)
             if name == "window":
-                from marivo._definition.graph import DefinitionNode, children, walk
-                from marivo._definition.windows import (
-                    AllHistory,
-                    Since,
-                    ToDate,
-                    TrailingDuration,
-                    TrailingPeriods,
-                )
-
                 rule = _constant(recipe.args[0]) if len(recipe.args) == 1 else None
                 if (
                     not isinstance(receiver, MetricFacts)
@@ -1194,8 +1181,6 @@ def _consume(recipe: Resolver) -> _Facts:
                         pending.extend(edge.child for edge in children(node))
                 return replace(receiver, node=MetricWindow(receiver.node, rule))
             if name == "at":
-                from marivo._kernel.temporal import InstantAnchor
-
                 anchor = _constant(recipe.args[0]) if len(recipe.args) == 1 else None
                 if anchor is None and len(recipe.args) == 1:
                     control = _consume(recipe.args[0])
@@ -1466,10 +1451,10 @@ def _consume(recipe: Resolver) -> _Facts:
     raise AssertionError("unreachable")
 
 
-def _inspect(value: Deferred | _ExpressionCarrier) -> DeferredInspection:
+def _inspect(value: Deferred | RecipeInput) -> DeferredInspection:
     try:
         result: DeferredInspection = inspect_deferred(
-            _as_deferred(value) if isinstance(value, _ExpressionCarrier) else value
+            _as_deferred(value) if isinstance(value, RecipeInput) else value
         )
         if result.symbols:
             raise SemanticExpressionError(
@@ -1511,7 +1496,7 @@ def validate_closed_time_operation(recipe: Resolver) -> None:
         validate_metric_time_consumers(metric.node, dict(metric._declared))
 
 
-def consume_row(value: Deferred | _ExpressionCarrier) -> RowFacts:
+def consume_row(value: Deferred | RecipeInput) -> RowFacts:
     inspection = _inspect(value)
     result = _consume(inspection.recipe)
     if not isinstance(result, RowFacts) or not result.numeric or result.boolean:
@@ -1524,9 +1509,7 @@ def consume_row(value: Deferred | _ExpressionCarrier) -> RowFacts:
     return result
 
 
-def consume_metric(
-    value: Deferred | _ExpressionCarrier, *, allow_boolean: bool = False
-) -> MetricFacts:
+def consume_metric(value: Deferred | RecipeInput, *, allow_boolean: bool = False) -> MetricFacts:
     result = _consume(_inspect(value).recipe)
     if not isinstance(result, MetricFacts) or (result.boolean and not allow_boolean):
         _fail(
@@ -1556,7 +1539,7 @@ def _rescale_disclosure(value: Deferred) -> tuple[tuple[str, str], ...]:
     return tuple(facts)
 
 
-def consume_field(value: Deferred | _ExpressionCarrier) -> SemanticInput:
+def consume_field(value: Deferred | RecipeInput) -> SemanticInput:
     result = _consume(_inspect(value).recipe)
     if not isinstance(result, RowFacts) or result.field is None:
         _fail(
@@ -1679,106 +1662,7 @@ def _consume_predicate_recipe(recipe: Resolver, *, coordinates: bool = False) ->
 
 
 def consume_predicate(
-    value: Deferred | _ExpressionCarrier, *, coordinates: bool = False
+    value: Deferred | RecipeInput, *, coordinates: bool = False
 ) -> PredicateFacts:
     """Capture the native boolean structure without reading or evaluating sources."""
     return _consume_predicate_recipe(_inspect(value).recipe, coordinates=coordinates)
-
-
-def consume_metric_in_state(value: Deferred, state: CompiledSemanticState) -> MetricFacts:
-    """Consume published references through the consumer's frozen catalog scope.
-
-    Captured local expressions stay immutable. Only published kind/path lookups
-    select the scope's completed definition; its body is not executed or imported.
-    """
-    from marivo._definition.deferred import resolver_of
-    from marivo.semantic.expressions import _Resolver
-
-    resolver = _Resolver(state)
-
-    def bind(recipe: Resolver, active: frozenset[str]) -> Resolver:
-        if isinstance(recipe, CapturedDefaultTimeResolver) and recipe.field is not None:
-            target = recipe.field.ref
-            if target not in state.definitions:
-                _fail(
-                    "Captured contribution time is absent from the receiving scope.",
-                    kind=ErrorKind.INVALID_TIME_PATH,
-                    expected=target.key,
-                    received="no TimeDimension at that identity",
-                    action="Recreate the reduction from the receiving Catalog.",
-                )
-            return CapturedDefaultTimeResolver(resolver.exact(target))
-        if isinstance(recipe, NamedResolver):
-            from marivo.semantic.expressions import _Entity, _Relationship, author_value
-
-            named_value = author_value(resolver.value(recipe.reference.ref))
-            if isinstance(named_value, Deferred):
-                return bind(resolver_of(named_value), active)
-            if isinstance(named_value, _Entity):
-                return SemanticResolver(
-                    SemanticInput(
-                        named_value._exact_ref,
-                        named_value._exact_ref,
-                        "1",
-                        SumNone(),
-                        default_time=named_value._default_time,
-                    )
-                )
-            if isinstance(named_value, _Relationship):
-                return Just(named_value._parameter)
-            _fail(
-                "Named input has an invalid computation role.",
-                expected="an Entity, field, Metric, or Relationship",
-                received=type(named_value).__name__,
-            )
-        if isinstance(recipe, RescaleResolver):
-            return RescaleResolver(bind(recipe.recipe, active), recipe.divisor, recipe.unit)
-        if isinstance(recipe, DeclarationResolver):
-            declaration = recipe.declaration
-            if declaration.reference is not None and declaration.kind == "metric":
-                target = declaration.reference.ref
-                if target.path in active:
-                    _fail(
-                        "Published Metric dependency is cyclic.",
-                        expected="an acyclic declaration closure",
-                        received=target.key,
-                    )
-                current = state.registry.declared_metrics.get(target.path)
-                if current is None:
-                    _fail(
-                        "Published Metric is absent from this consumption scope.",
-                        kind=ErrorKind.MISSING_METRIC_REF,
-                        expected="a Metric in the frozen catalog",
-                        received=target.key,
-                    )
-                captured = resolver_of(current)
-                assert isinstance(captured, DeclarationResolver)
-                return DeclarationResolver(
-                    bind(captured.recipe, active | {target.path}),
-                    replace(
-                        captured.declaration,
-                        reference=resolver.exact(target),
-                        domain=declaration.domain,
-                    ),
-                )
-            return DeclarationResolver(bind(recipe.recipe, active), declaration)
-        if isinstance(recipe, BinaryOperator):
-            return BinaryOperator(
-                recipe.func, bind(recipe.left, active), bind(recipe.right, active)
-            )
-        if isinstance(recipe, UnaryOperator):
-            return UnaryOperator(recipe.func, bind(recipe.arg, active))
-        if isinstance(recipe, Attr):
-            return Attr(bind(recipe.obj, active), recipe.name)
-        if isinstance(recipe, Call):
-            return Call(
-                bind(recipe.func, active),
-                *(bind(arg, active) for arg in recipe.args),
-                **{key: bind(arg, active) for key, arg in recipe.kwargs.items()},
-            )
-        if isinstance(recipe, Sequence):
-            return Sequence(tuple(bind(item, active) for item in recipe.values))
-        return recipe
-
-    original = _inspect(value)
-    return consume_metric(Deferred(bind(original.recipe, frozenset())))

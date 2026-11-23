@@ -7,16 +7,14 @@ from typing import TYPE_CHECKING
 
 from marivo.analysis.model.errors import ObservationConstructionError
 from marivo.analysis.model.time_authority import ReportTimeAuthority
-from marivo.semantic.catalog import (
-    SemanticCatalog,
-)
-from marivo.semantic.validator import Registry
+from marivo.semantic import SemanticCatalog
+from marivo.semantic.spi import Registry
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.source_bindings import (
         SourceParameterScopes,
     )
-    from marivo.semantic.validator import CompiledExpressionSidecar
+    from marivo.semantic.spi import CompiledExpressionSidecar
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)

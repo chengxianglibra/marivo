@@ -18,14 +18,21 @@ from marivo.analysis.binding.observation import ObservationOwner
 from marivo.analysis.dsl.frame_reopening import reopen_frame
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.session._lazy_sources import make_source_owner
-from marivo.semantic._expression_values import (
+from marivo.semantic import Entity, RowExpression, SemanticCatalog, load
+from marivo.semantic.spi import (
     DimensionExpression,
     FieldExpression,
     NumericMetric,
-    RowExpression,
     RowPredicate,
+    bind_entity,
+    bind_field,
+    bind_metric,
+    bind_predicate,
+    catalog_state,
+    consume_predicate,
+    entity_exact,
+    validate_context,
 )
-from marivo.semantic.catalog import Entity, SemanticCatalog
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame
@@ -40,7 +47,6 @@ def _predicate_input(
     value: RowPredicate | None, catalog: SemanticCatalog, owner: Owner, *, location: str
 ) -> Deferred | None:
     from marivo.analysis.model.errors import reject
-    from marivo.semantic._consumption import bind_predicate
 
     if value is None:
         return None
@@ -65,7 +71,6 @@ def _field_input(
     value: FieldExpression, catalog: SemanticCatalog, owner: Owner, *, location: str
 ) -> Deferred:
     from marivo.analysis.model.errors import reject
-    from marivo.semantic._consumption import bind_field
 
     if not isinstance(value, RowExpression) or value._role not in ("dimension", "time", "numeric"):  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
         reject(
@@ -111,12 +116,14 @@ class Session:
     def _sources(self) -> ObservationOwner:
         with self._sources_lock:
             if self._sources_value is None:
-                from marivo.datasource import credentials as cr
-                from marivo.semantic.catalog import load
+                from marivo.datasource.spi import (
+                    bind_resolver,
+                    check_binding,
+                )
 
                 config = self._runtime.connection_config
-                cr.check_binding(config.resolver)
-                with cr.bind_resolver(config.resolver):
+                check_binding(config.resolver)
+                with bind_resolver(config.resolver):
                     catalog = load(workspace_dir=self.project_root, domains=self._record().domains)
 
                 sources = self._runtime.sources(make_source_owner, catalog)
@@ -225,10 +232,6 @@ class Session:
             condition_populations,
         )
         from marivo.analysis.model.errors import reject
-        from marivo.semantic._consumption import bind_entity
-        from marivo.semantic._deferred_semantics import consume_predicate
-        from marivo.semantic.catalog import Entity
-        from marivo.semantic.expressions import entity_exact
 
         if not isinstance(entity, Entity):
             reject(
@@ -262,10 +265,8 @@ class Session:
                 "Construct at with session.instant(...).",
                 "session.members",
             )
-        versioned = (
-            self.catalog._state.registry.entities[entity_exact(resolved).ref.path].versioning
-            is not None
-        )
+        state = catalog_state(self.catalog)
+        versioned = state.registry.entities[entity_exact(resolved).ref.path].versioning is not None
         if versioned != (at is not None):
             reject(
                 "an exact version anchor for a versioned Entity"
@@ -405,7 +406,6 @@ class Session:
         from marivo.analysis.dsl.population import Population
         from marivo.analysis.dsl.source_capture import _metric_inputs
         from marivo.analysis.model.errors import reject
-        from marivo.semantic._consumption import bind_metric
 
         owner = self._runtime.local.owner
         selected_metrics = _metric_inputs(metrics)
@@ -478,7 +478,7 @@ class Session:
             bound_where = bound if bound_where is None else bound_where & bound
         return frame_sources.observe(
             self._runtime.local,
-            self.catalog._state,
+            catalog_state(self.catalog),
             self._runtime.connection_config,
             inputs,
             by=by,
@@ -523,7 +523,6 @@ class Session:
                 "Rebuild the Population in this Session.",
                 "session.frame",
             )
-        from marivo.semantic._consumption import validate_context
 
         validate_context(
             population._context, project_root=self.project_root, owner=self._runtime.local.owner
@@ -532,11 +531,10 @@ class Session:
             from marivo.analysis.dsl.population import _validate_identity_keys
 
             _validate_identity_keys(population._identity_keys, self.catalog)
+        needs_semantic_state = frame_sources.population_needs_state(population)
+        state = catalog_state(self.catalog) if needs_semantic_state else None
         return frame_sources.frame(
-            self._runtime.local,
-            self.catalog._state if frame_sources.population_needs_state(population) else None,
-            self._runtime.connection_config,
-            population,
+            self._runtime.local, state, self._runtime.connection_config, population
         )
 
     def read(
@@ -597,7 +595,7 @@ class Session:
         }
         return frame_sources.read(
             self._runtime.local,
-            self.catalog._state,
+            catalog_state(self.catalog),
             self._runtime.connection_config,
             population,
             bound_fields,
@@ -651,7 +649,7 @@ class Session:
         coordinate_by = tuple(item for item in bound_by if isinstance(item, (Deferred, Grouping)))
         return frame_sources.coordinate_values(
             self._runtime.local,
-            self.catalog._state,
+            catalog_state(self.catalog),
             self._runtime.connection_config,
             by=coordinate_by,
             columns=columns,
@@ -752,7 +750,6 @@ class Session:
                 "Build the Population in the selected Frame's owning Session.",
                 "session.population_from",
             )
-        from marivo.semantic._consumption import bind_entity
 
         if not isinstance(on, tuple) or any(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
             (
@@ -782,7 +779,7 @@ class Session:
             for index, (axis, target) in enumerate(on)
         )
         return population_from(
-            self._runtime.local, self.catalog._state if on else None, frame, on=bound_on
+            self._runtime.local, catalog_state(self.catalog) if on else None, frame, on=bound_on
         )
 
     def render(self, *, max_output_bytes: int | None = 8192) -> str:

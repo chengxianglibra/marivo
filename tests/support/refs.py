@@ -32,7 +32,7 @@ def make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
 def as_ref(value: object) -> Ref[SemanticKindTag] | None:
     if type(value) is Ref:
         return value
-    from marivo.semantic.catalog import _SemanticObject
+    from marivo.semantic.catalog_model.objects import _SemanticObject
 
     if isinstance(value, _SemanticObject):
         return value._ref

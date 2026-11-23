@@ -396,7 +396,7 @@ def test_encoded_day_keys_restore_native_groups_after_aggregation(
     encoding: str, source_zone: str, report_zone: str, start: str, end: str, fast: bool
 ) -> None:
     from marivo.analysis.compiler.source_time import source_time
-    from marivo.semantic._source_timezone import DeclaredSourceTimezone
+    from marivo.semantic.static_check.source_timezone import DeclaredSourceTimezone
     from tests.analysis.temporal.encoded_time_fixtures import axis
 
     calendar = grouping_binding(exact_scope(start, end, report_zone).by(mv.grain("day")))

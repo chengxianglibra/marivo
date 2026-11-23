@@ -40,7 +40,7 @@ from marivo.analysis.model.errors import reject
 if TYPE_CHECKING:
     from marivo.analysis.binding.graph import BoundGraph
     from marivo.analysis.binding.observe import ContributionBinding, ObservationPeriod
-    from marivo.semantic.validator import Registry
+    from marivo.semantic.spi import Registry
 
 
 def actual_window_axis(graph: BoundGraph) -> CalendarCoordinate | None:

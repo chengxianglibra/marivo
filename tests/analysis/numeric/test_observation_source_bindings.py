@@ -25,7 +25,8 @@ from marivo.datasource.ir import (
     TableSourceIR,
 )
 from marivo.semantic.ir import EntityIR, SourceLocation, TargetEntityContract
-from marivo.semantic.validator import Registry, normalize_target_entity
+from marivo.semantic.static_check.registry import Registry
+from marivo.semantic.static_check.targets import normalize_target_entity
 
 _Source: TypeAlias = JsonSourceIR | CsvSourceIR
 

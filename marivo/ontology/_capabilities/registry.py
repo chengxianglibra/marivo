@@ -9,6 +9,9 @@ from typing import Literal
 
 from marivo._authoring.model import AuthoringEffects
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.ontology import errors, influences, load, related_to
+from marivo.ontology.catalog import OntologyCatalog
+from marivo.ontology.types import SemanticEdgeRef
 
 
 @dataclass(frozen=True)
@@ -157,7 +160,6 @@ class OntologyRegistry:
             raise KeyError(canonical_id) from error
 
     def by_callable(self, value: object) -> OntologyDescriptor:
-        from marivo.ontology import influences, load, related_to
 
         candidates: dict[Callable[..., object], str] = {
             load: "authoring",
@@ -176,8 +178,6 @@ REGISTRY = OntologyRegistry()
 
 
 def _type_contracts() -> Mapping[type, OntologyTypeContract]:
-    from marivo.ontology.catalog import OntologyCatalog
-    from marivo.ontology.types import SemanticEdgeRef
 
     return MappingProxyType(
         {
@@ -212,7 +212,6 @@ TYPE_CONTRACTS = _type_contracts()
 
 
 def _error_types() -> Mapping[str, type]:
-    from marivo.ontology import errors
 
     return MappingProxyType(
         {

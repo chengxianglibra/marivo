@@ -23,7 +23,7 @@ from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
-from marivo.semantic.materializer import EntityRuntimeMetadata, Materializer
+from marivo.semantic.runtime_check.materializer import EntityRuntimeMetadata, Materializer
 from tests.shared_fixtures import catalog_value, patch_semantic_connections
 
 if TYPE_CHECKING:

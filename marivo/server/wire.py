@@ -9,7 +9,7 @@ from threading import Event
 from time import monotonic
 from typing import Literal, TypeAlias
 
-from marivo.analysis.materialization.result_files import ResultErrorCode
+from marivo.analysis.session.read_spi import ResultErrorCode
 
 JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 JsonObject: TypeAlias = dict[str, JsonValue]

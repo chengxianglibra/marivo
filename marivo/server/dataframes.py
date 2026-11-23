@@ -5,8 +5,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from marivo.analysis.materialization.dataframe_store import _corrupt, dtype, open_snapshot
-from marivo.analysis.model.result_reference import DataFrameReference
+from marivo.analysis.session.read_spi import (
+    corrupt_dataframe,
+    dataframe_dtype,
+    dataframe_reference,
+    open_dataframe_snapshot,
+)
 from marivo.server.frame_projection import fact, scalar
 from marivo.server.wire import Budget, JsonObject, JsonValue, bad_request
 
@@ -20,15 +24,15 @@ def dataframe_id(value: str) -> str:
 
 
 def report(root: Path, result_id: str, budget: Budget) -> bytes:
-    with open_snapshot(root, dataframe_id(result_id)) as (file, committed, count, schema):
+    with open_dataframe_snapshot(root, dataframe_id(result_id)) as (file, committed, count, schema):
         names = schema.names
         columns: list[JsonValue] = [
-            {"name": item.name, "dtype": dtype(item.type, f"columns.{item.name}")}
+            {"name": item.name, "dtype": dataframe_dtype(item.type, f"columns.{item.name}")}
             for item in schema
         ]
         metadata: JsonObject = {
             "kind": "dataframe",
-            "ref": fact(DataFrameReference._create(root, result_id).to_dict(), "ref"),
+            "ref": fact(dataframe_reference(root, result_id), "ref"),
             "committed_at": committed,
             "schema": {"columns": columns},
         }
@@ -53,7 +57,7 @@ def report(root: Path, result_id: str, budget: Budget) -> bytes:
                     budget.write(data, row)
                     seen += 1
             if seen != count:
-                raise _corrupt(
+                raise corrupt_dataframe(
                     "dataframe.row_count", "decoded row count differs from saved metadata"
                 )
         else:

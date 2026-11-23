@@ -7,8 +7,11 @@ from dataclasses import dataclass
 from marivo._kernel.refs import Ref, RelationshipKind, ref
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.semantic.ir import TargetRelationshipContract
-from marivo.semantic.validator import Registry, normalize_target_relationship
+from marivo.semantic.spi import (
+    Registry,
+    TargetRelationshipContract,
+    normalize_target_relationship,
+)
 
 Path = tuple[Ref[RelationshipKind], ...]
 

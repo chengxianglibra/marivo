@@ -250,7 +250,7 @@ def test_preview_rejects_anchor_before_opening(
 
 
 def test_native_and_anchored_occurrences_are_distinct(prepared_session: Session) -> None:
-    from marivo.semantic.catalog import Entity
+    from marivo.semantic.catalog_model.objects import Entity
 
     session = prepared_session
     region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")

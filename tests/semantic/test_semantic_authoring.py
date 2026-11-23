@@ -40,22 +40,22 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.graph import computation_fingerprint
 from marivo._kernel.symbolic import MeasureSymbol
-from marivo.semantic._authoring_context import DefinitionIR
 from marivo.semantic._deferred_semantics import (
     consume_field,
     consume_metric,
     consume_predicate,
     consume_row,
 )
-from marivo.semantic._expression_values import _as_deferred
 from marivo.semantic.constraints import ConstraintId
+from marivo.semantic.declaration_records import DefinitionIR
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticDecoratorError,
     SemanticExpressionError,
     SemanticLoadError,
 )
-from marivo.semantic.expressions import _Entity
+from marivo.semantic.expressions.inputs import _as_deferred
+from marivo.semantic.expressions.objects import _Entity
 from marivo.semantic.ir import (
     AiContextIR,
     DimensionIR,
@@ -66,7 +66,10 @@ from marivo.semantic.ir import (
     RelationshipIR,
     TableSourceIR,
 )
-from marivo.semantic.loader import _LOADER_CTX, LoaderContext
+from marivo.semantic.loading_context import (
+    _LOADER_CTX,
+    LoaderContext,
+)
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
 from tests.shared_fixtures import resolve_test_symbol as resolve

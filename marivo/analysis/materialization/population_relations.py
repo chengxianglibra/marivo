@@ -28,8 +28,8 @@ from marivo.analysis.model.errors import reject
 from marivo.analysis.model.time_facts import FrameSourceTime
 from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.datasource.spi import query_policy
-from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic.validator import (
+from marivo.semantic.spi import (
+    CompiledSemanticState,
     normalize_target_entity,
     normalize_target_relationship,
     normalize_target_version_selection,

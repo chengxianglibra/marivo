@@ -108,6 +108,8 @@ recoverable nominal Entity/Field authority or hidden Metric state.
 | Responsibility | Code |
 | --- | --- |
 | Physical adapters and managed reads | [datasource SPI](../../../marivo/datasource/spi.py), [datasource runtime](../../../marivo/datasource/runtime/) |
-| Declaration capture and restricted syntax | [authoring.py](../../../marivo/semantic/authoring.py), [validator.py](../../../marivo/semantic/validator.py) |
-| Project assembly and materialization | [loader.py](../../../marivo/semantic/loader.py), [reader.py](../../../marivo/semantic/reader.py), [materializer.py](../../../marivo/semantic/materializer.py) |
-| Catalog, validation and snapshots | [catalog.py](../../../marivo/semantic/catalog.py), [readiness.py](../../../marivo/semantic/readiness.py), [validation.py](../../../marivo/semantic/validation.py) |
+| Declaration capture and restricted syntax | [Authoring](../../../marivo/semantic/authoring/), [AST rules](../../../marivo/semantic/static_check/ast_rules.py) |
+| Project assembly and materialization | [loader.py](../../../marivo/semantic/loader.py), [reader.py](../../../marivo/semantic/reader.py), [assembly checks](../../../marivo/semantic/static_check/assembly.py), [materializer.py](../../../marivo/semantic/runtime_check/materializer.py) |
+| Catalog, snapshots and preview | [catalog.py](../../../marivo/semantic/catalog.py), [Catalog objects and index](../../../marivo/semantic/catalog_model/), [preview execution](../../../marivo/semantic/catalog_previews.py) |
+| Readiness and source validation | [readiness.py](../../../marivo/semantic/readiness.py), [validation.py](../../../marivo/semantic/runtime_check/validation.py) |
+| Cross-domain consumption | [Semantic SPI](../../../marivo/semantic/spi.py) |

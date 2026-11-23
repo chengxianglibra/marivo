@@ -216,8 +216,8 @@ def prepare_frame_sources(
         if isinstance(binding, SourceFrameBinding):
             if input_id in captured.games:
                 from marivo.analysis.errors import AnalysisStageUnavailableError
-                from marivo.datasource.ir import TableSourceIR
-                from marivo.semantic.validator import normalize_target_entity
+                from marivo.datasource.spi import TableSourceIR
+                from marivo.semantic.spi import normalize_target_entity
 
                 for entity in _query_entities(binding.graph, binding.state):
                     physical = normalize_target_entity(binding.state.registry, entity).source

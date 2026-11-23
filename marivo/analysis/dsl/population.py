@@ -43,7 +43,6 @@ from marivo._definition.types import (
     CalendarCoordinate,
     CoordinateValue,
     DefinitionGraphError,
-    ExactRef,
     FieldRead,
     InputContext,
     IntervalCoordinate,
@@ -60,28 +59,33 @@ from marivo.analysis.core.frame_data import FrameKeyDependency
 from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_contracts import merge_frame_key_inputs
-from marivo.semantic._deferred_semantics import consume_field, consume_predicate
-from marivo.semantic._expression_values import (
-    FieldExpression,
+from marivo.semantic import (
+    Entity,
     MetricExpression,
-    NumericMetric,
     RowExpression,
-    RowPredicate,
-    _as_deferred,
 )
-from marivo.semantic.catalog import Entity
-from marivo.semantic.expressions import _Entity, entity_exact
-from marivo.semantic.paths import Path
+from marivo.semantic.spi import (
+    FieldExpression,
+    NumericMetric,
+    Path,
+    RowPredicate,
+    as_deferred,
+    bind_field,
+    catalog_entity_identity,
+    consume_field,
+    consume_predicate,
+    validate_context,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path as FilesystemPath
 
-    from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic import SemanticCatalog
 
 
 def _has_parameters(value: object) -> bool:
     if isinstance(value, (RowExpression, MetricExpression)):
-        return _native_parameters(_as_deferred(value))
+        return _native_parameters(as_deferred(value))
     if isinstance(value, (tuple, list)):
         return any(_has_parameters(item) for item in value)
     return _native_parameters(value)
@@ -90,7 +94,7 @@ def _has_parameters(value: object) -> bool:
 def _native_axes(
     by: tuple[Deferred | FieldExpression | Grouping, ...],
 ) -> tuple[Deferred | Grouping, ...]:
-    return tuple(_as_deferred(item) if isinstance(item, RowExpression) else item for item in by)
+    return tuple(as_deferred(item) if isinstance(item, RowExpression) else item for item in by)
 
 
 def _context(*values: object) -> InputContext:
@@ -135,7 +139,6 @@ def _identity_keys(*values: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
 def _validate_population(
     value: PopulationParameter, catalog: SemanticCatalog, owner: Owner
 ) -> None:
-    from marivo.semantic._consumption import validate_context
 
     if value._context.owner not in (None, owner):
         reject(
@@ -169,7 +172,6 @@ def _bind_by(
     *,
     location: str,
 ) -> tuple[Deferred | Grouping | TimeScope | Population, ...] | Population:
-    from marivo.semantic._consumption import bind_field, validate_context
 
     if isinstance(by, Population):
         _validate_population(by, catalog, owner)
@@ -235,7 +237,7 @@ def _closed(action: Callable[[], _T], location: str) -> _T:
 
 
 def _read(value: Deferred | FieldExpression) -> FieldRead:
-    field = consume_field(_as_deferred(value) if isinstance(value, RowExpression) else value)
+    field = consume_field(as_deferred(value) if isinstance(value, RowExpression) else value)
     return field.field_read or FieldRead(
         field.reference, field.root, versioned=field.versioned, unit=field.unit
     )
@@ -317,12 +319,6 @@ def _capture_path(value: Path | PathSymbol) -> PathParameter | Deferred:
     return value if isinstance(value, Deferred) else value._parameter
 
 
-def _entity_exact(value: Entity) -> ExactRef:
-    native = value._catalog._index.values.get(value._ref)
-    assert isinstance(native, _Entity)
-    return entity_exact(native)
-
-
 @overload
 def identity(target: Entity | Path) -> Grouping: ...
 
@@ -359,7 +355,7 @@ def identity(target: Entity | EntitySymbol | Path | PathSymbol) -> Grouping | De
         if isinstance(target, Deferred)
         else target._parameter
         if isinstance(target, Path)
-        else _entity_exact(target)
+        else catalog_entity_identity(target)
     )
     if isinstance(captured, Deferred):
         return _closed(
@@ -635,10 +631,10 @@ class Population(PopulationParameter):
         if _has_parameters(predicate):
             return _native(
                 Deferred(Just(self)).where(
-                    _as_deferred(predicate) if isinstance(predicate, RowExpression) else predicate
+                    as_deferred(predicate) if isinstance(predicate, RowExpression) else predicate
                 )
             )
-        native = _as_deferred(predicate) if isinstance(predicate, RowExpression) else predicate
+        native = as_deferred(predicate) if isinstance(predicate, RowExpression) else predicate
         frame_inputs = collect_frame_key_inputs(native)
         definition = _closed(
             lambda: build.where(self._definition, consume_predicate(native, coordinates=True).node),
@@ -857,7 +853,7 @@ def membership(
             lambda: parameter(
                 MembershipParameter(
                     tuple(
-                        _as_deferred(item) if isinstance(item, RowExpression) else item
+                        as_deferred(item) if isinstance(item, RowExpression) else item
                         for item in fields
                     ),
                     paths,
@@ -925,7 +921,7 @@ def coordinates(
             lambda: parameter(
                 CoordinatesParameter(
                     tuple(
-                        _as_deferred(item) if isinstance(item, RowExpression) else item
+                        as_deferred(item) if isinstance(item, RowExpression) else item
                         for item in captured_by
                     ),
                     captured_keys,

@@ -346,7 +346,7 @@ def test_real_source_checks_and_strict_formula_keep_occurrence_order(
     same_root: bool,
 ) -> None:
     from marivo.analysis.materialization import graph_source_execution as execution
-    from marivo.semantic._numeric_lowering import NumericCheck
+    from marivo.semantic.numeric_operations import NumericCheck
 
     session = warehouse_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
@@ -818,7 +818,7 @@ def test_source_free_numeric_plan_never_reads(warehouse_session: Session) -> Non
 
 
 def test_entity_count_and_distinct_classification(warehouse_session: Session) -> None:
-    from marivo.semantic.catalog import Entity
+    from marivo.semantic.catalog_model.objects import Entity
 
     session = warehouse_session
     entity = catalog_value(session.catalog, "sales.orders", kind="entity")

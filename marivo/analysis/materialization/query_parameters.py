@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo
     from marivo.analysis.materialization.graph_source_execution import PreparedSources
     from marivo.datasource.spi import SourceSession
-    from marivo.semantic._compiled_state import CompiledSemanticState
+    from marivo.semantic.spi import CompiledSemanticState
 
 
 def prepare_frame_parameters(

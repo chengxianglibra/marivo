@@ -1,14 +1,10 @@
-"""Project discovery and loading for marivo.semantic v1.1.
-
-Implements find_project and the two-pass loader pipeline.  This module
-absorbs the old registry.py LoaderContext management.
+"""Two-pass loading of authored Semantic declarations.
 
 This is the **low-level** loader.  Agent-facing loading goes through
 ``ms.load(workspace_dir=...)`` which returns a browseable
 ``SemanticCatalog``.  The pipeline here (``load_project``) returns a raw
 ``LoadResult`` and accepts only the ``models/semantic/`` root; use it when
-you need the unassembled result rather than a catalog.
-"""
+you need the unassembled result rather than a catalog."""
 
 from __future__ import annotations
 
@@ -16,12 +12,11 @@ import ast
 import stat
 import sys
 import types
-from collections.abc import Mapping, Sequence
-from contextvars import ContextVar
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass
 from importlib import util as importlib_util
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal, cast
 
 from ibis.common.deferred import Deferred
 
@@ -36,109 +31,57 @@ from marivo._authoring.loading import (
 from marivo._definition.deferred import resolver_of, root_declaration
 from marivo._definition.types import InputContext
 from marivo._kernel.config import AUTHORED_DIR
-from marivo._kernel.refs import FieldKind, Ref, SemanticKind, SemanticKindTag
+from marivo._kernel.refs import FieldKind, Ref, SemanticKindTag
 from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
     DatasourceError,
     DatasourceLoadError,
 )
-from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
-from marivo.datasource.spi import default_datasource, load_models_datasources, models_root_errors
+from marivo.datasource.spi import (
+    DatasourceIR,
+    DatasourceSourceLocation,
+    default_datasource,
+    load_models_datasources,
+    models_root_errors,
+)
 from marivo.semantic._compiled_state import (
     CompilationGraph,
-    CompiledSemanticState,
     build_compiled_state,
     definition_graph,
     dependent_closure,
 )
-from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
+from marivo.semantic._expression_values import _ExpressionCarrier
 from marivo.semantic._model_source import _ModelSources
+from marivo.semantic._symbolic_binding import publish_declarations
+from marivo.semantic.compiled_types import CompiledSemanticState
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
     SemanticLoadError,
     StructuredWarning,
-    _raise,
 )
+from marivo.semantic.expressions.inputs import _as_deferred
+from marivo.semantic.expressions.ir import CompiledExpressionSidecar
 from marivo.semantic.ir import (
     DimensionIR,
     DomainIR,
     EntityIR,
     MeasureIR,
+    RelationshipIR,
     SourceLocation,
 )
-from marivo.semantic.validator import (
-    Registry,
-    assembly_validate,
+from marivo.semantic.loading_context import (
+    _LOADER_CTX,
+    LoaderContext,
 )
-
-if TYPE_CHECKING:
-    from marivo.semantic._authoring_context import PendingDefinition
+from marivo.semantic.static_check.assembly import assembly_validate
+from marivo.semantic.static_check.registry import Registry
 
 __all__ = [
     "LoadResult",
-    "LoaderContext",
-    "find_project",
-    "loader_context",
 ]
-
-
-@dataclass
-class LoaderContext:
-    """Context active during loader execution.
-
-    Set via ``_LOADER_CTX`` ContextVar; decorator functions read
-    this to enforce outside-loader-context guards.
-    """
-
-    model_name: str | None = None
-    file_path: str | None = None
-    current_model_file: str | None = None
-    default_domain: str | None = None
-    pending_definitions: list[PendingDefinition] = field(default_factory=list)
-    datasource_irs: tuple[DatasourceIR, ...] = ()
-    # Module-level Measure/Metric declarations, collected once per object.
-    declarations: list[Deferred] = field(default_factory=list)
-    declaration_contexts: dict[int, InputContext] = field(default_factory=dict)
-    project_root: Path | None = None
-    _model_package: str | None = field(default=None, repr=False, compare=False)
-    _sources: _ModelSources = field(default_factory=_ModelSources, repr=False, compare=False)
-
-
-_LOADER_CTX: ContextVar[LoaderContext | None] = ContextVar(
-    "_LOADER_CTX",
-    default=None,
-)
-
-
-class LoaderContextManager:
-    """Context manager that sets/resets the loader context for test use.
-
-    Usage::
-
-        ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
-        with LoaderContextManager(ctx):
-            sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
-            ...
-    """
-
-    def __init__(self, ctx: LoaderContext) -> None:
-        self._ctx = ctx
-        self._token: Any = None
-
-    def __enter__(self) -> LoaderContext:
-        self._token = _LOADER_CTX.set(self._ctx)
-        return self._ctx
-
-    def __exit__(self, *args: object) -> None:
-        if self._token is not None:
-            _LOADER_CTX.reset(self._token)
-
-
-loader_context = LoaderContextManager
 
 
 def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
@@ -586,118 +529,6 @@ def _collect_module_declarations(ctx: LoaderContext, module_names: Sequence[str]
                 ctx.declaration_contexts[id(resolver_of(value))] = captured_context
 
 
-def _declaration_site(value: Deferred) -> str:
-    declaration = root_declaration(value)
-    assert declaration is not None
-    location = declaration.location
-    return f"{location.path}:{location.line}" if location is not None else "<unknown>"
-
-
-def _publish_declarations(
-    all_contexts: Sequence[LoaderContext],
-    registry: Registry,
-    sidecar: CompiledExpressionSidecar,
-    *,
-    graph: CompilationGraph | None = None,
-    excluded: set[Ref[SemanticKindTag]] | None = None,
-    original_registry: Registry | None = None,
-) -> list[SemanticError]:
-    """Bind all collected declarations in one complete, deterministic scope."""
-    from marivo.semantic._symbolic_binding import publish_declarations
-
-    return publish_declarations(
-        all_contexts,
-        registry,
-        sidecar,
-        graph=graph,
-        excluded=excluded,
-        original_registry=original_registry,
-    )
-
-
-def _defined_kinds(registry: Registry) -> dict[str, SemanticKind]:
-    """The kind of every definition this model scope declares, keyed by full path."""
-    kinds: dict[str, SemanticKind] = {}
-    for kind, paths in (
-        (SemanticKind.DOMAIN, registry.domains),
-        (SemanticKind.DATASOURCE, registry.datasources),
-        (SemanticKind.ENTITY, registry.entities),
-        (SemanticKind.MEASURE, registry.measures),
-        (SemanticKind.RELATIONSHIP, registry.relationships),
-    ):
-        kinds.update(dict.fromkeys(paths, kind))
-
-    for path, dimension in registry.dimensions.items():
-        kinds[path] = (
-            SemanticKind.TIME_DIMENSION if dimension.is_time_dimension else SemanticKind.DIMENSION
-        )
-    return kinds
-
-
-# The first kind present names the error; an absent Entity explains its fields.
-_MISSING_REF_KINDS: tuple[tuple[SemanticKind, ErrorKind], ...] = (
-    (SemanticKind.ENTITY, ErrorKind.MISSING_ENTITY_REF),
-    (SemanticKind.METRIC, ErrorKind.MISSING_METRIC_REF),
-    (SemanticKind.MEASURE, ErrorKind.UNKNOWN_MEASURE),
-    (SemanticKind.DIMENSION, ErrorKind.MISSING_DIMENSION_REF),
-    (SemanticKind.TIME_DIMENSION, ErrorKind.MISSING_DIMENSION_REF),
-)
-
-
-def _closure_scope_error(
-    full: str,
-    value: Deferred,
-    consumed: frozenset[Ref[SemanticKindTag]],
-    defined: Mapping[str, SemanticKind],
-) -> SemanticError | None:
-    """Reject a closure that consumes a definition this model scope does not declare.
-
-    Every consumed ref must name a definition of the same kind and path here;
-    a value built from another scope cannot be published by reference alone.
-    """
-    from marivo.semantic.errors import SemanticExpressionError
-
-    missing = sorted(ref.key for ref in consumed if ref.path not in defined)
-    miskinded = sorted(
-        f"{ref.key} (declared here as {defined[ref.path].value})"
-        for ref in consumed
-        if ref.path in defined and defined[ref.path] is not ref.kind
-    )
-    if missing:
-        missing_kinds = {key.split(":", 1)[0] for key in missing}
-        kind = next(
-            (
-                error_kind
-                for semantic_kind, error_kind in _MISSING_REF_KINDS
-                if semantic_kind.value in missing_kinds
-            ),
-            ErrorKind.NOT_FOUND,
-        )
-        return SemanticExpressionError(
-            kind=kind,
-            message=f"{full} consumes definitions this model does not declare.",
-            refs=(full,),
-            expected="every consumed Entity, field, Metric and calendar declared in the loaded models",
-            received=", ".join(missing[:8]),
-            action=(
-                "Declare every missing definition in the loaded model, or capture "
-                "closed values whose dependencies belong to this scope."
-            ),
-            location_label=_declaration_site(value),
-        )
-    if miskinded:
-        return SemanticExpressionError(
-            kind=ErrorKind.INVALID_EXPRESSION_VALUE,
-            message=f"{full} consumes a definition under a different kind than this model declares.",
-            refs=(full,),
-            expected="each consumed ref with the kind its definition is declared as",
-            received=", ".join(miskinded[:8]),
-            action="Rebuild the expression from values resolved in this model.",
-            location_label=_declaration_site(value),
-        )
-    return None
-
-
 def _build_registry(
     all_contexts: list[LoaderContext],
     *,
@@ -707,7 +538,6 @@ def _build_registry(
 
     Pass 2: assemble all pending IR objects into the registry.
     """
-    from marivo.semantic.ir import EntityIR, RelationshipIR
 
     registry = Registry()
     bodies = {}
@@ -1044,7 +874,7 @@ def load_project(
     if not errors:
         compilation_graph = CompilationGraph.create(registry, expression_sidecar)
         errors.extend(
-            _publish_declarations(
+            publish_declarations(
                 all_contexts,
                 registry,
                 expression_sidecar,
@@ -1082,35 +912,3 @@ def load_project(
         datasource_irs=tuple(datasource_irs),
         excluded_refs=tuple(sorted(ref.key for ref in excluded)),
     )
-
-
-def find_project(start_dir: str | Path = ".") -> Any:
-    """Discover a semantic project by walking up from *start_dir*.
-
-    Looks for a ``marivo.toml`` file.  Returns a
-    ``SemanticProject`` on success, or ``None`` if no project is found.
-
-    If ``marivo.toml`` exists but is a non-file entry,
-    raises ``SemanticLoadError`` with ``INVALID_PROJECT``.
-    """
-    from marivo._kernel.config import PROJECT_MANIFEST
-    from marivo.semantic.reader import SemanticProject
-
-    current = Path(start_dir).resolve()
-
-    while True:
-        manifest = current / PROJECT_MANIFEST
-        if manifest.exists():
-            if not manifest.is_file():
-                _raise(
-                    ErrorKind.INVALID_PROJECT,
-                    f"{manifest} exists but is not a file.",
-                    cls=SemanticLoadError,
-                    refs=(str(manifest),),
-                )
-            return SemanticProject(workspace_dir=current)
-
-        parent = current.parent
-        if parent == current:
-            return None
-        current = parent

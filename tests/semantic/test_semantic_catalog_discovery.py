@@ -490,7 +490,7 @@ def test_new_resolvers_reuse_only_their_captured_state_definition_versions(tmp_p
 
     from marivo._kernel.refs import ref as ref_factory
     from marivo.semantic import _definition_identity
-    from marivo.semantic.expressions import _Resolver
+    from marivo.semantic.definition_resolution import _Resolver
 
     write_minimal_catalog_project(tmp_path)
     original = ms.load(workspace_dir=tmp_path)

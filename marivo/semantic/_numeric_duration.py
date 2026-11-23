@@ -1,30 +1,27 @@
 """Shared fixed Duration propagation through native numeric recipes."""
 
+import operator
 from typing import TypeVar
 
-from ibis.common.deferred import Resolver
+from ibis.common.deferred import (
+    Attr,
+    BinaryOperator,
+    Call,
+    Just,
+    Resolver,
+    Sequence,
+    UnaryOperator,
+    Variable,
+)
 
-from marivo._definition.deferred import attribute_name
-from marivo.semantic._numeric_lowering import numeric_failure
+from marivo._definition.deferred import RescaleResolver, attribute_name
+from marivo.semantic.numeric_operations import numeric_failure
 
 DurationT = TypeVar("DurationT")
 
 
 def recipe_duration(recipe: Resolver, inputs: tuple[DurationT | None, ...]) -> DurationT | None:
     """Propagate fixed tick units through the admitted native recipe structure."""
-    import operator
-
-    from ibis.common.deferred import (
-        Attr,
-        BinaryOperator,
-        Call,
-        Just,
-        Sequence,
-        UnaryOperator,
-        Variable,
-    )
-
-    from marivo._definition.deferred import RescaleResolver
 
     def combine(parts: tuple[DurationT | None, ...]) -> DurationT | None:
         present = tuple(part for part in parts if part is not None)

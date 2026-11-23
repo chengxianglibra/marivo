@@ -14,7 +14,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from marivo.semantic._numeric_lowering import numeric_failure
+from marivo.semantic.spi import numeric_failure
 
 
 def _is_null(value: object) -> bool:

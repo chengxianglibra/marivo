@@ -18,7 +18,7 @@ from marivo.analysis.compiler.source_predicates import (
 from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.analysis.model.data_types import DurationDataType
 from marivo.datasource.spi import query_dialect
-from marivo.semantic._numeric_lowering import (
+from marivo.semantic.spi import (
     NumericCheck,
     NumericValue,
     force_cast,

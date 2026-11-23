@@ -33,7 +33,7 @@ from marivo.analysis.methods.frame_evaluation import FrameEvaluation, expression
 from marivo.analysis.methods.numeric_state import typed_null_mask
 from marivo.analysis.model.data_types import ScalarDataType
 from marivo.analysis.model.errors import reject
-from marivo.semantic._numeric_lowering import numeric_failure
+from marivo.semantic.spi import numeric_failure
 
 _ORDERED_COMPARISONS = {"lt": "less", "le": "less_equal", "gt": "greater", "ge": "greater_equal"}
 

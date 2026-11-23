@@ -26,10 +26,8 @@ from marivo.datasource.ir import (
 from marivo.datasource.runtime import connections as datasource_runtime
 from marivo.datasource.runtime.json_source import JsonResponseCache
 from marivo.datasource.runtime.preview import PreviewResult
-from marivo.semantic.catalog import (
-    Domain,
-    SemanticCatalog,
-)
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.catalog_model.objects import Domain
 from marivo.semantic.errors import SemanticRuntimeError
 from tests.semantic.preview_helpers import default_scope
 from tests.shared_fixtures import catalog_entry, catalog_value

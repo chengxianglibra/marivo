@@ -41,7 +41,7 @@ from marivo.analysis.model.data_types import DurationDataType
 from marivo.analysis.model.programs import FormulaInput
 from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.datasource.spi import aggregate_operation, native_aggregate, query_dialect
-from marivo.semantic._numeric_lowering import (
+from marivo.semantic.spi import (
     NumericCheck,
     NumericValue,
     finish_nullable_sum,

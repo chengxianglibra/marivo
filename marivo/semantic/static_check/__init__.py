@@ -1,0 +1,1 @@
+"""Semantic static check implementation."""

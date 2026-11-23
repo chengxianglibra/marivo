@@ -207,7 +207,7 @@ def test_members_consumes_resolved_entity_without_original_version_gate(
 ) -> None:
     import marivo.semantic as ms
     from marivo._definition.relations import PopulationProgram, SourceIdentities
-    from marivo.semantic.expressions import _Resolver
+    from marivo.semantic.definition_resolution import _Resolver
 
     case = analysis_dsl_case_factory("j1")
     original = case.session.catalog

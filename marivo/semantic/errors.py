@@ -18,13 +18,21 @@ from marivo._kernel.compat import StrEnum
 from marivo._kernel.errors import MarivoError
 from marivo.introspection.live.errors import HelpTargetErrorPayload
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.targets import semantic_target
 from marivo.semantic.constraints import (
     ConstraintId,
     default_constraint_for_error_kind,
     default_hint_for_error_kind,
     get_constraint,
 )
-from marivo.semantic.ir import SourceLocation, TargetDimensionContract
+from marivo.semantic.error_repairs import ERROR_REPAIRS
+from marivo.semantic.ir import (
+    DateParse,
+    HourPrefixParse,
+    SourceLocation,
+    StrptimeParse,
+    TargetDimensionContract,
+)
 
 __all__ = [
     "HINTS",
@@ -68,8 +76,6 @@ def repair(
     preserves_evidence: bool | None = None,
 ) -> AuthoringRepair:
     """Construct a semantic-owned typed repair."""
-    from marivo.semantic._capabilities.naming import semantic_target
-
     return AuthoringRepair(
         kind=kind,
         help_target=LiveHelpTarget(surface="semantic", canonical_id=semantic_target(canonical_id)),
@@ -236,13 +242,16 @@ class SemanticError(MarivoError):
         if hint is None and constraint is not None:
             hint = constraint.hint
         if repair is None:
-            from marivo.semantic._capabilities.registry import REGISTRY
-
-            repair_contract = REGISTRY.error_repair_contract(kind)
+            repair_contract = ERROR_REPAIRS.get(kind)
             if repair_contract is not None:
                 repair = AuthoringRepair(
                     kind=repair_contract.kind,
-                    help_target=repair_contract.help_target,
+                    help_target=LiveHelpTarget(
+                        surface="semantic",
+                        canonical_id=semantic_target(
+                            repair_contract.help_target.canonical_id or ""
+                        ),
+                    ),
                     action=repair_contract.action,
                     snippet=repair_contract.snippet,
                     preserves_evidence=repair_contract.preserves_evidence,
@@ -307,8 +316,6 @@ class SourceTimezoneMissing(SemanticError):  # noqa: N818 - Exact public error c
         datasource: str | None = None,
         backend: str | None = None,
     ) -> None:
-        from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse
-
         parse = axis.parse
         if isinstance(parse, StrptimeParse):
             parser = f"ms.strptime({parse.format!r}, timezone=...)"

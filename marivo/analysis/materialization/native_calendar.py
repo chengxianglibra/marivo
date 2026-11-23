@@ -40,7 +40,7 @@ from marivo.datasource.spi import (
     render,
     timestamp,
 )
-from marivo.semantic._compiled_state import CompiledSemanticState
+from marivo.semantic.spi import CompiledSemanticState
 
 
 def _point(value: object) -> datetime:

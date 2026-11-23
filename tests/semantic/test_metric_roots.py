@@ -11,7 +11,10 @@ from marivo._definition.expressions import DeclaredMetricRef
 from marivo._kernel.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.expressions import _Entity, entity_exact
+from marivo.semantic.expressions.objects import (
+    _Entity,
+    entity_exact,
+)
 from tests.shared_fixtures import catalog_get
 from tests.shared_fixtures import resolve_test_symbol as resolve
 

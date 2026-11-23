@@ -33,8 +33,8 @@ from marivo.analysis.compiler.predicate import population_key
 from marivo.analysis.compiler.source_predicates import string_bytes
 from marivo.analysis.materialization.population_preparation import _domain_table, prepare_population
 from marivo.analysis.model.time_facts import FrameSourceTime
-from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic.validator import (
+from marivo.semantic.spi import (
+    CompiledSemanticState,
     normalize_target_entity,
     normalize_target_relationship,
     normalize_target_version_selection,

@@ -472,8 +472,8 @@ Detailed current-value and native-carrier policies belong to
 ## Implementation map
 
 - [_deferred_semantics.py](../../../marivo/semantic/_deferred_semantics.py) and [_definition_expression.py](../../../marivo/semantic/_definition_expression.py) own controlled expression binding.
-- [validator.py](../../../marivo/semantic/validator.py) owns authored syntax restrictions.
-- [expressions.py](../../../marivo/semantic/expressions.py) owns closed Catalog value construction; [_authoring_declarations.py](../../../marivo/semantic/_authoring_declarations.py) owns named Metric capture.
+- [Static AST rules](../../../marivo/semantic/static_check/ast_rules.py) own authored syntax restrictions.
+- [Expression objects](../../../marivo/semantic/expressions/objects.py) own closed Catalog value construction. [Authoring declarations](../../../marivo/semantic/authoring/declarations.py) own named Metric capture.
 - [_definition](../../../marivo/_definition/) owns closed computation graphs; [_numeric_recipe.py](../../../marivo/semantic/_numeric_recipe.py) and [_numeric_lowering.py](../../../marivo/semantic/_numeric_lowering.py) own actual-type numeric preparation.
 
 ## Bound numeric results

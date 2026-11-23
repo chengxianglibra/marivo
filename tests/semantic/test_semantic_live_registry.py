@@ -30,7 +30,6 @@ from marivo.semantic._capabilities.model import (
     SemanticObjectDecision,
     SemanticObjectIndexEntry,
     SemanticObjectRelationship,
-    SemanticRepairContract,
     SemanticRootSection,
 )
 from marivo.semantic._capabilities.registry import (
@@ -40,6 +39,7 @@ from marivo.semantic._capabilities.registry import (
     _finalize_registry,
 )
 from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+from marivo.semantic.error_repairs import SemanticRepairContract
 
 
 def _authoring(canonical_id: str) -> AuthoringCapability:
@@ -520,7 +520,10 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
     from marivo.introspection.live.resolve import resolve_live_target
     from marivo.semantic.dtos import PreviewBatchResult
     from marivo.semantic.readiness import ReadinessReport
-    from marivo.semantic.validation import ValidationCheckResult, ValidationReport
+    from marivo.semantic.runtime_check.results import (
+        ValidationCheckResult,
+        ValidationReport,
+    )
 
     result_types = (
         PreviewResult,

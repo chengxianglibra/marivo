@@ -492,7 +492,7 @@ def _empty_native_value(
 
     from marivo.analysis.core.value_types import ibis_type
     from marivo.analysis.methods._ibis_numeric import evaluate_numeric
-    from marivo.semantic._numeric_lowering import (
+    from marivo.semantic.spi import (
         NumericValue,
         lower_metric_formula,
         numeric_failure,

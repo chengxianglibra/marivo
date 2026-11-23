@@ -12,9 +12,9 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.deferred import root_declaration
 from marivo.semantic._deferred_semantics import consume_metric
-from marivo.semantic._expression_values import _as_deferred
 from marivo.semantic.errors import SemanticDecoratorError, SemanticExpressionError
-from marivo.semantic.expressions import _Entity
+from marivo.semantic.expressions.inputs import _as_deferred
+from marivo.semantic.expressions.objects import _Entity
 from marivo.semantic.ir import (
     DateParse,
     DimensionIR,
@@ -28,7 +28,10 @@ from marivo.semantic.ir import (
     StrptimeParse,
     TimestampParse,
 )
-from marivo.semantic.loader import LoaderContext, loader_context
+from marivo.semantic.loading_context import (
+    LoaderContext,
+    loader_context,
+)
 from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
 from tests.shared_fixtures import resolve_test_symbol as resolve
 from tests.support.refs import as_ref

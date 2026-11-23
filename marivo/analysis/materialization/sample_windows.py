@@ -70,7 +70,7 @@ from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.data_types import DataColumn
 from marivo.analysis.model.errors import reject
-from marivo.semantic._compiled_state import CompiledSemanticState
+from marivo.semantic.spi import CompiledSemanticState
 
 
 def has_sample_windows(graph: BoundGraph) -> bool:

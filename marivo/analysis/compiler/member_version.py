@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal
 from marivo._kernel.timezones import normalize_timezone
 
 if TYPE_CHECKING:
-    from marivo.semantic._compiled_state import CompiledSemanticState
+    from marivo.semantic.spi import CompiledSemanticState
 
 import ibis
 import ibis.expr.types as ir
@@ -18,7 +18,7 @@ from marivo.analysis.compiler.source_time import source_time_comparison, source_
 from marivo.analysis.model.errors import DatasetConstructionError
 from marivo.analysis.model.time_authority import SourceTimeAuthority
 from marivo.analysis.model.time_facts import FrameSourceTime, capture_source_times
-from marivo.semantic.ir import (
+from marivo.semantic.spi import (
     TargetDimensionContract,
     TargetSnapshotSelection,
     TargetSnapshotVersion,
@@ -95,10 +95,13 @@ def _version_values(
     """Prepare every version consumer with the same physical parser and authority."""
     from marivo._kernel.refs import ref
     from marivo.analysis.compiler.source_time import entity_engine, source_time
-    from marivo.semantic._expression_binding import evaluate_expression_body
-    from marivo.semantic._physical_contracts import validate_bound_field
-    from marivo.semantic._source_timezone import effective_source_timezone
-    from marivo.semantic.validator import normalize_target_dimension, normalize_target_entity
+    from marivo.semantic.spi import (
+        effective_source_timezone,
+        evaluate_expression_body,
+        normalize_target_dimension,
+        normalize_target_entity,
+        validate_bound_field,
+    )
 
     paths = (
         (version.coordinate_ref.path,)
@@ -110,7 +113,7 @@ def _version_values(
     zone = version.timezone or "UTC"
 
     def prepare(path: str) -> _VersionValue:
-        from marivo.semantic.ir import HourPrefixParse
+        from marivo.semantic.spi import HourPrefixParse
 
         axis = normalize_target_dimension(state.registry, path, prepared_column=path)
         body = state.sidecar.bodies.get(ref.time_dimension(axis.ref.path))

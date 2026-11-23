@@ -20,9 +20,9 @@ from marivo.ontology.errors import (
     OntologyLoadError,
 )
 from marivo.ontology.types import SemanticEdgeIR
-from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic import SemanticCatalog
 from marivo.semantic.errors import SemanticError
-from marivo.semantic.ir import SourceLocation
+from marivo.semantic.spi import SourceLocation, require_catalog_ref
 
 _ONTOLOGY_SOURCE = Path("models") / "ontology.py"
 _EDGE_PREVIEW_LIMIT = 8
@@ -52,7 +52,7 @@ def _validate_edges(
     for edge in edges:
         for role, endpoint in (("source", edge.source), ("target", edge.target)):
             try:
-                semantic._require_ref(cast("Ref[SemanticKindTag]", endpoint))
+                require_catalog_ref(semantic, cast("Ref[SemanticKindTag]", endpoint))
             except SemanticError:
                 issues.append(
                     _validation_error(

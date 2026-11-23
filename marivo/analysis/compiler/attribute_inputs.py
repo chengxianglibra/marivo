@@ -36,7 +36,7 @@ from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.analysis.model.attribute_failures import AttributeUseContext, AttributeWindowInput
 from marivo.analysis.model.data_types import DataColumn, DurationDataType, ScalarDataType
 from marivo.analysis.model.unique_keys import UniqueKeys
-from marivo.semantic._numeric_lowering import (
+from marivo.semantic.spi import (
     NumericCheck,
     NumericValue,
     lower_metric_formula,

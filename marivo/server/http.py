@@ -13,17 +13,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 from time import monotonic
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import parse_qsl
 
-from uvicorn._types import ASGIReceiveCallable, ASGISendCallable, Scope
-
-from marivo import __version__
+from marivo._kernel.environment import MARIVO_VERSION
 from marivo._kernel.refs import SemanticKind
 from marivo.analysis.errors import AnalysisError, ArtifactNotFoundError
-from marivo.analysis.materialization.result_files import ResultStorageError
-from marivo.analysis.model.execution_errors import MaterializationError
-from marivo.semantic.catalog import _make_ref
+from marivo.analysis.session.read_spi import MaterializationError, ResultStorageError
+from marivo.semantic.spi import make_catalog_ref
 from marivo.server import dataframes
 from marivo.server.catalog_reads import CatalogReads
 from marivo.server.dataframes import dataframe_id
@@ -38,6 +35,9 @@ from marivo.server.wire import (
     bad_request,
     stale_cursor,
 )
+
+if TYPE_CHECKING:
+    from uvicorn._types import ASGIReceiveCallable, ASGISendCallable, Scope
 
 _WORKERS = 4
 _MAX_REQUESTS = 16
@@ -133,7 +133,7 @@ def _route(path: str, method: str) -> tuple[Route, dict[str, str]]:
             if name == "id":
                 kind, _, semantic_path = value.partition(":")
                 try:
-                    _make_ref(semantic_path, SemanticKind(kind))
+                    make_catalog_ref(semantic_path, SemanticKind(kind))
                 except (ValueError, TypeError):
                     raise bad_request(
                         "id", "Invalid semantic identity.", "Use a canonical kind:path."
@@ -454,7 +454,7 @@ class ReadApplication:
                 lambda: budget.encode(
                     {
                         "api_version": API_VERSION,
-                        "marivo_version": __version__,
+                        "marivo_version": MARIVO_VERSION,
                         "store_id": self.frames.store_id(),
                         "catalog": catalog_status,
                     }

@@ -1,6 +1,6 @@
 """Tests for the shared fuzzy-match helper."""
 
-from marivo.introspection._fuzzy import did_you_mean
+from marivo.introspection.fuzzy import did_you_mean
 
 
 def test_returns_matching_suggestions() -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol
 
 from marivo._authoring.model import AuthoringRepair
 from marivo._authoring.render import _repair_summary
@@ -13,11 +13,20 @@ from marivo._kernel.compat import UTC
 from marivo._kernel.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo._kernel.refs import ref as ref_factory
 from marivo._kernel.render import Card, RenderableResult
-from marivo.semantic.errors import repair
+from marivo.semantic.errors import SourceTimezoneMissing, repair
+from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse
+from marivo.semantic.runtime_check.preview_scope import dependency_entities_for_ref
+from marivo.semantic.static_check.source_timezone import (
+    require_source_timezone,
+    source_timezone_axis,
+)
 
 if TYPE_CHECKING:
-    from marivo.semantic.catalog import SemanticObject
-    from marivo.semantic.reader import SemanticProject
+    from marivo.datasource.spi import DatasourceIR
+    from marivo.semantic.catalog_model.objects import SemanticObject
+    from marivo.semantic.compiled_types import CompiledSemanticState
+    from marivo.semantic.errors import SemanticError, StructuredWarning
+    from marivo.semantic.static_check.registry import Registry
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
 ReadinessSeverity = Literal["blocker", "warning", "advisory"]
@@ -244,7 +253,7 @@ def _issue(
     )
 
 
-def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dict[str, object]]:
+def _object_maps(project: ReadinessProject) -> tuple[dict[str, SemanticKind], dict[str, object]]:
     reg = project._registry
     if reg is None:
         return {}, {}
@@ -380,7 +389,7 @@ def _refs_with_issue(issues: Iterable[ReadinessIssue]) -> set[str]:
 
 
 def build_readiness_report(
-    project: SemanticProject,
+    project: ReadinessProject,
     *,
     refs: Iterable[Ref[SemanticKindTag] | str] | None = None,
 ) -> ReadinessReport:
@@ -453,10 +462,6 @@ def build_readiness_report(
     scoped_datasources = _datasource_refs_for_checked_refs(checked_refs, objects, kinds)
     reg = project._registry
     if reg is not None:
-        from marivo.semantic._source_timezone import require_source_timezone, source_timezone_axis
-        from marivo.semantic.errors import SourceTimezoneMissing
-        from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse
-
         for field_id, dimension in reg.dimensions.items():
             if f"time_dimension:{field_id}" not in checked_refs:
                 continue
@@ -482,8 +487,6 @@ def build_readiness_report(
 
     cross_datasource_refs: list[str] = []
     if reg is not None:
-        from marivo.semantic.preview_scope import dependency_entities_for_ref
-
         for ref in direct_refs:
             if kinds.get(ref) not in _EXECUTABLE_KINDS:
                 continue
@@ -603,3 +606,20 @@ def build_readiness_report(
         checked_at=_checked_at(),
         catalog_definition_fingerprint=catalog_definition_fingerprint,
     )
+
+
+class ReadinessProject(Protocol):
+    @property
+    def _registry(self) -> Registry | None: ...
+
+    @property
+    def _compiled_state(self) -> CompiledSemanticState | None: ...
+
+    @property
+    def _datasource_irs(self) -> tuple[DatasourceIR, ...]: ...
+
+    def is_ready(self) -> bool: ...
+
+    def errors(self) -> tuple[SemanticError, ...]: ...
+
+    def warnings(self) -> tuple[StructuredWarning, ...]: ...

@@ -63,7 +63,7 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_predicate
 from marivo.semantic._expression_values import RowExpression as RowValue
-from marivo.semantic.expressions import _Resolver
+from marivo.semantic.definition_resolution import _Resolver
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_get, catalog_value
 

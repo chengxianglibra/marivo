@@ -29,27 +29,27 @@ _GLOBAL_TOPICS = ("root", "authoring")
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringCapability
-    from marivo.analysis.model.disclosure import Descriptor
-    from marivo.ontology._capabilities.registry import OntologyDescriptor
-    from marivo.semantic._capabilities.model import SemanticHelpDescriptor
+    from marivo.analysis.help_spi import Descriptor
+    from marivo.ontology.help_spi import OntologyDescriptor
+    from marivo.semantic.help_spi import SemanticHelpDescriptor
 
 
 def _native_surface(
     owner: HelpSurface,
 ) -> LiveSurface[ResolvableHelpDescriptor]:
     if owner == "datasource":
-        from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
+        from marivo.datasource.help_spi import DATASOURCE_LIVE_SURFACE
 
         return cast("LiveSurface[ResolvableHelpDescriptor]", DATASOURCE_LIVE_SURFACE)
     if owner == "semantic":
-        from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+        from marivo.semantic.help_spi import SEMANTIC_LIVE_SURFACE
 
         return cast("LiveSurface[ResolvableHelpDescriptor]", SEMANTIC_LIVE_SURFACE)
     if owner == "ontology":
-        from marivo.ontology._capabilities.surface import ONTOLOGY_LIVE_SURFACE
+        from marivo.ontology.help_spi import ONTOLOGY_LIVE_SURFACE
 
         return cast("LiveSurface[ResolvableHelpDescriptor]", ONTOLOGY_LIVE_SURFACE)
-    from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
+    from marivo.analysis.help_spi import ANALYSIS_LIVE_SURFACE
 
     return cast("LiveSurface[ResolvableHelpDescriptor]", ANALYSIS_LIVE_SURFACE)
 
@@ -106,17 +106,17 @@ def _owned_methods(
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Read method membership from the native type contract."""
     if owner == "semantic":
-        from marivo.semantic._capabilities.registry import TYPE_CONTRACTS
+        from marivo.semantic.help_spi import TYPE_CONTRACTS
 
         semantic = TYPE_CONTRACTS[type_obj]
         return semantic.public_methods, semantic.type_page_methods
     if owner == "datasource":
-        from marivo.datasource._capabilities.registry import TYPE_CONTRACTS as DATASOURCE_CONTRACTS
+        from marivo.datasource.help_spi import TYPE_CONTRACTS as DATASOURCE_CONTRACTS
 
         datasource = DATASOURCE_CONTRACTS[type_obj]
         return datasource.public_methods, datasource.type_page_methods
     if owner == "ontology":
-        from marivo.ontology._capabilities.registry import TYPE_CONTRACTS as ONTOLOGY_CONTRACTS
+        from marivo.ontology.help_spi import TYPE_CONTRACTS as ONTOLOGY_CONTRACTS
 
         ontology = ONTOLOGY_CONTRACTS[type_obj]
         return ontology.public_methods, ontology.type_page_methods
@@ -288,18 +288,18 @@ def route_help_target(target: object | None) -> HelpRoute:
 def render_surface_root(route: SurfaceRootHelpRoute) -> str:
     """Render one native root page through its owning surface."""
     if route.owner == "datasource":
-        from marivo.datasource._capabilities.render import render_root_help
+        from marivo.datasource.help_spi import render_root_help
 
         return render_root_help()
     if route.owner == "semantic":
-        from marivo.semantic._capabilities.render import render_root_help
+        from marivo.semantic.help_spi import render_root_help
 
         return render_root_help()
     if route.owner == "ontology":
-        from marivo.ontology._capabilities.render import render_root_help
+        from marivo.ontology.help_spi import render_root_help
 
         return render_root_help()
-    from marivo.analysis._capabilities.render import render_root_help
+    from marivo.analysis.help_spi import render_root_help
 
     return render_root_help()
 
@@ -307,7 +307,7 @@ def render_surface_root(route: SurfaceRootHelpRoute) -> str:
 def render_native_route(route: NativeHelpRoute) -> str:
     """Render through the owning native descriptor model."""
     if route.owner == "datasource":
-        from marivo.datasource._capabilities.render import (
+        from marivo.datasource.help_spi import (
             render_help_target as render_datasource_target,
         )
 
@@ -316,7 +316,7 @@ def render_native_route(route: NativeHelpRoute) -> str:
             original_target=route.original_target,
         )
     if route.owner == "semantic":
-        from marivo.semantic._capabilities.render import (
+        from marivo.semantic.help_spi import (
             render_help_target as render_semantic_target,
         )
 
@@ -325,7 +325,7 @@ def render_native_route(route: NativeHelpRoute) -> str:
             original_target=route.original_target,
         )
     if route.owner == "ontology":
-        from marivo.ontology._capabilities.render import (
+        from marivo.ontology.help_spi import (
             render_help_target as render_ontology_target,
         )
 
@@ -333,7 +333,7 @@ def render_native_route(route: NativeHelpRoute) -> str:
             cast("ResolvedLiveTarget[OntologyDescriptor]", route.resolved),
             original_target=route.original_target,
         )
-    from marivo.analysis._capabilities.render import (
+    from marivo.analysis.help_spi import (
         render_help_target as render_analysis_target,
     )
 

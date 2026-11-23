@@ -161,12 +161,12 @@ import sys
 from unittest.mock import patch
 import marivo.analysis.session as sessions
 import marivo.analysis.timezone as timezones
-import marivo.semantic.catalog as catalog
+from marivo.semantic.reader import SemanticProject
 
 def forbidden(*args, **kwargs):
     raise AssertionError('recovery read host state or semantics')
 
-with patch.object(timezones, 'resolve_system_timezone', forbidden), patch.object(catalog, 'load', forbidden):
+with patch.object(timezones, 'resolve_system_timezone', forbidden), patch.object(SemanticProject, 'load', forbidden):
     session = sessions.resume(sys.argv[1])
     assert session.timezone == 'Asia/Tokyo'
     assert session.timezone_origin == 'system'

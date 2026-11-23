@@ -41,9 +41,9 @@ def test_granite_document_vectors_do_not_depend_on_scheduled_peers(
     encoder = GraniteEncoder(Path("unused.onnx"))
     texts = ["first document", "second document", "third document"]
 
-    isolated = np.concatenate([encoder.encode([text]) for text in texts], axis=0)
-    grouped = encoder.encode(texts)
-    reordered = encoder.encode([texts[2], texts[0], texts[1]])
+    isolated = np.concatenate([encoder.encode_texts([text]) for text in texts], axis=0)
+    grouped = encoder.encode_texts(texts)
+    reordered = encoder.encode_texts([texts[2], texts[0], texts[1]])
 
     assert isolated[0].tobytes() != isolated[1].tobytes()
     assert grouped.tobytes() == isolated.tobytes()

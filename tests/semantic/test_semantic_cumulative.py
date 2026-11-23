@@ -16,7 +16,7 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.windows import AllHistory
 from marivo.semantic._deferred_semantics import consume_metric
-from marivo.semantic.expressions import catalog_metric_definition
+from marivo.semantic.catalog_consumption import catalog_metric_definition
 from tests.shared_fixtures import catalog_value
 
 _MODEL = """import marivo.datasource as md

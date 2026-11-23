@@ -20,7 +20,7 @@ from marivo.analysis.compiler.graph_plan import (
 from marivo.analysis.compiler.observation import _reduction_axes, lower_observation, temporal_bound
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.model.frame_contracts import CheckedStageInput
-from marivo.semantic._numeric_lowering import NumericCheck
+from marivo.semantic.spi import NumericCheck
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.frame_plan import CompiledSourceFrame

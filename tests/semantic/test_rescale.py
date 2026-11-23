@@ -10,9 +10,9 @@ import marivo.semantic as ms
 from marivo._definition.deferred import inspect_deferred
 from marivo._definition.graph import computation_fingerprint
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
-from marivo.semantic._expression_values import _as_deferred
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
+from marivo.semantic.expressions.inputs import _as_deferred
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 

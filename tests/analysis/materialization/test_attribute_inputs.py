@@ -1369,7 +1369,7 @@ def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
     from marivo.analysis.compiler import attribute_inputs
     from marivo.analysis.compiler.attribute_inputs import AttributeCheckLayout, AttributeRootLayout
     from marivo.analysis.errors import AnalysisError
-    from marivo.semantic._numeric_lowering import NumericCheck
+    from marivo.semantic.numeric_operations import NumericCheck
 
     original = attribute_inputs.lower_attribute_inputs
     compiled: set[str] = set()

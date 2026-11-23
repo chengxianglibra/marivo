@@ -16,7 +16,11 @@ from sqlglot import exp
 import marivo.analysis as mv
 from marivo._definition.types import CoordinateValue
 from marivo.analysis.session.core import Session
-from marivo.semantic.catalog import Dimension, Entity, Relationship
+from marivo.semantic.catalog_model.objects import (
+    Dimension,
+    Entity,
+    Relationship,
+)
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import SourceTrace

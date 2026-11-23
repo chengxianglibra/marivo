@@ -57,7 +57,7 @@ from marivo.analysis.model.method_values import (
     _short,
     _text,
 )
-from marivo.semantic.unit_algebra import ratio_unit
+from marivo.semantic.spi import ratio_unit
 
 _ExactMethod: TypeAlias = (
     "FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod"

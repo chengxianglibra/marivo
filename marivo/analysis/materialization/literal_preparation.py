@@ -14,8 +14,7 @@ from marivo.analysis.binding.graph import BoundGraph
 from marivo.analysis.compiler.graph_plan import SourceField, SourceSchema
 from marivo.analysis.core.value_types import data_type
 from marivo.analysis.materialization.query_preparation import prepare_fields
-from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic.validator import normalize_target_entity
+from marivo.semantic.spi import CompiledSemanticState, normalize_target_entity
 
 
 def literal_schemas(

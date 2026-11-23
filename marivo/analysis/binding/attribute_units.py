@@ -41,8 +41,8 @@ def row_unit(node: RowNode) -> str | None:
     )
 
     from marivo._definition.deferred import attribute_name
-    from marivo.semantic.expressions import _arith_unit
-    from marivo.semantic.unit_algebra import linear_unit
+    from marivo.semantic.spi import arith_unit as _arith_unit
+    from marivo.semantic.spi import linear_unit
 
     if isinstance(node, RowField):
         return node.unit
@@ -102,7 +102,11 @@ def row_unit(node: RowNode) -> str | None:
 def component_unit(
     node: SourceAggregate | SourceWeightedMean | EntityCount, role: str
 ) -> str | None:
-    from marivo.semantic.unit_algebra import multiply_unit_states, render_unit, unit_state
+    from marivo.semantic.spi import (
+        multiply_unit_states,
+        render_unit,
+        unit_state,
+    )
 
     if role in (
         "input_count",
@@ -130,7 +134,10 @@ def source_component_unit(source: AttributeSourceRequest, role: str) -> str | No
 
 def rule_unit(rule: AttributeRule) -> str | None:
     """Derive a closed rule's unit without preparing or reading sources."""
-    from marivo.semantic.unit_algebra import linear_unit, ratio_unit
+    from marivo.semantic.spi import (
+        linear_unit,
+        ratio_unit,
+    )
 
     operation = rule.operation
     if isinstance(operation, AdditiveSource):

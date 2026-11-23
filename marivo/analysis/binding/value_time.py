@@ -50,8 +50,7 @@ from marivo.analysis.model.time_facts import (
     FrameValueTimeSemantics,
     FrameWindowEndpoint,
 )
-from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic._metric_time import metric_time_occurrences
+from marivo.semantic.spi import CompiledSemanticState, metric_time_occurrences
 
 
 def _identity(value: ExactRef | None) -> SemanticObjectIdentity | None:

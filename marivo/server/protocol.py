@@ -9,28 +9,50 @@ from datetime import date, datetime, timedelta
 from types import UnionType
 from typing import Literal, Union, get_args, get_origin, get_type_hints
 
-from marivo import __version__
+from marivo._kernel.ai_context import AiContextIR
+from marivo._kernel.environment import MARIVO_VERSION
 from marivo._kernel.refs import SemanticKind
 from marivo._kernel.temporal import InstantAnchor
-from marivo.analysis.model import frame_facts, time_facts
-from marivo.analysis.model.data_types import (
+from marivo.analysis.session.read_spi import (
+    CoordinateExportColumn,
     DataType,
     DecimalDataType,
     DurationDataType,
+    FieldExportColumn,
+    FrameAxisSchema,
+    FrameCalendarAxisSchema,
+    FrameField,
+    FrameFixedAxis,
+    FrameIntervalAxisSchema,
+    FrameLineage,
+    FrameOrdinaryAxisSchema,
+    FramePairedAxisSchema,
+    FrameSchema,
+    FrameSourceRead,
     ScalarDataType,
+    SessionSummary,
     TimestampDataType,
 )
-from marivo.analysis.model.frame_schema import (
-    CoordinateExportColumn,
-    FieldExportColumn,
-    FrameSchema,
+from marivo.semantic import (
+    DatasourceDefinition,
+    DomainDefinition,
+    EntityDefinition,
+    FieldDefinition,
+    MetricContributionClockBinding,
+    MetricDefinition,
+    MetricNoContributionClockBinding,
+    RelationshipDefinition,
 )
-from marivo.analysis.model.frame_source_reads import FrameSourceRead
-from marivo.analysis.model.lineage import FrameLineage
-from marivo.analysis.session._lazy_read_model import SessionSummary
-from marivo.datasource.ir import AiContextIR
-from marivo.semantic import catalog_entries as entries
-from marivo.semantic import ir as semantic
+from marivo.semantic.spi import (
+    DateParse,
+    DependencyContext,
+    HourPrefixParse,
+    SampleIntervalIR,
+    SnapshotVersioningIR,
+    StrptimeParse,
+    TimestampParse,
+    ValidityVersioningIR,
+)
 from marivo.server.catalog_projection import DEFINITION_FIELDS
 from marivo.server.frame_projection import _FIELDS
 from marivo.server.wire import API_VERSION, STATUS, JsonObject, JsonValue
@@ -169,18 +191,18 @@ def record(**fields: JsonObject) -> JsonObject:
 _NESTED: dict[type[object], str] = {
     **_FIELDS,
     **DEFINITION_FIELDS,
-    time_facts.FrameFixedAxis: "axis key origins",
+    FrameFixedAxis: "axis key origins",
     AiContextIR: "business_definition guardrails aliases",
-    entries.DependencyContext: "id business_definition guardrails",
-    entries.MetricContributionClockBinding: "branch source field path anchor",
-    entries.MetricNoContributionClockBinding: "branch source root reason",
-    semantic.SampleIntervalIR: "count unit",
-    semantic.DateParse: "kind timezone",
-    semantic.TimestampParse: "kind timezone",
-    semantic.StrptimeParse: "kind format timezone",
-    semantic.HourPrefixParse: "kind prefix",
-    semantic.SnapshotVersioningIR: "kind partition_field timezone",
-    semantic.ValidityVersioningIR: "kind valid_from valid_to interval open_end",
+    DependencyContext: "id business_definition guardrails",
+    MetricContributionClockBinding: "branch source field path anchor",
+    MetricNoContributionClockBinding: "branch source root reason",
+    SampleIntervalIR: "count unit",
+    DateParse: "kind timezone",
+    TimestampParse: "kind timezone",
+    StrptimeParse: "kind format timezone",
+    HourPrefixParse: "kind prefix",
+    SnapshotVersioningIR: "kind partition_field timezone",
+    ValidityVersioningIR: "kind valid_from valid_to interval open_end",
 }
 
 
@@ -195,15 +217,15 @@ def _annotation(owner: type[object], name: str) -> object:
 def _type(annotation: object) -> JsonObject:
     if isinstance(annotation, type) and annotation in _NESTED:
         return ref(annotation.__name__)
-    if annotation is time_facts.FrameAxisSchema:
+    if annotation is FrameAxisSchema:
         return either(
             *(
                 ref(variant.__name__)
                 for variant in (
-                    time_facts.FrameOrdinaryAxisSchema,
-                    time_facts.FrameCalendarAxisSchema,
-                    time_facts.FrameIntervalAxisSchema,
-                    time_facts.FramePairedAxisSchema,
+                    FrameOrdinaryAxisSchema,
+                    FrameCalendarAxisSchema,
+                    FrameIntervalAxisSchema,
+                    FramePairedAxisSchema,
                 )
             )
         )
@@ -247,23 +269,23 @@ def _type(annotation: object) -> JsonObject:
 def _nested() -> dict[str, JsonObject]:
     result = {}
     roles: dict[type[object], JsonObject] = {
-        time_facts.FrameOrdinaryAxisSchema: {"enum": ["field", "identity"]},
-        time_facts.FrameCalendarAxisSchema: literal("calendar"),
-        time_facts.FrameIntervalAxisSchema: literal("interval"),
-        time_facts.FramePairedAxisSchema: literal("paired"),
+        FrameOrdinaryAxisSchema: {"enum": ["field", "identity"]},
+        FrameCalendarAxisSchema: literal("calendar"),
+        FrameIntervalAxisSchema: literal("interval"),
+        FramePairedAxisSchema: literal("paired"),
     }
     for owner, names in _NESTED.items():
         fields: dict[str, JsonObject] = {}
         for name in names.split():
-            if owner is frame_facts.FrameField and name == "dtype":
+            if owner is FrameField and name == "dtype":
                 fields[name] = _type(DataType)
-            elif owner is time_facts.FrameFixedAxis and name == "key":
+            elif owner is FrameFixedAxis and name == "key":
                 fields[name] = arr(ref("ScalarValue"))
             elif name == "role" and owner in roles:
                 fields[name] = roles[owner]
             else:
                 fields[name] = _type(_annotation(owner, name))
-        if owner is entries.EntityDefinition:
+        if owner is EntityDefinition:
             fields["source"] = either(
                 record(
                     kind=literal("table"),
@@ -313,14 +335,14 @@ def _schemas() -> dict[str, JsonObject]:
         "business_definition": nullable(STRING),
     }
     definitions = {
-        "datasource": entries.DatasourceDefinition,
-        "domain": entries.DomainDefinition,
-        "entity": entries.EntityDefinition,
-        "metric": entries.MetricDefinition,
-        "relationship": entries.RelationshipDefinition,
-        "dimension": entries.FieldDefinition,
-        "measure": entries.FieldDefinition,
-        "time_dimension": entries.FieldDefinition,
+        "datasource": DatasourceDefinition,
+        "domain": DomainDefinition,
+        "entity": EntityDefinition,
+        "metric": MetricDefinition,
+        "relationship": RelationshipDefinition,
+        "dimension": FieldDefinition,
+        "measure": FieldDefinition,
+        "time_dimension": FieldDefinition,
     }
     provenance = record(source_file=nullable(STRING), source_line=INT, python_symbol=STRING)
     frame_summary = {
@@ -566,7 +588,7 @@ def openapi() -> JsonObject:
         }
     return {
         "openapi": "3.1.0",
-        "info": {"title": "Marivo project data service", "version": __version__},
+        "info": {"title": "Marivo project data service", "version": MARIVO_VERSION},
         "security": [{"Bearer": []}],
         "components": {
             "securitySchemes": {"Bearer": {"type": "http", "scheme": "bearer"}},

@@ -1,4 +1,4 @@
-"""Tests for marivo.semantic.validator — assembly-time validation.
+"""Tests for marivo.semantic.static_check.assembly — assembly-time validation.
 
 Tests cover:
 - Missing entity ref -> MISSING_ENTITY_REF
@@ -24,11 +24,9 @@ import ibis.expr.types as ir
 import pytest
 
 from marivo._kernel.refs import ref as ref_factory
-from marivo.semantic._expression_binding import (
-    CompiledExpressionSidecar,
-    compile_expression_body,
-)
+from marivo.semantic._expression_binding import compile_expression_body
 from marivo.semantic.errors import ErrorKind, WarningKind
+from marivo.semantic.expressions.ir import CompiledExpressionSidecar
 from marivo.semantic.ir import (
     AiContextIR,
     DatasourceAiContextIR,
@@ -47,7 +45,8 @@ from marivo.semantic.ir import (
     TableSourceIR,
 )
 from marivo.semantic.reader import SemanticProject
-from marivo.semantic.validator import Registry, assembly_validate
+from marivo.semantic.static_check.assembly import assembly_validate
+from marivo.semantic.static_check.registry import Registry
 
 _LOC = SourceLocation(file="<test>", line=0)
 
@@ -479,7 +478,7 @@ def test_missing_dimension_ref_includes_did_you_mean() -> None:
 
 
 def test_physical_entity_dependency_fingerprint_preserves_consumed_identity() -> None:
-    from marivo.semantic._physical_identity import entity_dependency_fingerprint
+    from marivo.semantic.static_check.physical_identity import entity_dependency_fingerprint
 
     # Snapshot includes the first-class datasource source-time declaration.
     assert entity_dependency_fingerprint(_make_registry(), "sales.orders") == (

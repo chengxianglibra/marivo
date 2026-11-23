@@ -7,14 +7,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from marivo.semantic.catalog import Relationship, SemanticCatalog
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.catalog_model.objects import Relationship
 from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.ir import TargetSnapshotSelection
 
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
     from tests.conftest import _SemanticProjectFactory
-from marivo.semantic.validator import (
+from marivo.semantic.static_check.targets import (
     normalize_target_entity,
     normalize_target_relationship,
     normalize_target_version_selection,

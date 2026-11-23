@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from marivo.cli.doctor.report import DoctorCheck, DoctorSection, DoctorStatus, count_summary
-from marivo.semantic import check as semantic_check
+from marivo.semantic.spi import run_check as semantic_check
 
 
 def _json_safe_detail(value: object) -> object:
@@ -174,7 +174,7 @@ def _project_readiness(payload: Mapping[str, object], fix_cmd: str) -> DoctorSec
 def semantic_section(root: Path) -> DoctorSection:
     fix_cmd = f"marivo doctor --project-root {root} --semantic --format json"
     try:
-        payload = semantic_check.run_check(workspace_dir=root, readiness=True)
+        payload = semantic_check(workspace_dir=root, readiness=True)
         readiness_by_domain = payload.get("readiness_by_domain")
         if isinstance(readiness_by_domain, dict):
             return _domain_readiness(readiness_by_domain, fix_cmd)

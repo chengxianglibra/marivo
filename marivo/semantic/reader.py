@@ -8,17 +8,19 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from marivo._kernel.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
 from marivo._kernel.project import resolve_project_root
 from marivo._kernel.refs import Ref, SemanticKindTag
 from marivo._kernel.symbolic import LookupSymbol, native_symbol_ref
-from marivo.datasource import credentials as cr
-from marivo.datasource.ir import DatasourceIR
-from marivo.datasource.spi import DatasourceConnectionConfig, DatasourceConnectionService
-from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.datasource.spi import (
+    DatasourceConnectionConfig,
+    DatasourceConnectionService,
+    DatasourceIR,
+    current_resolver,
+)
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.compiled_types import CompiledSemanticState
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
@@ -26,17 +28,16 @@ from marivo.semantic.errors import (
     StructuredWarning,
     _raise,
 )
+from marivo.semantic.expressions.ir import CompiledExpressionSidecar
 from marivo.semantic.loader import LoadResult, load_project
-from marivo.semantic.materializer import EntityRuntimeMetadata
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
     ReadinessReport,
+    build_readiness_report,
 )
-from marivo.semantic.validator import Registry
-
-if TYPE_CHECKING:
-    from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.runtime_check.materializer import EntityRuntimeMetadata
+from marivo.semantic.static_check.registry import Registry
 
 __all__ = [
     "ReadinessInputSummary",
@@ -92,7 +93,7 @@ class SemanticProject:
         self._runtime_metadata: dict[str, EntityRuntimeMetadata] = {}
         self._connection_config = DatasourceConnectionConfig(
             project_root=self._workspace_dir,
-            resolver=cr.current_resolver(),
+            resolver=current_resolver(),
         )
         self._datasource_irs: tuple[DatasourceIR, ...] = ()
         self._excluded_refs: tuple[str, ...] = ()
@@ -201,7 +202,6 @@ class SemanticProject:
 
         Raises ``SemanticLoadFailed`` unless loading produced a compiled scope.
         """
-        from marivo.semantic.catalog import SemanticCatalog
 
         return SemanticCatalog(self)
 
@@ -246,6 +246,5 @@ class SemanticProject:
     def _readiness(
         self, *, refs: Iterable[Ref[SemanticKindTag] | str] | None = None
     ) -> ReadinessReport:
-        from marivo.semantic.readiness import build_readiness_report
 
         return build_readiness_report(self, refs=refs)

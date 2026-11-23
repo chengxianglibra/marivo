@@ -35,8 +35,18 @@ datasource: connection / source / scoped evidence
 在内核之上定义惰性计算与依赖身份，允许使用 Ibis 表达式。`_kernel`、`_definition`
 和 `_authoring` 的同级模块须保持无环。
 
-`marivo.cli` 协调命令，`marivo.cli.doctor` 归集诊断。`analysis` 与 `_help` 处于同一层，
-分析 Help 注册表通过统一路由验证跨域链接。
+`marivo.cli` 协调命令，`marivo.cli.doctor` 归集诊断。`_help` 通过各域的 Help
+接口解析和渲染。Analysis 的 Help 注册表直接通过目标域验证带域名的链接，
+因此无需依赖顶层 Help 路由。
+
+跨域调用使用公开入口和明确的服务提供接口。Datasource SPI 提供来源元数据、会话和方言策略。
+Semantic SPI 提供已编译定义、表达式绑定与只读 Catalog 投影。HTTP v2 通过 Analysis
+的 Session 读取 SPI 枚举和打开已提交结果，沿用现有 Store 校验、分页与游标契约。
+Semantic 内的校验、表达式、目录索引和检索模块都受同级无环契约约束。
+[Datasource SPI](../../marivo/datasource/spi.py) ·
+[Semantic SPI](../../marivo/semantic/spi.py) ·
+[Analysis 读取 SPI](../../marivo/analysis/session/read_spi.py) ·
+[导入契约](../../.importlinter)
 
 ## 文档边界
 

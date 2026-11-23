@@ -18,12 +18,19 @@ from marivo.analysis.model.errors import reject
 from marivo.analysis.model.frame_contracts import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.model.frame_structure import axis_role, column_kind
 from marivo.analysis.model.lineage import ColumnLineage
-from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic._consumption import bind_field_in_state, validate_context
-from marivo.semantic._expression_values import FieldExpression, RowExpression
-from marivo.semantic.catalog import Entity as EntityObject
-from marivo.semantic.expressions import _Entity as Entity
-from marivo.semantic.expressions import _Resolver, entity_exact
+from marivo.semantic import Entity as EntityObject
+from marivo.semantic import RowExpression
+from marivo.semantic.spi import (
+    CompiledSemanticState,
+    FieldExpression,
+    bind_field_in_state,
+    entity_exact,
+    validate_context,
+)
+from marivo.semantic.spi import (
+    DefinitionResolver as _Resolver,
+)
+from marivo.semantic.spi import ResolvedEntity as Entity
 
 
 def _field_axis(value: Deferred, state: CompiledSemanticState, resolver: _Resolver) -> AxisBinding:
@@ -94,14 +101,14 @@ def population_from(
             validate_context(
                 target._context, project_root=local.store.project_root, owner=local.owner
             )
-            if target._ref.path not in state.registry.entities:
+            if target.path not in state.registry.entities:
                 reject(
                     "an Entity declared in the receiving Catalog",
                     target.id,
                     "Obtain an Entity from the receiving Session's loaded scope.",
                     "frame.population",
                 )
-            target = resolver.entity(target._ref.path)
+            target = resolver.entity(target.path)
         elif isinstance(target, RowExpression):
             target = bind_field_in_state(
                 target, state, project_root=local.store.project_root, owner=local.owner

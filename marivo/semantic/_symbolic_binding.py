@@ -36,6 +36,13 @@ from marivo._definition.deferred import (
 )
 from marivo._definition.expressions import PredicateExpression
 from marivo._definition.graph import walk
+from marivo._definition.population_parameters import (
+    ParameterResolver,
+    PathRecipe,
+    bind_parameter,
+    bind_parameter_call,
+    parameter_inputs,
+)
 from marivo._definition.types import (
     DefinitionGraphError,
     ExactRef,
@@ -50,38 +57,49 @@ from marivo._kernel.refs import (
     SemanticKindTag,
 )
 from marivo._kernel.refs import ref as ref_factory
-from marivo._kernel.symbolic import SymbolResolver
+from marivo._kernel.symbolic import SymbolResolver, symbol_factory
 from marivo.semantic._compiled_state import CompilationGraph, dependent_closure
 from marivo.semantic._deferred_semantics import (
+    MetricFacts,
     capture_source_time,
     consume_field,
     consume_metric,
     consume_predicate,
     consume_row,
 )
-from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic.authoring.additivity import (
+    additive_all,
+    additive_except,
+    additive_over,
+    non_additive,
+)
+from marivo.semantic.authoring.measure_policy import declare_measure
+from marivo.semantic.declaration_scope import (
+    _closure_scope_error,
+    _declaration_site,
+    _defined_kinds,
+)
+from marivo.semantic.definition_resolution import (
+    ResolvedValue,
+    _Resolver,
+    author_value,
+)
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
     SemanticExpressionError,
     SemanticLoadError,
 )
-from marivo.semantic.expressions import (
-    ResolvedValue,
-    _Resolver,
-    author_value,
-    declare_measure,
-)
-from marivo.semantic.expressions import (
-    _Entity as Entity,
-)
-from marivo.semantic.expressions import (
-    _Relationship as Relationship,
-)
-from marivo.semantic.validator import Registry
+from marivo.semantic.expressions.ir import CompiledExpressionSidecar
+from marivo.semantic.expressions.objects import _Entity as Entity
+from marivo.semantic.expressions.objects import _Relationship as Relationship
+from marivo.semantic.input_scope import validate_context
+from marivo.semantic.ir import SourceLocation
+from marivo.semantic.policies import AdditivityPolicy
+from marivo.semantic.static_check.registry import Registry
 
 if TYPE_CHECKING:
-    from marivo.semantic.loader import LoaderContext
+    from marivo.semantic.loading_context import LoaderContext
 
 
 class _PublicationResolver(_Resolver):
@@ -125,7 +143,6 @@ def _children(recipe: Resolver) -> tuple[Resolver, ...]:
         return (recipe.obj,)
     if isinstance(recipe, RecipeSequence):
         return tuple(recipe.values)
-    from marivo._definition.population_parameters import ParameterResolver, parameter_inputs
 
     if isinstance(recipe, ParameterResolver):
         return tuple(resolver_of(value) for value in parameter_inputs(recipe))
@@ -147,12 +164,6 @@ def bind_recipe(
 
     def bind(child: Resolver) -> Resolver:
         return bind_recipe(child, lookup=lookup, declarations=declarations)
-
-    from marivo._definition.population_parameters import (
-        ParameterResolver,
-        bind_parameter,
-        bind_parameter_call,
-    )
 
     def bind_value(value: Deferred) -> Deferred:
         return Deferred(bind(resolver_of(value)))
@@ -224,16 +235,6 @@ def bind_recipe(
         child = bind(recipe.recipe)
         declaration = recipe.declaration
         if declaration.pending_assertion:
-            from marivo._kernel.symbolic import symbol_factory
-            from marivo.semantic._dsl_authoring import (
-                AdditivityPolicy,
-                additive_all,
-                additive_except,
-                additive_over,
-                non_additive,
-            )
-            from marivo.semantic.ir import SourceLocation
-
             policy = declaration.pending_additivity
             additivity: AdditivityPolicy | None = None
             if policy is not None:
@@ -310,8 +311,6 @@ def bind_recipe(
 
 def _row_roots(recipe: Resolver, registry: Registry) -> set[str]:
     """Infer only row-root identity; symbols never supply units or permissions."""
-    from marivo._definition.deferred import attribute_name
-    from marivo._definition.population_parameters import ParameterResolver, PathRecipe
 
     if isinstance(recipe, SemanticResolver):
         return {recipe.input.root.ref.path}
@@ -362,7 +361,6 @@ def publish_declarations(
     original_registry: Registry | None = None,
 ) -> list[SemanticError]:
     """Index, order, and bind all declarations before publishing the closed scope."""
-    from marivo.semantic.loader import _closure_scope_error, _declaration_site, _defined_kinds
 
     values = tuple(value for context in contexts for value in context.declarations)
     context_by_id = {id(value): context for context in contexts for value in context.declarations}
@@ -391,8 +389,6 @@ def publish_declarations(
                         action="Keep this declaration local to its owning Session.",
                     )
                 if context.project_root is not None and input_context.project_root is not None:
-                    from marivo.semantic._consumption import validate_context
-
                     validate_context(input_context, project_root=context.project_root)
             except SemanticExpressionError as error:
                 errors.append(error)
@@ -553,7 +549,6 @@ def publish_declarations(
                     received=row.root.ref.path,
                     action="Use a Measure lookup path matching the actual contribution Entity.",
                 )
-            from marivo.semantic._deferred_semantics import MetricFacts
 
             captured = dict(facts._declared) if isinstance(facts, MetricFacts) else {}
             closure = walk((facts.node,), resolve=captured.get)

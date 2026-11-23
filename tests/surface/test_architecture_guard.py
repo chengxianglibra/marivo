@@ -7,10 +7,13 @@ import shutil
 import subprocess
 import sys
 from collections import Counter
+from configparser import ConfigParser
 from pathlib import Path
 
 import grimp
 import pytest
+from importlinter.configuration import configure
+from importlinter.contracts.protected import ProtectedContract
 
 from scripts import check_architecture as guard
 from scripts import check_governance_diff as governance
@@ -81,6 +84,47 @@ def test_arch001_includes_type_imports_and_uses_origin_names(tmp_path: Path) -> 
     assert guard.scan_sources(tmp_path)["ARCH001"] == {
         "marivo.analysis.probe -> marivo.semantic._details": 1
     }
+
+
+@pytest.mark.parametrize(
+    ("contract_name", "consumer", "implementation", "spi"),
+    [
+        (
+            "spi-only-cross-domain",
+            "analysis",
+            "semantic.runtime_check.materializer",
+            "semantic.spi",
+        ),
+        ("datasource-spi-only", "semantic", "datasource.runtime.connections", "datasource.spi"),
+        (
+            "analysis-read-spi-only",
+            "server",
+            "analysis.model.frame_schema",
+            "analysis.session.read_spi",
+        ),
+        ("ontology-spi-only", "_help", "ontology.catalog", "ontology.help_spi"),
+    ],
+)
+def test_protected_contract_allows_spi_and_rejects_implementation_import(
+    contract_name: str, consumer: str, implementation: str, spi: str
+) -> None:
+    configure()  # type: ignore[no-untyped-call]  # import-linter's configuration entry point is untyped.
+    config = ConfigParser()
+    assert config.read(PROJECT_ROOT / ".importlinter")
+    section = config[f"importlinter:contract:{contract_name}"]
+    contract = ProtectedContract(
+        name=section["name"],
+        session_options={"root_packages": ["marivo"]},
+        contract_options={
+            option: section[option].split() for option in ("protected_modules", "allowed_importers")
+        },
+    )
+    graph = grimp.build_graph("marivo", exclude_type_checking_imports=False, cache_dir=None)
+    importer = f"marivo.{consumer}.spi_probe"
+    graph.add_import(importer=importer, imported=f"marivo.{spi}")
+    assert contract.check(graph, verbose=False).kept
+    graph.add_import(importer=importer, imported=f"marivo.{implementation}")
+    assert not contract.check(graph, verbose=False).kept
 
 
 @pytest.mark.parametrize("scope", ("analysis", "semantic"))
