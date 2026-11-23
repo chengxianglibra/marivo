@@ -2,45 +2,74 @@
 
 import operator
 from collections.abc import Callable
+from dataclasses import replace
+from datetime import datetime, timezone
 from decimal import Decimal
+from functools import partial
 from itertools import product
 from pathlib import Path
 from typing import Literal
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 from marivo._definition.query import (
+    CoordinateSlot,
     FilterValues,
     ValueBinary,
     ValueExpression,
     ValueLiteral,
     ValueSlot,
 )
+from marivo.analysis.binding.programs import FormulaProgram
+from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
+from marivo.analysis.compiler.frame_filter_fusion import frame_filter_steps, fuse_frame_filters
+from marivo.analysis.compiler.frame_plan import plan_frame
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.optimization import optimize_query
 from marivo.analysis.compiler.query_planning import plan_query
-from marivo.analysis.compiler.query_program import ResultProgram
+from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.compiler.query_stages import (
+    FrameCompute,
+    FrameInput,
     LocalCompute,
     QueryPlan,
     SourceReadStage,
     checked_output,
 )
-from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
+from marivo.analysis.core.frame_data import (
+    CompletedFrameData,
+    CompletedFrameResult,
+    ExpressionFrameBacking,
+    MemoryFrameBacking,
+    SourceFrameBinding,
+)
 from marivo.analysis.materialization import (
+    frame_evaluation,
     frame_source_preparation,
     query_key_fusion,
     query_terminal_fusion,
     sample_fusion,
 )
-from marivo.analysis.materialization.graph_source_execution import execute_numeric_query
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.frame_inputs import capture_frame_inputs
+from marivo.analysis.materialization.graph_source_execution import (
+    execute_numeric_query,
+    run_frame_plan,
+)
 from marivo.analysis.materialization.query_sources import open_query_sources
+from marivo.analysis.methods import query_values
+from marivo.analysis.methods.carriers.stages import StageOutput
+from marivo.analysis.methods.frame_evaluation import FrameEvaluation
 from marivo.analysis.methods.query_values import evaluate_result
-from marivo.analysis.model.data_types import DataColumn, ScalarDataType
+from marivo.analysis.model.data_schema import DataAxis, DataSchema
+from marivo.analysis.model.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.frame_contracts import frame_backing
+from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.formal._smt import prove_unsat
@@ -92,17 +121,20 @@ def _operand(expression: ValueExpression) -> tuple[str, str]:
     raise AssertionError(f"Unmodeled selection operand: {expression!r}")
 
 
-def _kleene(expression: ValueExpression) -> str:
+def _kleene(
+    expression: ValueExpression,
+    operand: Callable[[ValueExpression], tuple[str, str]] = _operand,
+) -> str:
     """Translate actual plan nodes. -1/0/1 are FALSE/NULL/TRUE."""
     assert isinstance(expression, ValueBinary), expression
     if expression.operation in ("and", "or"):
-        left, right = _kleene(expression.left), _kleene(expression.right)
+        left, right = _kleene(expression.left, operand), _kleene(expression.right, operand)
         relation = "<=" if expression.operation == "and" else ">="
         return f"(ite ({relation} {left} {right}) {left} {right})"
     comparisons = {"eq": "=", "ne": "distinct", "lt": "<", "le": "<=", "gt": ">", "ge": ">="}
     assert expression.operation in comparisons, expression
-    lhs, lhs_null = _operand(expression.left)
-    rhs, rhs_null = _operand(expression.right)
+    lhs, lhs_null = operand(expression.left)
+    rhs, rhs_null = operand(expression.right)
     return (
         f"(ite (or {lhs_null} {rhs_null}) 0 "
         f"(ite ({comparisons[expression.operation]} {lhs} {rhs}) 1 (- 1)))"
@@ -200,6 +232,321 @@ def test_l1_keeps_unqualified_arithmetic_on_its_own_boundary() -> None:
         decision.rule == "L1" and decision.status == "refused"
         for decision in optimized.optimization_decisions
     )
+
+
+_I64_MIN, _I64_MAX = -(2**63), 2**63 - 1
+_DECIMAL_MAX = 10**38 - 1
+_EXACT = DecimalDataType(38, 0)
+_FRAME_KEYS = (_I64_MAX, 3, _I64_MIN, 2, -1, 0, 1)
+_CARRIER_LIMITS = {_INT: (_I64_MIN, _I64_MAX), _EXACT: (-_DECIMAL_MAX, _DECIMAL_MAX)}
+
+
+@pytest.fixture
+def filter_frame(tmp_path: Path) -> mv.AnalysisFrame:
+    """Seed a completed Frame with the exact native carriers the pass consumes."""
+    values = (
+        DataColumn("x", "x", _INT, True),
+        DataColumn("y", "y", _INT, True),
+        DataColumn("exact", "exact", _EXACT, True),
+        DataColumn("floating", "floating", ScalarDataType("float64"), True),
+    )
+    schema = DataSchema(
+        (DataAxis("key", (_COLUMNS[0],), name="key"),),
+        values,
+        value_paths=tuple((column.name,) for column in values),
+    )
+    rows = pd.DataFrame(
+        {
+            "key": pd.Series(_FRAME_KEYS, dtype="int64[pyarrow]"),
+            "x": pd.Series([_I64_MAX, None, _I64_MIN, 0, 2, -1, 1], dtype="int64[pyarrow]"),
+            "y": pd.Series([1, _I64_MAX, None, _I64_MIN, 0, -1, 1], dtype="int64[pyarrow]"),
+            "exact": pd.Series(
+                [
+                    Decimal(_DECIMAL_MAX),
+                    None,
+                    Decimal(-_DECIMAL_MAX),
+                    Decimal(_I64_MAX + 1),
+                    Decimal(_I64_MIN),
+                    Decimal(0),
+                    Decimal(1),
+                ],
+                dtype=pd.ArrowDtype(pa.decimal128(38, 0)),
+            ),
+            "floating": pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array(
+                        [float("nan"), None, -1.0, 1.0, -1.0, -1.0, -1.0],
+                        type=pa.float64(),
+                        from_pandas=False,
+                    )
+                )
+            ),
+        }
+    )
+    runtime = DatasetRuntime.create(tmp_path, "formal-l1", timezone="UTC")
+    metadata = FrameResultMetadata(
+        "formal-l1", EvaluationRecord(datetime(2026, 1, 1, tzinfo=timezone.utc), (), ())
+    )
+    return mv.AnalysisFrame._from_memory(
+        runtime.local, CompletedFrameResult(CompletedFrameData(schema, rows), metadata)
+    )
+
+
+def _compile_fixed_frame(query: mv.AnalysisFrame) -> CompiledFramePlan[StageOutput]:
+    captured = capture_frame_inputs(query)
+    return plan_frame(captured.root, {}, frame_inputs=captured.expressions)
+
+
+def _published_compute(plan: QueryPlan) -> FrameCompute:
+    stage = next(stage for stage in plan.stages if stage.stage_id == plan.publish)
+    assert isinstance(stage, FrameCompute)
+    return stage
+
+
+def _frame_filter(stage: FrameCompute) -> tuple[FrameProgram, ValueExpression]:
+    program = stage.program
+    assert isinstance(program, FrameProgram) and isinstance(program.operation, FilterValues)
+    return program, program.operation.predicate
+
+
+def _frame_operand(schema: DataSchema, expression: ValueExpression) -> tuple[str, str]:
+    if isinstance(expression, ValueSlot):
+        column = schema.values[expression.index]
+    elif isinstance(expression, CoordinateSlot):
+        (column,) = schema.axes[expression.index].columns
+    elif isinstance(expression, ValueLiteral) and type(expression.value) is int:
+        assert _I64_MIN <= expression.value <= _I64_MAX
+        return _integer(expression.value), "false"
+    else:
+        raise AssertionError(f"Unmodeled Frame selection operand: {expression!r}")
+    assert column.dtype in _CARRIER_LIMITS, column
+    return column.slot_id, f"{column.slot_id}_null"
+
+
+def _symbolic_frame_row(schema: DataSchema) -> tuple[str, tuple[str, ...]]:
+    constraints: list[str] = []
+    witness: list[str] = []
+    for column in schema.columns:
+        if column.dtype not in _CARRIER_LIMITS:
+            continue
+        symbol = column.slot_id
+        nullable = f"{symbol}_null"
+        lower, upper = _CARRIER_LIMITS[column.dtype]
+        constraints.extend(
+            (
+                f"(declare-const {symbol} Int)",
+                f"(declare-const {nullable} Bool)",
+                f"(assert (<= {_integer(lower)} {symbol} {_integer(upper)}))",
+            )
+        )
+        if not column.nullable:
+            constraints.append(f"(assert (not {nullable}))")
+        witness.extend((symbol, nullable))
+    return "\n".join(constraints), tuple(witness)
+
+
+def _selected_operand(frame: mv.AnalysisFrame, carrier: str) -> mv.Column:
+    return frame.coord(frame.axes[0]) if carrier == "coordinate" else frame[carrier]
+
+
+@pytest.mark.parametrize("carrier", ("x", "exact", "coordinate"), ids=("int64", "decimal38", "key"))
+def test_public_l1_emitted_filter_preserves_selection_and_second_mask_demand(
+    filter_frame: mv.AnalysisFrame, carrier: str
+) -> None:
+    operand = _selected_operand(filter_frame, carrier)
+    first = filter_frame.where((operand < 0) | (operand >= _I64_MAX))
+    query = first.where((_selected_operand(first, carrier) != -1) & (first["y"] >= -1))
+    original = _compile_fixed_frame(query)
+    stage = _published_compute(fuse_frame_filters(original).lowered.plan)
+    fusion = stage.filter_fusion
+    assert fusion is not None, carrier
+    left, right = fusion.fallback
+    first_program, first_predicate = _frame_filter(left)
+    _, second_predicate = _frame_filter(right)
+    program, emitted = _frame_filter(stage)
+    assert isinstance(emitted, ValueBinary), emitted
+    assert fusion.fallback == tuple(
+        step for step in original.lowered.plan.stages if isinstance(step, FrameCompute)
+    )
+    assert stage.inputs == left.inputs and right.inputs == (left.stage_id,)
+    assert program.input_schema == first_program.input_schema
+    encode = partial(_frame_operand, program.input_schema)
+    row, bindings = _symbolic_frame_row(program.input_schema)
+    # The admitted predicates are total on these carriers. Kleene-true gives
+    # the same retention mask as short-circuit conjunction. The left subtree
+    # also has to preserve exactly where the second mask is demanded.
+    prove_unsat(
+        f"""(set-logic QF_LIA)
+{row}
+(define-fun demand () Bool (= {_kleene(first_predicate, encode)} 1))
+(define-fun sequential () Bool (ite demand (= {_kleene(second_predicate, encode)} 1) false))
+(define-fun fused_demand () Bool (= {_kleene(emitted.left, encode)} 1))
+(define-fun fused () Bool (= {_kleene(emitted, encode)} 1))
+(assert (or (distinct sequential fused) (distinct demand fused_demand)))""",
+        claim=f"Public L1 emitted filter ({carrier})",
+        witness=(*bindings, "demand", "sequential", "fused_demand", "fused"),
+    )
+
+
+@pytest.mark.parametrize(
+    "mode,expected_positions,expected_kept",
+    (
+        ("all", tuple(range(len(_FRAME_KEYS))), (0, 1, 3, 6)),
+        ("none", (), ()),
+        ("mixed", (0, 3, 4, 6), (0, 3, 6)),
+    ),
+)
+def test_public_l1_only_evaluates_the_second_mask_on_demanded_rows(
+    filter_frame: mv.AnalysisFrame,
+    mode: str,
+    expected_positions: tuple[int, ...],
+    expected_kept: tuple[int, ...],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if mode == "all":
+        condition = filter_frame.coord(filter_frame.axes[0]) >= _I64_MIN
+    elif mode == "none":
+        condition = filter_frame["x"] > _I64_MAX
+    else:
+        condition = filter_frame["x"] >= 0
+    first = filter_frame.where(condition)
+    query = first.where((first["exact"] >= _I64_MAX) | (first["y"] > 0))
+    original = _compile_fixed_frame(query)
+    second_predicate = _frame_filter(_published_compute(original.lowered.plan))[1]
+    with monkeypatch.context() as patch:
+        patch.setattr(frame_evaluation, "fuse_frame_filters", lambda compiled, **_: compiled)
+        sequential = query.compute().to_pandas()
+
+    calls: list[pd.DataFrame] = []
+    evaluate = query_values.expression_series
+
+    def observe(
+        expression: ValueExpression,
+        rows: pd.DataFrame,
+        program: ResultProgram | FrameProgram,
+        *,
+        evaluation: FrameEvaluation | None = None,
+    ) -> pd.Series:
+        if expression == second_predicate:
+            calls.append(rows.reset_index(drop=True))
+        return evaluate(expression, rows, program, evaluation=evaluation)
+
+    monkeypatch.setattr(query_values, "expression_series", observe)
+    fused = query.compute().to_pandas()
+    pd.testing.assert_frame_equal(fused, sequential)
+    assert fused["key"].tolist() == [_FRAME_KEYS[index] for index in expected_kept]
+    if not expected_positions:
+        assert calls == []
+        return
+    (operands,) = calls
+    if mode == "mixed":
+        assert set(operands.columns) == {"exact", "y"}
+    columns = ["exact", "y"]
+    expected = filter_frame.to_pandas().iloc[list(expected_positions)].reset_index(drop=True)
+    pd.testing.assert_frame_equal(operands.loc[:, columns], expected.loc[:, columns])
+
+
+def test_public_l1_schema_change_executes_both_fallback_filters(
+    filter_frame: mv.AnalysisFrame,
+) -> None:
+    first = filter_frame.where(filter_frame["x"] >= 0)
+    original = _compile_fixed_frame(first.where(first["x"] < 1))
+    compiled = fuse_frame_filters(original)
+    stage = _published_compute(compiled.lowered.plan)
+    fusion = stage.filter_fusion
+    assert fusion is not None
+    program, _ = _frame_filter(stage)
+
+    # Model a completed producer yielding an effective Decimal carrier after
+    # the consumer was planned as int64. Keep the real scheduler and kernels.
+    backing = frame_backing(filter_frame)
+    assert isinstance(backing, MemoryFrameBacking)
+    rows = backing.data.copy_rows()
+    rows["x"] = pd.Series(
+        [
+            Decimal("1.5"),
+            None,
+            Decimal("-0.5"),
+            Decimal("0.5"),
+            Decimal("2.0"),
+            None,
+            Decimal("1.0"),
+        ],
+        dtype=pd.ArrowDtype(pa.decimal128(38, 1)),
+    )
+    schema = replace(
+        program.input_schema,
+        values=(
+            replace(program.input_schema.values[0], dtype=DecimalDataType(38, 1)),
+            *program.input_schema.values[1:],
+        ),
+    )
+    actual = StageOutput.from_completed(CompletedFrameData(schema, rows))
+    assert frame_filter_steps(stage, program.input_schema) == (stage,)
+    assert frame_filter_steps(stage, actual.frame_schema) == fusion.fallback, (
+        "The input changed from int64 to Decimal(38,1)"
+    )
+    (fixed,) = [item for item in compiled.lowered.plan.stages if isinstance(item, FrameInput)]
+    executed: list[str] = []
+    completed = run_frame_plan(
+        compiled,
+        source_prepared={},
+        read_fixed=lambda _: pytest.fail("The completed input must be reused"),
+        adapt_source=lambda _, output: output,
+        observe_local=lambda step, _: executed.append(step.stage_id),
+        completed_frames={fixed.input_id: actual},
+    )
+    assert tuple(executed) == tuple(step.stage_id for step in fusion.fallback)
+    assert completed.frame_schema == schema
+    pd.testing.assert_frame_equal(completed.table, rows.iloc[[3]].reset_index(drop=True))
+
+
+@pytest.mark.parametrize("boundary", ("protected", "shared", "original"))
+def test_public_l1_preserves_intermediate_selection_at_a_boundary(
+    filter_frame: mv.AnalysisFrame, boundary: str
+) -> None:
+    first = filter_frame.where(filter_frame["x"] >= 0)
+    second = first.where(first["y"] > 0)
+    query = second
+    if boundary == "shared":
+        sibling = first.where(first["y"] <= 0)
+        query = second.align(sibling, on=((second.axes[0], sibling.axes[0]),))
+    compiled = _compile_fixed_frame(query)
+    plan = compiled.lowered.plan
+    (first_stage, first_operation), *_ = compiled.frame_operations
+    protected = frozenset({id(first_operation)}) if boundary == "protected" else frozenset()
+    if boundary == "original":
+        # The composed Frame planner has no way to attach an original formula.
+        # Supply the boundary at the optimizer input, where the guard lives.
+        plan = replace(plan, original=FormulaProgram((), (), ()))
+        compiled = replace(compiled, lowered=replace(compiled.lowered, plan=plan))
+    assert len(plan.consumers_of(first_stage)) == (2 if boundary == "shared" else 1)
+    optimized = fuse_frame_filters(compiled, protected_inputs=protected).lowered.plan
+    assert optimized.stages == plan.stages
+    assert any(
+        decision.rule == "L1" and decision.status == "refused" and first_stage in decision.members
+        for decision in optimized.optimization_decisions
+    )
+
+
+def test_public_l1_keeps_nan_distinct_from_na_under_negation(
+    filter_frame: mv.AnalysisFrame,
+) -> None:
+    projected = filter_frame.select({"keep": ~(filter_frame["floating"] < 0)})
+    assert projected.compute().to_pandas()["keep"].tolist() == [
+        True,
+        pd.NA,
+        False,
+        True,
+        False,
+        False,
+        False,
+    ]
+    first = filter_frame.where(filter_frame.coord(filter_frame.axes[0]) >= _I64_MIN)
+    query = first.where(~(first["floating"] < 0))
+    plan = fuse_frame_filters(_compile_fixed_frame(query)).lowered.plan
+    assert _published_compute(plan).filter_fusion is None
+    assert query.compute().to_pandas()["key"].tolist() == [_FRAME_KEYS[0], _FRAME_KEYS[3]]
 
 
 _ROWS: tuple[tuple[int, str | None, int | None, int | None], ...] = (

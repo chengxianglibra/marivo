@@ -1,5 +1,5 @@
-.PHONY: test runtime-test release-test test-changed verify-formal typecheck lint format \
-	check check-fast release-check docs-api docs-api-incremental \
+.PHONY: test runtime-test release-test test-changed verify-formal verify-formal-deep \
+	verify-formal-runtime typecheck lint format check check-fast release-check docs-api docs-api-incremental \
 	pypi-build pypi-check pypi-clean
 
 ifeq ($(OS),Windows_NT)
@@ -56,14 +56,23 @@ test:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n $(if $(findstring ::,$(TESTS)),0,$(PYTEST_WORKERS)) $(TESTS)
 
-verify-formal:
-	@./scripts/require-venv.sh z3
-	@$(MAKE) --no-print-directory test TESTS='$(FORMAL_TESTS)'
+FORMAL_RUNTIME_TEST := tests/formal/verify_cross_engine_conformance.py
 
-FORMAL_TESTS := tests/formal/verify_solver_contract.py tests/formal/verify_unit_algebra.py tests/formal/verify_population.py \
-	tests/formal/verify_temporal_boundaries.py tests/formal/verify_expression_scope.py \
-	tests/formal/verify_frame_presence.py tests/formal/verify_query_rewrites.py \
-	tests/formal/verify_publication_recovery.py
+verify-formal: export MARIVO_FORMAL_PROFILE := ci
+verify-formal-deep: export MARIVO_FORMAL_PROFILE := deep
+verify-formal verify-formal-deep: export OPENBLAS_NUM_THREADS = $(PYTEST_NATIVE_THREADS)
+verify-formal verify-formal-deep: export OMP_NUM_THREADS = $(PYTEST_NATIVE_THREADS)
+verify-formal verify-formal-deep: export ARROW_IO_THREADS = $(PYTEST_NATIVE_THREADS)
+verify-formal verify-formal-deep:
+	@./scripts/require-venv.sh pytest z3 hypothesis
+	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n $(PYTEST_WORKERS) -m 'not runtime and not release' \
+		-o 'python_files=verify_*.py' tests/formal
+
+verify-formal-runtime: export MARIVO_FORMAL_PROFILE := ci
+verify-formal-runtime:
+	@test -f "$(FORMAL_RUNTIME_TEST)" || { echo "error: formal Runtime requires $(FORMAL_RUNTIME_TEST)" >&2; exit 1; }
+	@./scripts/require-venv.sh pytest z3 hypothesis
+	@$(MAKE) --no-print-directory runtime-test TESTS='$(FORMAL_RUNTIME_TEST)'
 
 runtime-test:
 	@./scripts/require-venv.sh pytest

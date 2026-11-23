@@ -84,9 +84,24 @@ jobs:
           fi
           make test TESTS="${files[*]}"
 
+  formal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/bootstrap
+        with:
+          python-version: "3.12"
+
+      - name: Install formal dependencies
+        run: .venv/bin/python -m pip install -e ".[formal]"
+
+      - name: Verify formal contracts
+        run: make verify-formal
+
   check:
     name: check (${{ matrix.python-version }})
-    needs: [typecheck, tests]
+    needs: [typecheck, tests, formal]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     strategy:

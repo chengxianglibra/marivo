@@ -36,6 +36,7 @@ def _passing_jobs() -> list[JobView]:
             steps=(("Lint", "success"), ("Docs", "success"), ("Typecheck", "success")),
         ),
         _job("typecheck (3.10)", steps=(("Typecheck", "success"),)),
+        _job("formal"),
     ]
     for shard in (1, 2):
         jobs.append(_job(f"tests (3.10 shard {shard})"))
@@ -43,7 +44,7 @@ def _passing_jobs() -> list[JobView]:
     return jobs
 
 
-def test_gate_passes_when_this_versions_shards_typecheck_lint_and_docs_passed() -> None:
+def test_gate_passes_when_version_specific_and_shared_jobs_passed() -> None:
     assert (
         gate_errors(_passing_jobs(), python_version="3.10", shard_count=2, static_python="3.12")
         == []
@@ -68,6 +69,20 @@ def test_gate_requires_lint_and_docs_for_every_python_version() -> None:
     errors = gate_errors(jobs, python_version="3.10", shard_count=2, static_python="3.12")
     assert any("Docs" in error for error in errors)
     assert all("tests (3.10" not in error for error in errors)
+
+
+@pytest.mark.parametrize("version", ("3.10", "3.12"))
+def test_gate_rejects_a_missing_or_failed_formal_job(version: str) -> None:
+    jobs = [job for job in _passing_jobs() if job.name != "formal"]
+    assert gate_errors(jobs, python_version=version, shard_count=2, static_python="3.12") == [
+        "missing job 'formal'"
+    ]
+    jobs.extend((_job("formal"), _job("formal", "failure", attempt=2)))
+    assert gate_errors(jobs, python_version=version, shard_count=2, static_python="3.12") == [
+        "job 'formal' concluded 'failure'; expected 'success'"
+    ]
+    jobs.append(_job("formal", attempt=3))
+    assert gate_errors(jobs, python_version=version, shard_count=2, static_python="3.12") == []
 
 
 def test_gate_rejects_a_missing_shard() -> None:

@@ -1,10 +1,11 @@
-"""Fail a preserved ``check (<python>)`` job unless that version's CI passed.
+"""Fail a preserved ``check (<python>)`` job unless its CI dependencies passed.
 
 The test shards and per-version typecheck are separate jobs so they can run
 in parallel. This gate is what branch protection continues to see as
-``check (3.10)``, ``check (3.12)``, ``check (3.13)`` and ``check (3.14)``.
+``check (3.10)``, ``check (3.12)``, ``check (3.13)`` and ``check (3.14)``
+where those contexts are required.
 Lint and docs run once, as steps of the static Python version's typecheck
-job, and every version's gate requires those steps.
+job, and every version's gate requires those steps and the shared formal job.
 """
 
 from __future__ import annotations
@@ -61,6 +62,7 @@ def gate_errors(
     for shard in range(1, shard_count + 1):
         require_job(f"tests ({python_version} shard {shard})")
     require_job(f"typecheck ({python_version})")
+    require_job("formal")
 
     static_name = f"typecheck ({static_python})"
     static_job = latest.get(static_name)
@@ -121,10 +123,11 @@ def jobs_from_api_payload(payload: Mapping[str, object]) -> list[JobView]:
 def fetch_jobs(repository: str, run_id: str, token: str) -> list[JobView]:
     jobs: list[JobView] = []
     page = 1
+    # A partial rerun can reuse successful prerequisites from an older attempt.
     while True:
         request = urllib.request.Request(
             f"https://api.github.com/repos/{repository}/actions/runs/{run_id}/jobs"
-            f"?per_page=100&page={page}",
+            f"?filter=all&per_page=100&page={page}",
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {token}",
@@ -176,7 +179,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     print(
         f"CI gate passed for Python {args.python_version}: "
-        f"{args.shards} test shards, typecheck, lint, and docs."
+        f"{args.shards} test shards, typecheck, lint, docs, and formal verification."
     )
     return 0
 

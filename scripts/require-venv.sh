@@ -2,7 +2,9 @@
 
 set -eu
 
-tool_name="${1:-python}"
+if [ "$#" -eq 0 ]; then
+    set -- python
+fi
 venv_dir=".venv"
 
 if [ -x "$venv_dir/bin/python" ]; then
@@ -17,21 +19,19 @@ else
 fi
 
 venv_python="$venv_bin/python$tool_suffix"
-tool_path="$venv_bin/$tool_name"
-
-if [ ! -x "$tool_path" ] && [ -n "$tool_suffix" ] && [ -x "$tool_path$tool_suffix" ]; then
-    tool_path="$tool_path$tool_suffix"
-fi
 
 if [ ! -x "$venv_python" ]; then
     echo "error: missing $venv_python; create the project venv first" >&2
     exit 1
 fi
 
-if [ ! -x "$tool_path" ]; then
-    echo "error: missing $tool_path; install project dev dependencies in $venv_dir" >&2
-    exit 1
-fi
+for tool_name do
+    tool_path="$venv_bin/$tool_name"
+    if [ ! -x "$tool_path" ] && [ ! -x "$tool_path$tool_suffix" ]; then
+        echo "error: missing $tool_path; install the required project dependencies in $venv_dir" >&2
+        exit 1
+    fi
+done
 
 active_prefix="$("$venv_python" -c 'import os; print(os.path.realpath(os.environ.get("VIRTUAL_ENV", "")))')"
 expected_prefix="$("$venv_python" -c 'import os; print(os.path.realpath(".venv"))')"
