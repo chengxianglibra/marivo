@@ -509,6 +509,52 @@ def complete_source_frame(
     return completed
 
 
+def _complete_common_member(
+    member: SourceReadStage,
+    index: int,
+    frame: pd.DataFrame,
+    numeric_checks: tuple[tuple[str, NumericCheck], ...],
+    *,
+    ordered: bool,
+) -> StageOutput:
+    assert read_reduction(member) is not None
+    names = {
+        column.slot_id: column.slot_id
+        if column.slot_id in member.keys or column.slot_id == require_reduction(member).value_slot
+        else common_slot(index, column.slot_id)
+        for column in member.columns
+    }
+    presence = common_slot(index, "__numeric_present")
+    if presence in frame.columns and "__numeric_present" not in names:
+        names["__numeric_present"] = presence
+    suffix = f".block{index}"
+    names.update(
+        {name.removesuffix(suffix): name for name, _ in numeric_checks if name.endswith(suffix)}
+    )
+    if read_components(member) is not None:
+        names.update(
+            {
+                column.slot_id: common_slot(index, column.slot_id)
+                for column in require_components(member).raw_columns
+                if column.slot_id not in member.keys
+            }
+        )
+        names[require_components(member).present] = common_slot(
+            index, require_components(member).present
+        )
+    local = (
+        frame.loc[:, list(names.values())]
+        .rename(columns={value: key for key, value in names.items()})
+        .copy()
+    )
+    checks = tuple(
+        (name.removesuffix(suffix), check)
+        for name, check in numeric_checks
+        if name.endswith(suffix)
+    )
+    return complete_source_frame(member, local, checks, ordered=ordered)
+
+
 def complete_common_read(
     stage: SourceReadStage,
     frame: pd.DataFrame,
@@ -516,6 +562,11 @@ def complete_common_read(
 ) -> StageOutput:
     """Complete logical occurrences while retaining an unchanged joint row layout."""
     members = read_members(stage)
+    preparation_checks = {name for name, _, _ in stage.preparation_checks}
+    if preparation_checks:
+        validate_source_checks(
+            stage, frame, tuple(item for item in numeric_checks if item[0] in preparation_checks)
+        )
     same_rows = all(
         read_components(member) is None
         and read_finish(member) is None
@@ -529,43 +580,9 @@ def complete_common_read(
     tables: list[pd.DataFrame] = []
     components: list[ComponentFrame] = []
     for index, member in enumerate(members):
-        assert read_reduction(member) is not None
-        names = {
-            column.slot_id: column.slot_id
-            if column.slot_id in member.keys
-            or column.slot_id == require_reduction(member).value_slot
-            else common_slot(index, column.slot_id)
-            for column in member.columns
-        }
-        presence = common_slot(index, "__numeric_present")
-        if presence in frame.columns and "__numeric_present" not in names:
-            names["__numeric_present"] = presence
-        suffix = f".block{index}"
-        names.update(
-            {name.removesuffix(suffix): name for name, _ in numeric_checks if name.endswith(suffix)}
+        output = _complete_common_member(
+            member, index, frame, numeric_checks, ordered=not same_rows
         )
-        if read_components(member) is not None:
-            names.update(
-                {
-                    column.slot_id: common_slot(index, column.slot_id)
-                    for column in require_components(member).raw_columns
-                    if column.slot_id not in member.keys
-                }
-            )
-            names[require_components(member).present] = common_slot(
-                index, require_components(member).present
-            )
-        local = (
-            frame.loc[:, list(names.values())]
-            .rename(columns={value: key for key, value in names.items()})
-            .copy()
-        )
-        checks = tuple(
-            (name.removesuffix(suffix), check)
-            for name, check in numeric_checks
-            if name.endswith(suffix)
-        )
-        output = complete_source_frame(member, local, checks, ordered=not same_rows)
         components.extend(output.components)
         tables.append(
             output.table.rename(

@@ -285,6 +285,7 @@
       "tests/analysis/materialization/test_predicate_unification.py",
       "tests/analysis/materialization/test_public_schema_drift.py",
       "tests/analysis/materialization/test_query_optimization.py",
+      "tests/analysis/materialization/test_degenerate_sample_and_coverage.py",
       "tests/analysis/materialization/test_frame_select_fusion.py",
       "tests/analysis/materialization/test_relationship_prefix.py",
       "tests/analysis/materialization/test_sample_membership_identity_runtime.py",

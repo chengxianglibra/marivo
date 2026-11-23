@@ -325,6 +325,11 @@ grouping rules. Ordinary, interval, calendar and paired axes use their frozen
 coordinates without rematching. The result is a Column bound to the receiver,
 with the same row count and order. Empty input stays empty, including zero axes;
 `by=frame.axes` partitions by complete row key.
+When the partition keys contain a proven candidate key, the current-row kernel
+completes each singleton directly with the same native accumulator and output
+carrier semantics. Paired endpoints still evaluate before the count or
+correlation finishes. The quotient used for share retains the zero-denominator
+rule even for a singleton.
 
 `frame.over(mv.row_count())` binds its reusable unbound request without mutation.
 For [10, NA, 30], row_count broadcasts 3 and self pair_count broadcasts 2.

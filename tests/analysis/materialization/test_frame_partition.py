@@ -44,8 +44,10 @@ from marivo.analysis.model.data_types import (
     TimestampDataType,
 )
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
+from marivo.analysis.model.optimization_policy import OptimizationPolicy
 from marivo.analysis.session.core import Session
 from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value, time_population
+from tests.support.optimization import compute_with_policy
 
 INT64 = ScalarDataType("int64")
 
@@ -57,7 +59,7 @@ def local(tmp_path: Path) -> LocalFrameServices:
 
 def _frame(
     local: LocalFrameServices,
-    values: tuple[object, ...],
+    values: tuple[object, ...] | pa.Array,
     *,
     dtype: DataType = INT64,
     unit: str | None = "USD",
@@ -68,7 +70,12 @@ def _frame(
         (DataColumn("x", "x", dtype, True, unit),),
         value_paths=(("x",),),
     )
-    rows = pd.DataFrame({"sample": list(range(len(values))), "x": list(values)}, dtype=object)
+    rows = pd.DataFrame({"sample": list(range(len(values)))}, dtype=object)
+    rows["x"] = (
+        pd.Series(pd.arrays.ArrowExtensionArray(values))
+        if isinstance(values, pa.Array)
+        else pd.Series(values, dtype=object)
+    )
     return _memory(local, schema, rows)
 
 
@@ -110,6 +117,77 @@ def test_nested_over_keeps_repeated_values_and_sample_masks(local: LocalFrameSer
     all_axes = frame.select({"total": frame.over(x.sum(), by=frame.axes)}).compute().to_pandas()
     assert all_axes["total"].iloc[:2].tolist() == [1, 3]
     assert pd.isna(all_axes["total"].iloc[2])
+
+
+@pytest.mark.parametrize(
+    "dtype,values",
+    (
+        (INT64, (0, 2**53 + 11, -(2**63), None)),
+        (ScalarDataType("float64"), (-0.0, math.inf, -math.inf, math.nan, None)),
+        (DecimalDataType(20, 2), (Decimal("0.00"), Decimal("9007199254740993.25"), None)),
+        (DurationDataType("us"), (timedelta(0), timedelta(microseconds=-3), None)),
+    ),
+)
+def test_singleton_partitions_finish_all_statistics_without_group_hash(
+    local: LocalFrameServices,
+    monkeypatch: pytest.MonkeyPatch,
+    dtype: DataType,
+    values: tuple[object, ...],
+) -> None:
+    physical = pa.array(values, type=pa.float64()) if dtype == ScalarDataType("float64") else values
+    frame = _frame(local, physical, dtype=dtype)
+    x = frame["x"]
+    result = {
+        "sum": frame.over(x.sum(), by=frame.axes),
+        "mean": frame.over(x.mean(), by=frame.axes),
+        "rows": frame.over(mv.row_count(), by=frame.axes),
+        "quotient": x / frame.over(x.sum(), by=frame.axes),
+    }
+    if not isinstance(dtype, DurationDataType):
+        result.update(
+            {
+                "pairs": frame.over(x.pair_count(x), by=frame.axes),
+                "pearson": frame.over(x.corr(x, method="pearson"), by=frame.axes),
+                "spearman": frame.over(x.corr(x, method="spearman"), by=frame.axes),
+            }
+        )
+    query = frame.select(result)
+    policy = OptimizationPolicy.default()
+    grouped = compute_with_policy(
+        query, policy.with_rule("unique_keys_degenerate_over", enabled=False)
+    ).to_pandas()
+
+    def forbid_hash(*args: object, **kwargs: object) -> None:
+        pytest.fail("a proven singleton partition must skip group_index")
+
+    monkeypatch.setattr(query_values, "group_index", forbid_hash)
+    actual = compute_with_policy(query, policy).to_pandas()
+    pd.testing.assert_frame_equal(actual, grouped)
+    assert actual["sample"].tolist() == list(range(len(values)))
+    assert actual["rows"].tolist() == [1] * len(values)
+    assert pa.array(actual["quotient"]).is_null()[0].as_py()
+    assert pa.array(actual["sum"]).is_null()[-1].as_py()
+    if dtype == ScalarDataType("float64"):
+        assert math.copysign(1, actual["sum"].iloc[0]) == 1
+        assert math.isnan(actual["sum"].iloc[-2])
+        assert not pa.array(actual["sum"]).is_null()[-2].as_py()
+        assert actual["pairs"].tolist() == [1, 1, 1, 1, 0]
+
+
+def test_singleton_share_retains_zero_denominator(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    frame = _frame(local, (-2, 0))
+    singleton = frame.top(1, by=frame["x"])
+    query = singleton.select({"share": singleton["x"].share(along=singleton.axes)})
+
+    def forbid_hash(*args: object, **kwargs: object) -> None:
+        pytest.fail("Top-1 proves the empty key before singleton share")
+
+    monkeypatch.setattr(query_values, "group_index", forbid_hash)
+    rows = query.compute().to_pandas()
+    assert rows["sample"].tolist() == [1]
+    assert pa.array(rows["share"]).to_pylist() == [None]
 
 
 def test_over_uses_complete_null_safe_large_integer_keys(local: LocalFrameServices) -> None:

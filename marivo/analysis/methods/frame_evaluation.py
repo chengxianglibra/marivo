@@ -66,6 +66,7 @@ class FrameEvaluation:
     """One evaluate_frame call's kernel memo and typed projection bindings."""
 
     memoize: bool = True
+    singleton_partitions: frozenset[tuple[int, ...]] = frozenset()
     group_indices: dict[tuple[int, ...], FrameGroupIndex] = field(default_factory=dict)
     partitions: dict[str, pd.Series] = field(default_factory=dict)
     endpoint_series: dict[str, pd.Series] = field(default_factory=dict)

@@ -6,7 +6,6 @@ import operator
 from datetime import date, datetime, timedelta
 from decimal import Decimal, localcontext
 from functools import partial
-from typing import Literal
 
 import pandas as pd
 import pyarrow as pa
@@ -40,7 +39,6 @@ from marivo.analysis.compiler.query_stages import (
     SelectFusionStep,
     local_result,
 )
-from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_operations import FixFrameValues
 from marivo.analysis.core.frame_value_analysis import expressions
 from marivo.analysis.core.value_normalization import physical_expression
@@ -57,16 +55,18 @@ from marivo.analysis.methods.frame_filtering import (
     evaluate_result_filter,
     fixed_mask,
 )
+from marivo.analysis.methods.frame_numeric_reduction import (
+    finish_reduced_values,
+    reduce_numeric,
+    singleton_arrow_numeric,
+)
 from marivo.analysis.methods.numeric_state import (
     Number,
     duration_arithmetic,
-    finish_division,
     finish_float64,
     nullable_arithmetic,
-    sum_values,
     typed_null_mask,
 )
-from marivo.analysis.methods.physical import DurationType
 from marivo.analysis.methods.query_population import evaluate_population
 from marivo.analysis.methods.query_value_scalars import (
     int64_array as _int64_array,
@@ -74,7 +74,10 @@ from marivo.analysis.methods.query_value_scalars import (
 from marivo.analysis.methods.query_value_scalars import (
     int64_literal as _int64_literal,
 )
-from marivo.analysis.model.data_types import DataType, DurationDataType, ScalarDataType
+from marivo.analysis.model.data_types import (
+    DataType,
+    ScalarDataType,
+)
 from marivo.analysis.model.errors import reject
 from marivo.semantic.spi import numeric_failure
 
@@ -490,7 +493,7 @@ def evaluate_frame(
 ) -> pd.DataFrame:
     """Evaluate a Frame operation with a fresh current-input memo."""
     source = inputs[0].reset_index(drop=True)
-    evaluation = FrameEvaluation(memoize=memoize)
+    evaluation = FrameEvaluation(memoize=memoize, singleton_partitions=program.singleton_partitions)
     if filter_steps:
         return evaluate_filter_chain(
             filter_steps, source, partial(_true_mask, evaluation=evaluation)
@@ -558,54 +561,21 @@ def _evaluate_frame(
     return result.reset_index(drop=True)
 
 
-def _reduce_numeric(
-    series: pd.Series, dtype: DataType, method: Literal["sum", "mean"], *, empty_group: bool
-) -> object:
-    value: object
-    try:
-        if empty_group and method == "sum":
-            value = (
-                sum_values((), stage_arrow_type(dtype))
-                if not isinstance(dtype, DurationDataType)
-                else 0
-            )
-        elif isinstance(dtype, DurationDataType):
-            active = series.loc[~typed_null_mask(series)]
-            ticks = tuple(
-                int(tick)
-                for tick in (
-                    pa.array(active, type=pa.duration(dtype.unit), from_pandas=True)
-                    .cast(pa.int64())
-                    .to_pylist()
-                )
-            )
-            value = (
-                finish_division(
-                    sum(ticks),
-                    1 if method == "sum" else len(ticks),
-                    DurationType(dtype.unit),
-                )
-                if ticks
-                else None
-            )
-        elif method == "sum" and isinstance(series.dtype, pd.ArrowDtype):
-            array = pa.array(series, from_pandas=False)
-            if pa.types.is_floating(array.type) and array.null_count:
-                # Arrow's bitmap and dense float sums can round differently.
-                active = series.loc[~typed_null_mask(series)]
-                array = pa.array(active, from_pandas=False)
-            value = pc.sum(array, skip_nulls=True, min_count=1).as_py()
-        else:
-            active = series.loc[~typed_null_mask(series)]
-            array = pa.array(active, from_pandas=False)
-            value = (
-                (pc.sum(array, min_count=0) if method == "sum" else pc.mean(array)).as_py()
-                if len(active) or empty_group
-                else None
-            )
-    except (ValueError, OverflowError) as error:
-        numeric_failure("a native current-row statistic", str(error))
-    return value
+def _pair_endpoints(
+    statistic: PairStatistic,
+    program: FrameProgram,
+    source: pd.DataFrame,
+    evaluation: FrameEvaluation,
+) -> tuple[tuple[str, str], tuple[pd.Series, pd.Series]]:
+    # Complete both expressions before applying either valid-value mask.
+    # A missing counterpart cannot hide a strict child arithmetic error.
+    endpoints = (statistic.left, statistic.right)
+    keys = (expression_key(statistic.left), expression_key(statistic.right))
+    values = evaluation.endpoint_series if evaluation.memoize else {}
+    for key, endpoint in zip(keys, endpoints, strict=True):
+        if key not in values:
+            values[key] = expression_series(endpoint, source, program, evaluation=evaluation)
+    return keys, (values[keys[0]], values[keys[1]])
 
 
 def _prepare_pair(
@@ -618,22 +588,16 @@ def _prepare_pair(
     tuple[str, str, tuple[DataType, ...]],
     tuple[tuple[Number | None, ...], tuple[Number | None, ...]],
 ]:
-    # Complete both expressions before applying either valid-value mask.
-    # A missing counterpart cannot hide a strict child arithmetic error.
     endpoints = (statistic.left, statistic.right)
-    keys = tuple(expression_key(endpoint) for endpoint in endpoints)
-    endpoint_series = evaluation.endpoint_series if evaluation.memoize else {}
+    keys, values = _pair_endpoints(statistic, program, source, evaluation)
     converted = evaluation.endpoints if evaluation.memoize else {}
-    for key, endpoint in zip(keys, endpoints, strict=True):
-        if key not in endpoint_series:
-            endpoint_series[key] = expression_series(
-                endpoint, source, program, evaluation=evaluation
-            )
-    for side, key, endpoint, dtype in zip(("left", "right"), keys, endpoints, types, strict=True):
+    for side, key, endpoint, dtype, series in zip(
+        ("left", "right"), keys, endpoints, types, values, strict=True
+    ):
         cache_key = (key, dtype)
         if cache_key not in converted:
             converted[cache_key] = _pair_values(
-                endpoint_series[key],
+                series,
                 dtype,
                 endpoint=f"{side} operand {endpoint!r}",
                 location=statistic.location,
@@ -738,22 +702,48 @@ def _reduce(
             else:
                 series = evaluated[name].take(positions)
                 (dtype,) = program.statistic_types[index]
-                value = _reduce_numeric(series, dtype, statistic.method, empty_group=not positions)
+                value = reduce_numeric(series, dtype, statistic.method, empty_group=not positions)
             row[column.slot_id] = value
         rows.append(row)
     result = pd.DataFrame(rows, columns=[column.slot_id for column in output.values], dtype=object)
     for column in output.values:
-        if isinstance(column.dtype, DurationDataType):
-            result[column.slot_id] = pd.Series(
-                pd.arrays.ArrowExtensionArray(
-                    pa.array(result[column.slot_id], type=pa.int64(), from_pandas=True).cast(
-                        pa.duration(column.dtype.unit)
-                    )
-                )
-            )
-        elif column.dtype == ScalarDataType("float64"):
-            result[column.slot_id] = finish_float64(result[column.slot_id], "Frame.reduce")
+        values = result[column.slot_id]
+        finished = finish_reduced_values(values, column)
+        if finished is not values:
+            result[column.slot_id] = finished
     return result, groups
+
+
+def _singleton_partition(
+    expression: ValuePartition,
+    source: pd.DataFrame,
+    reduction: FrameProgram,
+    evaluation: FrameEvaluation,
+) -> pd.Series:
+    statistic = expression.statistic
+    if isinstance(statistic, PairStatistic):
+        _, (left, right) = _pair_endpoints(statistic, reduction, source, evaluation)
+        if statistic.method == "pair_count":
+            active = ~(typed_null_mask(left) | typed_null_mask(right))
+            return active.astype("int64").astype(object)
+        return pd.Series(pd.arrays.ArrowExtensionArray(pa.nulls(len(source), type=pa.float64())))
+    if statistic.method == "row_count":
+        return pd.Series(1, index=source.index, dtype=object)
+    assert statistic.value is not None
+    values = expression_series(statistic.value, source, reduction, evaluation=evaluation)
+    (dtype,) = reduction.statistic_types[0]
+    direct = singleton_arrow_numeric(values, dtype, statistic.method)
+    if direct is not None:
+        return direct
+    # Object/intermediate carriers retain their exact kernel and error behavior.
+    rows = pd.Series(
+        [
+            reduce_numeric(values.iloc[i : i + 1], dtype, statistic.method, empty_group=False)
+            for i in range(len(values))
+        ],
+        dtype=object,
+    )
+    return finish_reduced_values(rows, reduction.output_schema.values[0])
 
 
 def partition_series(
@@ -767,6 +757,8 @@ def partition_series(
         program.input_schema,
         ReduceValues((("partition", expression.statistic),), expression.positions),
     )
+    if expression.positions in evaluation.singleton_partitions:
+        return _singleton_partition(expression, source, reduction, evaluation)
     reduced, groups = _reduce(reduction, source, evaluation)
     column = reduction.output_schema.values[0]
     return reduced[column.slot_id].take(groups.row_to_group).reset_index(drop=True)

@@ -315,6 +315,9 @@ zero-axis `()` key requires the singleton domain. Multi-root necessary keys unio
 across roots. Internal sample selection, empty samples, Top-0 and later operations
 cannot hide required coverage failures. Completed historical Frames consume fixed
 data without rechecking their original sources.
+Ordinary reductions on the same exact bound support can share one source
+coverage witness. The source binding, effective period, predicates, and complete
+coordinate layout govern support identity.
 
 `Metric.per(samples)` completes the entire child Metric within each external and
 internal key pair before applying the sample reducer. An average of per-customer

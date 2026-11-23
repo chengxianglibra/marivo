@@ -82,6 +82,7 @@ class FrameProgram:
     output_schema: DataSchema
     statistic_types: tuple[tuple[DataType, ...], ...] = ()
     duration_operations: tuple[DurationBinary, ...] = ()
+    singleton_partitions: frozenset[tuple[int, ...]] = frozenset()
 
     @property
     def keys(self) -> tuple[str, ...]:

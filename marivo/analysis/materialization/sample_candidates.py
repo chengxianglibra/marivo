@@ -317,6 +317,9 @@ class SampleCandidates:
                     for identifier, source in sources.items()
                     if identifier in relations and read_members(source)
                 ),
+                collapse_singletons=lowered.plan.optimization_policy.allows(
+                    "unique_keys_degenerate_per"
+                ),
             )
             self.lowerers[owner] = lowerer
         return lowerer
@@ -418,6 +421,15 @@ class SampleCandidates:
                 tuple(column.slot_id for column in output_columns), {result.value: slot}
             ),
         )
+        if result.collapsed_per:
+            self.decisions.append(
+                RuleDecision(
+                    "unique_keys_degenerate_per",
+                    "adopted",
+                    tuple(stage.stage_id for stage in source_stages),
+                    "The represented parent key has one completed sample and the exact native finisher preserves its carrier.",
+                )
+            )
         return (
             source,
             expression,

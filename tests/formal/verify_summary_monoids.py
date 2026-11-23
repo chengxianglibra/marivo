@@ -31,7 +31,7 @@ from marivo.analysis.binding.attribute_game import build_game
 from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.sample_reductions import SampleLowerer, SampleRelation, _SampleInputs
 from marivo.analysis.methods.frame_correlation import correlation
-from marivo.analysis.methods.query_values import _reduce_numeric
+from marivo.analysis.methods.frame_numeric_reduction import reduce_numeric
 from marivo.analysis.model.data_types import DataType, DecimalDataType, ScalarDataType
 from marivo.analysis.model.summary_traits import L6Class, SummaryReducer, summary_trait
 from marivo.semantic._numeric_lowering import finish_nullable_sum, lower_source_reduction
@@ -138,7 +138,7 @@ def test_sql_arrow_and_direct_bags_distinguish_zero_null_and_valid_nan(
     table = ibis.memtable(pa.table({"v": array}))
     output = duckdb_backend.to_pyarrow(table.aggregate(finished=_finish(table)))
     sql: object = output["finished"][0].as_py()
-    arrow = _reduce_numeric(
+    arrow = reduce_numeric(
         pd.Series(pd.arrays.ArrowExtensionArray(array)), dtype, "sum", empty_group=not bag
     )
     expected = exact_sum(bag)
@@ -714,7 +714,7 @@ def test_source_count_mean_extrema_set_and_multiset_finishers(
     }
     output = duckdb_backend.to_pyarrow(table.aggregate(**metrics))
     assert tuple(output[name][0].as_py() for name in reducers) == expected
-    arrow = _reduce_numeric(
+    arrow = reduce_numeric(
         pd.Series(pd.arrays.ArrowExtensionArray(array)),
         ScalarDataType("int64"),
         "mean",

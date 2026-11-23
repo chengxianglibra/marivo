@@ -30,6 +30,7 @@ from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._kernel.temporal import Grain
 from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.native_formula import normalized_returned_key
+from marivo.analysis.compiler.sample_values import coincident_sample_keys, reduce_sample_value
 from marivo.analysis.compiler.source_predicates import (
     aggregate_returned_keys,
     distinct_returned_keys,
@@ -39,16 +40,14 @@ from marivo.analysis.compiler.source_predicates import (
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.model.data_types import DurationDataType
 from marivo.analysis.model.programs import FormulaInput
+from marivo.analysis.model.summary_traits import summary_trait
 from marivo.analysis.model.unique_keys import UniqueKeys
 from marivo.datasource.spi import aggregate_operation, native_aggregate, query_dialect
 from marivo.semantic.spi import (
     NumericCheck,
     NumericValue,
-    finish_nullable_sum,
     force_cast,
     lower_metric_formula,
-    native_mean,
-    numeric_binary,
 )
 
 
@@ -61,6 +60,7 @@ class SampleRelation:
     checks: tuple[tuple[str, str, str], ...] = ()
     zero_when_absent: bool = False
     unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+    collapsed_per: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "unique_keys", self.unique_keys.project(tuple(self.table.columns)))
@@ -89,10 +89,6 @@ class SampleReductionUnavailableError(AnalysisStageUnavailableError):
             repair="Retain the existing local sample reduction for this subtree.",
             target="analysis_frame.compute",
         )
-
-
-def _null(value: ir.Value) -> ir.Value:
-    return ibis.null().cast(value.type().copy(nullable=True))
 
 
 def _present(table: ir.Table, width: int) -> ir.BooleanValue | None:
@@ -124,6 +120,7 @@ class SampleLowerer:
         identities: Mapping[str, str] | None = None,
         unique_keys: Mapping[str, UniqueKeys] | None = None,
         shared_relations: frozenset[ops.Relation] = frozenset(),
+        collapse_singletons: bool = False,
     ) -> None:
         self.program = program
         self.relations = relations
@@ -133,6 +130,7 @@ class SampleLowerer:
         self.identities = identities or {}
         self.unique_keys = unique_keys or {}
         self.shared_relations = shared_relations
+        self.collapse_singletons = collapse_singletons
         self.declared = dict(program.declared)
         self.sample_matches = dict(program.sample_matches)
         self.serial = 0
@@ -383,10 +381,12 @@ class SampleLowerer:
         for other in tables[1:]:
             table = table.union(other, distinct=False)
         facts = (
-            self.unique_keys.get(binding.stage_id, UniqueKeys()).project(tuple(table.columns))
+            self.unique_keys.get(binding.stage_id, UniqueKeys())
             if len(bindings) == 1
-            else UniqueKeys(tuple(table.columns))
+            else UniqueKeys()
         )
+        if self.collapse_singletons and facts.keys:
+            facts = coincident_sample_keys(self.relations[binding.stage_id], facts)
         result = SampleRelation(table, value, checks, binding.zero_when_absent, facts)
         return (
             result
@@ -442,6 +442,7 @@ class SampleLowerer:
             value,
             checks,
             unique_keys=self.aligned_keys(table, operands, keys),
+            collapsed_per=any(operand.collapsed_per for operand in operands),
         )
 
     def _sample_parent(
@@ -685,6 +686,34 @@ class SampleLowerer:
             output,
             tuple(fold_checks),
             unique_keys=UniqueKeys(tuple(completed.columns), (keys,)),
+            collapsed_per=any(operand.collapsed_per for operand in operands),
+        )
+
+    def _singleton_sample(
+        self,
+        node: PerReduce | PerWeightedMean,
+        operands: tuple[SampleRelation, ...],
+        keys: tuple[str, ...],
+        output: str,
+        finished: ir.Value,
+    ) -> ir.Table | None:
+        operand = operands[0]
+        if not (
+            self.collapse_singletons
+            and isinstance(node, PerReduce)
+            and keys
+            and operand.unique_keys.proves(keys)
+            and summary_trait(node.reducer, nulls_policy=node.nulls).singleton_identity
+        ):
+            return None
+        value = operand.table[operand.value]
+        dtype = value.type().copy(nullable=True)
+        if not (dtype.is_integer() or dtype.is_decimal()) or dtype != finished.type().copy(
+            nullable=True
+        ):
+            return None
+        return operand.table.select(
+            *keys, value.name(output), *(name for name, _, _ in operand.checks)
         )
 
     def _lower_sample(
@@ -700,9 +729,28 @@ class SampleLowerer:
         output = self.name()
         if isinstance(node, PerReduce) and node.reducer in ("first", "last"):
             return self._ordered_sample(node, output, captured, keys, metrics, fold_checks)
-        reduced, zero = _reduce_sample_value(node, table, operands)
-        metrics[output] = reduced
-        result = aggregate_returned_keys(table, keys, metrics, self.provider)
+        reduced, zero = reduce_sample_value(
+            node, table, tuple(operand.value for operand in operands)
+        )
+        projection = (
+            self._singleton_sample(node, operands, keys, output, reduced)
+            if captured.implicit and forced is None
+            else None
+        )
+        if projection is None:
+            metrics[output] = reduced
+            projection = aggregate_returned_keys(table, keys, metrics, self.provider)
+            collapsed = any(operand.collapsed_per for operand in operands)
+        else:
+            collapsed = True
+        result = SampleRelation(
+            projection,
+            output,
+            tuple(fold_checks),
+            zero,
+            UniqueKeys(tuple(projection.columns), (keys,)),
+            collapsed,
+        )
         if (
             captured.implicit
             and forced is None
@@ -715,66 +763,14 @@ class SampleLowerer:
                 for binding in captured.bindings
             )
         ):
-            return SampleRelation(
-                result, output, tuple(fold_checks), zero, UniqueKeys(tuple(result.columns), (keys,))
-            )
+            return result
         # Preserve parent coordinates even if a selected sample domain is empty.
-        completed = self.align(
-            parent,
-            (
-                SampleRelation(
-                    result,
-                    output,
-                    tuple(fold_checks),
-                    zero,
-                    UniqueKeys(tuple(result.columns), (keys,)),
-                ),
-            ),
-            keys,
-        )
+        completed = self.align(parent, (result,), keys)
         return SampleRelation(
             completed,
             output,
             tuple(fold_checks),
             zero,
             UniqueKeys(tuple(completed.columns), (keys,)),
+            collapsed,
         )
-
-
-def _reduce_sample_value(
-    node: PerReduce | PerWeightedMean, table: ir.Table, operands: tuple[SampleRelation, ...]
-) -> tuple[ir.Value, bool]:
-    value = table[operands[0].value]
-    zero = False
-    if isinstance(node, PerWeightedMean):
-        weight = table[operands[1].value]
-        pair = value.notnull() & weight.notnull()
-        product = numeric_binary("multiply", NumericValue(value), NumericValue(weight)).value
-        numerator = pair.ifelse(product, _null(product)).sum().fill_null(0)
-        denominator = pair.ifelse(weight, _null(weight)).sum().fill_null(0)
-        reduced = numeric_binary("divide", NumericValue(numerator), NumericValue(denominator)).value
-    elif node.reducer == "mean":
-        reduced = native_mean(value)
-    elif node.reducer == "sum":
-        reduced = finish_nullable_sum(value.sum(), table.count(), value.count())
-        zero = True
-    elif node.reducer in ("count", "count_distinct"):
-        reduced = value.count() if node.reducer == "count" else value.nunique()
-        zero = True
-    elif node.reducer in ("approx_median", "approx_quantile"):
-        reduced = value.cast("float64").approx_quantile(node.q if node.q is not None else 0.5)
-        if value.type().is_decimal():
-            reduced = force_cast(reduced, value.type())
-        reduced = (value.count() == 0).ifelse(_null(reduced), reduced)
-    else:
-        reduced = (
-            value.min()
-            if node.reducer == "min"
-            else value.max()
-            if node.reducer == "max"
-            else value.quantile(node.q if node.q is not None else 0.5)
-        )
-        if value.type().is_decimal() and node.reducer in ("median", "quantile"):
-            reduced = force_cast(reduced, reduced.type())
-        reduced = (value.count() == 0).ifelse(_null(reduced), reduced)
-    return reduced, zero

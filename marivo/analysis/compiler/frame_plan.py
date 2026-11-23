@@ -22,6 +22,7 @@ from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.attribute_inputs import attribute_input_program, exact_integer_closure
 from marivo.analysis.compiler.attribute_native_queries import native_game_stage
 from marivo.analysis.compiler.compiled_frame import CompiledFramePlan, CompiledSourceFrame
+from marivo.analysis.compiler.frame_partitions import with_singleton_partitions
 from marivo.analysis.compiler.graph_plan import with_unique_keys
 from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.populations import plan_frame_keys
@@ -680,7 +681,7 @@ def plan_frame(
         optimization_policy=policy,
     )
     return CompiledFramePlan(
-        LoweredQuery(with_unique_keys(plan), tuple(planner.reads)),
+        LoweredQuery(with_singleton_partitions(with_unique_keys(plan)), tuple(planner.reads)),
         schema,
         tuple(planner.owners),
         tuple(planner.boundaries),

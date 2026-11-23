@@ -26,6 +26,7 @@ from marivo.analysis.compiler.observation import formula_columns
 from marivo.analysis.compiler.query_program import (
     FrameCombineProgram,
     FrameCompareProgram,
+    FrameProgram,
     ResultProgram,
 )
 from marivo.analysis.compiler.query_stages import (
@@ -241,10 +242,17 @@ def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> Fra
                 ),
             ),
         )
-    schema = inputs[0].frame_schema or effective_frame_schema(
-        program.input_schema, inputs[0].columns
+    return replace(stage, program=_effective_unary_program(program, inputs[0]))
+
+
+def _effective_unary_program(program: FrameProgram, input_stage: StageOutput) -> FrameProgram:
+    schema = input_stage.frame_schema or effective_frame_schema(
+        program.input_schema, input_stage.columns
     )
-    return replace(stage, program=frame_program(schema, program.operation, program.output_schema))
+    return replace(
+        frame_program(schema, program.operation, program.output_schema),
+        singleton_partitions=program.singleton_partitions,
+    )
 
 
 def source_value_keys(plan: QueryPlan) -> dict[str, tuple[str, ...]]:
