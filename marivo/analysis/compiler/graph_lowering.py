@@ -28,6 +28,7 @@ from marivo.analysis.compiler.query_stages import (
     NativeRead,
     ProjectionRead,
     QueryPlan,
+    RuleDecision,
     SampleWindowRead,
     SourceReadStage,
     read_attribute,
@@ -91,6 +92,7 @@ def lower_query(
     """Lower every SourceReadStage over its bound relation, keeping its exact source ID."""
     lowered: list[LoweredRead] = []
     effective_stages: dict[str, SourceReadStage] = {}
+    decisions = list(plan.optimization_decisions)
     for stage in plan.stages:
         if not isinstance(stage, SourceReadStage):
             continue
@@ -100,7 +102,13 @@ def lower_query(
             (ActualWindowRead, SampleWindowRead, AttributeCoalitionRead, CheckedOutput),
         ):
             continue
-        stage, read = _lower_source(stage, relations, population_checks)
+        stage, read = _lower_source(
+            stage,
+            relations,
+            population_checks,
+            cse=plan.optimization_policy.allows("common_read_cse"),
+            decisions=decisions,
+        )
         effective_stages[stage.stage_id] = stage
         lowered.append(read)
     # Facts describe the data relation, before diagnostic rows are separated by
@@ -133,7 +141,9 @@ def lower_query(
         effective_stages[stage.stage_id] = replace(stage, unique_keys=facts)
     return LoweredQuery(
         replace(
-            plan, stages=tuple(effective_stages.get(stage.stage_id, stage) for stage in plan.stages)
+            plan,
+            stages=tuple(effective_stages.get(stage.stage_id, stage) for stage in plan.stages),
+            optimization_decisions=tuple(decisions),
         ),
         tuple(lowered),
     )
@@ -143,6 +153,9 @@ def _lower_source(
     stage: SourceReadStage,
     relations: dict[str, ir.Table],
     population_checks: Mapping[str, tuple[PopulationCheck, ...]] | None,
+    *,
+    cse: bool,
+    decisions: list[RuleDecision],
 ) -> tuple[SourceReadStage, LoweredRead]:
     if isinstance(stage.program, NativeRead):
         raise compilation_error(
@@ -161,7 +174,7 @@ def _lower_source(
     if read_attribute(stage) is not None:
         return _lower_attribute_read(stage, filtered, columns, relations)
     if read_members(stage) and not isinstance(stage.program, AttributeFrequencyRead):
-        expression, checks = lower_common_components(
+        lowered = lower_common_components(
             tuple(
                 require_reduction(read)
                 for read in read_members(stage)
@@ -171,8 +184,19 @@ def _lower_source(
             filtered,
             columns,
             stage.predicates,
+            {column.slot_id: column for column in stage.columns},
+            cse=cse,
         )
-        return stage, LoweredRead(stage.stage_id, expression, checks)
+        if lowered.saved_projections:
+            decisions.append(
+                RuleDecision(
+                    "common_read_cse",
+                    "adopted",
+                    tuple(member.stage_id for member in read_members(stage)),
+                    f"Reused {lowered.saved_projections} common aggregate or check projections.",
+                )
+            )
+        return stage, LoweredRead(stage.stage_id, lowered.table, lowered.checks)
     if read_reduction(stage) is not None:
         return _lower_reduction_read(stage, table, filtered, columns)
     return stage, _lower_projection_read(stage, table, filtered, columns, population_checks)

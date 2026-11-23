@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 
 import ibis
@@ -28,12 +29,13 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
-from marivo._definition.graph import children
+from marivo._definition.graph import children, computation_fingerprint
 from marivo._definition.types import (
     CalendarCoordinate,
     ExactRef,
     FieldRead,
     IntervalCoordinate,
+    NullPolicy,
     coordinate_read_keys,
     field_read_key,
 )
@@ -352,78 +354,189 @@ def common_slot(index: int, slot: str) -> str:
     return f"{slot}.block{index}"
 
 
+@dataclass(frozen=True, slots=True)
+class _ReductionCSEKey:
+    reducer: str
+    operands: tuple[str, ...]
+    q: float | None
+    nulls: NullPolicy
+    rule_version: int
+    duration: DurationDataType | None
+    value: ops.Value
+    layout: tuple[DataType, bool, str | None]
+
+
+def _reduction_cse_key(
+    reduction: ReductionInput, item: NumericValue, column: DataColumn
+) -> _ReductionCSEKey | None:
+    node = reduction.node
+    reducer: str
+    operands: tuple[str, ...]
+    if isinstance(node, SourceAggregate):
+        if node.reducer.startswith("approx_"):
+            return None
+        reducer, operands, q = node.reducer, (computation_fingerprint(node.operand),), node.q
+        nulls, version = node.nulls, node.rule_version
+    elif isinstance(node, SourceWeightedMean):
+        reducer, q = "weighted_mean", None
+        operands = (computation_fingerprint(node.value), computation_fingerprint(node.weight))
+        nulls, version = node.nulls, node.rule_version
+    else:
+        reducer, operands, q = "entity_count", (computation_fingerprint(node),), None
+        nulls, version = "ignore", 0
+    return _ReductionCSEKey(
+        reducer,
+        operands,
+        q,
+        nulls,
+        version,
+        reduction.duration,
+        item.value.op(),
+        (column.dtype, column.nullable, column.unit),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CommonObservation:
+    table: ir.Table
+    checks: tuple[tuple[str, NumericCheck], ...]
+    saved_projections: int
+
+
+def _project_common_aliases(
+    table: ir.Table, keys: tuple[str, ...], aliases: Mapping[str, str]
+) -> ir.Table:
+    if all(logical == physical for logical, physical in aliases.items()):
+        return table
+    return table.select(
+        *keys, **{logical: table[physical] for logical, physical in aliases.items()}
+    )
+
+
+def _common_predicate_summary(
+    table: ir.Table,
+    axes: Mapping[str, ir.Value],
+    checks: tuple[NumericCheck, ...],
+    count: int,
+    *,
+    cse: bool,
+) -> tuple[ir.Table | None, int]:
+    if not checks:
+        return None, 0
+    aliases = {
+        common_slot(index, f"predicate_check.{position}"): common_slot(
+            0 if cse else index, f"predicate_check.{position}"
+        )
+        for index in range(count)
+        for position in range(len(checks))
+    }
+    metrics = {
+        common_slot(index, f"predicate_check.{position}"): check.violation.any().fill_null(False)
+        for index in range(1 if cse else count)
+        for position, check in enumerate(checks)
+    }
+    summary = table.group_by(**axes).aggregate(**metrics) if axes else table.aggregate(**metrics)
+    return _project_common_aliases(summary, tuple(axes), aliases), len(aliases) - len(metrics)
+
+
+def _common_value_aggregate(
+    reductions: tuple[ReductionInput, ...],
+    table: ir.Table,
+    fields: Mapping[str, ir.Value],
+    axes: Mapping[str, ir.Value],
+    columns: Mapping[str, DataColumn],
+    predicate_checks: tuple[NumericCheck, ...],
+    *,
+    cse: bool,
+) -> CommonObservation:
+    metrics: dict[str, ir.Value] = {}
+    aliases: dict[str, str] = {}
+    checks: list[tuple[str, NumericCheck]] = []
+    representatives: dict[_ReductionCSEKey, tuple[str, int]] = {}
+
+    for index, reduction in enumerate(reductions):
+        admit_source_aggregate(reduction, fields)
+        item = lower_source_reduction(reduction.node, table, fields)
+        slot = reduction.value_slot
+        key = _reduction_cse_key(reduction, item, columns[slot]) if cse else None
+        representative = representatives.get(key) if key is not None else None
+        if representative is None:
+            representative = (slot, index)
+            if key is not None:
+                representatives[key] = representative
+            metrics[slot] = ops.Cast(item.value, to=item.value.type()).to_expr()
+            metrics.update(
+                (common_slot(index, f"numeric_check.{i}"), check.violation)
+                for i, check in enumerate(item.checks)
+            )
+        aliases[slot] = representative[0]
+        for position, check in enumerate(item.checks):
+            logical = common_slot(index, f"numeric_check.{position}")
+            aliases[logical] = common_slot(representative[1], f"numeric_check.{position}")
+            checks.append((logical, check))
+        checks.extend(
+            (common_slot(index, f"predicate_check.{position}"), check)
+            for position, check in enumerate(predicate_checks)
+        )
+
+    result = table.group_by(**axes).aggregate(**metrics) if axes else table.aggregate(**metrics)
+    return CommonObservation(
+        _project_common_aliases(result, tuple(axes), aliases),
+        tuple(checks),
+        len(aliases) - len(metrics),
+    )
+
+
 def lower_common_observations(
     reductions: tuple[ReductionInput, ...],
     table: ir.Table,
     columns: Mapping[str, str],
     predicates: tuple[PredicateExpression, ...],
-) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
-    """Emit independent reductions and their checks in one native aggregate."""
+    value_columns: Mapping[str, DataColumn],
+    *,
+    cse: bool,
+) -> CommonObservation:
+    """Emit one native aggregate while retaining each occurrence and its checks."""
     table, columns = bind_reduction_calendars(reductions[0], table, columns)
     fields = {path: table[name] for path, name in columns.items()}
     selected = tuple(lower_condition(node, fields) for node in predicates)
     predicate_checks = tuple(check for item in selected for check in item.checks)
     first = reductions[0]
-    predicate_axes = _reduction_axes(first, fields)
-    predicate_metrics = {
-        common_slot(index, f"predicate_check.{position}"): check.violation.any().fill_null(False)
-        for index in range(len(reductions))
-        for position, check in enumerate(predicate_checks)
-    }
-    summary = (
-        (
-            table.group_by(**predicate_axes).aggregate(**predicate_metrics)
-            if predicate_axes
-            else table.aggregate(**predicate_metrics)
-        )
-        if predicate_metrics
-        else None
+    summary, saved_predicates = _common_predicate_summary(
+        table, _reduction_axes(first, fields), predicate_checks, len(reductions), cse=cse
     )
     filtered = table.filter(*(item.value for item in selected)) if selected else table
     fields = {path: filtered[name] for path, name in columns.items()}
     axes = _reduction_axes(first, fields)
-    metrics: dict[str, ir.Value] = {}
-    checks: list[tuple[str, NumericCheck]] = []
-
-    for index, reduction in enumerate(reductions):
-        admit_source_aggregate(reduction, fields)
-        item = lower_source_reduction(reduction.node, filtered, fields)
-        metrics[reduction.value_slot] = ops.Cast(item.value, to=item.value.type()).to_expr()
-        for position, check in enumerate(item.checks):
-            name = common_slot(index, f"numeric_check.{position}")
-            metrics[name] = check.violation
-            checks.append((name, check))
-        checks.extend(
-            (common_slot(index, f"predicate_check.{position}"), check)
-            for position, check in enumerate(predicate_checks)
-        )
-    result = (
-        filtered.group_by(**axes).aggregate(**metrics) if axes else filtered.aggregate(**metrics)
+    values = _common_value_aggregate(
+        reductions, filtered, fields, axes, value_columns, predicate_checks, cse=cse
     )
-    if summary is not None:
-        # Every occurrence has the same predicate domain, but retains its own
-        # check columns for demand-aware formula completion.
-        result = summary.left_join(
-            result.mutate(__numeric_present=ibis.literal(True)),
-            [summary[name].identical_to(result[name]) for name in axes]
-            if axes
-            else ibis.literal(True),
-        )
-        result = result.select(
-            *summary.columns,
-            *(
-                name
-                for name in result.columns
-                if name not in summary.columns and name not in {f"{key}_right" for key in axes}
-            ),
-        )
-        result = result.mutate(
-            **{
-                common_slot(index, "__numeric_present"): result["__numeric_present"]
-                for index in range(len(reductions))
-            }
-        ).drop("__numeric_present")
-    return result, tuple(checks)
+    if summary is None:
+        return values
+
+    # Keep the original predicate domain and an independently demanded slot
+    # for every occurrence, including when the filtered value is absent.
+    result = summary.left_join(
+        values.table.mutate(__numeric_present=ibis.literal(True)),
+        [summary[name].identical_to(values.table[name]) for name in axes]
+        if axes
+        else ibis.literal(True),
+    )
+    result = result.select(
+        *summary.columns,
+        *(
+            name
+            for name in result.columns
+            if name not in summary.columns and name not in {f"{key}_right" for key in axes}
+        ),
+    )
+    result = result.mutate(
+        **{
+            common_slot(index, "__numeric_present"): result["__numeric_present"]
+            for index in range(len(reductions))
+        }
+    ).drop("__numeric_present")
+    return CommonObservation(result, values.checks, values.saved_projections + saved_predicates)
 
 
 def formula_columns(program: FormulaProgram) -> tuple[DataColumn, ...]:

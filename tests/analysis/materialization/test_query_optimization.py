@@ -15,6 +15,7 @@ import ibis.expr.operations as ops
 import pandas as pd
 import pyarrow as pa
 import pytest
+import sqlglot
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
@@ -29,6 +30,7 @@ from marivo.analysis.compiler.attribute_frequencies import frequency_read
 from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.lowered_query import LoweredRead, PopulationCheck
+from marivo.analysis.compiler.observation import _reduction_cse_key, lower_common_observations
 from marivo.analysis.compiler.optimization import (
     InvocationMemo,
     _common_sources,
@@ -41,10 +43,12 @@ from marivo.analysis.compiler.query_planning import plan_query
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.compiler.query_stages import (
     AttributeFrequencyRead,
+    CommonRead,
     FrameCompute,
     FrameInput,
     LocalCompute,
     QueryPlan,
+    RuleDecision,
     SourceReadStage,
     read_members,
     read_projections,
@@ -61,6 +65,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import (
     frame_evaluation,
+    sample_fusion,
     source_reads,
     terminal_store,
 )
@@ -74,14 +79,15 @@ from marivo.analysis.materialization.prepared_sources import PreparedSources
 from marivo.analysis.materialization.query_sources import open_query_sources
 from marivo.analysis.materialization.source_reads import read_stage
 from marivo.analysis.methods.carriers.stages import StageOutput
-from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
+from marivo.analysis.model.data_types import DecimalDataType, DurationDataType, ScalarDataType
 from marivo.analysis.model.optimization_policy import OptimizationPolicy
+from marivo.analysis.model.programs import FormulaInput
 from marivo.analysis.model.slot_roles import StageObligations
 from marivo.analysis.session.core import Session
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic.errors import SemanticExpressionError
-from marivo.semantic.numeric_operations import NumericCheck
+from marivo.semantic.numeric_operations import NumericCheck, NumericValue
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import (
     catalog_value,
@@ -892,6 +898,270 @@ def test_explicit_source_occurrences_and_formula_finish_are_never_collapsed(
     frame = result.table
     assert frame["value.0"].tolist() == [120]
     assert frame["value.1"].tolist() == [70]
+
+
+def test_common_read_cse_projects_each_logical_value_and_check(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    exact = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
+    revenue, cost = amount.sum(), exact.sum()
+    query = session.observe(
+        {"revenue": revenue, "margin": (revenue - cost) / revenue},
+        where=(amount / exact).sqrt() > 0,
+    )
+    grouped = OptimizationPolicy.default().with_rule("source_terminal_fusion", enabled=False)
+    public = query.compute().to_pandas()
+    assert public["revenue"].tolist() == [60]
+    pd.testing.assert_frame_equal(
+        compute_with_policy(query, OptimizationPolicy.disabled()).to_pandas(), public
+    )
+    for cse in (False, True):
+        policy = grouped.with_rule("common_read_cse", enabled=cse)
+        with monkeypatch.context() as observed:
+            trace = capture_source(observed)
+            result = compute_with_policy(query, policy).to_pandas()
+        pd.testing.assert_frame_equal(result, public)
+        (sql,) = trace.native_sql
+        ast = sqlglot.parse_one(sql, read="duckdb")
+        assert len(list(ast.find_all(sqlglot.exp.Sum))) == (2 if cse else 4)
+        assert len(list(ast.find_all(sqlglot.exp.LogicalOr))) == (1 if cse else 4)
+        projected_aliases = {
+            item.alias_or_name
+            for item in ast.find_all(sqlglot.exp.Select)
+            for item in item.expressions
+        }
+        assert {f"predicate_check.0.block{i}" for i in range(4)} <= projected_aliases
+
+        graph = _source_graph(query)
+        with (
+            session._runtime.connection_service().operation() as connections,
+            open_query_sources(connections, graph, session.catalog._state) as prepared,
+        ):
+            plan = optimize_query(plan_query(graph, prepared.schemas), policy=policy)
+            lowered = lower_query(plan, prepared.relations)
+        (read,) = tuple(
+            stage for stage in lowered.plan.stages if isinstance(stage, SourceReadStage)
+        )
+        assert len(read_members(read)) == 4
+        assert len(lowered.read(read.stage_id).numeric_checks) == 4
+        decisions = tuple(
+            item for item in lowered.plan.optimization_decisions if item.rule == "common_read_cse"
+        )
+        assert len(decisions) == int(cse)
+        if cse:
+            assert decisions[0].status == "adopted"
+            assert decisions[0].members == tuple(member.stage_id for member in read_members(read))
+
+
+def test_common_read_cse_keeps_predicate_check_at_each_branch(
+    optimization_session: Session,
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    exact = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
+    with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
+        connection.execute("UPDATE orders SET amount=-10 WHERE id=1")
+    driver = amount.sum()
+    checked = amount.sum().where((amount / exact).sqrt() > 0)
+    guarded = (driver > 0).ifelse(driver, checked + checked)
+    demanded = (driver > 0).ifelse(checked, driver)
+    active = OptimizationPolicy.default().with_rule("source_terminal_fusion", enabled=False)
+    safe = session.observe({"safe": guarded})
+    required = session.observe({"safe": guarded, "required": demanded})
+    for policy in (
+        active,
+        active.with_rule("common_read_cse", enabled=False),
+        OptimizationPolicy.disabled(),
+    ):
+        assert compute_with_policy(safe, policy).to_pandas()["safe"].tolist() == [40]
+        with pytest.raises(AnalysisError) as failure:
+            compute_with_policy(required, policy)
+        cause = failure.value.__cause__
+        assert isinstance(cause, SemanticExpressionError)
+        assert cause.expected == "valid numeric function domains"
+        assert (cause.received or "").startswith("Sqrt")
+
+
+def test_common_read_cse_key_keeps_strict_sum_checks_on_native_nulls(
+    optimization_session: Session,
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    query = session.observe(
+        {"loose": amount.sum(nulls="ignore"), "strict": amount.sum(nulls="error")}
+    )
+    graph = _source_graph(query)
+    with (
+        session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, session.catalog._state) as prepared,
+    ):
+        plan = plan_query(graph, prepared.schemas)
+        loose, strict = tuple(stage for stage in plan.stages if isinstance(stage, SourceReadStage))
+        assert loose.field_columns == strict.field_columns
+        loose_reduction, strict_reduction = require_reduction(loose), require_reduction(strict)
+        physical_columns = (
+            *loose.columns,
+            *(
+                replace(column, slot_id=f"{column.slot_id}.block1")
+                if column.slot_id.startswith("numeric_check.")
+                else column
+                for column in strict.columns
+            ),
+        )
+        lowered = lower_common_observations(
+            (loose_reduction, strict_reduction),
+            prepared.relations[loose.stage_id],
+            dict(loose.field_columns),
+            (),
+            {column.slot_id: column for column in physical_columns},
+            cse=True,
+        )
+        assert lowered.saved_projections == 0
+        column = next(item for item in loose.columns if item.slot_id == loose_reduction.value_slot)
+        physical = NumericValue(ibis.literal(1))
+        assert _reduction_cse_key(
+            replace(loose_reduction, duration=DurationDataType("ms")), physical, column
+        ) != _reduction_cse_key(
+            replace(loose_reduction, duration=DurationDataType("us")), physical, column
+        )
+        stage = replace(loose, columns=physical_columns, program=CommonRead((loose, strict)))
+        output = read_stage(
+            prepared, stage, LoweredRead(stage.stage_id, lowered.table, lowered.checks)
+        )
+    assert output.table[loose_reduction.value_slot].tolist() == [60]
+    assert output.table[strict_reduction.value_slot].tolist() == [60]
+    assert [name for name, _ in lowered.checks] == ["numeric_check.0.block1"]
+    assert output.table["numeric_check.0.block1"].tolist() == [True]
+
+
+def test_common_read_cse_keeps_distinct_row_unit_assertions(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    query = session.observe(
+        {
+            "original": amount.sum(),
+            "asserted": ms.rescale(amount, divisor=1, unit="other_dimension").sum(),
+            "scaled": ms.rescale(amount, divisor=2, unit="scaled_CNY").sum(),
+        }
+    )
+    trace = capture_source(monkeypatch)
+    policy = OptimizationPolicy.default().with_rule("source_terminal_fusion", enabled=False)
+    result = compute_with_policy(query, policy)
+    assert result.to_pandas().iloc[0].tolist() == [60, 60, 30]
+    assert [column.unit for column in result.schema.values.values()] == [
+        "CNY",
+        "other_dimension",
+        "scaled_CNY",
+    ]
+    (sql,) = trace.native_sql
+    assert len(list(sqlglot.parse_one(sql, read="duckdb").find_all(sqlglot.exp.Sum))) == 3
+
+
+def test_common_read_cse_keeps_quantile_probability_and_native_kernel(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    at_quarter = amount.quantile(0.25)
+    approximate = amount.approx_quantile(0.5)
+    query = session.observe(
+        {
+            "lower": at_quarter,
+            "lower_again": at_quarter,
+            "upper": amount.quantile(0.75),
+            "approximate": approximate,
+            "approximate_again": approximate,
+        }
+    )
+    policy = OptimizationPolicy.default().with_rule("source_terminal_fusion", enabled=False)
+    reference = compute_with_policy(query, OptimizationPolicy.disabled()).to_pandas()
+    assert reference.iloc[0].tolist() == [15, 15, 25, 20, 20]
+    for cse in (False, True):
+        with monkeypatch.context() as observed:
+            trace = capture_source(observed)
+            result = compute_with_policy(
+                query, policy.with_rule("common_read_cse", enabled=cse)
+            ).to_pandas()
+        pd.testing.assert_frame_equal(result, reference)
+        (sql,) = trace.native_sql
+        assert sql.upper().count("QUANTILE_CONT(") == (2 if cse else 3)
+        assert sql.upper().count("APPROX_QUANTILE(") == 2
+
+
+def test_common_read_cse_shares_qualified_sample_projections(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    detail = catalog_value(session.catalog, "sales.orders.detail", kind="dimension")
+    metric = amount.sum().per(detail).mean()
+    query = session.observe({"first": metric, "second": metric})
+    policy = OptimizationPolicy.default().with_rule("source_terminal_fusion", enabled=False)
+    baseline = compute_with_policy(query, OptimizationPolicy.disabled()).to_pandas()
+    assert baseline.iloc[0].tolist() == [30.0, 30.0]
+
+    original = sample_fusion._share_folds
+    observed_rules: list[RuleDecision] = []
+
+    def share_distinct_aliases(
+        stages: list[SourceReadStage],
+        reads: list[LoweredRead],
+        values: list[FormulaInput],
+        prepared: PreparedSources,
+        keys: Mapping[str, str],
+        decisions: list[RuleDecision],
+    ) -> tuple[list[SourceReadStage], list[LoweredRead], list[FormulaInput]]:
+        # The native SampleLowerer may already share a physical slot name
+        # through its memo. Give the second qualified input a separate name.
+        _, second = stages
+        request = next(read for read in reads if read.stage_id == second.stage_id)
+        projected = sample_fusion._aggregate_projection(request.expression.op())
+        assert projected is not None
+        aggregate, aliases = projected
+        ((old, metric),) = aggregate.metrics.items()
+        new = old + "_second"
+        renamed = ops.Aggregate(aggregate.parent, aggregate.groups, {new: metric}).to_expr()
+        request = replace(
+            request,
+            expression=renamed.select(
+                **{
+                    logical: renamed[new if physical == old else physical]
+                    for logical, physical in aliases.items()
+                }
+            ),
+        )
+        result = original(
+            stages,
+            [request if read.stage_id == second.stage_id else read for read in reads],
+            values,
+            prepared,
+            keys,
+            decisions,
+        )
+        observed_rules.extend(
+            rule for rule in decisions if "qualified sample aggregate" in rule.reason
+        )
+        return result
+
+    monkeypatch.setattr(sample_fusion, "_share_folds", share_distinct_aliases)
+    for cse in (False, True):
+        with monkeypatch.context() as observed:
+            trace = capture_source(observed)
+            result = compute_with_policy(
+                query, policy.with_rule("common_read_cse", enabled=cse)
+            ).to_pandas()
+        pd.testing.assert_frame_equal(result, baseline)
+        (sql,) = trace.native_sql
+        ast = sqlglot.parse_one(sql, read="duckdb")
+        assert len(list(ast.find_all(sqlglot.exp.Avg))) == (1 if cse else 2)
+        assert len(list(ast.find_all(sqlglot.exp.Sum))) == (1 if cse else 2)
+    (decision,) = observed_rules
+    assert (decision.rule, decision.status) == ("common_read_cse", "adopted")
+    assert len(decision.members) == 2
 
 
 def test_memo_node_identity_does_not_serialize_the_definition_subgraph(
@@ -1839,6 +2109,10 @@ def test_joint_weighted_components_retain_both_raw_operands(
         lowered = lower_query(plan, prepared.relations)
         reads = [stage for stage in lowered.plan.stages if isinstance(stage, SourceReadStage)]
         assert len(reads) == 1
+        (decision,) = tuple(
+            item for item in lowered.plan.optimization_decisions if item.rule == "common_read_cse"
+        )
+        assert decision.status == "adopted"
         output = read_stage(prepared, reads[0], lowered.read(reads[0].stage_id))
         assert len(output.components) == 2
         for component in output.components:

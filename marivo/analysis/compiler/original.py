@@ -25,6 +25,7 @@ from marivo._definition.expressions import (
 from marivo._definition.graph import children
 from marivo._definition.types import ExactRef
 from marivo.analysis.compiler.observation import (
+    CommonObservation,
     _reduction_axes,
     bind_reduction_calendars,
     calendar_field,
@@ -266,13 +267,19 @@ def lower_common_components(
     table: ir.Table,
     field_columns: Mapping[str, str],
     predicates: tuple[PredicateExpression, ...],
-) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
+    value_columns: Mapping[str, DataColumn],
+    *,
+    cse: bool,
+) -> CommonObservation:
     """One checked aggregate and raw projection for a compiled source block."""
 
     table, field_columns = bind_reduction_calendars(reductions[0], table, field_columns)
-    completed, checks = lower_common_observations(reductions, table, field_columns, predicates)
+    lowered = lower_common_observations(
+        reductions, table, field_columns, predicates, value_columns, cse=cse
+    )
     if not any(layout is not None for layout in layouts):
-        return completed, checks
+        return lowered
+    completed = lowered.table
     fields = {path: table[name] for path, name in field_columns.items()}
     selected = tuple(lower_condition(node, fields).value for node in predicates)
     filtered = table.filter(*selected) if selected else table
@@ -307,7 +314,10 @@ def lower_common_components(
         if axes
         else ibis.literal(True),
     )
-    return joined.select(
-        *completed.columns,
-        *(name for name in projections if not name.startswith("__original_key.")),
-    ), checks
+    return replace(
+        lowered,
+        table=joined.select(
+            *completed.columns,
+            *(name for name in projections if not name.startswith("__original_key.")),
+        ),
+    )

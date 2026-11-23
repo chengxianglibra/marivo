@@ -17,7 +17,9 @@ from marivo._definition.expressions import (
     MetricWindow,
     PerReduce,
     PerWeightedMean,
+    SourceAggregate,
 )
+from marivo._definition.graph import computation_fingerprint, walk
 from marivo._definition.relations import (
     LiteralPopulation,
     PopulationDependency,
@@ -159,6 +161,7 @@ class SampleCandidates:
     removed: set[str] = field(default_factory=set)
     lowerers: dict[SourceSession, SampleLowerer] = field(default_factory=dict)
     active_parameters: dict[SourceSession, dict[str, SourceParameter]] = field(default_factory=dict)
+    cse_keys: dict[str, str] = field(default_factory=dict)
 
     def visit(self, node: MetricNode, path: tuple[int, ...], keys: tuple[str, ...]) -> None:
         if isinstance(node, DeclaredMetricRef):
@@ -195,6 +198,14 @@ class SampleCandidates:
             source, expression, checks, value = self._fold(node, path, keys, source_stages, owner)
             self.replacements.append(source)
             self.reads.append(LoweredRead(source.stage_id, expression, checks))
+            if self.lowered.plan.optimization_policy.allows("common_read_cse"):
+                closure = walk((node,), resolve=dict(self.program.declared).get)
+                if not any(
+                    isinstance(item, (SourceAggregate, PerReduce))
+                    and item.reducer.startswith("approx_")
+                    for item in closure.order
+                ):
+                    self.cse_keys[source.stage_id] = computation_fingerprint(node)
             self.values = [value for value in self.values if value not in selected]
             self.values.append(
                 replace(

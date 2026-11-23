@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 
 import ibis
@@ -40,6 +41,7 @@ from marivo.analysis.materialization.native_query_checks import (
 from marivo.analysis.materialization.prepared_sources import PreparedSources
 from marivo.analysis.materialization.query_plan_transport import _consumers
 from marivo.analysis.materialization.sample_candidates import SampleCandidates
+from marivo.analysis.model.data_types import DataColumn, DataType
 from marivo.analysis.model.programs import FormulaInput
 from marivo.datasource.spi import SourceSession
 from marivo.semantic.spi import NumericCheck
@@ -85,7 +87,9 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
             continue
         adopted = True
         if lowered.plan.optimization_policy.allows("source_sample_reduction"):
-            replacements, reads, values = _share_folds(replacements, reads, values, prepared)
+            replacements, reads, values = _share_folds(
+                replacements, reads, values, prepared, candidates.cse_keys, decisions
+            )
         # Keep sources with other consumers, or with unoptimized sibling occurrences.
         used = {value.stage_id for value in values}
         removed = {
@@ -251,16 +255,76 @@ def _membership_checks(
     return tuple(checks)
 
 
+def _shared_fold_metrics(
+    members: list[SourceReadStage],
+    aggregates: Mapping[str, tuple[ops.Aggregate, dict[str, str]]],
+    keys: Mapping[str, str],
+) -> tuple[dict[str, ops.Value], dict[str, str]]:
+    metrics: dict[str, ops.Value] = {}
+    aliases: dict[str, str] = {}
+    representatives: dict[
+        tuple[str, tuple[tuple[DataType, bool, str | None], ...], ops.Value], str
+    ] = {}
+    for stage in members:
+        aggregate, _ = aggregates[stage.stage_id]
+        signature = keys.get(stage.stage_id)
+        layout = tuple(
+            (column.dtype, column.nullable, column.unit)
+            for column in stage.columns
+            if column.slot_id not in stage.keys
+        )
+        for name, metric in aggregate.metrics.items():
+            representative = (
+                representatives.setdefault((signature, layout, metric), name)
+                if signature is not None
+                else name
+            )
+            aliases[name] = representative
+            if representative == name:
+                metrics[name] = metric
+    return metrics, aliases
+
+
+def _combine_exact_fold_quantiles(metrics: dict[str, ops.Value]) -> dict[str, ops.Value]:
+    """Share different exact probabilities without changing the native quantile family."""
+    quantiles: dict[tuple[ops.Value, ops.Value | None], list[ops.Quantile]] = {}
+    for metric in metrics.values():
+        for quantile in metric.find(ops.Quantile):
+            if type(quantile) is ops.Quantile:
+                # ApproxQuantile also matches Quantile; preserve its native algorithm.
+                quantiles.setdefault((quantile.arg, quantile.where), []).append(quantile)
+    for (argument, where), candidates in quantiles.items():
+        candidates = list(dict.fromkeys(candidates))
+        if len(candidates) < 2:
+            continue
+        probabilities = [candidate.quantile.to_expr() for candidate in candidates]
+        multiple = ops.MultiQuantile(argument, ibis.array(probabilities).op(), where).to_expr()
+        replacement = {
+            candidate: multiple[index].op() for index, candidate in enumerate(candidates)
+        }
+        metrics = {name: metric.replace(replacement) for name, metric in metrics.items()}
+    return metrics
+
+
 def _share_folds(
     stages: list[SourceReadStage],
     reads: list[LoweredRead],
     values: list[FormulaInput],
     prepared: PreparedSources,
+    cse_keys: Mapping[str, str],
+    decisions: list[RuleDecision],
 ) -> tuple[list[SourceReadStage], list[LoweredRead], list[FormulaInput]]:
     """Share an actual aggregate, rather than repeated references to a CTE."""
     payloads = {read.stage_id: read for read in reads}
     groups: dict[
-        tuple[SourceSession, ops.Relation, tuple[str, ...], tuple[SourceParameter, ...]],
+        tuple[
+            SourceSession,
+            ops.Relation,
+            tuple[str, ...],
+            tuple[SourceParameter, ...],
+            tuple[tuple[str, ops.Value], ...],
+            tuple[DataColumn, ...],
+        ],
         list[SourceReadStage],
     ] = {}
     aggregates: dict[str, tuple[ops.Aggregate, dict[str, str]]] = {}
@@ -276,41 +340,35 @@ def _share_folds(
                 aggregate.parent,
                 stage.keys,
                 stage.parameters,
+                tuple(aggregate.groups.items()),
+                tuple(column for column in stage.columns if column.slot_id in stage.keys),
             ),
             [],
         ).append(stage)
     for members in groups.values():
         if len(members) < 2:
             continue
-        metrics: dict[str, ops.Value] = {}
         projections: dict[str, ops.Value] = {}
         first = members[0]
-        reference: ops.Aggregate | None = None
-        for stage in members:
-            reference, _ = aggregates[stage.stage_id]
-            metrics.update(reference.metrics)
-        assert reference is not None
-        quantiles: dict[tuple[ops.Value, ops.Value | None], list[ops.Quantile]] = {}
-        for metric in metrics.values():
-            for quantile in metric.find(ops.Quantile):
-                if type(quantile) is ops.Quantile:
-                    # ApproxQuantile also matches Quantile; preserve its native algorithm.
-                    quantiles.setdefault((quantile.arg, quantile.where), []).append(quantile)
-        for (argument, where), candidates in quantiles.items():
-            candidates = list(dict.fromkeys(candidates))
-            if len(candidates) < 2:
-                continue
-            probabilities = [candidate.quantile.to_expr() for candidate in candidates]
-            multiple = ops.MultiQuantile(argument, ibis.array(probabilities).op(), where).to_expr()
-            replacement = {
-                candidate: multiple[index].op() for index, candidate in enumerate(candidates)
-            }
-            metrics = {name: metric.replace(replacement) for name, metric in metrics.items()}
+        reference, _ = aggregates[first.stage_id]
+        metrics, metric_aliases = _shared_fold_metrics(members, aggregates, cse_keys)
+        removed_count = sum(name != alias for name, alias in metric_aliases.items())
+        if removed_count:
+            decisions.append(
+                RuleDecision(
+                    "common_read_cse",
+                    "adopted",
+                    tuple(member.stage_id for member in members),
+                    f"Reused {removed_count} qualified sample aggregate projections.",
+                )
+            )
+        metrics = _combine_exact_fold_quantiles(metrics)
         aggregate = ops.Aggregate(reference.parent, reference.groups, metrics)
         for stage in members:
             _, aliases = aggregates[stage.stage_id]
             projections.update(
-                (name, ops.Field(aggregate, source)) for name, source in aliases.items()
+                (name, ops.Field(aggregate, metric_aliases.get(source, source)))
+                for name, source in aliases.items()
             )
         combined = aggregate.to_expr().select(
             **{name: value.to_expr() for name, value in projections.items()}
