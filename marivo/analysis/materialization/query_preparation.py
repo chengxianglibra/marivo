@@ -49,7 +49,7 @@ from marivo.analysis.model.time_facts import (
     capture_source_times,
     merge_source_times,
 )
-from marivo.datasource._temporal_expressions import localize, timestamp
+from marivo.datasource.spi import localize, timestamp
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import evaluate_expression_body
 from marivo.semantic._numeric_lowering import numeric_failure
@@ -944,7 +944,7 @@ def prepare_fields(
                 }
             )
             continue
-        from marivo.datasource._calendar_relations import calendar_range
+        from marivo.datasource.spi import calendar_range
 
         # Overlapping intervals receive each matching source occurrence.
         # The extra position preserves the enclosing key when no interval matches.

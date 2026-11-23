@@ -20,8 +20,12 @@ import pytest
 from typing_extensions import Self
 
 import marivo
-from marivo.datasource.adapters import SourceSession, _IssuedRead
-from marivo.datasource.capabilities import ProviderStatementSubmission, provider_statement
+from marivo.datasource.engines.statements import (
+    ProviderStatementSubmission,
+    provider_statement,
+)
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import _IssuedRead
 
 Category = Literal[
     "governed_ibis",
@@ -116,7 +120,7 @@ def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) 
         name = frame.f_code.co_name
         local = frame.f_locals
         if (
-            path.endswith("/marivo/datasource/capabilities.py")
+            path.endswith("/marivo/datasource/engines/statements.py")
             and name == "execute_provider_statement"
         ):
             submission = local.get("submission")
@@ -135,7 +139,7 @@ def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) 
                 else ()
             )
             return Origin("provider", submission.statement_id, submission.purpose, sql, names)
-        if path.endswith("/marivo/datasource/adapters.py") and name == "execute":
+        if path.endswith("/marivo/datasource/runtime/adapters.py") and name == "execute":
             owner = local.get("self")
             proof = local.get("proof")
             if (
@@ -153,7 +157,10 @@ def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) 
                     schema=tuple((field.name, str(field.type)) for field in proof.schema),
                 )
             return Origin("unknown", "SourceSession issued text mismatch")
-        if path.endswith("/marivo/datasource/adapters.py") and name == "_probe_backend":
+        if (
+            path.endswith("/marivo/datasource/runtime/session_factory.py")
+            and name == "probe_backend"
+        ):
             expected = local.get("sql")
             if isinstance(expected, str) and sql == expected:
                 return Origin(
@@ -163,13 +170,13 @@ def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) 
                     expected,
                 )
             return Origin("unknown", "Ibis probe text mismatch")
-        if path.endswith("/marivo/datasource/manage.py") and name == "raw_sql":
+        if path.endswith("/marivo/datasource/inspection/raw_sql.py") and name == "_run_raw_sql":
             expected = local.get("statement")
             if isinstance(expected, str) and sql == expected:
                 return Origin(
                     "raw_sql_terminal",
                     "datasource.manage.raw_sql",
-                    str(local.get("reason", "")),
+                    str(local.get("reason_text", "")),
                     expected,
                 )
     # A closed set of Ibis and adapter producers owns their native metadata and

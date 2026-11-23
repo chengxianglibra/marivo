@@ -10,8 +10,9 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.loading import _current_source_loading_file
-from marivo.datasource import loader, store
 from marivo.datasource.errors import DatasourceError, DatasourceLoadError
+from marivo.datasource.store import declarations as store
+from marivo.datasource.store import loader as loader
 from marivo.semantic.errors import SemanticError, SemanticLoadFailed
 
 _DOMAIN = 'import marivo.semantic as ms\nms.domain(name="demo", owner="tester", default=True)\n'

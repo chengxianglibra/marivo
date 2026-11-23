@@ -27,7 +27,7 @@ from marivo.analysis.compiler.calendar import (
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.materialization.date_day_keys import deferred_day_key
 from marivo.analysis.materialization.temporal_sql import lower_temporal
-from marivo.datasource._temporal_expressions import localize, render, timestamp
+from marivo.datasource.temporal_primitives import localize, render, timestamp
 from tests.datasource.source_cases import SourceData, source_case, source_params
 
 

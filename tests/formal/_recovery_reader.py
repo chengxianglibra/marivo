@@ -11,7 +11,7 @@ from unittest.mock import patch
 import marivo
 import marivo.analysis as mv
 from marivo.analysis.materialization import terminal_publication
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 
 
 def snapshot(frame: mv.AnalysisFrame) -> str:

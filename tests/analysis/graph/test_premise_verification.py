@@ -9,7 +9,8 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from tests.analysis.graph.physical_workloads import workload
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value, terminal_runs
@@ -211,7 +212,7 @@ import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 
 def forbidden(*args, **kwargs):
     raise AssertionError('terminal recovery touched a live source')

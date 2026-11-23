@@ -32,9 +32,14 @@ from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.analysis.methods.carriers.attachments import OutputAttachment
 from marivo.analysis.model.data_schema import CalendarDataAxis, DataAxis, DataSchema
 from marivo.analysis.model.execution_errors import MaterializationError
-from marivo.datasource._calendar_relations import calendar_data, calendar_range
-from marivo.datasource._temporal_expressions import localize, render, timestamp
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.spi import (
+    SourceSession,
+    calendar_data,
+    calendar_range,
+    localize,
+    render,
+    timestamp,
+)
 from marivo.semantic._compiled_state import CompiledSemanticState
 
 
@@ -175,7 +180,7 @@ def _source_output_calendar(
     # is carried under a UTC label there.
     clock_type = (
         dt.Timestamp(timezone="UTC", scale=6)
-        if source.provider.name == "clickhouse"
+        if source.provider.dialect.calendar_clock_needs_utc_carrier
         else dt.Timestamp(scale=6)
     )
     start = ibis.literal(first, type=clock_type) + positions.position * interval

@@ -39,7 +39,8 @@ from marivo.analysis.model.data_types import (
 )
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.model.frame_structure import PendingDataSchema
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,

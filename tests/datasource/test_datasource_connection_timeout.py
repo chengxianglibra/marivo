@@ -5,11 +5,11 @@ from __future__ import annotations
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource import backends
-from marivo.datasource import manage as manage_mod
-from marivo.datasource import store as datasource_store
+from marivo.datasource.inspection import manage as manage_mod
+from marivo.datasource.inspection.manage import DEFAULT_CONNECTION_TIMEOUT_SECONDS
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
-from marivo.datasource.manage import DEFAULT_CONNECTION_TIMEOUT_SECONDS
+from marivo.datasource.runtime import backends as backends
+from marivo.datasource.store import declarations as datasource_store
 
 
 def _patch_load_one(monkeypatch: pytest.MonkeyPatch) -> None:

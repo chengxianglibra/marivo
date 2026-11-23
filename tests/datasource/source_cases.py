@@ -20,7 +20,6 @@ import pyarrow.parquet as pq
 import pytest
 from _pytest.mark.structures import ParameterSet
 
-from marivo.datasource.adapters import SourceIR, SourceSession, provider_for
 from marivo.datasource.ir import (
     AiContextIR,
     CsvSourceIR,
@@ -31,6 +30,9 @@ from marivo.datasource.ir import (
     SourceParamIR,
     TableSourceIR,
 )
+from marivo.datasource.runtime.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.read_types import SourceIR
+from marivo.datasource.runtime.session_factory import open_source_session
 from tests.support import json as freeze
 
 PROFILES: dict[str, tuple[str, ...]] = {
@@ -193,7 +195,7 @@ def source_case(
             admin.disconnect()
         fields: dict[str, object] = {"path": str(path), "read_only": True}
         ds = datasource(backend, fields)
-        with provider_for(backend).open(ds) as session:
+        with open_source_session(provider_for(backend), ds) as session:
             environment: dict[str, object] = {"backend": backend, "read_only": True}
             if profile.startswith("http-json"):
                 from urllib.error import HTTPError
@@ -215,7 +217,7 @@ def source_case(
                             {f"http@{url}/private/.token": "MARIVO_SOURCE_PROFILE_HTTP_TOKEN"},
                         )
                     with (
-                        provider_for(backend).open(ds)
+                        open_source_session(provider_for(backend), ds)
                         if auth
                         else nullcontext(session) as http_session
                     ):
@@ -292,7 +294,7 @@ def source_case(
                     {"host": pg.HOST, "port": pg.PORT, "database": pg.DATABASE, "user": pg.READER},
                     {"password": "MARIVO_SOURCE_PROFILE_PASSWORD"},
                 )
-                with provider_for(backend).open(ds) as session:
+                with open_source_session(provider_for(backend), ds) as session:
                     yield Case(
                         session,
                         TableSourceIR(
@@ -328,7 +330,7 @@ def source_case(
                     },
                     {"password": "MARIVO_SOURCE_PROFILE_PASSWORD"},
                 )
-                with provider_for(backend).open(ds) as session:
+                with open_source_session(provider_for(backend), ds) as session:
                     yield Case(
                         session,
                         TableSourceIR(name + ("_view" if profile == "view" else "")),
@@ -359,7 +361,7 @@ def source_case(
                         "user": "analysis_reader",
                     },
                 )
-                with provider_for(backend).open(ds) as session:
+                with open_source_session(provider_for(backend), ds) as session:
                     yield Case(
                         session, TableSourceIR(name, database=(catalog, "analysis")), environment
                     )
@@ -399,7 +401,7 @@ def source_case(
                 },
                 {"password": "MARIVO_SOURCE_PROFILE_PASSWORD"},
             )
-            with provider_for(backend).open(ds) as session:
+            with open_source_session(provider_for(backend), ds) as session:
                 yield Case(
                     session,
                     TableSourceIR(

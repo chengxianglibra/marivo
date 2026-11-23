@@ -104,11 +104,12 @@ from marivo.analysis.model.data_types import (
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.programs import FormulaInput
 from marivo.analysis.model.unique_keys import UniqueKeys
+from marivo.datasource.spi import query_dialect, query_policy
 from marivo.semantic._numeric_lowering import NumericCheck, NumericValue, numeric_binary
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.graph_source_execution import PreparedSources
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.spi import SourceSession
 
 
 def _decimal_shape(value: Decimal) -> tuple[int, int] | None:
@@ -739,7 +740,7 @@ def native_query_relation(
                 field_inputs.add(identifier)
                 pending.extend(by_id[identifier].inputs)
     integer_identities: dict[str, set[str]] = {}
-    if owner.provider.name != "duckdb":
+    if owner.provider.query_policy.key_fusion != "local":
         for item in plan.stages:
             if not isinstance(item, LocalCompute) or not isinstance(item.program, FormulaProgram):
                 continue
@@ -840,7 +841,7 @@ def native_query_relation(
             if read_finish(stage) is not None:
                 return "producer retains a governed host finish"
             if read_members(stage):
-                if owner.provider.name not in ("duckdb", "trino", "clickhouse") or any(
+                if not owner.provider.query_policy.supports_fused_arithmetic or any(
                     read_reduction(member) is None
                     or read_components(member) is not None
                     or read_finish(member) is not None
@@ -853,12 +854,12 @@ def native_query_relation(
                     for member in read_members(stage)
                 ):
                     return "common producer retains its original component or sample finish"
-                if owner.provider.name != "duckdb":
+                if owner.provider.query_policy.key_fusion != "local":
                     for member in read_members(stage):
                         issue = qualify_query_source(owner, member, read, frozenset())
                         if issue is not None:
                             return issue
-            if owner.provider.name not in ("duckdb", "postgres"):
+            if owner.provider.query_policy.needs_remote_carrier_qualification:
                 issue = qualify_query_source(
                     owner,
                     stage,
@@ -885,7 +886,7 @@ def native_query_relation(
             }
             reduction = read_reduction(stage)
             if reduction is None:
-                if owner.provider.name == "postgres" and any(
+                if owner.provider.query_policy.key_fusion == "key_counts" and any(
                     (
                         not (
                             column.dtype == ScalarDataType("int64")
@@ -900,7 +901,7 @@ def native_query_relation(
                     for column in stage.columns
                 ):
                     return "PostgreSQL field relations qualify decoded strings and complete identity keys; other values retain their pandas boundary"
-                if owner.provider.name not in ("duckdb", "trino", "clickhouse") and any(
+                if not owner.provider.query_policy.supports_fused_arithmetic and any(
                     column.dtype == ScalarDataType("float64") for column in stage.columns
                 ):
                     return "floating producer slots retain pandas missing-value semantics"
@@ -920,7 +921,7 @@ def native_query_relation(
             elif (
                 not qualified_query_provider(owner)
                 or (
-                    owner.provider.name == "postgres"
+                    owner.provider.query_policy.key_fusion == "key_counts"
                     and not (
                         isinstance(reduction.node, EntityCount)
                         or (
@@ -930,7 +931,7 @@ def native_query_relation(
                     )
                 )
                 or (
-                    owner.provider.name == "postgres"
+                    owner.provider.query_policy.key_fusion == "key_counts"
                     and any(
                         column.slot_id in stage.keys and column.dtype != ScalarDataType("string")
                         for column in stage.columns
@@ -1022,7 +1023,7 @@ def native_query_relation(
                     return folded
                 formula, relations = folded
             if formula.values:
-                arithmetic = owner.provider.name in ("duckdb", "trino", "clickhouse")
+                arithmetic = owner.provider.query_policy.supports_fused_arithmetic
                 if len(formula.values) != 1 and not arithmetic:
                     return "this provider retains multiple completed input grids"
                 closure = walk(
@@ -1048,7 +1049,7 @@ def native_query_relation(
                     stage.keys,
                     provider=owner.provider.name,
                     alignment="domain"
-                    if owner.provider.name in ("trino", "clickhouse")
+                    if owner.provider.query_policy.uses_identity_alignment_domain
                     else "outer",
                 )
                 if isinstance(native_formula, str):
@@ -1128,7 +1129,7 @@ def native_query_relation(
                 )
             )
         elif isinstance(operation, (FilterValues, SelectValues, TopValues)):
-            arithmetic = owner.provider.name in ("duckdb", "trino", "clickhouse")
+            arithmetic = owner.provider.query_policy.supports_fused_arithmetic
             # Demand pruning retains the original positional expression layout.
             # Typed placeholders occupy only slots unused by this operation.
             values = tuple(
@@ -1150,7 +1151,7 @@ def native_query_relation(
             if isinstance(operation, FilterValues):
                 if not isinstance(operation.predicate, ValueExpression) or not _safe_expression(  # type: ignore[redundant-expr]  # Preserve validation for untyped inputs.
                     operation.predicate,
-                    native_float=owner.provider.name in ("duckdb", "trino", "clickhouse"),
+                    native_float=owner.provider.query_policy.supports_fused_arithmetic,
                     native_arithmetic=arithmetic,
                 ):
                     return "producer filter has nonlocal or numeric expression obligations"
@@ -1171,12 +1172,12 @@ def native_query_relation(
                     (not arithmetic and not isinstance(value, (ValueSlot, ValueLiteral)))
                     or not _safe_expression(
                         value,
-                        native_float=owner.provider.name in ("duckdb", "trino", "clickhouse"),
+                        native_float=owner.provider.query_policy.supports_fused_arithmetic,
                         native_arithmetic=arithmetic,
                     )
                     for _, value in operation.values
                 ) or (
-                    owner.provider.name not in ("duckdb", "trino", "clickhouse")
+                    not owner.provider.query_policy.supports_fused_arithmetic
                     and any(column.dtype == ScalarDataType("float64") for column in stage.columns)
                 ):
                     return "producer select retains a numeric finish or computed value"
@@ -1197,7 +1198,7 @@ def native_query_relation(
                     or not qualified_query_provider(owner)
                     or not _safe_expression(
                         operation.score,
-                        native_float=owner.provider.name in ("duckdb", "trino", "clickhouse"),
+                        native_float=owner.provider.query_policy.supports_fused_arithmetic,
                         native_arithmetic=arithmetic,
                     )
                 ):
@@ -1215,14 +1216,13 @@ def native_query_relation(
                     return evaluated
                 score = evaluated.value
                 checks = (*checks, *evaluated.checks)
-                if owner.provider.name not in ("duckdb", "postgres"):
+                if owner.provider.query_policy.needs_remote_carrier_qualification:
                     issue = qualify_query_top(owner, program, score)
                     if issue is not None:
                         return issue
-                if score.type().is_floating() and owner.provider.name not in (
-                    "duckdb",
-                    "trino",
-                    "clickhouse",
+                if (
+                    score.type().is_floating()
+                    and not owner.provider.query_policy.supports_fused_arithmetic
                 ):
                     return "Top-N retains pandas floating missing-score semantics"
                 score = (
@@ -1264,7 +1264,7 @@ def _check_summary(
     # preserves. Ibis types cannot prove a key's physical/session collation;
     # only the qualified remote providers admit strings in the tuple path.
     combined = combined and (
-        provider in ("trino", "clickhouse")
+        query_policy(provider).uses_identity_alignment_domain
         or not any(relation[key].type().is_string() for _, _, keys in checks for key in keys)
     )
     metrics: dict[str, ir.Value] = {
@@ -1337,7 +1337,7 @@ def _population_check_summary(
         summary = _check_summary(
             relation_expr,
             tuple((alias, relation_expr[check.flag], check.keys) for alias, check in batch),
-            combined=provider in ("duckdb", "trino", "clickhouse"),
+            combined=query_policy(provider).supports_fused_arithmetic,
             provider=provider,
         )
         summaries.append(summary)
@@ -1410,7 +1410,7 @@ def _attach_relation_checks(
         provider = prepared.sources.get(source_id, prepared.source).provider.name
     # Other providers retain the qualified branch until actual execution and
     # cost evidence admits the tuple aggregate on their native carriers.
-    combined = provider in ("duckdb", "trino", "clickhouse")
+    combined = query_policy(provider).supports_fused_arithmetic
     for source in native.sources:
         if not source.numeric_checks:
             continue
@@ -1586,12 +1586,9 @@ def _same_key(left: ir.Value, right: ir.Value, provider: str) -> ir.BooleanValue
 
 
 def _outer_join_value(value: ir.Value, provider: str) -> ir.Value:
-    """Make absent ClickHouse endpoint cells null even with join_use_nulls=0."""
-    if provider == "clickhouse":
-        result = ops.Cast(value, to=value.type().copy(nullable=True)).to_expr()
-        assert isinstance(result, ir.Value)
-        return result
-    return value
+    """Preserve null payloads for an absent native endpoint."""
+    nullable_value = query_dialect(provider).join_value
+    return nullable_value(value) if nullable_value is not None else value
 
 
 def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
@@ -1785,8 +1782,8 @@ def _qualified_parameter_consumer(
     )
     if not _physical_owner(read.expression, owner, prepared, allowed_parameters=allowed):
         return False
-    return owner.provider.name == "duckdb" or (
-        owner.provider.name in ("trino", "clickhouse")
+    return owner.provider.query_policy.key_fusion == "local" or (
+        owner.provider.query_policy.uses_identity_alignment_domain
         and qualify_query_source(owner, stage, read, frozenset()) is None
     )
 

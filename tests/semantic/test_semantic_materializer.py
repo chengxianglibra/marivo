@@ -17,7 +17,7 @@ import pytest
 import marivo.datasource as md
 from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList
-from marivo.datasource.json_source import JsonResponseCache
+from marivo.datasource.runtime.json_source import JsonResponseCache
 from marivo.datasource.source import PartitionScope
 from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
@@ -423,7 +423,7 @@ def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
         }
     )
 
-    from marivo.datasource import json_source
+    from marivo.datasource.runtime import json_source as json_source
 
     requests: list[str] = []
 

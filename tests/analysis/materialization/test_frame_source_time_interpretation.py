@@ -14,7 +14,7 @@ from marivo.analysis.model.time_facts import (
     FrameWallClockSourceTime,
     merge_source_times,
 )
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_get, catalog_value
 

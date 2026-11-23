@@ -10,7 +10,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.backends import BuiltDatasourceBackend
+from marivo.datasource import engines as engine_registry
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
 from marivo.datasource.engines.clickhouse import (
     classify_table_resolution_failure as classify_clickhouse_resolution,
@@ -26,20 +26,19 @@ from marivo.datasource.engines.trino import (
     classify_table_resolution_failure as classify_trino_resolution,
 )
 from marivo.datasource.errors import DatasourceAuthoringError, DatasourceMetadataError
-from marivo.datasource.inspection import (
-    Partitioning,
-    _project_partitioning,
-    _project_table_metadata,
-    _structured_inspection_warnings,
-)
+from marivo.datasource.inspection.details import Partitioning
+from marivo.datasource.inspection.inspection import _structured_inspection_warnings
+from marivo.datasource.inspection.partitions import _project_partitioning
+from marivo.datasource.inspection.projection import _project_table_metadata
 from marivo.datasource.ir import TableSourceIR
-from marivo.datasource.metadata import (
+from marivo.datasource.metadata_types import (
     ColumnMetadata,
     PartitionMetadata,
     TableMetadata,
     TablePhysicalProfile,
     UniqueConstraintMetadata,
 )
+from marivo.datasource.runtime.backends import BuiltDatasourceBackend
 
 
 @pytest.fixture
@@ -180,7 +179,8 @@ def test_public_inspection_projects_schema_from_observed_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir", lambda *_a, **_k: _metadata()
+        "marivo.datasource.inspection.inspection._inspect_source_from_ir",
+        lambda *_a, **_k: _metadata(),
     )
     source = _projected_source()
 
@@ -214,7 +214,7 @@ def test_inspection_source_column_bridges_raw_catalog_types(
         ColumnMetadata("group_name", "varchar", True, None, 2),
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir",
+        "marivo.datasource.inspection.inspection._inspect_source_from_ir",
         lambda *_a, **_k: _metadata(columns=columns, backend_type="trino"),
     )
     inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
@@ -250,7 +250,8 @@ def test_inspection_source_column_returns_names_without_type_admission(
         backend_type="trino",
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir", lambda *_a, **_k: metadata
+        "marivo.datasource.inspection.inspection._inspect_source_from_ir",
+        lambda *_a, **_k: metadata,
     )
     inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     assert inspection.source_column("fixed_name") == "fixed_name"
@@ -274,7 +275,8 @@ def test_inspection_source_column_accepts_clickhouse_projectable_column(
         backend_type="clickhouse",
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir", lambda *_a, **_k: metadata
+        "marivo.datasource.inspection.inspection._inspect_source_from_ir",
+        lambda *_a, **_k: metadata,
     )
     inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     assert inspection.source_column("string_map%2Eregion*ICDS*") == "string_map%2Eregion*ICDS*"
@@ -365,11 +367,12 @@ def test_partition_probe_uses_physical_names_then_public_scope_uses_aliases(
 
     profile = replace(DUCKDB_PROFILE, inspect_partition_values=inspect_values)
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir", lambda *_a, **_k: base
+        "marivo.datasource.inspection.inspection._inspect_source_from_ir", lambda *_a, **_k: base
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection.require_profile_for_backend_type",
-        lambda _backend_type: profile,
+        engine_registry,
+        "ENGINE_PROFILES",
+        {"duckdb": profile},
     )
 
     inspection = md.inspect(ms.ref.datasource("warehouse"), _projected_source())
@@ -474,12 +477,13 @@ def test_only_classified_projected_resolution_failure_degrades_to_declared_only(
         ),
     )
     monkeypatch.setattr(
-        "marivo.datasource.backends.build_backend_with_secrets",
+        "marivo.datasource.runtime.backends.build_backend_with_secrets",
         lambda *_args, **_kwargs: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
     )
     monkeypatch.setattr(
-        "marivo.datasource.engines.require_profile_for_backend_type",
-        lambda _backend_type: profile,
+        engine_registry,
+        "ENGINE_PROFILES",
+        {"duckdb": profile},
     )
 
     inspection = md.inspect(ms.ref.datasource("warehouse"), _projected_source())
@@ -500,7 +504,7 @@ def test_unclassified_resolution_failure_remains_closed(
 ) -> None:
     backend = _ResolutionBackend(516)
     monkeypatch.setattr(
-        "marivo.datasource.backends.build_backend_with_secrets",
+        "marivo.datasource.runtime.backends.build_backend_with_secrets",
         lambda *_args, **_kwargs: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
     )
 
@@ -544,6 +548,6 @@ def test_projected_fixed_char_retains_observed_type(engine: str, physical: str) 
         md.table("orders", columns={"value": "value"}),
     )
     assert projected.columns[0].type == physical.lower()
-    from marivo.datasource.inspection import _ibis_table_type
+    from marivo.datasource.inspection.projection import _ibis_table_type
 
     assert _ibis_table_type(projected.columns[0].type, backend_type=engine) == "string"

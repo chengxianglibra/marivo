@@ -1,0 +1,369 @@
+"""Loader for project-level datasource declarations."""
+
+from __future__ import annotations
+
+import sys
+import types
+from collections.abc import Sequence
+from dataclasses import dataclass
+from importlib import util as importlib_util
+from pathlib import Path
+
+from marivo._authoring.loading import (
+    _authored_file_spec,
+    _authored_imports,
+    _execution_diagnostic,
+    _new_module_prefix,
+    _source_loading,
+)
+from marivo._kernel.config import AUTHORED_DIR, DATASOURCES_DIR, PROJECT_MANIFEST
+from marivo.datasource.errors import (
+    DatasourceDuplicateError,
+    DatasourceError,
+    DatasourceLoadError,
+    repair,
+)
+from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.store.authoring import _DATASOURCE_CTX, DatasourceLoaderContext
+from marivo.datasource.store.builtin import require_user_datasource_name
+
+
+@dataclass(frozen=True)
+class DatasourceLoadResult:
+    datasources: tuple[DatasourceIR, ...]
+    errors: tuple[Exception, ...]
+    discarded: tuple[DatasourceIR, ...] = ()
+
+
+def _ensure_package(name: str, path: Path) -> None:
+    package = types.ModuleType(name)
+    package.__file__ = str(path)
+    package.__package__ = name
+    package.__path__ = [str(path)]
+    sys.modules[name] = package
+
+
+def _execute_file(
+    filepath: Path,
+    ctx: DatasourceLoaderContext,
+    errors: list[Exception],
+    *,
+    module_name: str,
+    package_name: str,
+) -> bool:
+    token = _DATASOURCE_CTX.set(ctx)
+    try:
+        spec = _authored_file_spec(module_name, filepath)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not create module spec for {filepath}")
+        module = importlib_util.module_from_spec(spec)
+        module.__package__ = package_name
+        sys.modules[module_name] = module
+        with _source_loading(filepath), _authored_imports((package_name,)):
+            spec.loader.exec_module(module)
+    except Exception as exc:
+        diagnostic = _execution_diagnostic(exc, filepath)
+        if isinstance(exc, DatasourceError):
+            error = exc
+        else:
+            error = DatasourceLoadError(
+                message=str(exc),
+                location=diagnostic.file,
+                repair=repair(
+                    kind="reload",
+                    canonical_id="load",
+                    action=diagnostic.action,
+                ),
+            )
+            error.__cause__ = exc
+        if error.traceback is None:
+            error.exception_type = diagnostic.exception_type
+            error.traceback = diagnostic.traceback
+        if error.source_location is None:
+            error.source_location = DatasourceSourceLocation(diagnostic.file, diagnostic.line)
+        errors.append(error)
+        return False
+    finally:
+        _DATASOURCE_CTX.reset(token)
+    return True
+
+
+def load_datasources(root: Path) -> DatasourceLoadResult:
+    """Load declarations from an exact datasource directory.
+
+    Internal helper for loading declarations from one exact datasource directory.
+    Not part of the public ``md.*`` surface — use ``md.load().list()`` or
+    ``md.load().describe()`` to browse configured datasources, and ``md.register()``
+    to create new ones.
+    """
+    result = _load_datasource_directory(root)
+    return DatasourceLoadResult(
+        datasources=result.datasources,
+        errors=(*result.errors, *_duplicate_errors(result.datasources)),
+    )
+
+
+def _load_datasource_directory(
+    root: Path, *, isolate_failures: bool = False
+) -> DatasourceLoadResult:
+    errors: list[Exception] = []
+    if not root.exists():
+        return DatasourceLoadResult(datasources=(), errors=())
+    if not root.is_dir():
+        return DatasourceLoadResult(
+            datasources=(),
+            errors=(
+                DatasourceLoadError(
+                    message=f"Datasource path {root} exists but is not a directory.",
+                    expected="a datasource declaration directory",
+                    received=str(root),
+                    location=str(root),
+                    repair=repair(
+                        kind="reload",
+                        canonical_id="load",
+                        action="Point loading at a datasource directory.",
+                    ),
+                ),
+            ),
+        )
+
+    expected_root: Path | None = None
+    if (root / PROJECT_MANIFEST).is_file() or (root / DATASOURCES_DIR).is_dir():
+        expected_root = root / DATASOURCES_DIR
+    elif (root / "datasources").is_dir() and (
+        root.name == AUTHORED_DIR or (root / "semantic").is_dir()
+    ):
+        expected_root = root / "datasources"
+    elif root.name == "semantic" and (root.parent / "datasources").is_dir():
+        expected_root = root.parent / "datasources"
+    if expected_root is not None:
+        return DatasourceLoadResult(
+            datasources=(),
+            errors=(
+                DatasourceLoadError(
+                    message=f"load_datasources() expects a datasource directory, got {root}.",
+                    expected=str(expected_root),
+                    received=str(root),
+                    location=str(root),
+                    repair=repair(
+                        kind="reload",
+                        canonical_id="load",
+                        action=(
+                            f"Pass {expected_root} to load_datasources(), or use "
+                            "md.load(workspace_dir=...) with the workspace root."
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    prefix = _new_module_prefix("datasource")
+    _ensure_package(prefix, root)
+    ctx = DatasourceLoaderContext()
+    discarded: list[DatasourceIR] = []
+    for child in sorted(root.iterdir()):
+        if not child.is_file() or child.suffix != ".py" or child.name.startswith("."):
+            continue
+        module_name = f"{prefix}.{child.stem}"
+        if module_name in sys.modules:
+            continue
+        before = (
+            {name for name in sys.modules.copy() if name.startswith(f"{prefix}.")}
+            if isolate_failures
+            else set()
+        )
+        start = len(ctx.pending_objects)
+        success = _execute_file(child, ctx, errors, module_name=module_name, package_name=prefix)
+        if isolate_failures and success and len(ctx.pending_objects) > start:
+            # Python removes a failed relative import even when its caller catches
+            # the exception. Its registered declarations must be discarded as well.
+            imported_files = {
+                getattr(module, "__file__", None)
+                for name, module in sys.modules.copy().items()
+                if name.startswith(f"{prefix}.")
+            }
+            for item in ctx.pending_objects[start:]:
+                file = item.location.file
+                if Path(file).is_relative_to(root) and file not in imported_files:
+                    error = DatasourceLoadError(
+                        message="A relative import did not finish loading its datasource declarations.",
+                        location=file,
+                        repair=repair(
+                            kind="reload",
+                            canonical_id="load",
+                            action="Fix the failed import before loading its datasource declarations.",
+                        ),
+                    )
+                    error.source_location = item.location
+                    errors.append(error)
+                    success = False
+                    break
+        if isolate_failures and not success:
+            discarded.extend(ctx.pending_objects[start:])
+            del ctx.pending_objects[start:]
+            # A relative import can retain objects from a partially initialized
+            # module in a cycle. Roll back the whole new import batch.
+            for name in sys.modules.copy():
+                if name.startswith(f"{prefix}.") and name not in before:
+                    module = sys.modules.pop(name)
+                    parent_name, _, attribute = name.rpartition(".")
+                    parent = sys.modules.get(parent_name)
+                    if parent is not None and vars(parent).get(attribute) is module:
+                        delattr(parent, attribute)
+
+    accepted: list[DatasourceIR] = []
+    for datasource in ctx.pending_objects:
+        try:
+            require_user_datasource_name(datasource.name, location=datasource.location.file)
+        except DatasourceDuplicateError as exc:
+            errors.append(exc)
+        else:
+            accepted.append(datasource)
+    return DatasourceLoadResult(
+        datasources=tuple(accepted), errors=tuple(errors), discarded=tuple(discarded)
+    )
+
+
+def _duplicate_errors(datasources: Sequence[DatasourceIR]) -> tuple[DatasourceDuplicateError, ...]:
+    errors: list[DatasourceDuplicateError] = []
+    seen: dict[str, DatasourceIR] = {}
+    for datasource in datasources:
+        existing = seen.get(datasource.name)
+        if existing is not None:
+            first = existing.location.file
+            second = datasource.location.file
+            paths = (first, second)
+            missing = tuple(
+                dict.fromkeys(
+                    path for path in paths if path.endswith(".py") and not Path(path).is_file()
+                )
+            )
+            action = "Rename or remove one conflicting datasource declaration."
+            missing_message = ""
+            if missing:
+                missing_message = f" Declaration source no longer exists: {', '.join(missing)}."
+                action = (
+                    "A declaration source no longer exists; an old imported object may remain "
+                    "in this Python process. Restart Python and reload the project."
+                )
+                caches = sorted(
+                    {
+                        str(cache)
+                        for path in missing
+                        for cache in (
+                            Path(path).with_suffix(".pyc"),
+                            *(Path(path).parent / "__pycache__").glob(f"{Path(path).stem}.*.pyc"),
+                        )
+                        if cache.is_file()
+                    }
+                )
+                if caches:
+                    action += (
+                        " If the issue persists after restarting, inspect these existing bytecode "
+                        f"cache files: {', '.join(caches)}. Their presence does not establish the cause."
+                    )
+            errors.append(
+                DatasourceDuplicateError(
+                    message=(
+                        f"Duplicate datasource name: {datasource.name!r}. "
+                        f"First declaration: {first}. Conflicting declaration: {second}."
+                        f"{missing_message}"
+                    ),
+                    declaration_paths=paths,
+                    expected="a unique datasource name across project model roots",
+                    received=datasource.name,
+                    location=second,
+                    repair=repair(
+                        kind="reauthor",
+                        canonical_id="load",
+                        action=action,
+                    ),
+                )
+            )
+        seen.setdefault(datasource.name, datasource)
+    return tuple(errors)
+
+
+def _models_root_errors(roots: Sequence[Path]) -> tuple[DatasourceLoadError, ...]:
+    """Validate ordered model roots; only the first, local root may be absent."""
+    errors: list[DatasourceLoadError] = []
+    seen: set[Path] = set()
+    for index, candidate in enumerate(roots):
+        root = candidate.resolve()
+        problems: list[tuple[str, Path, str]] = []
+        if root in seen:
+            message = (
+                "Configured semantic layer models root duplicates the local project models root"
+                if root == roots[0].resolve()
+                else "Configured semantic layer models root is listed more than once"
+            )
+            problems.append((message, root, "Keep each configured models root unique."))
+        elif index > 0 and not root.exists():
+            problems.append(
+                (
+                    "Configured semantic layer models root does not exist",
+                    root,
+                    "Point marivo.toml [semantic].layer_paths at an existing models/ directory.",
+                )
+            )
+        elif root.exists() and not root.is_dir():
+            problems.append(
+                (
+                    "Configured semantic layer models root is not a directory",
+                    root,
+                    "Point model loading at a models/ directory.",
+                )
+            )
+        elif index > 0:
+            for child in ("datasources", "semantic"):
+                if not (root / child).is_dir():
+                    problems.append(
+                        (
+                            f"Configured semantic layer models root is missing {child}/",
+                            root / child,
+                            f"Create {child}/ under the configured models root or remove this layer path.",
+                        )
+                    )
+        seen.add(root)
+        for message, location, action in problems:
+            errors.append(
+                DatasourceLoadError(
+                    message=f"{message}: {location}",
+                    expected="valid distinct project model roots",
+                    received=str(location),
+                    location=str(location),
+                    repair=repair(kind="configure", canonical_id="load", action=action),
+                )
+            )
+    return tuple(errors)
+
+
+def _load_models_datasources(
+    roots: Sequence[Path], *, isolate_failures: bool = False
+) -> DatasourceLoadResult:
+    """Collect declarations from model roots validated by ``_models_root_errors``."""
+    datasources: list[DatasourceIR] = []
+    errors: list[Exception] = []
+    discarded: list[DatasourceIR] = []
+    for root in roots:
+        result = _load_datasource_directory(root / "datasources", isolate_failures=isolate_failures)
+        datasources.extend(result.datasources)
+        errors.extend(result.errors)
+        discarded.extend(result.discarded)
+    # Failed files still establish identity conflicts. Ignore repeated execution
+    # of the same declaration when collecting discarded import batches.
+    accepted = {(item.name, item.location) for item in datasources}
+    conflicts: list[DatasourceIR] = []
+    for item in discarded:
+        key = (item.name, item.location)
+        if key not in accepted:
+            conflicts.append(item)
+            accepted.add(key)
+            try:
+                require_user_datasource_name(item.name, location=item.location.file)
+            except DatasourceDuplicateError as error:
+                errors.append(error)
+    errors.extend(_duplicate_errors([*datasources, *conflicts]))
+    return DatasourceLoadResult(
+        datasources=tuple(datasources), errors=tuple(errors), discarded=tuple(discarded)
+    )

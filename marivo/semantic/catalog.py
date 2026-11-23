@@ -69,9 +69,7 @@ from marivo._kernel.symbolic import (
     symbol_from_ref,
 )
 from marivo.datasource import credentials as cr
-from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
-from marivo.datasource.credential_inputs import credential_labels
-from marivo.datasource.engines import require_profile_for_backend_type
+from marivo.datasource.credentials.inputs import credential_labels
 from marivo.datasource.errors import DatasourceError
 from marivo.datasource.ir import (
     AiContextIR,
@@ -80,17 +78,21 @@ from marivo.datasource.ir import (
     QueryParamScalar,
     QueryParamScalarList,
 )
-from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.source import AuthoringScope
 from marivo.datasource.spi import (
+    DEFAULT_DATASOURCE_DESCRIPTION,
+    DEFAULT_DATASOURCE_NAME,
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
+    DatasourceConnectionService,
     PreviewExecutionLimits,
     PreviewResult,
     PreviewSamplePolicy,
     PreviewWarning,
     preview_from_pandas,
     preview_ibis_table,
+    require_profile_for_backend_type,
+    timestamp_is_instant,
     validate_preview_limit,
 )
 from marivo.semantic._expression_values import (
@@ -319,7 +321,7 @@ def _preview_reader(
     timeout = profile.native_query_timeout
     connection_scope = (
         connections.terminal_scope(bindings.timeout_seconds)
-        if bindings.backend in {"trino", "postgres", "mysql"}
+        if profile.dialect.preview_requires_terminal_scope
         else nullcontext()
     )
     with connection_scope:
@@ -1447,9 +1449,7 @@ def _preview_timezones_for_field(
 
     if not field_ir.is_time_dimension:
         return {}
-    if isinstance(physical_type, dt.Timestamp) and (
-        physical_type.timezone is not None or engine == "clickhouse"
-    ):
+    if timestamp_is_instant(physical_type, engine):
         return {column_name: {"kind": "instant"}}
     source = effective_source_timezone(
         registry, source_timezone_axis(registry, field_ir.semantic_id)

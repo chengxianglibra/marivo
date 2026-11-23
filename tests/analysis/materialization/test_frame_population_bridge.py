@@ -41,7 +41,7 @@ from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import source_params
 from tests.shared_fixtures import catalog_get, catalog_value
@@ -402,14 +402,14 @@ def test_typed_transport_keeps_complete_large_identity_tuples(
     large = 2**53
     with duckdb.connect(str(session.project_root / "bridge.duckdb")) as connection:
         connection.execute(f"UPDATE facts SET id=id+{large}")
-    original = SourceSession._bind_key_relation
+    original = SourceSession.bind_key_relation
     keys: list[pa.Table] = []
 
     def bind(self: SourceSession, data: pa.Table) -> ir.Table:
         keys.append(data)
         return original(self, data)
 
-    monkeypatch.setattr(SourceSession, "_bind_key_relation", bind)
+    monkeypatch.setattr(SourceSession, "bind_key_relation", bind)
     base = _memory(session, identity=True)
     assert isinstance(base._schema, DataSchema)
     selected = AnalysisFrame._from_memory(

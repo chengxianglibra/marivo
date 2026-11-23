@@ -327,7 +327,7 @@ def test_attribute_missing_classification_reports_the_retained_endpoint_before_r
 ) -> None:
     import marivo.semantic as ms
     from marivo.analysis.errors import AnalysisError
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     _write_object_model(tmp_path)
     model = tmp_path / "models/semantic/sales/model.py"

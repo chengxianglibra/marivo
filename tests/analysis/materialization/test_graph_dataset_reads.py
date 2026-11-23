@@ -141,7 +141,7 @@ import marivo.analysis as mv
 assert Path(mv.__file__).resolve().parents[2] == Path(sys.argv[6])
 from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.analysis.materialization.graph_reading import OutputRead
 
 def forbidden(*args, **kwargs):

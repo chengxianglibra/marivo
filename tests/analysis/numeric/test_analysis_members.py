@@ -16,7 +16,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic._expression_values import FieldExpression
 from marivo.semantic.errors import SemanticExpressionError
 from tests.analysis.statistics.pandas_workflows import receipt_paths
@@ -353,7 +353,7 @@ from datetime import datetime, timezone
 import duckdb
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 def forbidden(*args, **kwargs):
     raise AssertionError('cold Artifact opened a source or model')
 ms.load = forbidden

@@ -21,7 +21,7 @@ from marivo.analysis.materialization.terminal_protocol import decode, encode
 from marivo.analysis.materialization.terminal_storage import read_output
 from marivo.analysis.model.data_schema import CalendarDataAxis
 from marivo.analysis.model.time_facts import FrameCalendarAxisSchema
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value, run_ids
 from tests.support.paths import PROJECT_ROOT
@@ -121,7 +121,7 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
 from pathlib import Path
 import duckdb, ibis, pytest
 import marivo.analysis as mv
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 root = Path(sys.argv[1]); os.environ['MARIVO_PROJECT_ROOT'] = str(root)

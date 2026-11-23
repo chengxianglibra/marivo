@@ -16,7 +16,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.statistics.pandas_workflows import forecast, receipt_paths
 from tests.analysis.statistics.runs_worker import segments
@@ -149,7 +149,7 @@ from pathlib import Path
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.test_full_grid_unknown import _mask
 from tests.analysis.statistics.runs_worker import segments

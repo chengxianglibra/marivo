@@ -487,7 +487,7 @@ def test_registry_covers_all_public_types() -> None:
 
 
 def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
-    from marivo.datasource.preview import PreviewResult
+    from marivo.datasource.runtime.preview import PreviewResult
     from marivo.introspection.live.resolve import resolve_live_target
 
     for type_obj, contract in TYPE_CONTRACTS.items():
@@ -516,7 +516,7 @@ def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
 def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
     from marivo._help.model import NativeHelpRoute
     from marivo._help.route import route_help_target
-    from marivo.datasource.preview import PreviewResult
+    from marivo.datasource.runtime.preview import PreviewResult
     from marivo.introspection.live.resolve import resolve_live_target
     from marivo.semantic.dtos import PreviewBatchResult
     from marivo.semantic.readiness import ReadinessReport

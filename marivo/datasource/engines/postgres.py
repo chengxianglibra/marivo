@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Literal
+from dataclasses import (
+    replace,
+)
+from typing import Any, Literal
 
+import ibis
+import ibis.expr.datatypes as dt
+import ibis.expr.operations as ops
+import ibis.expr.schema as sch
+import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 
-from marivo.datasource.capabilities import (
-    ProviderStatement,
-    execute_provider_statement,
-    register_provider_statements,
-)
+from marivo.datasource.engines.aggregate_policy import POSTGRES_AGGREGATES
 from marivo.datasource.engines.base import (
     AuthoringCapabilities,
     EngineMetadataIntrospection,
@@ -23,12 +27,40 @@ from marivo.datasource.engines.base import (
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.engines.query import (
+    EngineQueryPolicy,
+    KeyRows,
+    OriginalStringPolicy,
+    QueryDialectProfile,
+    finite_calendar_clock,
+    zipped_key_arrays,
+)
 from marivo.datasource.engines.requirements import POSTGRES_REQUIREMENT
+from marivo.datasource.engines.statements import (
+    ProviderStatement,
+    execute_provider_statement,
+    register_provider_statements,
+)
+from marivo.datasource.engines.strptime import python_to_postgres_strptime
+from marivo.datasource.errors import (
+    _backend_failure_summary,
+)
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
-from marivo.datasource.strptime import python_to_postgres_strptime
-
-if TYPE_CHECKING:
-    from marivo.datasource.metadata import TableMetadata
+from marivo.datasource.metadata_types import (
+    ColumnMetadata,
+    MetadataWarning,
+    PartitionMetadata,
+    TableMetadata,
+    TablePhysicalProfile,
+    UniqueConstraintMetadata,
+    _bool_from_nullable,
+    _database_label,
+    _empty_to_none,
+    _int_or_none,
+    _merge_columns,
+    _partition_columns_from_expression,
+    _schema_columns,
+)
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
@@ -194,24 +226,6 @@ def _inspect_postgres(
     include_partitions: bool,
     default_schema: str | None,
 ) -> TableMetadata:
-    from dataclasses import replace
-
-    from marivo.datasource.errors import _backend_failure_summary
-    from marivo.datasource.metadata import (
-        ColumnMetadata,
-        MetadataWarning,
-        PartitionMetadata,
-        TableMetadata,
-        TablePhysicalProfile,
-        UniqueConstraintMetadata,
-        _bool_from_nullable,
-        _database_label,
-        _empty_to_none,
-        _int_or_none,
-        _merge_columns,
-        _partition_columns_from_expression,
-        _schema_columns,
-    )
 
     schema_columns = _schema_columns(table_expr)
     schema_name = _database_label(database) or default_schema or "public"
@@ -469,7 +483,67 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
     yield
 
 
+def _postgres_json(value: str) -> object:
+    raise NotImplementedError("native PostgreSQL to_json")
+
+
+def _postgres_encode(value: str, encoding: str) -> bytes:
+    raise NotImplementedError("native PostgreSQL convert_to")
+
+
+_POSTGRES_JSON: Callable[[ir.Value], ir.Value] = ibis.udf.scalar.builtin(
+    name="to_json", signature=(("string",), "json")
+)(_postgres_json)
+_POSTGRES_ENCODE: Callable[[ir.Value, str], ir.Value] = ibis.udf.scalar.builtin(
+    name="convert_to", signature=(("string", "string"), "binary")
+)(_postgres_encode)
+
+
+def returned_text(value: ir.Value) -> ir.Value:
+    """Preserve native CHAR padding before nullable text/key normalization."""
+    encoded = _POSTGRES_JSON(value)
+    assert isinstance(encoded, ir.JSONValue)
+    return encoded.unwrap_as("str")
+
+
+def string_bytes(value: ir.Value) -> ir.Value:
+    # JSON preserves CHAR padding as returned to the reader; CHAR -> text does not.
+    if not isinstance(value.op(), ops.Literal):
+        value = returned_text(value)
+    return _POSTGRES_ENCODE(value, "UTF8")
+
+
+def _inline_key_relation(schema: sch.Schema, records: KeyRows) -> ir.Table | None:
+    key_types = (dt.int64, dt.string, dt.boolean, dt.date)
+    if (
+        not records
+        or not schema
+        or any(dtype.copy(nullable=True) not in key_types for dtype in schema.types)
+    ):
+        return None
+    return zipped_key_arrays(schema, records)
+
+
 PROFILE = EngineProfile(
+    dialect=QueryDialectProfile(
+        aggregates=POSTGRES_AGGREGATES,
+        string_bytes=string_bytes,
+        returned_string=returned_text,
+        source_membership_uses_returned_strings=True,
+        original_strings=OriginalStringPolicy(column=deterministic_collation),
+        native_subday_grains=frozenset({"second", "minute", "hour"}),
+        finite_calendar_clock=finite_calendar_clock,
+        preview_requires_terminal_scope=True,
+        supports_native_frame_top=True,
+    ),
+    arrow_reads=True,
+    issued_query_only=True,
+    query_policy=EngineQueryPolicy(
+        key_fusion="key_counts",
+        sample_fusion=True,
+        semi_join_membership=True,
+        inline_key_relation=_inline_key_relation,
+    ),
     name="postgres",
     aliases=("postgresql", "redshift"),
     authoring_func="postgres",

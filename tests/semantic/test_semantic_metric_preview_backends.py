@@ -32,7 +32,7 @@ def test_duration_quantile_preview_rejects_before_business_reads(
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     path = tmp_path / "durations.parquet"
     pq.write_table(

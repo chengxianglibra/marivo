@@ -435,7 +435,7 @@ def _assert_row_result(tmp_path: Path, *, extended: bool = True) -> None:
 import sys
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime.connections import DatasourceConnectionService
 def forbidden(*args, **kwargs):
     raise AssertionError('Cold Frame recovery accessed semantic/source state')
 ms.load = forbidden

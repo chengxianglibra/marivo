@@ -264,7 +264,7 @@ import os, sys
 from unittest.mock import patch
 import marivo.analysis as mv
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 os.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError('inferred fixed comparison attempted a source or catalog read')
@@ -751,7 +751,7 @@ def test_source_binary_failure_still_closes_and_publishes_nothing(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.analysis.model.execution_errors import MaterializationError
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j1")
     session = case.session

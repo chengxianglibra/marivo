@@ -43,7 +43,8 @@ from marivo.analysis.model.errors import CoreRuleError
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.kernels import QUERY_COMBINE_KERNEL
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._expression_values import DimensionExpression, NumericMetric, RowPredicate
 from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
@@ -781,7 +782,7 @@ def test_preview_rejects_sample_preparation_before_opening_source(
     warehouse_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import marivo.datasource as md
-    import marivo.datasource.backends as backends
+    from marivo.datasource.runtime import backends as backends
 
     session = warehouse_session
     metric = catalog_value(session.catalog, "sales.sampled", kind="metric")

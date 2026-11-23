@@ -2,7 +2,7 @@
 
 import pytest
 
-from marivo.datasource.inspection import _canonical_catalog_type
+from marivo.datasource.inspection.projection import _canonical_catalog_type
 
 
 @pytest.mark.parametrize(

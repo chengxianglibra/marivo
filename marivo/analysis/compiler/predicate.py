@@ -12,6 +12,7 @@ from marivo._definition.expressions import PredicateExpression
 from marivo._definition.graph import computation_fingerprint
 from marivo._definition.relations import PopulationContains, PopulationDependency
 from marivo.analysis.compiler.errors import compilation_error
+from marivo.datasource.spi import query_dialect
 from marivo.semantic._numeric_lowering import NumericValue, lower_predicate
 
 
@@ -39,7 +40,7 @@ def lower_condition(condition: PredicateExpression, fields: Mapping[str, ir.Valu
 
 
 def native_predicate_equality(predicate: ir.Value) -> ir.BooleanValue:
-    """Preserve the source column's collation for MySQL business conditions."""
+    """Retain native collation for source string equality when required."""
 
     def rewrite(node: ops.Node, kwargs: dict[str, object] | None) -> ops.Node:
         comparison = node.__recreate__(kwargs) if kwargs else node
@@ -48,11 +49,11 @@ def native_predicate_equality(predicate: ir.Value) -> ir.BooleanValue:
             isinstance(comparison, ops.Equals)
             and comparison.left.dtype.is_string()
             and comparison.right.dtype.is_string()
-            and any(table.source.name == "mysql" for table in comparison.find(ops.DatabaseTable))
         ):
-            # Ibis inserts a binary cast for MySQL string '='. Singleton IN
-            # uses native equality and keeps SQL UNKNOWN for NULL operands.
-            return ops.InValues(comparison.left, (comparison.right,))
+            for table in comparison.find(ops.DatabaseTable):
+                equality = query_dialect(table.source.name).string_equality
+                if equality is not None:
+                    return equality(comparison)
         return comparison
 
     # A Field's owning relation can contain separately authored filters/joins.

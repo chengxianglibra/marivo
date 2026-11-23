@@ -213,7 +213,7 @@ def test_session_bound_dependency_is_not_admitted(semantic_project_factory: Proj
 def test_collection_reads_no_business_source(
     semantic_project_factory: ProjectFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.datasource.backends as backends
+    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError("model collection read a business source")

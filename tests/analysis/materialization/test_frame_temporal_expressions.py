@@ -358,7 +358,7 @@ import pyarrow as pa
 import marivo.analysis as mv
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 os.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError('cold temporal continuation attempted source reconstruction')

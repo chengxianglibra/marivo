@@ -90,18 +90,19 @@ from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.kernels import FrequencyState, FrequencyValue
 from marivo.analysis.model.time_facts import FrameSourceTime, merge_source_times
 from marivo.analysis.model.unique_keys import UniqueKeys
-from marivo.datasource.adapters import (
+from marivo.datasource.ir import JsonSourceIR
+from marivo.datasource.spi import (
     DURATION_UNIT_METADATA_KEY,
     TIMESTAMP_UNIT_METADATA_KEY,
     BoundSource,
     CompiledRead,
+    DatasourceConnectionService,
+    JsonResponseCache,
     PhysicalRequirement,
     QualifiedSource,
     SourceSession,
+    query_policy,
 )
-from marivo.datasource.ir import JsonSourceIR
-from marivo.datasource.json_source import JsonResponseCache
-from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._numeric_lowering import NumericCheck
 from marivo.semantic.validator import normalize_target_entity
@@ -126,37 +127,20 @@ class PreparedSources:
     original_input_qualifications: dict[
         tuple[SourceSession, ops.Node], Literal["qualified", "other", "unavailable"]
     ] = field(default_factory=dict)
-    collation_qualifications: dict[
-        tuple[SourceSession, ops.Node, str], Literal["deterministic", "other", "unavailable"]
-    ] = field(default_factory=dict)
+    collation_qualifications: dict[tuple[SourceSession, ops.Node, str], str | None] = field(
+        default_factory=dict
+    )
 
 
 def _original_input_fact(
     prepared: PreparedSources, owner: SourceSession, bound: BoundSource, leaf: ops.Node
 ) -> Literal["qualified", "other", "unavailable"]:
-    from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
-
     key = (owner, leaf)
     if key not in prepared.original_input_qualifications:
         try:
-            if owner.provider.name == "duckdb":
-                from marivo.datasource.engines.duckdb import uncollated_original_input
-
-                qualified = uncollated_original_input(
-                    owner._backend,
-                    leaf.to_expr(),
-                    file_source=isinstance(
-                        bound.source, (CsvSourceIR, JsonSourceIR, ParquetSourceIR)
-                    ),
-                )
-            elif not isinstance(bound.source, TableSourceIR) or not isinstance(
-                leaf, ops.DatabaseTable
-            ):
-                qualified = False
-            elif owner.provider.name == "clickhouse":
-                qualified = owner.clickhouse_join_issue(bound) is None
-            else:
-                qualified = owner.provider.name in ("postgres", "mysql", "trino")
+            qualified = owner.string_facts.original_input_qualified(
+                bound, leaf, owner.table_join_issue
+            )
             prepared.original_input_qualifications[key] = "qualified" if qualified else "other"
         except Exception:
             prepared.original_input_qualifications[key] = "unavailable"
@@ -167,9 +151,8 @@ def qualify_original_strings(
     prepared: PreparedSources, table: ir.Table, columns: tuple[str, ...]
 ) -> str | None:
     """Qualify remote strings, retaining MySQL's native comparison semantics."""
-    from marivo.datasource._expression_fields import physical_fields
-    from marivo.datasource.engines.postgres import deterministic_collation
     from marivo.datasource.ir import TableSourceIR
+    from marivo.datasource.spi import physical_fields
 
     for column in columns:
         value = table[column]
@@ -185,84 +168,19 @@ def qualify_original_strings(
                     continue
                 matched = True
                 owner = prepared.sources.get(path, prepared.source)
-                if owner.provider.name not in ("postgres", "mysql", "trino", "clickhouse"):
-                    continue
-                if not isinstance(bound.source, TableSourceIR):
+                if owner.provider.query_policy.key_fusion not in (
+                    "none",
+                    "local",
+                ) and not isinstance(bound.source, TableSourceIR):
                     return "Remote original strings require a physical table collation"
-                if owner.provider.name == "mysql":
-                    # Source grouping and membership use the declared collation;
-                    # completed Frame keys retain the reader's returned strings.
-                    continue
                 key = (owner, bound.relation.op(), physical_field.name)
                 if key not in prepared.collation_qualifications:
-                    try:
-                        if owner.provider.name == "clickhouse":
-                            from marivo.datasource.engines.clickhouse import decoded_string_columns
-
-                            identity = bound.facts.source_identity
-                            if identity not in owner._original_decoded_strings:
-                                owner._original_decoded_strings[identity] = decoded_string_columns(
-                                    owner._backend, owner.datasource, bound.source, enums=True
-                                )
-                            deterministic = (
-                                physical_field.name in owner._original_decoded_strings[identity]
-                            )
-                        elif owner.provider.name == "trino":
-                            from marivo.datasource.engines.trino import (
-                                _trino_namespace,
-                                _trino_rows,
-                            )
-
-                            catalog, schema = _trino_namespace(
-                                bound.source.database,
-                                catalog=str(owner.datasource.fields["catalog"]),
-                                default_schema=str(owner.datasource.fields.get("schema", "")),
-                            )
-                            rows = _trino_rows(
-                                owner._backend,
-                                "trino.columns",
-                                values={
-                                    "catalog": catalog,
-                                    "schema": schema,
-                                    "table": bound.source.table,
-                                },
-                            )
-                            for row in rows:
-                                metadata_key = (
-                                    owner,
-                                    bound.relation.op(),
-                                    str(row.get("column_name")),
-                                )
-                                prepared.collation_qualifications[metadata_key] = (
-                                    "deterministic"
-                                    if str(row.get("data_type", "")).lower().startswith("varchar")
-                                    else "other"
-                                )
-                            deterministic = (
-                                prepared.collation_qualifications.get(key) == "deterministic"
-                            )
-                        else:
-                            deterministic = deterministic_collation(
-                                owner._backend, owner.datasource, bound.source, physical_field.name
-                            )
-                        prepared.collation_qualifications[key] = (
-                            "deterministic" if deterministic else "other"
-                        )
-                    except Exception:
-                        prepared.collation_qualifications[key] = "unavailable"
-                fact = prepared.collation_qualifications[key]
-                if fact == "unavailable":
-                    return (
-                        "ClickHouse original strings require visible decoded-carrier metadata"
-                        if owner.provider.name == "clickhouse"
-                        else "Remote original strings require visible deterministic collation metadata"
+                    prepared.collation_qualifications[key] = (
+                        owner.string_facts.original_string_issue(bound, physical_field.name)
                     )
-                if fact != "deterministic":
-                    return (
-                        f"ClickHouse column {physical_field.name}: encoded string carrier is unsupported; use String or Enum8/Enum16 decoded values; FixedString is excluded from Attribute; Query preserves decoded string NUL padding"
-                        if owner.provider.name == "clickhouse"
-                        else "Remote original strings retain a nondeterministic collation boundary"
-                    )
+                issue = prepared.collation_qualifications[key]
+                if issue is not None:
+                    return issue
             if not matched:
                 return "original string coordinate has an unqualified physical source"
     return None
@@ -283,14 +201,14 @@ def qualify_original_source(
         SourceAggregate,
         SourceWeightedMean,
     )
-    from marivo.datasource._expression_fields import physical_fields
     from marivo.datasource.ir import TableSourceIR
+    from marivo.datasource.spi import physical_fields
     from marivo.semantic._numeric_lowering import lower_row
 
     if not reads:
         return "original fiber has no source reads"
     owner = prepared.sources.get(reads[0].source_id, prepared.source)
-    if owner.provider.name == "duckdb":
+    if owner.provider.query_policy.key_fusion == "local":
         physical = (ops.DatabaseTable, ops.UnboundTable, ops.InMemoryTable, ops.SQLQueryResult)
         leaves = set(raw.op().find(physical))
         qualified: set[ops.Node] = set()
@@ -310,18 +228,18 @@ def qualify_original_source(
             return "original recomputation requires typed physical inputs from one source owner"
         return None
     if (
-        owner.provider.name not in ("postgres", "mysql", "trino", "clickhouse")
+        owner.provider.query_policy.key_fusion == "none"
         or owner._backend.name != owner.provider.name
         or owner.datasource.backend_type != owner.provider.name
     ):
         return "original fiber has no qualified physical backend route"
 
-    if owner.provider.name == "clickhouse":
+    if owner.provider.table_join_issue is not None:
         for bound in prepared.bound.values():
             if bound.relation.op() not in raw.op().find(ops.DatabaseTable):
                 continue
             try:
-                issue = owner.clickhouse_join_issue(bound)
+                issue = owner.table_join_issue(bound)
             except Exception:
                 return "ClickHouse original inputs require visible system.tables topology metadata"
             if issue is not None:
@@ -452,9 +370,9 @@ def qualify_attribute_game_sources(prepared: PreparedSources, plan: QueryPlan) -
             input_failure(
                 "unqualified_contribution_route", "replacement states require native tables"
             )
-        if owner.provider.name == "clickhouse":
+        if owner.provider.table_join_issue is not None:
             try:
-                issue = owner.clickhouse_join_issue(bound)
+                issue = owner.table_join_issue(bound)
             except Exception:
                 input_failure(
                     "unqualified_contribution_route",
@@ -579,7 +497,7 @@ def _admitted(schema: pa.Schema, path: str, column: str) -> SourceField:
 
 def _bound_physical_field(physical: ops.Field, bound: BoundSource) -> pa.Field | None:
     """Recover captured carrier metadata through the source's declared projection."""
-    from marivo.datasource._expression_fields import physical_fields
+    from marivo.datasource.spi import physical_fields
 
     for captured in bound.facts.schema:
         if physical in physical_fields(bound.relation[captured.name]):
@@ -591,7 +509,7 @@ def _population_field(
     table: ir.Table, column: str, bounds: Mapping[str, BoundSource]
 ) -> SourceField:
     """Restore fixed Duration metadata through selected attribute projections."""
-    from marivo.datasource._expression_fields import physical_fields
+    from marivo.datasource.spi import physical_fields
 
     admitted = _admitted(table.schema().to_pyarrow(), column, column)
     if admitted.dtype != ScalarDataType("int64"):
@@ -733,7 +651,7 @@ def prepare_query_sources(
         )
 
     from marivo.analysis.materialization.query_preparation import prepare_fields
-    from marivo.datasource._expression_fields import physical_fields
+    from marivo.datasource.spi import physical_fields
 
     available = sources or {source.datasource.semantic_id: source}
     registry, sidecar = state.registry, state.sidecar
@@ -895,8 +813,8 @@ def prepare_query_sources(
                 for path, bound in bounds.items()
             )
 
-        logical_binding = owners[root].provider.name == "duckdb" or (
-            owners[root].provider.name in ("postgres", "mysql", "trino", "clickhouse")
+        logical_binding = owners[root].provider.query_policy.key_fusion == "local" or (
+            owners[root].provider.query_policy.key_fusion != "none"
             and owners[root]._backend.name == owners[root].provider.name
             and all(
                 physical_identity_bound(table, name, owners[root])
@@ -1166,12 +1084,14 @@ def qualify_source_inputs(graph: BoundGraph, state: CompiledSemanticState) -> tu
                     stage="execute_preparation",
                     help_target="analysis_frame.compute",
                 )
-            if datasource.backend_type == "duckdb" and physical.path.lower().startswith(
+            if query_policy(
+                datasource.backend_type
+            ).supports_file_parameters and physical.path.lower().startswith(
                 ("http://", "https://")
             ):
                 continue
         if isinstance(physical, (CsvSourceIR, JsonSourceIR)) and (
-            datasource.backend_type != "duckdb"
+            not query_policy(datasource.backend_type).supports_file_parameters
             or not _local_file(physical.path)
             or (
                 isinstance(physical, JsonSourceIR)
@@ -1312,7 +1232,7 @@ def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> N
         expression = read.expression
         qualified = _qualify_query_read(prepared, stage, read)
         source = prepared.sources.get(stage.source_id, prepared.source)
-        _qualify_clickhouse_joins(source, qualified)
+        _qualify_join_topology(source, qualified)
         try:
             issued = source.compile(
                 qualified,
@@ -1331,11 +1251,9 @@ def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> N
             prepared.compiled_reads[(source, expression.op())] = issued
 
 
-def _qualify_clickhouse_joins(
-    source: SourceSession, qualified: tuple[QualifiedSource, ...]
-) -> None:
+def _qualify_join_topology(source: SourceSession, qualified: tuple[QualifiedSource, ...]) -> None:
     """Qualify physical ClickHouse join topology without reading business rows."""
-    if source.provider.name != "clickhouse" or not any(
+    if source.provider.table_join_issue is None or not any(
         "join" in item.requirement.operations for item in qualified
     ):
         return
@@ -1350,7 +1268,7 @@ def _qualify_clickhouse_joins(
                 "Use a source with an explicitly qualified physical join topology.",
             )
         try:
-            engine = source.clickhouse_table_engine(item.binding)
+            engine = source.table_engine(item.binding)
         except Exception as error:
             _route_gap(
                 "visible ClickHouse physical metadata for this join",
@@ -1364,7 +1282,7 @@ def _qualify_clickhouse_joins(
                 "Use a source whose table profile is visible to the reader.",
             )
         try:
-            issue = source.clickhouse_join_issue(item.binding)
+            issue = source.table_join_issue(item.binding)
         except Exception as error:
             _route_gap(
                 "visible ClickHouse physical topology metadata for this join",
@@ -1383,9 +1301,8 @@ def _qualify_clickhouse_joins(
 
 def _admit_numeric_method(source: SourceSession, stage: SourceReadStage, read: LoweredRead) -> None:
     from marivo._definition.expressions import SourceAggregate
-    from marivo._kernel.source_aggregates import native_aggregate
 
-    if source.provider.name == "duckdb":
+    if not source.provider.query_policy.requires_reducer_admission:
         return
     reductions = (
         *(
@@ -1405,7 +1322,7 @@ def _admit_numeric_method(source: SourceSession, stage: SourceReadStage, read: L
             "max",
             "mean",
         ):
-            if native_aggregate(source.provider.name, node.reducer) is not None:
+            if source.provider.dialect.aggregates.select(node.reducer) is not None:
                 continue
             _route_gap(
                 "a qualified native algorithm for this source reduction",
@@ -1428,61 +1345,7 @@ def _native_query_expression(
         return cached
     expression = lower_temporal(read.expression, source.provider.name)
     assert isinstance(expression, ir.Table)
-    if source.provider.name == "mysql":
-        # MySQL has no IS_NAN / IS_INF functions. Native finite comparisons
-        # retain the check without requiring routines or source-side casts.
-        def mysql_rewrite(
-            node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object
-        ) -> ops.Node:
-            value = node.copy(**kwargs)
-            if (
-                isinstance(value, ops.Cast)
-                and isinstance(value.arg, ops.Sum)
-                and value.to.is_decimal()
-                and value.arg.dtype == value.to
-            ):
-                # MySQL widens native SUM, but a redundant result CAST clips an
-                # overflowing Decimal to its endpoint with only a warning. Keep
-                # the widened value until safe conversion to the bound carrier.
-                return value.arg
-            if isinstance(value, (ops.IsNan, ops.IsInf)):
-                argument = value.arg.to_expr()
-                return (
-                    argument != argument
-                    if isinstance(value, ops.IsNan)
-                    else argument.abs() > float.fromhex("0x1.fffffffffffffp+1023")
-                ).op()
-            return value
-
-        rewritten = expression.op().map(mysql_rewrite)[expression.op()].to_expr()
-        assert isinstance(rewritten, ir.Table)
-        expression = rewritten
-    if source.provider.name == "clickhouse":
-        import ibis
-
-        exact_nodes: dict[ops.Node, ops.Node] = {}
-        for node in expression.op().find((ops.IsNan, ops.IsInf)):
-            quotient = node.arg
-            while isinstance(quotient, ops.Field) and isinstance(
-                quotient.rel, (ops.Project, ops.Aggregate)
-            ):
-                quotient = quotient.rel.values[quotient.name]
-            if (
-                isinstance(quotient, ops.Divide)
-                and (quotient.left.dtype.is_decimal() or quotient.right.dtype.is_decimal())
-                and not (quotient.left.dtype.is_floating() or quotient.right.dtype.is_floating())
-            ):
-                # ClickHouse Decimal division stays Decimal although Ibis infers
-                # float64. Decimal has no NaN/infinity; native overflow still
-                # fails the statement, and zero/error checks remain separate.
-                exact_nodes[node] = ibis.literal(False).op()
-        rewritten = expression.op().replace(exact_nodes).to_expr()
-        assert isinstance(rewritten, ir.Table)
-        expression = rewritten
-    if source.provider.name in ("clickhouse", "duckdb"):
-        from marivo._kernel.numeric_types import native_unsigned_aggregates
-
-        expression = native_unsigned_aggregates(expression)
+    expression = source.provider.dialect.lower_query_numeric(expression)
     prepared.native_expressions[key] = expression
     return expression
 
@@ -1498,46 +1361,6 @@ def _actual_attribute_layout(
             layout.columns,
             layout.keys,
         ),
-    )
-
-
-def _mysql_source_timezones(sql: str) -> tuple[str, ...]:
-    """Inspect required native conversion zones without changing issued SQL."""
-    import sqlglot
-    from sqlglot import expressions as sge
-    from sqlglot.optimizer.pushdown_projections import pushdown_projections
-
-    statement = sqlglot.parse_one(sql, read="mysql")
-    # Projection pruning does not resolve positional grouping references.
-    # Expand those references while the original SELECT list is still intact.
-    for select in statement.find_all(sge.Select):
-        group = select.args.get("group")
-        if not isinstance(group, sge.Group):
-            continue
-        values = select.expressions
-        references: list[sge.Expression] = []
-        for item in group.expressions:
-            if isinstance(item, sge.Literal) and item.is_int and 1 <= int(item.this) <= len(values):
-                selected = values[int(item.this) - 1]
-                references.append(
-                    (selected.this if isinstance(selected, sge.Alias) else selected).copy()
-                )
-            else:
-                references.append(item)
-        group.set("expressions", references)
-    # Ibis can retain unused values in inner SELECTs. Inspect only the required
-    # projection closure; raw-only membership needs no named zone tables.
-    statement = pushdown_projections(statement)
-    return tuple(
-        sorted(
-            {
-                zone.this
-                for conversion in statement.find_all(sge.ConvertTimezone)
-                for name in ("source_tz", "target_tz")
-                for zone in (conversion.args.get(name),)
-                if isinstance(zone, sge.Literal) and zone.is_string
-            }
-        )
     )
 
 
@@ -1574,8 +1397,7 @@ def read_stage(
             purpose=purpose,
             expected_schema=expression.schema().to_pyarrow(),
         )
-    if source.provider.name == "mysql" and "CONVERT_TZ(" in issued.sql.upper():
-        source.verify_source_timezones(_mysql_source_timezones(issued.sql))
+    source.verify_query_timezones(issued.sql)
     from decimal import DecimalException
 
     try:
@@ -2401,11 +2223,11 @@ def execute_numeric_query(
             source = inputs[stage.inputs.index(parameter.stage_id)]
             try:
                 relation = None
-                if owner.provider.name == "duckdb" and parameter.columns:
+                if owner.provider.query_policy.owns_arrow_key_relations and parameter.columns:
                     key = (owner, parameter.placeholder)
                     relation = parameter_relations.get(key)
                     if relation is None:
-                        relation = owner._bind_key_relation(
+                        relation = owner.bind_key_relation(
                             parameter_data(parameter.columns, source)
                         )
                         parameter_relations[key] = relation
@@ -2647,7 +2469,7 @@ def prepare_attribute_endpoint(
         owner = prepared.sources.get(root, prepared.source)
         relations = (
             tuple(bound.relation for bound in prepared.bound.values())
-            if owner.provider.name == "duckdb"
+            if owner.provider.query_policy.key_fusion == "local"
             else (prepared.relations[group[0].stage_id],)
         )
         for relation in relations:

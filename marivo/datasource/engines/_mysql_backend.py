@@ -8,9 +8,10 @@ SQL compilation remains owned by Ibis.
 from __future__ import annotations
 
 import getpass
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import time
+from decimal import Decimal
 from functools import cached_property
 
 import ibis.common.exceptions as com
@@ -18,7 +19,9 @@ import ibis.expr.operations as ops
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
 import pandas as pd
+import pyarrow as pa
 import sqlglot.expressions as sge
+from ibis.backends import BaseBackend
 from ibis.backends.sql import SQLBackend
 from ibis.backends.sql.compilers.mysql import compiler
 from ibis.formats.pandas import PandasData
@@ -29,7 +32,12 @@ from pymysql.converters import convert_datetime
 from pymysql.cursors import Cursor
 
 from marivo.datasource._lifetime import BackendLease
-from marivo.datasource.errors import DatasourceConnectionError, repair
+from marivo.datasource.engines.base import decode_cursor_frame
+from marivo.datasource.errors import (
+    DatasourceConnectionError,
+    DatasourceSourceCapabilityError,
+    repair,
+)
 
 
 def _time_value(value: pd.Timedelta) -> time:
@@ -198,3 +206,70 @@ class MySQLBackend(SQLBackend):  # type: ignore[misc]  # The Ibis SQL backend ba
             cursor.fetchall(), columns=schema.names, coerce_float=True
         )
         return convert_mysql_frame(frame, schema)
+
+
+def _mysql_bound_integer(values: pd.Series, field: pa.Field) -> pa.Array:
+    """Convert a native MySQL Decimal result to its compiled integer carrier."""
+    try:
+        return pa.array(values, from_pandas=True).cast(field.type, safe=True)
+    except (pa.ArrowException, OverflowError):
+        raise DatasourceSourceCapabilityError(
+            message="MySQL Decimal result cannot be converted to the bound integer type.",
+            expected=f"{field.name}: exact {field.type} values",
+            received="a native Decimal result outside the bound integer range or with a fractional part",
+            location="datasource adapter",
+            repair=repair(
+                kind="inspect",
+                canonical_id="inspect",
+                action="Keep the result within the bound integer range or explicitly declare a Decimal expression in the Entity when a wider or fractional carrier is intended.",
+            ),
+        ) from None
+
+
+def read_issued_query(
+    backend: BaseBackend,
+    sql: str,
+    table: ir.Table,
+    schema: pa.Schema,
+    mark_submitted: Callable[[], None],
+) -> pd.DataFrame:
+    # Ibis' MySQL pandas fetcher coerces Decimal and nullable
+    # integer rows through float64. Decode this already-issued
+    # SQL on the same owned connection before that conversion.
+    mark_submitted()
+    with backend.raw_sql(sql) as cursor:
+        decoded = decode_cursor_frame(cursor, include_types=False, max_rows=None)
+    raw = pd.DataFrame(
+        {
+            name: pd.Series([row[name] for row in decoded.rows], dtype=object)
+            for name in decoded.columns
+        }
+    )
+    # Preserve normal pandas temporal inference for Ibis' native
+    # TIME decoder, while exact reconstruction uses untouched raw.
+    result = convert_mysql_frame(raw.copy().infer_objects(), table.schema())
+    for field in schema:
+        values = raw[field.name]
+        native_decimal = any(isinstance(value, Decimal) for value in values)
+        if pa.types.is_boolean(field.type):
+            array = pa.array(values, from_pandas=True).cast(pa.bool_())
+        elif native_decimal and pa.types.is_integer(field.type):
+            array = _mysql_bound_integer(values, field)
+        elif (
+            pa.types.is_integer(field.type)
+            or pa.types.is_decimal(field.type)
+            or pa.types.is_floating(field.type)
+            or native_decimal
+        ):
+            arrow_type = (
+                None if native_decimal and not pa.types.is_decimal(field.type) else field.type
+            )
+            array = pa.array(
+                values,
+                type=arrow_type,
+                from_pandas=not pa.types.is_floating(field.type),
+            )
+        else:
+            continue
+        result[field.name] = pd.Series(pd.arrays.ArrowExtensionArray(array))
+    return result

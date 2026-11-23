@@ -27,6 +27,7 @@ from marivo.analysis.materialization.population_preparation import (
 from marivo.analysis.model.errors import reject
 from marivo.analysis.model.time_facts import FrameSourceTime
 from marivo.analysis.model.unique_keys import UniqueKeys
+from marivo.datasource.spi import query_policy
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.validator import (
     normalize_target_entity,
@@ -445,7 +446,7 @@ def prepare_relationship_population(
     fanout = any(
         step.relationship.cardinality in ("one_to_many", "many_to_many") for step in node.path.steps
     )
-    semijoin = provider in ("duckdb", "postgres")
+    semijoin = query_policy(provider).semi_join_membership
     if not semijoin:
         # Keep Distributed GLOBAL JOIN and avoid nested correlated EXISTS
         # on providers where the planner does not handle that shape well.

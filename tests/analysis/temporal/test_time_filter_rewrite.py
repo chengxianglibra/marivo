@@ -12,7 +12,7 @@ import pytest
 from marivo.analysis.compiler.source_time import source_time
 from marivo.analysis.materialization import time_filter
 from marivo.analysis.materialization.temporal_sql import lower_temporal
-from marivo.datasource._temporal_expressions import localize, render
+from marivo.datasource.temporal_primitives import localize, render
 from marivo.semantic.ir import TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.shared_fixtures import declared_test_timezone

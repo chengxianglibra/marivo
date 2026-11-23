@@ -11,19 +11,21 @@ from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 from marivo.cli.doctor.datasources import _static_datasources_from_file
-from marivo.datasource import backends, secrets, store
-from marivo.datasource.authoring import _ir_from_spec
-from marivo.datasource.capabilities import (
+from marivo.datasource.credentials import secrets as secrets
+from marivo.datasource.engines import ENGINE_PROFILES
+from marivo.datasource.engines.base import EngineProfile
+from marivo.datasource.engines.statements import (
     ProviderStatement,
     execute_provider_statement,
     provider_statement_log,
     render_provider_statement,
 )
-from marivo.datasource.engines import ENGINE_PROFILES
-from marivo.datasource.engines.base import EngineProfile
 from marivo.datasource.errors import DatasourceConnectionError, DatasourceFieldInvalidError
 from marivo.datasource.ir import DatasourceSourceLocation
-from marivo.datasource.runtime import load_datasource, open_backend
+from marivo.datasource.runtime import backends as backends
+from marivo.datasource.runtime.connections import load_datasource, open_backend
+from marivo.datasource.store import declarations as store
+from marivo.datasource.store.authoring import _ir_from_spec
 
 
 def s3(**changes: object) -> md.S3Secret:

@@ -104,7 +104,7 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
 ) -> None:
     import duckdb
 
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
@@ -347,7 +347,7 @@ from pathlib import Path
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.numeric.pandas_coordinates import plain
 
@@ -387,7 +387,8 @@ def test_shared_rank_fresh_source_fixed_and_no_fallback(
 ) -> None:
     import duckdb
 
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     case = analysis_dsl_case_factory("j2")
     values = _values(case)

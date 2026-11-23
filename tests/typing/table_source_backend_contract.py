@@ -6,10 +6,7 @@ import ibis
 import ibis.expr.types as ir
 from typing_extensions import assert_type
 
-from marivo.datasource.table_source import (
-    TableLookupBackend,
-    supports_table_lookup,
-)
+from marivo.datasource.runtime.table_source import TableLookupBackend, supports_table_lookup
 from marivo.semantic.typing import IbisBackend
 
 

@@ -328,6 +328,7 @@ Governed Source/backend capabilities apply equally to `default`.
 
 ## Implementation map
 
-- [authoring.py](../../../marivo/datasource/authoring.py) owns typed spec construction.
-- [authoring_store.py](../../../marivo/datasource/authoring_store.py) and [loader.py](../../../marivo/datasource/loader.py) own registration and loading.
-- [credentials.py](../../../marivo/datasource/credentials.py) and [secrets.py](../../../marivo/datasource/secrets.py) own resolution and the user-global cache.
+- [authoring.py](../../../marivo/datasource/store/authoring.py) and [builders.py](../../../marivo/datasource/store/builders.py) own typed specs and their public constructors.
+- [declarations.py](../../../marivo/datasource/store/declarations.py) and [loader.py](../../../marivo/datasource/store/loader.py) own registration and loading. [authoring_store.py](../../../marivo/datasource/store/authoring_store.py) owns discovery evidence persistence.
+- [credentials](../../../marivo/datasource/credentials/) owns credential declarations, resolution and the user-global secret cache.
+- [spi.py](../../../marivo/datasource/spi.py) provides the internal datasource contracts used by Analysis and Semantic.

@@ -14,7 +14,7 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._kernel.refs import ref as ref_factory
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource import engines as engine_registry
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
 from marivo.datasource.engines.duckdb import PROFILE as DUCKDB_PROFILE
 from marivo.datasource.errors import (
@@ -23,8 +23,14 @@ from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceObservedEffects,
 )
-from marivo.datasource.inspection import ExecutionCapabilities, Partitioning, PhysicalExtent
-from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
+from marivo.datasource.inspection.details import (
+    ExecutionCapabilities,
+    Partitioning,
+    PhysicalExtent,
+)
+from marivo.datasource.metadata_types import ColumnMetadata, PartitionMetadata, TableMetadata
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.datasource.source import PartitionScope
 from tests.support.refs import as_ref
 
@@ -177,7 +183,7 @@ def test_partition_states_remain_distinct(
         warnings=(),
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir",
+        "marivo.datasource.inspection.inspection._inspect_source_from_ir",
         lambda *_args, **_kwargs: known_metadata,
     )
     known = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
@@ -344,7 +350,7 @@ def test_file_source_requires_duckdb_without_opening_backend(
         project_root=project_root,
     )
     monkeypatch.setattr(
-        "marivo.datasource.backends.build_backend",
+        "marivo.datasource.runtime.backends.build_backend",
         lambda *_args, **_kwargs: pytest.fail("backend opened"),
     )
 
@@ -439,11 +445,11 @@ def test_transformed_partition_inspection_does_not_call_value_hook(
         warnings=(),
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir",
+        "marivo.datasource.inspection.inspection._inspect_source_from_ir",
         lambda *_args, **_kwargs: metadata,
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection.require_profile_for_backend_type",
+        "marivo.datasource.inspection.inspection.require_profile_for_backend_type",
         lambda _backend_type: replace(
             DUCKDB_PROFILE,
             inspect_partition_values=lambda _request: pytest.fail("partition hook called"),
@@ -549,11 +555,11 @@ def test_partition_hook_uses_extra_row_to_detect_exact_boundary(
         )
 
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir",
+        "marivo.datasource.inspection.inspection._inspect_source_from_ir",
         lambda *_args, **_kwargs: metadata,
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection.require_profile_for_backend_type",
+        "marivo.datasource.inspection.inspection.require_profile_for_backend_type",
         lambda _backend_type: replace(
             DUCKDB_PROFILE,
             inspect_partition_values=partition_hook,
@@ -599,15 +605,13 @@ def test_partition_listing_queries_requested_order_and_bound(
         return PartitionProbeResult(rows=values, value_source="metadata")
 
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir",
+        "marivo.datasource.inspection.inspection._inspect_source_from_ir",
         lambda *_args, **_kwargs: metadata,
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection.require_profile_for_backend_type",
-        lambda _backend_type: replace(
-            DUCKDB_PROFILE,
-            inspect_partition_values=partition_hook,
-        ),
+        engine_registry,
+        "ENGINE_PROFILES",
+        {"duckdb": replace(DUCKDB_PROFILE, inspect_partition_values=partition_hook)},
     )
 
     inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
@@ -651,11 +655,11 @@ def test_partition_listing_keeps_incomplete_metadata_distinct_from_truncation(
         )
 
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir",
+        "marivo.datasource.inspection.inspection._inspect_source_from_ir",
         lambda *_args, **_kwargs: metadata,
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection.require_profile_for_backend_type",
+        "marivo.datasource.inspection.inspection.require_profile_for_backend_type",
         lambda _backend_type: replace(
             DUCKDB_PROFILE,
             inspect_partition_values=partition_hook,
@@ -715,7 +719,7 @@ def test_partition_listing_rejects_invalid_bounds_before_metadata_query(
         _project_root=project_root,
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection._listed_partitioning",
+        "marivo.datasource.inspection.partitions._listed_partitioning",
         lambda *_args, **_kwargs: pytest.fail("partition metadata queried"),
     )
 
@@ -827,12 +831,9 @@ def test_time_range_mismatches_fail_before_business_read_without_timezone_defaul
 def test_time_range_preserves_reflected_mysql_datetime_and_timestamp_categories(
     project_root: Path, ibis_type: str, projected: bool
 ) -> None:
-    from marivo.datasource.inspection import (
-        SourceInspection,
-        _preflight_scope,
-        _project_table_metadata,
-    )
-    from marivo.datasource.metadata import _schema_columns
+    from marivo.datasource.inspection.projection import _project_table_metadata
+    from marivo.datasource.inspection.source import SourceInspection, _preflight_scope
+    from marivo.datasource.metadata_types import _schema_columns
 
     schema = _schema_columns(ibis.table({"event_time": ibis_type}))
     physical_schema = schema
@@ -905,7 +906,7 @@ def test_time_range_uses_native_mysql_and_clickhouse_physical_semantics(
     physical_type: str,
     aware: bool,
 ) -> None:
-    from marivo.datasource.inspection import SourceInspection, _preflight_scope
+    from marivo.datasource.inspection.source import SourceInspection, _preflight_scope
 
     inspection = SourceInspection(
         _datasource=ref_factory.datasource("warehouse"),

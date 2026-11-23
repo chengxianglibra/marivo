@@ -10,13 +10,16 @@ from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
 from marivo._kernel.refs import EntityKind, Ref, SemanticKind, SemanticKindTag
 from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList
-from marivo.datasource.json_source import normalize_json_source_params
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
-from marivo.datasource.spi import PreviewLimitError, validate_preview_limit
+from marivo.datasource.spi import (
+    PreviewLimitError,
+    normalize_json_source_params,
+    validate_preview_limit,
+)
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 
 if TYPE_CHECKING:
-    from marivo.datasource.runtime import DatasourceConnectionService
+    from marivo.datasource.spi import DatasourceConnectionService
     from marivo.semantic.catalog import Entity, SemanticCatalog
     from marivo.semantic.validator import Registry
 
@@ -83,18 +86,18 @@ def preflight_preview_scope(
 ) -> None:
     """Reuse datasource's metadata-only physical pruning checks for every input."""
     from marivo.datasource import credentials as cr
-    from marivo.datasource.inspection import _inspect_resolved_source, _preflight_scope
+    from marivo.datasource.spi import inspect_resolved_source, preflight_scope
 
     with connections.resolution_context(), cr.operation_context(project_root=project_root):
         for entity_id, scope in bindings.scopes:
             entity = registry.entities[entity_id]
-            inspection = _inspect_resolved_source(
+            inspection = inspect_resolved_source(
                 registry.datasources[entity.datasource],
                 entity.source,
                 project_root=project_root,
                 connections=connections,
             )
-            _preflight_scope(inspection, scope=scope)
+            preflight_scope(inspection, scope=scope)
 
 
 def _blocked(

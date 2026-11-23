@@ -1,0 +1,1 @@
+"""Internal datasource inspection implementation."""

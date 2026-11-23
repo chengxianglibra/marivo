@@ -12,7 +12,7 @@ from marivo._kernel.grouping import Grouping
 from marivo.analysis.compiler.graph_plan import SourceReadStage, require_reduction
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import CompiledRead
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic._expression_values import FieldExpression
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, time_population
@@ -145,7 +145,7 @@ def test_reused_temporal_baseline_keeps_each_alias_projection(
 def test_plain_calendar_complete_parent_order_independent_reads(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
@@ -180,7 +180,7 @@ def test_cross_period_paired_calendar_parent(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo._definition.correspondence import CalendarCorrespondence
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
@@ -229,7 +229,7 @@ def test_fixed_window_lookback_and_repeated_identity_independent_reads(
     from marivo.analysis.materialization.graph_source_execution import PreparedSources
     from marivo.analysis.methods.carriers.stage_components import AttributeRootInputs
     from marivo.analysis.methods.carriers.stages import StageOutput
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
@@ -383,7 +383,7 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
         AttributeParentFiber,
     )
     from marivo.analysis.model.execution_errors import MaterializationError
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=0")
@@ -523,7 +523,7 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     from marivo.analysis.errors import AnalysisError
     from marivo.analysis.methods.carriers.attachments import OutputAttachment
     from marivo.analysis.model.data_schema import PairedDataAxis
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
@@ -757,7 +757,7 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
     from marivo.analysis.methods.carriers.stage_components import AttributeRootInputs
     from marivo.analysis.methods.carriers.stages import StageOutput
     from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     x = 2**62
     # Each parent independently crosses the native int64 sum boundary for one pair role.

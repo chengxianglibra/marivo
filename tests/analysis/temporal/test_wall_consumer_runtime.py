@@ -14,12 +14,13 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import _hour_clock
 from marivo.analysis.materialization.temporal_sql import lower_temporal
-from marivo.datasource._temporal_expressions import localize
-from marivo.datasource.adapters import CompiledRead, SourceSession
-from marivo.datasource.capabilities import StatementPurpose, execute_provider_statement
 from marivo.datasource.engines.base import EngineProfile
+from marivo.datasource.engines.statements import StatementPurpose, execute_provider_statement
 from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
+from marivo.datasource.temporal_primitives import localize
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, receipt, source_case
 from tests.shared_fixtures import catalog_value, datasource_arguments_source

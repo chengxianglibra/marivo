@@ -21,7 +21,7 @@ from marivo._kernel.refs import (
     SemanticKindTag,
 )
 from marivo._kernel.refs import ref as ref_factory
-from marivo.datasource.snapshot import DiscoveryEvidence
+from marivo.datasource.store.evidence import DiscoveryEvidence
 from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.catalog import (
     AiContextView,

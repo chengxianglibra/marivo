@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource.authoring import DuckDBSpec
+from marivo.datasource.store.authoring import DuckDBSpec
 from tests.support.paths import PROJECT_ROOT
 
 if TYPE_CHECKING:

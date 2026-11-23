@@ -11,8 +11,9 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.session_factory import open_source_session
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
 from tests.shared_fixtures import catalog_value, datasource_arguments_source, terminal_runs
@@ -266,7 +267,9 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         finally:
             admin.disconnect()
         connection = stack.enter_context(
-            provider_for(backend).open(datasource(backend, {"path": str(path), "read_only": True}))
+            open_source_session(
+                provider_for(backend), datasource(backend, {"path": str(path), "read_only": True})
+            )
         )
         root = Case(connection, TableSourceIR("subjects"), {"backend": backend, "read_only": True})
         target = Case(

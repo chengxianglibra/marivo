@@ -5,12 +5,12 @@ import pytest
 from ibis.backends.duckdb import Backend
 
 import marivo.datasource as md
-from marivo.datasource import runtime
-from marivo.datasource.adapters import SourceSubmission
-from marivo.datasource.authoring import _ir_from_spec
-from marivo.datasource.backends import BuiltDatasourceBackend
 from marivo.datasource.errors import DatasourceMissingError
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.runtime import connections as runtime
+from marivo.datasource.runtime.backends import BuiltDatasourceBackend
+from marivo.datasource.runtime.read_types import SourceSubmission
+from marivo.datasource.store.authoring import _ir_from_spec
 
 
 class FakeBackend:

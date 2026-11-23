@@ -19,7 +19,7 @@ import marivo.semantic as ms
 from marivo._help.render import PublicHelpTarget
 from marivo._help.render import help as public_help
 from marivo._kernel.refs import ref as ref_factory
-from marivo.datasource.preview import PreviewResult
+from marivo.datasource.runtime.preview import PreviewResult
 from marivo.semantic.catalog import Entity, SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.materializer import Materializer

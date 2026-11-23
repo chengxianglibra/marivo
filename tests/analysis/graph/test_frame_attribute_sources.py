@@ -85,7 +85,8 @@ def test_distinct_metric_formulas_share_each_role_read_and_exclude_unused_rules(
     import duckdb
     import pandas as pd
 
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     case = analysis_dsl_case_factory("j1")
     amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
@@ -128,7 +129,8 @@ def test_reordered_comparison_metrics_and_level_target_share_endpoint_reads(
     import duckdb
     import pandas as pd
 
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     case = analysis_dsl_case_factory("j1")
     amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")

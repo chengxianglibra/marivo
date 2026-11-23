@@ -18,16 +18,17 @@ from marivo.analysis.compiler.source_time import (
     endpoint_rewrite_safe,
 )
 from marivo.analysis.materialization.encoded_time import EncodedTime
-from marivo.datasource._temporal_expressions import (
-    _localize_native,
-    _render_native,
+from marivo.datasource.spi import (
+    DEFAULT_BACKEND_TYPE,
     governed_parse_operation,
+    localize,
+    render,
 )
 from marivo.semantic.ir import StrptimeParse
 
 _PROBE = ibis.timestamp("2000-01-01")
-_LOCALIZE = type(_localize_native("UTC", _PROBE).op())
-_RENDER = type(_render_native("UTC", _PROBE).op())
+_LOCALIZE = type(localize("UTC", _PROBE).op())
+_RENDER = type(render("UTC", _PROBE).op())
 _COMPARISONS = (ops.Equals, ops.NotEquals, ops.Greater, ops.GreaterEqual, ops.Less, ops.LessEqual)
 _DAY = timedelta(days=1)
 
@@ -346,7 +347,7 @@ def _scan(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue:
     return ibis.literal(True)
 
 
-def optimize_time(expression: ir.Expr, engine: str = "duckdb") -> ir.Expr:
+def optimize_time(expression: ir.Expr, engine: str = DEFAULT_BACKEND_TYPE) -> ir.Expr:
     """Lower qualified local clocks and add guards to remaining native filters."""
     existing_ranges = tuple(
         atom

@@ -60,7 +60,7 @@ from marivo.analysis.model.frame_structure import PendingDataSchema
 from marivo.analysis.model.lineage import empty as empty_lineage
 from marivo.analysis.model.receipts import FileEntry, LocalReceipt
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_predicate
 from marivo.semantic._expression_values import RowExpression as RowValue
 from marivo.semantic.expressions import _Resolver

@@ -61,7 +61,7 @@ from marivo.analysis.model.frame_structure import (
 from marivo.analysis.model.lineage import SemanticObjectIdentity
 from marivo.analysis.model.time_facts import FrameRowAttributeTime
 from marivo.analysis.model.value_names import value_name
-from marivo.datasource.runtime import DatasourceConnectionConfig
+from marivo.datasource.spi import DatasourceConnectionConfig
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._consumption import (
     bind_field_in_state,

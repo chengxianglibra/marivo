@@ -1,4 +1,4 @@
-"""Pure Query admission and stage handoff, with no execution imports."""
+"""Logical Query admission and stage handoff."""
 
 from __future__ import annotations
 
@@ -38,6 +38,7 @@ from marivo.analysis.model.kernels import QUERY_COMBINE_KERNEL
 from marivo.analysis.model.programs import FormulaInput
 from marivo.analysis.model.time_authority import SourceTimeAuthority
 from marivo.analysis.model.unique_keys import UniqueKeys
+from marivo.datasource.spi import DEFAULT_BACKEND_TYPE
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.attribute_inputs import AttributeRootLayout
@@ -80,7 +81,7 @@ class SourceSchema:
     original_identity: tuple[SourceField, ...] = ()
     binding_id: str = ""
     time_authorities: tuple[SourceTimeAuthority, ...] = ()
-    provider: str = "duckdb"
+    provider: str = DEFAULT_BACKEND_TYPE
     unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
 
     def field(self, path: str) -> SourceField:
@@ -1136,8 +1137,7 @@ def _plan_query(
             formula_columns(program), graph.signature.quantities, strict=True
         )
     )
-    # A single bare reduction already is the requested final table. No empty
-    # local stage is inserted into a pure source route.
+    # A single native reduction already produces the requested final table.
     direct = graph.root.metrics[0][1] if len(graph.root.metrics) == 1 else None
     declarations = dict(program.declared)
     while isinstance(direct, (DeclaredMetricRef, ContributionFilter)):

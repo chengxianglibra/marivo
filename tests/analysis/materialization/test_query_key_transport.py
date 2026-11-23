@@ -8,7 +8,7 @@ import pytest
 
 from marivo.analysis.materialization.query_parameters import instantiate
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
-from marivo.datasource.adapters import PhysicalRequirement
+from marivo.datasource.runtime.read_types import PhysicalRequirement
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.query_keys import integer_string_keys as _keys
 

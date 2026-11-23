@@ -29,8 +29,8 @@ from ibis.backends.sql.compilers.postgres import PostgresCompiler
 from ibis.backends.sql.compilers.trino import TrinoCompiler
 from ibis.common.exceptions import OperationNotDefinedError
 
-from marivo._kernel.source_aggregates import aggregate_repair_action, native_aggregate
-from marivo.datasource._calendar_relations import (
+from marivo.datasource.engines.aggregate_policy import aggregate_repair_action, native_aggregate
+from marivo.datasource.engines.calendar_relations import (
     CalendarData,
     CalendarRange,
     compile_calendar_data,

@@ -20,7 +20,8 @@ from marivo.analysis.model.frame_source_reads import (
     FrameSourceReadScope,
     merge_source_reads,
 )
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, catalog_get
 from tests.support.source_trace import capture_source
 

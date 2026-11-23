@@ -2,11 +2,10 @@
 
 import ibis.expr.types as ir
 
-from marivo.datasource._temporal_lowering import (
+from marivo.datasource.spi import (
     governed_temporal_operation as governed_temporal_operation,
 )
-from marivo.datasource._temporal_lowering import lower_temporal as lower_native_temporal
-from marivo.datasource._temporal_lowering import needs_temporal_lowering
+from marivo.datasource.spi import lower_native_temporal, needs_temporal_lowering, query_dialect
 
 
 def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
@@ -20,7 +19,8 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
     if not deferred and not encoded and not needs_temporal_lowering(expression, engine):
         return expression
     expression = optimize_time(
-        expression if engine == "clickhouse" else cancel_utc(expression), engine
+        expression if query_dialect(engine).preserve_utc_conversions else cancel_utc(expression),
+        engine,
     )
     if deferred:
         expression = lower_day_keys(expression)

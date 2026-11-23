@@ -130,7 +130,7 @@ def test_catalog_metrics_capture_the_r1_definition_closure(
     monkeypatch: pytest.MonkeyPatch,
     composition: str,
 ) -> None:
-    import marivo.datasource.backends as backends
+    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Deferred capture opened a datasource")
@@ -294,7 +294,7 @@ def test_old_session_is_not_found_without_rewriting_files(
 def test_zero_axis_values_reject_malformed_mapping_before_catalog_or_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, columns: object
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("invalid-columns")

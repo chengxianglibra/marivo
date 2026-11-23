@@ -20,8 +20,8 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.connections import DatasourceConnectionService
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.analysis.materialization.publication_fixtures import publication_counts

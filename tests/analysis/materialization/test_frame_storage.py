@@ -415,7 +415,7 @@ import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 os.environ["MARIVO_PROJECT_ROOT"] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError("cold correlation result attempted a source/model read")
@@ -985,7 +985,7 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.analysis.methods.carriers import frame_calendar
 
 def forbidden(*args, **kwargs):
@@ -1385,7 +1385,7 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 def forbidden(*args, **kwargs):
     raise AssertionError("cold typed read accessed source or semantic state")
@@ -1503,7 +1503,7 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 def forbidden(*args, **kwargs):
     raise AssertionError("cold typed read accessed source or semantic state")
@@ -1622,7 +1622,7 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     from marivo.analysis.methods.carriers.stages import StageOutput
     from marivo.analysis.model.frame_metadata import StoredInput
     from marivo.analysis.session.core import Session
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     memory = ordinary(local) if kind == "ordinary" else calendar(local, 3)
     pass
@@ -1741,7 +1741,7 @@ from marivo.analysis.materialization import terminal_store
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 os.environ["MARIVO_PROJECT_ROOT"] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError("cold stored derive attempted source/model/calendar reconstruction")
@@ -1811,7 +1811,7 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
     from marivo.analysis.dsl import frame as frame_module
     from marivo.analysis.materialization import frame_evaluation, frame_source_preparation
     from marivo.analysis.session.core import Session
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
     region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
@@ -1877,7 +1877,7 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     from marivo.analysis.dsl import frame as frame_module
     from marivo.analysis.materialization import frame_evaluation, frame_source_preparation
     from marivo.analysis.session.core import Session
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
     region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
@@ -2128,7 +2128,7 @@ from marivo.analysis.methods.carriers import frame_calendar
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 os.environ["MARIVO_PROJECT_ROOT"] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError("cold interval recovery attempted source/model reconstruction")
@@ -2602,7 +2602,7 @@ import marivo.analysis as mv
 from marivo.analysis.methods.carriers import frame_calendar
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 assert Path(marivo.__file__).resolve().parents[1] == Path(sys.argv[4])
 def forbidden(*args, **kwargs):
     raise AssertionError('cold facts continuation attempted source/model/calendar rebuild')
@@ -2681,7 +2681,7 @@ from unittest.mock import patch
 import marivo.analysis as mv
 from marivo.analysis.session.core import Session
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 os.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]
 def forbidden(*args, **kwargs):

@@ -15,7 +15,7 @@ from ibis.expr import datatypes as dt
 import marivo.datasource as md
 from marivo.datasource.engines.trino import _partition_projection, connect
 from marivo.datasource.errors import DatasourceConnectionError
-from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
+from marivo.datasource.metadata_types import ColumnMetadata, PartitionMetadata, TableMetadata
 
 
 class _Cursor:
@@ -97,7 +97,8 @@ def test_trino_inspection_captures_partition_values_or_retains_base_schema(
         warnings=(),
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir", lambda *args, **kwargs: metadata
+        "marivo.datasource.inspection.inspection._inspect_source_from_ir",
+        lambda *args, **kwargs: metadata,
     )
     secret = "test-credential-canary"
 

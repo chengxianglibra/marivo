@@ -10,13 +10,12 @@ from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.graph_plan import SourceReadStage, read_reduction, require_reduction
 from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
-from marivo.datasource.adapters import SourceSession
-from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.spi import SourceSession, physical_fields
 
 
 def qualified_query_provider(owner: SourceSession) -> bool:
     """Recognize providers with an implemented relation route, not all shapes."""
-    return owner.provider.name in ("duckdb", "postgres", "mysql", "trino", "clickhouse")
+    return owner.provider.query_policy.key_fusion != "none"
 
 
 def qualify_query_source(
@@ -27,34 +26,27 @@ def qualify_query_source(
     attribute_slots: frozenset[str] = frozenset(),
 ) -> str | None:
     """Qualify finite source values independently of key identity and string carriers."""
-    if owner.provider.name not in ("mysql", "trino", "clickhouse"):
+    policy = owner.provider.query_policy
+    if not policy.needs_remote_carrier_qualification:
         return "this remote provider has no qualified Query relation route"
-    if owner.provider.name == "clickhouse":
-        from marivo.datasource._expression_fields import physical_fields
-        from marivo.datasource.engines.clickhouse import decoded_string_columns
-
+    if owner.provider.dialect.query_string_columns is not None:
         leaves = set(read.expression.op().find(ops.DatabaseTable))
         matched: set[ops.Node] = set()
-        for identity, bound in owner._bound_sources.items():
+        for bound in owner._bound_sources.values():
             if bound.relation.op() not in leaves:
                 continue
             try:
-                issue = owner.clickhouse_join_issue(bound)
+                issue = owner.table_join_issue(bound)
             except Exception:
                 return "ClickHouse Query fusion requires visible system.tables topology metadata"
             if issue is not None:
                 return issue
-            assert isinstance(bound.source, TableSourceIR)
-            if identity not in owner._query_decoded_strings:
-                owner._query_decoded_strings[identity] = decoded_string_columns(
-                    owner._backend, owner.datasource, bound.source
-                )
+            decoded = owner.string_facts.query_string_columns(bound)
             for column in stage.columns:
                 if column.dtype != ScalarDataType("string"):
                     continue
                 if any(
-                    physical.rel == bound.relation.op()
-                    and physical.name not in owner._query_decoded_strings[identity]
+                    physical.rel == bound.relation.op() and physical.name not in decoded
                     for physical in physical_fields(read.expression[column.slot_id])
                 ):
                     return "ClickHouse encoded string carriers retain their typed reader boundary"
@@ -66,12 +58,12 @@ def qualify_query_source(
             column.dtype != ScalarDataType("string")
             and not (column.slot_id in identity_slots and column.dtype == ScalarDataType("int64"))
             and not (
-                owner.provider.name == "mysql"
+                policy.key_fusion == "collated"
                 and column.slot_id in attribute_slots
                 and column.dtype == ScalarDataType("int64")
             )
             and not (
-                owner.provider.name in ("trino", "clickhouse")
+                policy.key_fusion == "numeric"
                 and (column.slot_id not in stage.keys or column.slot_id in attribute_slots)
                 and (
                     column.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
@@ -87,7 +79,7 @@ def qualify_query_source(
         isinstance(node, EntityCount)
         or (isinstance(node, SourceAggregate) and node.reducer in ("count", "count_distinct"))
         or (
-            owner.provider.name in ("trino", "clickhouse")
+            policy.key_fusion == "numeric"
             and (
                 isinstance(node, SourceWeightedMean)
                 or (
@@ -104,28 +96,18 @@ def qualify_query_source(
         if column.slot_id in stage.keys
     ):
         return "remote aggregate producer numeric coordinates retain their pandas key boundary"
-    if owner.provider.name == "mysql" and stage.keys:
-        from marivo.datasource._expression_fields import physical_fields
-        from marivo.datasource.engines.mysql import original_string_column
-
+    if policy.key_fusion == "collated" and stage.keys:
         for key in stage.keys:
             fields = physical_fields(read.expression[key])
             if not fields:
                 return "MySQL aggregate keys require a physical binary NO PAD collation"
             for physical in fields:
                 found_owner = False
-                for identity, bound in owner._bound_sources.items():
+                for bound in owner._bound_sources.values():
                     if physical.rel != bound.relation.op():
                         continue
                     found_owner = True
-                    fact = (identity, physical.name)
-                    if fact not in owner._query_string_facts:
-                        owner._query_string_facts[fact] = isinstance(
-                            bound.source, TableSourceIR
-                        ) and original_string_column(
-                            owner._backend, owner.datasource, bound.source, physical.name
-                        )
-                    if not owner._query_string_facts[fact]:
+                    if not owner.string_facts.original_key_string(bound, physical.name):
                         return (
                             "MySQL aggregate keys retain their native collation grouping boundary"
                         )
@@ -136,12 +118,13 @@ def qualify_query_source(
 
 def qualify_query_top(owner: SourceSession, program: ResultProgram, score: ir.Value) -> str | None:
     """Admit native numeric and byte-string ordering after leaf qualification."""
+    policy = owner.provider.query_policy
     if not qualified_query_provider(owner):
         return "this provider has no qualified Query Top route"
     if not (
         score.type().is_string()
         or score.type().is_integer()
-        or (owner.provider.name in ("trino", "clickhouse") and score.type().is_numeric())
+        or (policy.key_fusion == "numeric" and score.type().is_numeric())
     ):
         return "remote Top retains its established pandas score method"
     return None

@@ -3,22 +3,18 @@
 # Keep __annotations__ in the class namespace for Ibis 12 on Python 3.14.
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from datetime import date, datetime
+from collections.abc import Mapping
 
-import ibis
-import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.rules as rlz
 import ibis.expr.types as ir
 
 from marivo._definition.types import CalendarCoordinate
-from marivo._kernel.timezones import normalize_timezone
 from marivo.analysis.compiler.calendar import KEY_TYPE, reusable_date_day
 from marivo.analysis.compiler.source_time import _raw_lineage, source_time
 from marivo.analysis.materialization.time_filter import _raw_for, _resolved
 from marivo.analysis.model.time_authority import SourceTimeAuthority
-from marivo.datasource._temporal_expressions import localize, timestamp
+from marivo.datasource.spi import localize, query_dialect, timestamp
 from marivo.semantic.ir import StrptimeParse, TargetDimensionContract
 
 
@@ -29,17 +25,6 @@ class _DeferredDayKey(ops.Value):  # type: ignore[misc]  # Ibis operation bases 
     key: ops.Value
     dtype = KEY_TYPE
     shape = rlz.shape_like("raw")
-
-
-def _native_signature(day: date, precision: int, zone: str) -> datetime:
-    raise NotImplementedError("native ClickHouse DATE conversion")
-
-
-_native_start: Callable[[ir.DateValue, int, str], ir.TimestampValue] = ibis.udf.scalar.builtin(
-    _native_signature,
-    name="toDateTime64",
-    signature=((dt.date, dt.int64, dt.string), KEY_TYPE),
-)
 
 
 def deferred_day_key(
@@ -80,13 +65,7 @@ def deferred_day_key(
         if key.type().is_date():
             key = localize(date_timezone, timestamp(key))
     elif isinstance(rebound, ir.DateValue):
-        normalized = normalize_timezone(date_timezone)
-        if engine == "clickhouse" and normalized.kind != "fixed_offset":
-            from marivo.datasource._temporal_lowering import _clickhouse_zone
-
-            key = _clickhouse_zone(_native_start(rebound, 6, normalized.name), "UTC")
-        else:
-            key = localize(date_timezone, timestamp(rebound))
+        key = query_dialect(engine).utc_day(rebound, date_timezone)
     else:
         return None
     return _DeferredDayKey(rebound.op(), key.cast(KEY_TYPE).op()).to_expr()

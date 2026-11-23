@@ -17,7 +17,7 @@ import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, terminal_runs

@@ -16,7 +16,8 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.model.data_types import DataColumn, DataType, DecimalDataType, ScalarDataType
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, terminal_runs
 

@@ -20,7 +20,7 @@ import marivo.semantic as ms
 from marivo._kernel.temporal import CalendarAxis, TimeScope
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, frozen_coordinates, terminal_runs
 from tests.support.paths import PROJECT_ROOT
@@ -301,7 +301,7 @@ def test_exact_mean_qualification_missing_still_rejects_before_run(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from marivo.datasource.adapters import QualifiedSource
+    from marivo.datasource.runtime.read_types import QualifiedSource
 
     _project(tmp_path, monkeypatch, semantic_project_factory)
     session = mv.session.get_or_create("no-fallback", timezone="Asia/Shanghai")
@@ -400,7 +400,7 @@ import json, sys
 import duckdb, ibis
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.shared_fixtures import frozen_coordinates
 
 def forbidden(*args, **kwargs):

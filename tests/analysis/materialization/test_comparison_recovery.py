@@ -61,7 +61,7 @@ from pathlib import Path
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.numeric.comparison_fixtures import assert_comparison

@@ -21,8 +21,8 @@ import marivo.analysis as mv
 from marivo.analysis.materialization import sample_fusion
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
@@ -461,7 +461,7 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
         def offline(*args: object, **kwargs: object) -> None:
             raise AssertionError("fixed result must not read its source")
 
-        monkeypatch.setattr("marivo.datasource.adapters.SourceSession.execute", offline)
+        monkeypatch.setattr("marivo.datasource.runtime.adapters.SourceSession.execute", offline)
         assert stored.to_pandas()["v"].tolist() == pytest.approx([100 / 3])
 
 

@@ -147,7 +147,7 @@ def test_resources_atomic_publication_and_native_failure(
     monkeypatch: pytest.MonkeyPatch,
     fault: str,
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
     query = orders(case)

@@ -327,7 +327,7 @@ def test_versions_follow_definition_dependencies(
 def test_declaration_state_resolves_same_exact_values_as_catalog(
     catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.datasource.backends as backends
+    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError("declaration resolution opened a datasource backend")
@@ -367,7 +367,7 @@ def test_declaration_state_resolves_same_exact_values_as_catalog(
 def test_declared_constructors_capture_catalog_versions_without_business_reads(
     catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.datasource.backends as backends
+    from marivo.datasource.runtime import backends as backends
     from marivo.semantic.loader import loader_context
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
@@ -858,7 +858,7 @@ def test_retired_declaration_syntax_has_specific_reauthoring_errors(
 def test_measure_declaration_names_the_ad_hoc_graph_without_loader(
     catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.datasource.backends as backends
+    from marivo.datasource.runtime import backends as backends
     from marivo.semantic.loader import _LOADER_CTX
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
@@ -1647,7 +1647,7 @@ def test_weighted_mean_pairs_one_root_and_rejects_foreign_time(catalog: Semantic
 def test_expression_construction_reads_no_business_source(
     catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.datasource.backends as backends
+    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError("expression construction opened a datasource backend")
@@ -2024,7 +2024,7 @@ def test_via_time_requires_root_start_and_keeps_native_reductions(catalog: Seman
 def test_via_construction_reads_no_business_source(
     catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.datasource.backends as backends
+    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError("via construction opened a datasource backend")

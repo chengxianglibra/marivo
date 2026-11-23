@@ -14,8 +14,10 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource.adapters import CompiledRead, SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.read_types import CompiledRead
+from marivo.datasource.runtime.session_factory import open_source_session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import Carrier, distribution_data
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
@@ -104,8 +106,9 @@ def test_native_distribution(
                 admin.raw_sql(f"INSERT INTO {name} VALUES {data.values}")
             admin.disconnect()
             connection = stack.enter_context(
-                provider_for(backend).open(
-                    datasource(backend, {"path": str(path), "read_only": True})
+                open_source_session(
+                    provider_for(backend),
+                    datasource(backend, {"path": str(path), "read_only": True}),
                 )
             )
             subject, facts = [

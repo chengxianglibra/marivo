@@ -18,7 +18,7 @@ from sqlglot import expressions as sge
 
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.source_time import parse_strptime
-from marivo.datasource._temporal_expressions import (
+from marivo.datasource.spi import (
     TemporalExpressionError,
     translated_strptime_format,
 )

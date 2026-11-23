@@ -2,115 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 
-import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-
-def _postgres_json(value: str) -> object:
-    raise NotImplementedError("native PostgreSQL to_json")
-
-
-def _postgres_encode(value: str, encoding: str) -> bytes:
-    raise NotImplementedError("native PostgreSQL convert_to")
-
-
-def _duckdb_encode(value: str) -> bytes:
-    raise NotImplementedError("native DuckDB encode")
-
-
-def _duckdb_decode(value: bytes) -> str:
-    raise NotImplementedError("native DuckDB decode")
-
-
-def _trino_encode(value: str) -> bytes:
-    raise NotImplementedError("native Trino to_utf8")
-
-
-def _mysql_quote(value: str) -> str:
-    raise NotImplementedError("native MySQL JSON_QUOTE")
-
-
-def _mysql_unquote(value: str) -> str:
-    raise NotImplementedError("native MySQL JSON_UNQUOTE")
-
-
-def _mysql_hex(value: str) -> str:
-    raise NotImplementedError("native MySQL HEX")
-
-
-def _mysql_unhex(value: str) -> bytes:
-    raise NotImplementedError("native MySQL UNHEX")
-
-
-_POSTGRES_JSON: Callable[[ir.Value], ir.Value] = ibis.udf.scalar.builtin(
-    name="to_json", signature=(("string",), "json")
-)(_postgres_json)
-_POSTGRES_ENCODE: Callable[[ir.Value, str], ir.Value] = ibis.udf.scalar.builtin(
-    name="convert_to", signature=(("string", "string"), "binary")
-)(_postgres_encode)
-_DUCKDB_ENCODE: Callable[[ir.Value], ir.Value] = ibis.udf.scalar.builtin(
-    name="encode", signature=(("string",), "binary")
-)(_duckdb_encode)
-_DUCKDB_DECODE: Callable[[ir.Value], ir.Value] = ibis.udf.scalar.builtin(
-    name="decode", signature=(("binary",), "string")
-)(_duckdb_decode)
-_TRINO_ENCODE: Callable[[ir.Value], ir.Value] = ibis.udf.scalar.builtin(
-    name="to_utf8", signature=(("string",), "binary")
-)(_trino_encode)
-_MYSQL_QUOTE: Callable[[ir.Value], ir.Value] = ibis.udf.scalar.builtin(
-    name="JSON_QUOTE", signature=(("string",), "string")
-)(_mysql_quote)
-_MYSQL_UNQUOTE: Callable[[ir.Value], ir.Value] = ibis.udf.scalar.builtin(
-    name="JSON_UNQUOTE", signature=(("string",), "string")
-)(_mysql_unquote)
-_MYSQL_HEX: Callable[[ir.Value], ir.Value] = ibis.udf.scalar.builtin(
-    name="HEX", signature=(("string",), "string")
-)(_mysql_hex)
-_MYSQL_UNHEX: Callable[[ir.Value], ir.Value] = ibis.udf.scalar.builtin(
-    name="UNHEX", signature=(("string",), "binary")
-)(_mysql_unhex)
+from marivo.datasource.spi import query_dialect, query_policy
 
 
 def string_bytes(value: ir.Value, provider: str) -> ir.Value:
-    if provider == "duckdb":
-        return _DUCKDB_ENCODE(value)
-    if provider == "trino":
-        return _TRINO_ENCODE(value)
-    if provider == "postgres":
-        # JSON preserves CHAR padding as returned to the reader; CHAR -> text does not.
-        if not isinstance(value.op(), ops.Literal):
-            encoded = _POSTGRES_JSON(value)
-            assert isinstance(encoded, ir.JSONValue)
-            value = encoded.unwrap_as("str")
-        result = _POSTGRES_ENCODE(value, "UTF8")
-        assert isinstance(result, ir.Value)
-        return result
-    if provider == "mysql":
-        # JSON strings normalize source character sets before byte comparison.
-        result = _MYSQL_UNHEX(_MYSQL_HEX(_MYSQL_UNQUOTE(_MYSQL_QUOTE(value))))
-        assert isinstance(result, ir.Value)
-        return result
-    return value
-
-
-def postgres_returned_text(value: ir.Value) -> ir.Value:
-    """Preserve native CHAR padding before nullable text/key normalization."""
-    encoded = _POSTGRES_JSON(value)
-    assert isinstance(encoded, ir.JSONValue)
-    return encoded.unwrap_as("str")
+    return query_dialect(provider).string_bytes(value)
 
 
 def string_without_collation(value: ir.Value, provider: str) -> ir.Value:
-    """Preserve returned DuckDB strings while removing inherited SQL collations."""
-    return _DUCKDB_DECODE(string_bytes(value, provider)) if provider == "duckdb" else value
+    """Remove inherited collations when a dialect needs returned byte identity."""
+    return query_dialect(provider).string_without_collation(value)
 
 
 def parameter_string_comparisons(expression: ir.Table, name: str, provider: str) -> ir.Table:
     """Match qualified membership keys using their exact returned string bytes."""
-    if provider not in ("duckdb", "postgres", "mysql", "trino", "clickhouse"):
+    if query_policy(provider).key_fusion == "none":
         return expression
 
     def rewrite(node: ops.Node, kwargs: dict[str, object] | None) -> ops.Node:
@@ -140,7 +51,7 @@ def source_parameter_comparisons(expression: ir.Table, name: str, provider: str)
     """Retain native membership equality, including native Metric group collations."""
     return (
         parameter_string_comparisons(expression, name, provider)
-        if provider == "postgres"
+        if query_dialect(provider).source_membership_uses_returned_strings
         else expression
     )
 

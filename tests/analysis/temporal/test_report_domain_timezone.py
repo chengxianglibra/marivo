@@ -7,7 +7,8 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from tests.shared_fixtures import DslCaseFactory, catalog_get, time_population
 
 

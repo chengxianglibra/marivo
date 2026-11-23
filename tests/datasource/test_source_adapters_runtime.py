@@ -14,7 +14,6 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provider_for
 from marivo.datasource.engines.base import MetadataInspectRequest
 from marivo.datasource.ir import (
     AiContextIR,
@@ -22,7 +21,10 @@ from marivo.datasource.ir import (
     DatasourceSourceLocation,
     TableSourceIR,
 )
-from marivo.datasource.metadata import TableMetadata
+from marivo.datasource.metadata_types import TableMetadata
+from marivo.datasource.runtime.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.read_types import PhysicalRequirement
+from marivo.datasource.runtime.session_factory import open_source_session
 from tests.datasource.source_cases import SourceData, source_case
 
 pytestmark = pytest.mark.runtime
@@ -238,7 +240,7 @@ def test_postgres_table_view_namespace_and_decimal_values(
                 {"host": pg.HOST, "port": pg.PORT, "database": pg.DATABASE, "user": pg.READER},
                 {"password": "MARIVO_SOURCE_ADAPTER_POSTGRES_PASSWORD"},
             )
-            with provider_for("postgres").open(datasource) as session:
+            with open_source_session(provider_for("postgres"), datasource) as session:
                 expected = [
                     {"id": 1, "amount": 10.25},
                     {"id": 2, "amount": 20.5},
@@ -453,7 +455,7 @@ def test_mysql_table_view_and_decimal_values(monkeypatch: pytest.MonkeyPatch) ->
                 },
                 {"password": "MARIVO_SOURCE_ADAPTER_MYSQL_PASSWORD"},
             )
-            with provider_for("mysql").open(datasource) as session:
+            with open_source_session(provider_for("mysql"), datasource) as session:
                 expected = [
                     {"id": 1, "amount": 10.25},
                     {"id": 2, "amount": 20.5},
@@ -512,7 +514,7 @@ def test_mysql_invalid_date_and_read_only_permission(monkeypatch: pytest.MonkeyP
                 },
                 {"password": "MARIVO_SOURCE_ADAPTER_MYSQL_PASSWORD"},
             )
-            with provider_for("mysql").open(datasource) as session:
+            with open_source_session(provider_for("mysql"), datasource) as session:
                 binding = session.bind(TableSourceIR(name), source_identity=name)
                 qualified = session.qualify(
                     binding,
@@ -615,7 +617,7 @@ def test_mariadb_pymysql_preserves_exact_table_values(monkeypatch: pytest.Monkey
                 },
                 {"password": "MARIVO_MARIADB_PASSWORD"},
             )
-            with provider_for("mysql").open(datasource) as session:
+            with open_source_session(provider_for("mysql"), datasource) as session:
                 _assert_table_read(
                     session,
                     TableSourceIR(name),
@@ -639,9 +641,9 @@ def test_mariadb_native_timeout_fallback_and_connection_release(
 ) -> None:
     import pymysql
 
-    from marivo.datasource.backends import build_backend_with_secrets
-    from marivo.datasource.capabilities import provider_statement_log
     from marivo.datasource.engines.mysql import native_query_timeout
+    from marivo.datasource.engines.statements import provider_statement_log
+    from marivo.datasource.runtime.backends import build_backend_with_secrets
     from tests.datasource.environment import mysql_analysis as mysql
 
     monkeypatch.setenv("MARIVO_MARIADB_PASSWORD", mysql.password())
@@ -715,7 +717,7 @@ def test_trino_iceberg_and_non_iceberg_forms() -> None:
                         "timezone": "UTC",
                     },
                 )
-                with provider_for("trino").open(datasource) as session:
+                with open_source_session(provider_for("trino"), datasource) as session:
                     _assert_table_read(
                         session,
                         TableSourceIR(name, database=(catalog, "analysis")),
@@ -769,9 +771,11 @@ def test_trino_iceberg_partition_metadata_uses_bound_read() -> None:
                     "timezone": "UTC",
                 },
             )
-            with provider_for("trino").open(datasource) as owner:
+            with open_source_session(provider_for("trino"), datasource) as owner:
                 request = PartitionProbeRequest(
-                    backend=owner._backend,
+                    open_reader=lambda: SourceSession(
+                        owner.provider, datasource, owner._backend, owns_backend=False
+                    ),
                     datasource_ir=datasource,
                     source=TableSourceIR(name, database=("iceberg", "analysis")),
                     partition_columns=("day",),
@@ -817,7 +821,7 @@ def test_clickhouse_mergetree_table_and_view(monkeypatch: pytest.MonkeyPatch) ->
                 },
                 {"password": "MARIVO_SOURCE_ADAPTER_CLICKHOUSE_PASSWORD"},
             )
-            with provider_for("clickhouse").open(datasource) as session:
+            with open_source_session(provider_for("clickhouse"), datasource) as session:
                 _assert_table_read(
                     session,
                     TableSourceIR(name, database="qualification"),
@@ -876,9 +880,11 @@ def test_clickhouse_partition_catalog_uses_bound_read(monkeypatch: pytest.Monkey
                 },
                 {"password": "MARIVO_SOURCE_ADAPTER_CLICKHOUSE_PASSWORD"},
             )
-            with provider_for("clickhouse").open(datasource) as owner:
+            with open_source_session(provider_for("clickhouse"), datasource) as owner:
                 request = PartitionProbeRequest(
-                    backend=owner._backend,
+                    open_reader=lambda: SourceSession(
+                        owner.provider, datasource, owner._backend, owns_backend=False
+                    ),
                     datasource_ir=datasource,
                     source=TableSourceIR(name, database="qualification"),
                     partition_columns=("dt",),
@@ -892,9 +898,11 @@ def test_clickhouse_partition_catalog_uses_bound_read(monkeypatch: pytest.Monkey
                 {**datasource.fields, "user": "qualifier"},
                 datasource.env_refs,
             )
-            with provider_for("clickhouse").open(qualified) as owner:
+            with open_source_session(provider_for("clickhouse"), qualified) as owner:
                 request = PartitionProbeRequest(
-                    backend=owner._backend,
+                    open_reader=lambda: SourceSession(
+                        owner.provider, qualified, owner._backend, owns_backend=False
+                    ),
                     datasource_ir=qualified,
                     source=TableSourceIR(name, database="qualification"),
                     partition_columns=("dt",),

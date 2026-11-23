@@ -77,33 +77,32 @@ def test_provenance_text_does_not_become_submission_authority(tmp_path: Path) ->
 def test_approved_module_does_not_whitelist_another_submitter(tmp_path: Path) -> None:
     _module(
         tmp_path,
-        "datasource/adapters.py",
+        "datasource/runtime/adapters.py",
         "def another_reader(cursor):\n    cursor.execute('SELECT 1')\n",
     )
     assert audit(tmp_path).failures[0].symbol == "another_reader"
 
 
-def test_mysql_issued_cursor_allowance_is_exact_to_source_session_execute(tmp_path: Path) -> None:
+def test_mysql_issued_cursor_allowance_is_exact_to_provider_reader(tmp_path: Path) -> None:
     _module(
         tmp_path,
-        "datasource/adapters.py",
-        "class SourceSession:\n"
-        "    def execute(self, proof):\n"
-        "        return self._backend.raw_sql(proof.sql)\n"
-        "    def another_reader(self, sql):\n"
-        "        return self._backend.raw_sql(sql)\n"
+        "datasource/engines/_mysql_backend.py",
+        "def read_issued_query(backend, sql):\n"
+        "    return backend.raw_sql(sql)\n"
+        "def another_reader(backend, sql):\n"
+        "    return backend.raw_sql(sql)\n"
         "class AnotherSession:\n"
-        "    def execute(self, sql):\n"
-        "        return self._backend.raw_sql(sql)\n",
+        "    def read_issued_query(self, backend, sql):\n"
+        "        return backend.raw_sql(sql)\n",
     )
     report = audit(tmp_path)
     assert [(row.symbol, row.call) for row in report.failures] == [
-        ("SourceSession.another_reader", "self._backend.raw_sql"),
-        ("AnotherSession.execute", "self._backend.raw_sql"),
+        ("another_reader", "backend.raw_sql"),
+        ("AnotherSession.read_issued_query", "backend.raw_sql"),
     ]
     assert any(
-        row.symbol == "SourceSession.execute"
-        and row.call == "self._backend.raw_sql"
+        row.symbol == "read_issued_query"
+        and row.call == "backend.raw_sql"
         and row.category == "ibis_governed_read_check_probe"
         and not row.failed
         for row in report.records
@@ -135,9 +134,9 @@ def test_current_product_has_only_classified_submitters() -> None:
 def test_clickhouse_parser_inspection_grants_no_submission_authority(tmp_path: Path) -> None:
     _module(
         tmp_path,
-        "datasource/engines/clickhouse.py",
+        "datasource/engines/clickhouse_query.py",
+        "import sqlglot\n"
         "def validate_temporal_parsers(backend, sql):\n"
-        "    import sqlglot\n"
         "    sqlglot.parse_one(sql, read='clickhouse')\n"
         "    backend.raw_sql(sql)\n",
     )

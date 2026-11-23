@@ -19,9 +19,11 @@ import marivo.semantic.validation as validation_module
 from marivo._kernel.refs import DatasourceKind, Ref
 from marivo._kernel.refs import ref as ref_factory
 from marivo.datasource.credentials import remember_injected
-from marivo.datasource.inspection import SourceInspection, _ibis_table_type, _inspect_in_project
-from marivo.datasource.metadata import ColumnMetadata
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.inspection.inspection import _inspect_in_project
+from marivo.datasource.inspection.projection import _ibis_table_type
+from marivo.datasource.inspection.source import SourceInspection
+from marivo.datasource.metadata_types import ColumnMetadata
+from marivo.datasource.runtime.connections import DatasourceConnectionService
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
 from tests.shared_fixtures import catalog_get
@@ -821,7 +823,7 @@ def test_validation_uses_entity_and_field_output_types(
             ),
         )
 
-    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_unavailable)
+    monkeypatch.setattr(validation_module, "inspect_in_project", inspect_with_unavailable)
     schema = next(
         check
         for check in catalog.validate(
@@ -872,12 +874,12 @@ def test_unavailable_column_preserves_other_field_checks_and_names_the_cause(
             columns += (ColumnMetadata("protobuf", "unsupported_physical_type", True, None, 6),)
         return replace(inspected, schema=columns)
 
-    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_unavailable)
+    monkeypatch.setattr(validation_module, "inspect_in_project", inspect_with_unavailable)
     # Exercise the real remote type mapper with injected catalog metadata;
     # the local datasource supplies only the metadata/probe connection.
     monkeypatch.setattr(
         validation_module,
-        "_ibis_table_type",
+        "ibis_table_type",
         lambda name, *, backend_type: _ibis_table_type(
             name, backend_type=engine if name == "unsupported_physical_type" else backend_type
         ),
@@ -926,10 +928,10 @@ def test_unavailable_column_repair_identifies_physical_type(
             ),
         )
 
-    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_unavailable)
+    monkeypatch.setattr(validation_module, "inspect_in_project", inspect_with_unavailable)
     monkeypatch.setattr(
         validation_module,
-        "_ibis_table_type",
+        "ibis_table_type",
         lambda name, *, backend_type: _ibis_table_type(
             name, backend_type="mysql" if name == "unsupported_physical_type" else backend_type
         ),
@@ -997,7 +999,7 @@ def test_unavailable_type_propagates_through_bound_dimension_dependencies(
             ),
         )
 
-    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_unavailable)
+    monkeypatch.setattr(validation_module, "inspect_in_project", inspect_with_unavailable)
     schema = next(
         check
         for check in catalog.validate(
@@ -1021,7 +1023,7 @@ def test_unavailable_type_propagates_through_bound_dimension_dependencies(
 @pytest.mark.parametrize("engine", ["mysql", "postgres", "trino"])
 @pytest.mark.parametrize("physical", ["char", "char(1)", "character(8)", "CHAR(8)"])
 def test_char_mapping_retains_physical_metadata(engine: str, physical: str) -> None:
-    from marivo.datasource.inspection import _canonical_catalog_type
+    from marivo.datasource.inspection.projection import _canonical_catalog_type
 
     assert _canonical_catalog_type(physical, backend_type=engine) == physical.lower()
     assert _ibis_table_type(physical, backend_type=engine) == "string"
@@ -1058,10 +1060,10 @@ def test_char_columns_are_usable_but_not_numeric(
             columns += (ColumnMetadata("protobuf", "char(8)", True, None, 6),)
         return replace(inspected, schema=columns)
 
-    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_char)
+    monkeypatch.setattr(validation_module, "inspect_in_project", inspect_char)
     monkeypatch.setattr(
         validation_module,
-        "_ibis_table_type",
+        "ibis_table_type",
         lambda name, *, backend_type: _ibis_table_type(
             name, backend_type=engine if name == "char(8)" else backend_type
         ),

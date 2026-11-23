@@ -15,10 +15,11 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.adapters import CompiledRead, SourceSession
-from marivo.datasource.authoring_store import AuthoringStore
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
+from marivo.datasource.store.authoring_store import AuthoringStore
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import Case, source_case, source_params

@@ -7,8 +7,9 @@ from typing import Any
 
 import pytest
 
-from marivo.datasource import adapters
-from marivo.datasource.capabilities import (
+from marivo.datasource.engines import ENGINE_PROFILES
+from marivo.datasource.engines.base import EngineProfile, MetadataInspectRequest
+from marivo.datasource.engines.statements import (
     ProviderStatement,
     execute_provider_statement,
     json_http_headers,
@@ -19,10 +20,9 @@ from marivo.datasource.capabilities import (
     render_provider_statement,
     url_is_in_http_scope,
 )
-from marivo.datasource.engines import ENGINE_PROFILES
-from marivo.datasource.engines.base import EngineProfile, MetadataInspectRequest
 from marivo.datasource.errors import DatasourceSourceCapabilityError
-from marivo.datasource.metadata import TableMetadata
+from marivo.datasource.metadata_types import TableMetadata
+from marivo.datasource.runtime import adapters as adapters
 
 
 class _RecordingBackend:

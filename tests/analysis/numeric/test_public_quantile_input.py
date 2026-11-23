@@ -96,7 +96,7 @@ def test_defined_quantiles_survive_source_offline_recovery(
 import sys
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime.connections import DatasourceConnectionService
 from tests.shared_fixtures import run_ids
 
 def forbidden(*args, **kwargs):

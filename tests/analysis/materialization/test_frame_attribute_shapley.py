@@ -941,7 +941,8 @@ def test_native_reads_can_change_between_queries_while_players_and_endpoints_sta
     from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
     from marivo.analysis.materialization.graph_local_execution import LocalKernel
     from marivo.analysis.methods.carriers.stages import StageOutput
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     x = catalog_value(game_session.catalog, "sales.facts.x", kind="measure")
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="dimension")

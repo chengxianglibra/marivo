@@ -15,12 +15,13 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._kernel.render import AgentResult
-from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.errors import DatasourceAuthoringError, DatasourceFieldInvalidError
-from marivo.datasource.inspection import SourceInspection
-from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata
-from marivo.datasource.snapshot import DeterministicMatch, DiscoveryEvidence
+from marivo.datasource.inspection.source import SourceInspection
+from marivo.datasource.metadata_types import ColumnMetadata, PartitionMetadata
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
+from marivo.datasource.store.evidence import DeterministicMatch, DiscoveryEvidence
 
 
 class _QuerySpy:
@@ -235,10 +236,10 @@ def test_projected_sample_missing_table_capability_is_structured_before_executio
             return None
 
     backend = NoLookupBackend()
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     monkeypatch.setattr(
-        "marivo.datasource.engines.base.EngineProfile.open",
+        "marivo.datasource.inspection.snapshot.open_source_session",
         lambda profile, datasource, *, terminal_timeout_seconds=None: SourceSession(
             profile, datasource, backend
         ),
@@ -294,7 +295,7 @@ def test_unknown_column_blocks_before_backend_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "marivo.datasource.engines.base.EngineProfile.open",
+        "marivo.datasource.inspection.snapshot.open_source_session",
         lambda *_args, **_kwargs: pytest.fail("backend opened"),
     )
 
@@ -331,7 +332,7 @@ def test_any_transformed_partition_blocks_even_when_capability_claims_support(
         ),
     )
     monkeypatch.setattr(
-        "marivo.datasource.engines.base.EngineProfile.open",
+        "marivo.datasource.inspection.snapshot.open_source_session",
         lambda *_args, **_kwargs: pytest.fail("backend opened"),
     )
 
@@ -423,7 +424,7 @@ def test_time_range_rejects_non_temporal_or_unexposed_column_before_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "marivo.datasource.engines.base.EngineProfile.open",
+        "marivo.datasource.inspection.snapshot.open_source_session",
         lambda *_args, **_kwargs: pytest.fail("backend opened"),
     )
 
@@ -452,7 +453,7 @@ def test_backend_open_failure_is_structured_and_redacted(
         code = 115
 
     monkeypatch.setattr(
-        "marivo.datasource.engines.base.EngineProfile.open",
+        "marivo.datasource.inspection.snapshot.open_source_session",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             BackendOpenError(
                 "Code: 115. Unknown setting access_mode (UNKNOWN_SETTING); password=super-secret"
@@ -492,10 +493,10 @@ def test_source_resolution_failure_is_structured_and_disconnects(
             self.disconnected = True
 
     backend = Backend()
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     monkeypatch.setattr(
-        "marivo.datasource.engines.base.EngineProfile.open",
+        "marivo.datasource.inspection.snapshot.open_source_session",
         lambda profile, datasource, *, terminal_timeout_seconds=None: SourceSession(
             profile, datasource, backend
         ),
@@ -702,7 +703,7 @@ def test_columns_must_be_exact_tuple_of_strings_before_connection(
     columns: object,
 ) -> None:
     monkeypatch.setattr(
-        "marivo.datasource.engines.base.EngineProfile.open",
+        "marivo.datasource.inspection.snapshot.open_source_session",
         lambda *_args, **_kwargs: pytest.fail("backend opened"),
     )
 
@@ -736,7 +737,7 @@ def test_direct_scope_values_are_revalidated_before_connection(
     scope: AuthoringScope,
 ) -> None:
     monkeypatch.setattr(
-        "marivo.datasource.engines.base.EngineProfile.open",
+        "marivo.datasource.inspection.snapshot.open_source_session",
         lambda *_args, **_kwargs: pytest.fail("backend opened"),
     )
 
@@ -756,7 +757,7 @@ def test_time_range_accepts_raw_clickhouse_temporal_type_spellings(
     inspection: SourceInspection,
     clickhouse_type: str,
 ) -> None:
-    from marivo.datasource.inspection import _preflight_scope
+    from marivo.datasource.inspection.source import _preflight_scope
 
     transformed = replace(
         inspection,

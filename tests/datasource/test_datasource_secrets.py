@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from marivo.datasource import secrets
+from marivo.datasource.credentials import secrets as secrets
 from marivo.datasource.errors import (
     DatasourceEnvVarMissingError,
     DatasourceSecretStorePermissionsError,

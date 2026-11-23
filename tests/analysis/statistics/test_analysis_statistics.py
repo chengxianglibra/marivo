@@ -103,7 +103,7 @@ def test_statistical_failure_is_atomic(
 def test_pandas_forecast_can_feed_an_explicit_second_model_without_run(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
     from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")

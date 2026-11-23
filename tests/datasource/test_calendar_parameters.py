@@ -20,7 +20,11 @@ from clickhouse_connect.driver.exceptions import DatabaseError
 from clickhouse_connect.driver.external import ExternalData
 
 import marivo.analysis as mv
-from marivo.datasource._calendar_relations import CalendarData, calendar_data, compile_calendar_data
+from marivo.datasource.engines.calendar_relations import (
+    CalendarData,
+    calendar_data,
+    compile_calendar_data,
+)
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model

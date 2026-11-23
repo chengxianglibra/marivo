@@ -18,8 +18,9 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
-from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import SourceData, source_case
@@ -62,7 +63,7 @@ import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 
 def forbidden(*args, **kwargs):
     raise AssertionError('terminal Count output accessed Semantic or a source')

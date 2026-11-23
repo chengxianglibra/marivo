@@ -16,7 +16,7 @@ import pyarrow.parquet as pq
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import terminal_runs
 

@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfoNotFoundError
 from marivo._kernel.ai_context import _normalize_aliases
 from marivo._kernel.timezones import normalize_timezone
 from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceObservedEffects, repair
+from marivo.datasource.locations import DatasourceSourceLocation as DatasourceSourceLocation
 
 __all__ = [
     "AiContextIR",
@@ -37,14 +38,6 @@ __all__ = [
     "source_name",
     "source_to_dict",
 ]
-
-
-@dataclass(frozen=True)
-class DatasourceSourceLocation:
-    """Absolute source location for datasource error reporting."""
-
-    file: str
-    line: int
 
 
 @dataclass(frozen=True)

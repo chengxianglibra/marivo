@@ -8,8 +8,8 @@ from marivo.datasource._capabilities.registry import REGISTRY, TYPE_CONTRACTS
 from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
 from marivo.datasource._capabilities.validation import validate_datasource_live_surface
 from marivo.datasource.constraints import constraints_for_symbol
-from marivo.datasource.inspection import SourceInspection
-from marivo.datasource.snapshot import DiscoveryEvidence
+from marivo.datasource.inspection.source import SourceInspection
+from marivo.datasource.store.evidence import DiscoveryEvidence
 
 PUBLIC_CALLABLE_TARGETS = {
     "env",

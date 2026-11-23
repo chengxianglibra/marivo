@@ -13,8 +13,9 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.errors import DatasourceAuthoringError
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 
 pytestmark = pytest.mark.runtime
 

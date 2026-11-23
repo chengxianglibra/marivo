@@ -6,8 +6,9 @@ import re
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import closing, contextmanager
 from dataclasses import replace
+from functools import partial
 from operator import itemgetter
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal, cast
 
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
@@ -16,11 +17,7 @@ from ibis.backends.sql.datatypes import TrinoType
 from ibis.common.exceptions import TableNotFound
 from sqlglot import expressions as sge
 
-from marivo.datasource.capabilities import (
-    ProviderStatement,
-    execute_provider_statement,
-    register_provider_statements,
-)
+from marivo.datasource.engines.aggregate_policy import TRINO_AGGREGATES
 from marivo.datasource.engines.base import (
     AuthoringCapabilities,
     EngineMetadataIntrospection,
@@ -32,17 +29,54 @@ from marivo.datasource.engines.base import (
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.engines.query import (
+    EngineQueryPolicy,
+    OriginalStringPolicy,
+    QueryDialectProfile,
+)
 from marivo.datasource.engines.requirements import TRINO_REQUIREMENT
-from marivo.datasource.strptime import python_to_mysql_strptime
-
-if TYPE_CHECKING:
-    from marivo.datasource.metadata import (
-        ColumnMetadata,
-        MetadataWarning,
-        PartitionMetadata,
-        TableMetadata,
-        TablePhysicalProfile,
-    )
+from marivo.datasource.engines.statements import (
+    ProviderStatement,
+    execute_provider_statement,
+    register_provider_statements,
+)
+from marivo.datasource.engines.strptime import python_to_mysql_strptime
+from marivo.datasource.engines.trino_query import (
+    _trino_namespace,
+    inline_key_relation,
+    string_bytes,
+    varchar_columns,
+)
+from marivo.datasource.errors import (
+    _backend_failure_summary,
+)
+from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.metadata_types import (
+    ColumnMetadata,
+    MetadataWarning,
+    PartitionMetadata,
+    TableMetadata,
+    TablePhysicalProfile,
+    UniqueConstraintMetadata,
+    _bool_from_nullable,
+    _empty_to_none,
+    _int_or_none,
+    _merge_columns,
+    _schema_columns,
+    schema_only_metadata,
+)
+from marivo.datasource.metadata_types import (
+    ColumnMetadata as _ColumnMetadata,
+)
+from marivo.datasource.metadata_types import (
+    MetadataWarning as _Warning,
+)
+from marivo.datasource.metadata_types import (
+    PartitionMetadata as _PartitionMetadata,
+)
+from marivo.datasource.metadata_types import (
+    TablePhysicalProfile as _Profile,
+)
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
@@ -151,26 +185,6 @@ def table_name_parts(request: TableRefRequest) -> tuple[str, ...]:
     )
 
 
-def _trino_namespace(
-    database: str | tuple[str, ...] | None,
-    *,
-    catalog: str,
-    default_schema: str | None,
-) -> tuple[str, str | None]:
-    if isinstance(database, tuple):
-        if len(database) >= 2:
-            return str(database[0]), str(database[1])
-        if len(database) == 1:
-            return catalog, str(database[0])
-        return catalog, None
-    if database is not None:
-        parts = str(database).split(".")
-        if len(parts) == 2 and all(parts):
-            return parts[0], parts[1]
-        return catalog, str(database)
-    return catalog, default_schema
-
-
 def _partition_table_parts(request: PartitionProbeRequest) -> tuple[str, str | None, str]:
     catalog = str(request.datasource_ir.fields["catalog"])
     schema_value = request.datasource_ir.fields.get("schema")
@@ -183,16 +197,12 @@ def _partition_table_parts(request: PartitionProbeRequest) -> tuple[str, str | N
 
 
 def inspect_partition_values(request: PartitionProbeRequest) -> PartitionProbeResult:
-    from marivo.datasource.adapters import SourceSession
-    from marivo.datasource.ir import TableSourceIR
 
     catalog, schema_name, table_name = _partition_table_parts(request)
     if schema_name is None:
         raise RuntimeError("trino partition inspection requires database= or datasource schema")
     identity = f"partition-metadata:{catalog}.{schema_name}.{table_name}"
-    with SourceSession(
-        PROFILE, request.datasource_ir, request.backend, owns_backend=False
-    ) as session:
+    with request.open_reader() as session:
         relation = session.bind(
             TableSourceIR(f"{table_name}$partitions", database=(catalog, schema_name)),
             source_identity=identity,
@@ -364,8 +374,6 @@ _TRINO_TABLE_COMMENT_RE = re.compile(
 
 
 def _trino_columns_from_rows(rows: Iterable[Mapping[str, object]]) -> dict[str, ColumnMetadata]:
-    from marivo.datasource.metadata import ColumnMetadata as _ColumnMetadata
-    from marivo.datasource.metadata import _bool_from_nullable
 
     columns: dict[str, _ColumnMetadata] = {}
     for row in rows:
@@ -396,7 +404,6 @@ def _trino_columns_with_show_comments(
     catalog_columns: Mapping[str, ColumnMetadata],
     rows: Iterable[Mapping[str, object]],
 ) -> dict[str, ColumnMetadata]:
-    from marivo.datasource.metadata import _empty_to_none
 
     columns = dict(catalog_columns)
     for row in rows:
@@ -427,7 +434,6 @@ def _trino_partition_from_spec(
     spec: str,
     catalog_columns: Mapping[str, ColumnMetadata],
 ) -> PartitionMetadata | None:
-    from marivo.datasource.metadata import PartitionMetadata as _PartitionMetadata
 
     transform: str | None = None
     column_name = spec.strip()
@@ -468,8 +474,6 @@ def _trino_show_create_table(
     schema_name: str,
     warnings: list[MetadataWarning],
 ) -> str | None:
-    from marivo.datasource.errors import _backend_failure_summary
-    from marivo.datasource.metadata import MetadataWarning as _Warning
 
     try:
         rows = _trino_rows(
@@ -496,7 +500,6 @@ def _trino_show_create_table(
 
 
 def _trino_table_comment_from_show_create(create_sql: str) -> str | None:
-    from marivo.datasource.metadata import _empty_to_none
 
     match = _TRINO_TABLE_COMMENT_RE.search(create_sql)
     if match is None:
@@ -512,14 +515,6 @@ def _trino_physical_profile(
     schema_name: str,
     warnings: list[MetadataWarning],
 ) -> TablePhysicalProfile | None:
-    from marivo.datasource.errors import _backend_failure_summary
-    from marivo.datasource.metadata import MetadataWarning as _Warning
-    from marivo.datasource.metadata import (
-        TablePhysicalProfile as _Profile,
-    )
-    from marivo.datasource.metadata import (
-        _int_or_none,
-    )
 
     try:
         rows = _trino_rows(
@@ -574,16 +569,6 @@ def _inspect_trino(
     catalog: str,
     default_schema: str | None,
 ) -> TableMetadata:
-    from marivo.datasource.errors import _backend_failure_summary
-    from marivo.datasource.metadata import (
-        MetadataWarning,
-        TableMetadata,
-        UniqueConstraintMetadata,
-        _empty_to_none,
-        _merge_columns,
-        _schema_columns,
-        _schema_only,
-    )
 
     schema_columns = _schema_columns(table_expr)
     catalog_name, schema_name = _trino_namespace(
@@ -592,7 +577,7 @@ def _inspect_trino(
         default_schema=default_schema,
     )
     if schema_name is None:
-        return _schema_only(
+        return schema_only_metadata(
             datasource=datasource,
             table=table,
             database=database,
@@ -782,6 +767,21 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
 
 
 PROFILE = EngineProfile(
+    dialect=QueryDialectProfile(
+        aggregates=TRINO_AGGREGATES,
+        string_bytes=string_bytes,
+        original_strings=OriginalStringPolicy(columns=partial(varchar_columns, read=_trino_rows)),
+        native_subday_grains=frozenset({"second", "minute", "hour"}),
+        preview_requires_terminal_scope=True,
+        supports_per_row_attribute_time=True,
+        supports_native_frame_top=True,
+    ),
+    arrow_reads=True,
+    query_policy=EngineQueryPolicy(
+        key_fusion="numeric",
+        sample_fusion=True,
+        inline_key_relation=inline_key_relation,
+    ),
     name="trino",
     aliases=("presto",),
     authoring_func="trino",

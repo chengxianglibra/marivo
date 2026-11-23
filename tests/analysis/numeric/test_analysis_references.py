@@ -102,7 +102,7 @@ from unittest.mock import patch
 import duckdb
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.analysis.numeric.test_analysis_references import _plain, _proportions
 from tests.shared_fixtures import run_ids
 

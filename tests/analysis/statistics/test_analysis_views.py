@@ -5,7 +5,8 @@ from typing import Literal
 import pandas as pd
 import pytest
 
-from marivo.datasource import adapters
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from tests.analysis.statistics.deviation_oracle import forbidden
 from tests.analysis.statistics.pandas_workflows import (
     assert_clean,
@@ -30,9 +31,9 @@ def test_complete_export_supports_pandas_views_without_new_reads(
     case = analysis_dsl_case_factory("j2")
     issued: list[str] = []
     submitted: list[str] = []
-    execute = adapters.SourceSession.execute
+    execute = SourceSession.execute
 
-    def audited(source: adapters.SourceSession, read: adapters.CompiledRead) -> pd.DataFrame:
+    def audited(source: SourceSession, read: CompiledRead) -> pd.DataFrame:
         assert read.sql == source._backend.compile(
             read.expression.as_table(), params=dict(read.params), limit=None
         )
@@ -41,7 +42,7 @@ def test_complete_export_supports_pandas_views_without_new_reads(
         submitted.append(source.submissions[-1].sql)
         return output
 
-    monkeypatch.setattr(adapters.SourceSession, "execute", audited)
+    monkeypatch.setattr(SourceSession, "execute", audited)
     query = orders(case)
     before = run_ids(case.session)
     fixed = query.compute()
@@ -56,7 +57,7 @@ def test_complete_export_supports_pandas_views_without_new_reads(
         for sql in submitted
         for token in ("create macro", "bignum", "__mv_exact", "axis_concentration")
     )
-    monkeypatch.setattr(adapters.SourceSession, "execute", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     if method == "deviation":
         output = deviation(frame, "zscore")
         assert output.key_0.tolist() == frame.key_0.tolist()

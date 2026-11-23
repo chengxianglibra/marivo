@@ -13,9 +13,9 @@ import pytest
 
 import marivo.semantic as ms
 from marivo._definition.deferred import inspect_deferred
-from marivo.datasource import store as datasource_store
-from marivo.datasource.authoring import DuckDBSpec
 from marivo.datasource.ir import AiContextIR
+from marivo.datasource.store import declarations as datasource_store
+from marivo.datasource.store.authoring import DuckDBSpec
 from marivo.datasource.typing import AiContextValue
 from marivo.semantic._compiled_state import PublishedDeclaration, build_compiled_state
 from marivo.semantic.errors import SemanticDecoratorError

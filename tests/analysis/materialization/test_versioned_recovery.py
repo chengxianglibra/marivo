@@ -14,8 +14,8 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.datasource.source_cases import SourceData, source_case
@@ -249,7 +249,7 @@ from unittest.mock import patch
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.support.json import encode, obj, read

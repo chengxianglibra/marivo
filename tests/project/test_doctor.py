@@ -1046,7 +1046,7 @@ def test_doctor_connect_flag_uses_no_persist_connect_helper(
         calls.append((str(name), project_root))
         return FakeResult()
 
-    monkeypatch.setattr("marivo.datasource.manage.test_no_persist", fake_test_no_persist)
+    monkeypatch.setattr("marivo.datasource.inspection.manage.test_no_persist", fake_test_no_persist)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, connect=True, datasource="warehouse"))
 
@@ -1076,7 +1076,7 @@ def test_doctor_connect_flag_uses_layered_datasource_lookup(
         calls.append((str(name), project_root))
         return FakeResult()
 
-    monkeypatch.setattr("marivo.datasource.manage.test_no_persist", fake_test_no_persist)
+    monkeypatch.setattr("marivo.datasource.inspection.manage.test_no_persist", fake_test_no_persist)
 
     report = run_doctor(
         DoctorOptions(project_root=project_root, connect=True, datasource="warehouse")
@@ -1104,7 +1104,7 @@ def test_doctor_connect_flag_reports_failure(
         repair = type("Repair", (), {"action": "Reconnect warehouse."})()
 
     monkeypatch.setattr(
-        "marivo.datasource.manage.test_no_persist",
+        "marivo.datasource.inspection.manage.test_no_persist",
         lambda name, *, project_root=None: FakeResult(),
     )
 
@@ -1117,7 +1117,7 @@ def test_doctor_connect_flag_reports_failure(
 def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource import manage as datasource_manage
+    from marivo.datasource.inspection import manage as datasource_manage
 
     class FakeBackend:
         name = "postgres"
@@ -1163,9 +1163,9 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
             },
         )()
 
-    from marivo.datasource import backends
-    from marivo.datasource import store as datasource_store
-    from marivo.datasource.backends import BuiltDatasourceBackend
+    from marivo.datasource.runtime import backends as backends
+    from marivo.datasource.runtime.backends import BuiltDatasourceBackend
+    from marivo.datasource.store import declarations as datasource_store
 
     def fake_build_backend_with_secrets(datasource, **kwargs):  # type: ignore[no-untyped-def]
         return BuiltDatasourceBackend(backend=backend, env_sourced_secrets=())

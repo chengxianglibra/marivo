@@ -5,18 +5,16 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from marivo._authoring.errors import ContractScopeErrorPayload
 from marivo._authoring.model import AuthoringRepair
 from marivo._kernel.errors import MarivoError
+from marivo.datasource.locations import DatasourceSourceLocation
 from marivo.introspection.live.errors import HelpTargetErrorPayload
 from marivo.introspection.live.model import LiveHelpTarget
-
-if TYPE_CHECKING:
-    from marivo.datasource.ir import DatasourceSourceLocation
 
 ScopeState = Literal["known", "none", "unknown"]
 

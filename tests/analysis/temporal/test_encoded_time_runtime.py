@@ -13,8 +13,9 @@ from sqlglot import expressions as sge
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource import engines
-from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from tests.shared_fixtures import DslCase, DslCaseFactory, frozen_coordinates, terminal_runs
 from tests.support.source_trace import SourceTrace
 

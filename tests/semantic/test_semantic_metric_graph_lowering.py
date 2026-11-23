@@ -86,7 +86,9 @@ def test_nested_metric_closure_captures_its_dependencies_without_source_io(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("definition binding opened a source")
 
-    monkeypatch.setattr("marivo.datasource.backends._build_backend_from_effective", forbidden)
+    monkeypatch.setattr(
+        "marivo.datasource.runtime.backends._build_backend_from_effective", forbidden
+    )
     nested = catalog.get("metric:sales.outer")
     assert nested.kind == "metric"
     query = session.observe({"nested": nested})

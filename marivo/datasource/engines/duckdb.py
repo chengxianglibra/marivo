@@ -6,19 +6,16 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from urllib.parse import urlsplit
 
+import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 
-from marivo.datasource.capabilities import (
-    ProviderStatement,
-    execute_provider_statement,
-    register_provider_statements,
-    url_is_in_http_scope,
-)
+from marivo._kernel.numeric_types import native_unsigned_aggregates
+from marivo.datasource.engines.aggregate_policy import DUCKDB_AGGREGATES
 from marivo.datasource.engines.base import (
     AuthoringCapabilities,
     EngineMetadataIntrospection,
@@ -27,11 +24,36 @@ from marivo.datasource.engines.base import (
     default_table_name_parts,
     identity_str,
 )
+from marivo.datasource.engines.query import (
+    EngineQueryPolicy,
+    QueryDialectProfile,
+    finite_calendar_clock,
+)
 from marivo.datasource.engines.requirements import DUCKDB_REQUIREMENT
-from marivo.datasource.errors import DatasourceConnectionError, repair
-
-if TYPE_CHECKING:
-    from marivo.datasource.metadata import TableMetadata
+from marivo.datasource.engines.statements import (
+    ProviderStatement,
+    execute_provider_statement,
+    register_provider_statements,
+    url_is_in_http_scope,
+)
+from marivo.datasource.errors import (
+    DatasourceConnectionError,
+    _backend_failure_summary,
+    repair,
+)
+from marivo.datasource.metadata_types import (
+    ColumnMetadata,
+    MetadataWarning,
+    TableMetadata,
+    TablePhysicalProfile,
+    UniqueConstraintMetadata,
+    _bool_from_nullable,
+    _empty_to_none,
+    _int_or_none,
+    _merge_columns,
+    _schema_columns,
+    schema_only_metadata,
+)
 
 register_provider_statements(
     "duckdb",
@@ -440,20 +462,6 @@ def _inspect_duckdb(
     table_expr: Any,
     include_partitions: bool,
 ) -> TableMetadata:
-    from marivo.datasource.errors import _backend_failure_summary
-    from marivo.datasource.metadata import (
-        ColumnMetadata,
-        MetadataWarning,
-        TableMetadata,
-        TablePhysicalProfile,
-        UniqueConstraintMetadata,
-        _bool_from_nullable,
-        _empty_to_none,
-        _int_or_none,
-        _merge_columns,
-        _schema_columns,
-        _schema_only,
-    )
 
     schema_columns = _schema_columns(table_expr)
     warnings: list[MetadataWarning] = []
@@ -472,7 +480,7 @@ def _inspect_duckdb(
             "table": table,
         }
     except Exception as exc:
-        return _schema_only(
+        return schema_only_metadata(
             datasource=datasource,
             table=table,
             database=database,
@@ -638,7 +646,52 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
     )
 
 
+def _duckdb_encode(value: str) -> bytes:
+    raise NotImplementedError("native DuckDB encode")
+
+
+def _duckdb_decode(value: bytes) -> str:
+    raise NotImplementedError("native DuckDB decode")
+
+
+_DUCKDB_ENCODE: Callable[[ir.Value], ir.Value] = ibis.udf.scalar.builtin(
+    name="encode", signature=(("string",), "binary")
+)(_duckdb_encode)
+_DUCKDB_DECODE: Callable[[ir.Value], ir.Value] = ibis.udf.scalar.builtin(
+    name="decode", signature=(("binary",), "string")
+)(_duckdb_decode)
+
+
+def string_bytes(value: ir.Value) -> ir.Value:
+    return _DUCKDB_ENCODE(value)
+
+
+def string_without_collation(value: ir.Value) -> ir.Value:
+    return _DUCKDB_DECODE(string_bytes(value))
+
+
 PROFILE = EngineProfile(
+    dialect=QueryDialectProfile(
+        aggregates=DUCKDB_AGGREGATES,
+        string_bytes=string_bytes,
+        string_without_collation=string_without_collation,
+        original_input=uncollated_original_input,
+        lower_query_numeric=native_unsigned_aggregates,
+        native_subday_grains=frozenset({"second", "minute", "hour"}),
+        finite_calendar_clock=finite_calendar_clock,
+        supports_per_row_attribute_time=True,
+        supports_native_frame_top=True,
+    ),
+    arrow_reads=True,
+    query_policy=EngineQueryPolicy(
+        key_fusion="local",
+        sample_fusion=True,
+        owns_arrow_key_relations=True,
+        semi_join_membership=True,
+        accepts_nonfinite_inline_time_keys=True,
+        supports_file_parameters=True,
+        requires_reducer_admission=False,
+    ),
     name="duckdb",
     aliases=(),
     authoring_func="duckdb",

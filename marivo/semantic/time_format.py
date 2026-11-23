@@ -9,7 +9,7 @@ The validated format flows into ibis expressions and is emitted as backend SQL.
 For MySQL-family backends (Trino ``date_parse``, MySQL ``STR_TO_DATE``),
 several Python strptime directives disagree with MySQL specifiers — most
 importantly ``%M`` (Python minute vs MySQL month name).
-:func:`marivo.datasource.strptime.python_to_mysql_strptime` translates the
+:func:`marivo.datasource.engines.strptime.python_to_mysql_strptime` translates the
 authored Python format to the MySQL form at SQL-emission time so a single
 authored format works on every backend. DuckDB and other Python-strptime-native
 backends receive the format unchanged.
@@ -46,7 +46,7 @@ def normalize_strptime(value: str) -> str:
         This function performs no translation; it returns the canonical Python
         strptime form. Backend-specific translation (e.g. to MySQL for
         Trino/MySQL ``date_parse``/``STR_TO_DATE``) is applied downstream at
-        SQL-emission time by :func:`marivo.datasource.strptime.python_to_mysql_strptime`, not here.
+        SQL-emission time by :func:`marivo.datasource.engines.strptime.python_to_mysql_strptime`, not here.
 
     Example:
         >>> normalize_strptime("%Y%m%d")

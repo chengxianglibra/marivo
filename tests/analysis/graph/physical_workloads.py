@@ -20,8 +20,9 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
-from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
+from marivo.datasource.runtime.adapters import provider_for
+from marivo.datasource.runtime.session_factory import open_source_session
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
 from tests.shared_fixtures import catalog_get, datasource_arguments_source
 
@@ -153,7 +154,7 @@ def _tables(
         else:
             selected_source = source
         ds = datasource(backend, {"path": str(path), "read_only": True})
-        with provider_for(backend).open(ds) as session:
+        with open_source_session(provider_for(backend), ds) as session:
             yield (
                 Case(
                     session,

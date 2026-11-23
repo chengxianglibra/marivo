@@ -334,7 +334,7 @@ def test_fix_cold_roundtrip_and_source_free_continuation(local: LocalFrameServic
 import os, sys
 from unittest.mock import patch
 import marivo.analysis as mv
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.analysis.session.core import Session
 os.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]
 def forbidden(*args, **kwargs):

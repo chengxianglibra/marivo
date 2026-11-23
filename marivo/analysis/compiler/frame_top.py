@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 import ibis
-import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._definition.query import TopValues, ValueSlot
@@ -22,6 +21,7 @@ from marivo.analysis.core.frame_expression import SourceFrameInput
 from marivo.analysis.model.data_schema import DataAxis, DataSchema
 from marivo.analysis.model.data_types import ScalarDataType
 from marivo.analysis.model.frame_contracts import CheckedStageInputT
+from marivo.datasource.spi import query_dialect
 from marivo.semantic._numeric_lowering import NumericCheck
 
 
@@ -112,15 +112,10 @@ def _bounded_read(
             __frame_top_present=ibis.literal(True),
         )
     )
-    if provider == "clickhouse":
-        # Preserve absent payloads even with the server's join_use_nulls=0.
+    nullable_value = query_dialect(provider).join_value
+    if nullable_value is not None:
         selected = selected.select(
-            **{
-                name: ops.Cast(
-                    selected[name], to=selected[name].type().copy(nullable=True)
-                ).to_expr()
-                for name in selected.columns
-            }
+            **{name: nullable_value(selected[name]) for name in selected.columns}
         )
     # The existing local Top restores presentation order over at most K rows.
     # The left join retains the full-input summaries even for Top(0).
@@ -178,7 +173,7 @@ def bound_pending_frame_top(
         ):
             reason = "this provider has no admitted native field-read Top route"
             provider = providers.get(owners[source.stage_id], "")
-            if provider in ("duckdb", "postgres", "mysql", "trino", "clickhouse"):
+            if query_dialect(provider).supports_native_frame_top:
                 reason = "the complete source input has multiple consumers or parameter inputs"
                 if plan.consumers_of(source.stage_id) == (top.stage_id,) and not (
                     source.inputs or source.parameters

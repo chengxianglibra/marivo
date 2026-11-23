@@ -132,7 +132,7 @@ def test_returned_records_do_not_leak_root_constructor_bindings(
 
 
 def test_retired_datasource_conveniences_have_no_public_aliases() -> None:
-    from marivo.datasource.manage import RawSqlResult
+    from marivo.datasource.inspection.raw_sql import RawSqlResult
 
     for name in ("list", "describe", "test"):
         assert not hasattr(md, name)

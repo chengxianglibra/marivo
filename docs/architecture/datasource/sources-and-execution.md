@@ -503,11 +503,17 @@ logs; explicitly requested connection probes log their SQL without caching secre
 ## Implementation map
 
 Physical descriptors live in [source.py](../../../marivo/datasource/source.py),
-[table_source.py](../../../marivo/datasource/table_source.py) and
-[json_source.py](../../../marivo/datasource/json_source.py).
-[runtime.py](../../../marivo/datasource/runtime.py) owns governed source sessions;
-[adapters.py](../../../marivo/datasource/adapters.py) and the
-[engine adapters](../../../marivo/datasource/engines/) own provider submission and transport.
+with binding in [table_source.py](../../../marivo/datasource/runtime/table_source.py)
+and [json_source.py](../../../marivo/datasource/runtime/json_source.py).
+[connections.py](../../../marivo/datasource/runtime/connections.py) and
+[session_factory.py](../../../marivo/datasource/runtime/session_factory.py) own
+connection and session lifetime. [adapters.py](../../../marivo/datasource/runtime/adapters.py)
+owns physical bindings, issued reads and submission receipts.
+
+Each engine profile selects its [SQL dialect and query policy](../../../marivo/datasource/engines/query.py).
+The dialect owns native expressions and carrier rules. The query policy admits
+source routes such as key and sample fusion and selects the complete-key transport.
+Analysis and Semantic consume these contracts through [datasource.spi](../../../marivo/datasource/spi.py).
 
 ### Typed analysis numeric results
 

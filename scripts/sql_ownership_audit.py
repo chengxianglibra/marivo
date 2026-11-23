@@ -144,22 +144,32 @@ def _manifest() -> Manifest:
         "Selected SourceSession or its connectivity probe executes the unchanged Ibis expression through the backend.",
     )
     add(
-        "datasource/adapters",
-        ("_probe_backend",),
+        "datasource/runtime/session_factory",
+        ("probe_backend",),
         ("backend.execute",),
         governed,
     )
-    add("datasource/adapters", ("SourceSession.execute",), ("self._backend.execute",), governed)
     add(
-        "datasource/adapters",
+        "datasource/runtime/adapters",
         ("SourceSession.execute",),
-        ("self._backend.raw_sql",),
+        ("self._backend.execute",),
+        governed,
+    )
+    add(
+        "datasource/engines/_mysql_backend",
+        ("read_issued_query",),
+        ("backend.raw_sql",),
         Owner(
             "ibis_governed_read_check_probe",
             "The selected SourceSession submits only its unchanged issued proof.sql on its owned MySQL connection, preserving exact cursor values before pandas conversion.",
         ),
     )
-    add("datasource/adapters", ("SourceSession.collect_bounded",), ("self.execute",), governed)
+    add(
+        "datasource/runtime/adapters",
+        ("SourceSession.collect_bounded",),
+        ("self.execute",),
+        governed,
+    )
     add(
         "analysis/materialization/graph_source_execution",
         ("read_stage",),
@@ -170,14 +180,24 @@ def _manifest() -> Manifest:
         "ibis_compilation",
         "Ibis expression compilation is inventoried separately from driver submission.",
     )
-    add("datasource/adapters", ("_probe_backend",), ("backend.compile",), compile_owner)
     add(
-        "datasource/adapters",
+        "datasource/runtime/session_factory",
+        ("probe_backend",),
+        ("backend.compile",),
+        compile_owner,
+    )
+    add(
+        "datasource/runtime/adapters",
         ("SourceSession._compile_read",),
         ("self._backend.compile",),
         compile_owner,
     )
-    add("datasource/adapters", ("SourceSession.collect_bounded",), ("self.compile",), compile_owner)
+    add(
+        "datasource/runtime/adapters",
+        ("SourceSession.collect_bounded",),
+        ("self.compile",),
+        compile_owner,
+    )
     trino_metadata = Owner(
         "ibis_metadata_preparation",
         "The Trino table binding reads only the named table's column metadata and restores ordinal order before constructing the Ibis schema.",
@@ -242,20 +262,26 @@ def _manifest() -> Manifest:
         ("source.compile",),
         compile_owner,
     )
+    timezone_inspection = Owner(
+        "non_submit_timezone_inspection",
+        "Inspect a copy of actual Ibis MySQL SQL for required literal CONVERT_TZ zones; grouping references are preserved and issued SQL is unchanged.",
+    )
     add(
-        "analysis/materialization/graph_source_execution",
-        ("_mysql_source_timezones",),
+        "datasource/engines/mysql_query",
+        ("<module>",),
         (
             "sqlglot",
             "sqlglot.expressions",
             "sqlglot.optimizer.pushdown_projections",
             "sqlglot.optimizer.pushdown_projections.pushdown_projections",
-            "sqlglot.parse_one",
         ),
-        Owner(
-            "non_submit_timezone_inspection",
-            "Inspect a copy of actual Ibis MySQL SQL for required literal CONVERT_TZ zones; grouping references are preserved and issued SQL is unchanged.",
-        ),
+        timezone_inspection,
+    )
+    add(
+        "datasource/engines/mysql_query",
+        ("source_timezones",),
+        ("sqlglot.parse_one",),
+        timezone_inspection,
     )
     add(
         "analysis/materialization/graph_preflight",
@@ -263,14 +289,21 @@ def _manifest() -> Manifest:
         ("source.compile",),
         compile_owner,
     )
+    temporal_inspection = Owner(
+        "non_submit_temporal_capability_inspection",
+        "Inspect final Ibis SQL for parsers unavailable on the connected ClickHouse version; issued SQL is unchanged and inspection grants no submission authority.",
+    )
     add(
-        "datasource/engines/clickhouse",
+        "datasource/engines/clickhouse_query",
+        ("<module>",),
+        ("sqlglot", "sqlglot.expressions"),
+        temporal_inspection,
+    )
+    add(
+        "datasource/engines/clickhouse_query",
         ("validate_temporal_parsers",),
-        ("sqlglot", "sqlglot.expressions", "sqlglot.parse_one", "sqlglot.parse_one().find_all"),
-        Owner(
-            "non_submit_temporal_capability_inspection",
-            "Inspect final Ibis SQL for parsers unavailable on the connected ClickHouse version; issued SQL is unchanged and inspection grants no submission authority.",
-        ),
+        ("sqlglot.parse_one", "sqlglot.parse_one().find_all"),
+        temporal_inspection,
     )
     native_aggregates = Owner(
         "ibis_compilation",
@@ -328,25 +361,25 @@ def _manifest() -> Manifest:
         "Private typed calendar operations build SQL ASTs from fixed templates and encoded literals before Ibis compilation; only SourceSession submits the compiled read.",
     )
     add(
-        "datasource/_calendar_relations",
+        "datasource/engines/calendar_relations",
         ("<module>",),
         ("sqlglot", "sqlglot.expressions"),
         calendar_compilation,
     )
     add(
-        "datasource/_calendar_relations",
+        "datasource/engines/calendar_relations",
         ("compile_calendar_data", "_mysql_calendar_data"),
         ("sge.Literal.string().sql", "sge.to_identifier().sql", "sqlglot.parse_one"),
         calendar_compilation,
     )
     add(
-        "datasource/_calendar_relations",
+        "datasource/engines/calendar_relations",
         ("compile_calendar_range",),
         ("sqlglot.parse_one",),
         calendar_compilation,
     )
     add(
-        "datasource/_calendar_relations",
+        "datasource/engines/calendar_relations",
         ("_clickhouse_calendar_data",),
         (
             "ClickHouseType.from_ibis().sql",
@@ -362,17 +395,17 @@ def _manifest() -> Manifest:
         "Closed provider statement registry validates backend, purpose and parameters; fixed templates have independent snapshots.",
     )
     add(
-        "datasource/capabilities",
+        "datasource/engines/statements",
         ("execute_provider_statement",),
         ("backend.raw_sql", "render_provider_statement"),
         provider,
     )
-    add("datasource/capabilities", ("render_provider_statement",), ("re.sub",), provider)
+    add("datasource/engines/statements", ("render_provider_statement",), ("re.sub",), provider)
     for backend in ("duckdb", "postgres", "mysql", "trino", "clickhouse"):
         add(f"datasource/engines/{backend}", ("<module>",), ("ProviderStatement",), provider)
     add(
-        "datasource/manage",
-        ("raw_sql",),
+        "datasource/inspection/raw_sql",
+        ("_run_raw_sql",),
         ("backend.raw_sql",),
         Owner(
             "terminal_user_raw_sql",

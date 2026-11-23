@@ -45,16 +45,22 @@ from marivo._kernel.symbolic import (
     symbol_from_ref,
 )
 from marivo.datasource import credentials as cr
-from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
     DatasourceAuthoringError,
     DatasourceCredentialError,
     DatasourceCredentialScopeError,
     _backend_failure_summary,
 )
-from marivo.datasource.inspection import SourceInspection, _ibis_table_type, _inspect_in_project
 from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, JsonSourceIR
 from marivo.datasource.source import AuthoringScope
+from marivo.datasource.spi import (
+    SourceInspection,
+    ibis_table_type,
+    inspect_in_project,
+    probe_backend,
+    require_profile_for_backend_type,
+    source_unavailability,
+)
 from marivo.semantic._expression_binding import evaluate_expression_body
 from marivo.semantic._physical_contracts import validate_bound_field
 from marivo.semantic.errors import ErrorKind, SemanticError, SemanticRuntimeError, _raise, repair
@@ -870,30 +876,8 @@ def _result(
 
 def _unavailable_observed(exc: Exception) -> dict[str, object]:
     failure = _backend_failure_summary(exc)
-    trino_error = failure.backend_name if failure.exception_type.startswith("Trino") else None
-    if trino_error == "PERMISSION_DENIED" or failure.exception_type == "PermissionError":
-        code = "permission_denied"
-    elif trino_error == "NOT_SUPPORTED":
-        code = "unsupported"
-    elif trino_error in {"TABLE_NOT_FOUND", "SCHEMA_NOT_FOUND", "CATALOG_NOT_FOUND"} or (
-        failure.exception_type in {"TableNotFound", "FileNotFoundError"}
-    ):
-        code = "source_unavailable"
-    elif failure.exception_type in {"TimeoutError", "DatasourceConnectionTimeoutError"}:
-        code = "timeout"
-    elif failure.exception_type in {
-        "ConnectionError",
-        "ConnectionAbortedError",
-        "ConnectionRefusedError",
-        "ConnectionResetError",
-        "BrokenPipeError",
-        "TrinoConnectionError",
-    }:
-        code = "connection_unavailable"
-    else:
-        code = "unknown"
     return {
-        "code": code,
+        "code": source_unavailability(failure),
         "failure_identity": failure.identity,
         "message": failure.message,
     }
@@ -1046,7 +1030,7 @@ def _inspected_entity_output(
     input_types: dict[str, str] = {}
     unavailable: dict[str, str] = {}
     for column in inspection.schema:
-        normalized = _ibis_table_type(
+        normalized = ibis_table_type(
             column.type,
             backend_type=engine,
         )
@@ -1593,11 +1577,7 @@ def run_validation(
                 try:
                     backend = connections.session_backend(entity.datasource)
                     with cr.backend_errors(backend):
-                        from marivo.datasource.adapters import provider_for
-
-                        provider_for(registry.datasources[entity.datasource].backend_type).probe(
-                            backend
-                        )
+                        probe_backend(registry.datasources[entity.datasource].backend_type, backend)
                 except (DatasourceCredentialError, DatasourceCredentialScopeError):
                     raise
                 except Exception as exc:
@@ -1631,7 +1611,7 @@ def run_validation(
             )
             try:
                 with connections.resolution_context():
-                    inspection = _inspect_in_project(
+                    inspection = inspect_in_project(
                         exact_datasource_ref,
                         entity.source,
                         project_root=catalog._project.workspace_dir,

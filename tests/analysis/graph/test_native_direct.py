@@ -11,7 +11,8 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.model.data_types import ScalarDataType
 from marivo.analysis.model.execution_errors import MaterializationError
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.physical_workloads import Workload, workload
 from tests.analysis.graph.reference_fixtures import reference_data

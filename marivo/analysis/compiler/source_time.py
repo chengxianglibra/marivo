@@ -18,9 +18,13 @@ from marivo.analysis.model.time_authority import (
     SourceTimeAuthority,
     WallClockSourceTime,
 )
-from marivo.datasource._temporal_expressions import (
+from marivo.datasource.spi import (
+    DEFAULT_BACKEND_TYPE,
     localize,
+    profile_for_backend_type,
+    query_dialect,
     timestamp,
+    timestamp_is_instant,
 )
 from marivo.semantic._physical_contracts import time_type_issue
 from marivo.semantic._source_timezone import DeclaredSourceTimezone
@@ -34,18 +38,6 @@ from marivo.semantic.ir import (
     is_time_bearing_format,
 )
 from marivo.semantic.validator import Registry
-
-
-def _clickhouse_date32_literal(value: str) -> date:
-    """Return a ClickHouse Date32 literal without Date's 1970-2149 bounds."""
-    raise NotImplementedError("native ClickHouse Date32 literal")
-
-
-_clickhouse_date32 = ibis.udf.scalar.builtin(
-    _clickhouse_date32_literal,
-    name="toDate32",
-    signature=((dt.string,), dt.date),
-)
 
 
 def ordered_time_literal(point: datetime, fmt: str, *, strict: bool = False) -> str | None:
@@ -118,7 +110,7 @@ def _boundary_instant(bound: date | datetime, authority: SourceTimeAuthority) ->
 
 
 def _scalar_cutoff(
-    raw: ir.Value, point: datetime, *, inclusive: bool, engine: str = "duckdb"
+    raw: ir.Value, point: datetime, *, inclusive: bool, engine: str = DEFAULT_BACKEND_TYPE
 ) -> ir.BooleanValue | None:
     """Compare a physical clock to one translated lower cutoff."""
     physical = raw.type()
@@ -129,12 +121,7 @@ def _scalar_cutoff(
         except OverflowError:
             return _nullable_constant(raw, False)
         # Ibis represents both Date and Date32 as date. Only cutoffs outside
-        # Date's range require the wider ClickHouse literal.
-        literal = (
-            _clickhouse_date32(day.isoformat())
-            if engine == "clickhouse" and not date(1970, 1, 1) <= day <= date(2149, 6, 6)
-            else ibis.literal(day, type=physical)
-        )
+        literal = query_dialect(engine).date_literal(day, physical)
         return raw >= literal
     if isinstance(physical, dt.Timestamp):
         scale = physical.scale
@@ -230,13 +217,11 @@ def endpoint_rewrite_safe(point: datetime, zone: str, engine: str) -> bool:
     normalized = normalize_timezone(zone)
     if normalized.kind == "fixed_offset" or normalized.name == "UTC":
         return True
-    from marivo.datasource.engines import profile_for_backend_type
-
-    if profile_for_backend_type(engine) is None:
+    profile = profile_for_backend_type(engine)
+    if profile is None:
         return False
-    # MySQL-family CONVERT_TZ can leave out-of-range clocks unconverted. Use
-    # the common native range, including the endpoint qualification margin.
-    if engine == "mysql" and not (1971 <= point.year <= 2037):
+    first, last = profile.dialect.timezone_endpoint_years
+    if not first <= point.year <= last:
         return False
     try:
         offsets = {
@@ -257,7 +242,7 @@ def source_time_comparison(
     comparison: TimeComparison,
     prefix: ir.Value | None = None,
     prefix_axis: TargetDimensionContract | None = None,
-    engine: str = "duckdb",
+    engine: str = DEFAULT_BACKEND_TYPE,
 ) -> ir.BooleanValue | None:
     """Build exact membership over parsed values or native physical clocks.
 
@@ -337,7 +322,7 @@ def source_time_predicate(
     end: date | datetime | None,
     prefix: ir.Value | None = None,
     prefix_axis: TargetDimensionContract | None = None,
-    engine: str = "duckdb",
+    engine: str = DEFAULT_BACKEND_TYPE,
     use: TimePredicateUse = "value",
 ) -> ir.BooleanValue | None:
     """Build membership preserving truth values, or selected rows for a positive filter."""
@@ -576,7 +561,7 @@ def _same_day_hour_filter(
     day_node = day.op()
     assert isinstance(day_node, ops.GreaterEqual)
     same_day = ops.Equals(day_node.left, day_node.right).to_expr()
-    if engine == "mysql" and prefix.type().is_string():
+    if query_dialect(engine).string_equality is not None and prefix.type().is_string():
         # Ibis casts string equality operands to BINARY on MySQL. Ordered
         # date bounds retain the original partition column instead.
         assert isinstance(prefix_axis.parse, StrptimeParse)
@@ -597,10 +582,10 @@ def _same_day_hour_filter(
 
 def parse_strptime(engine: str, text: ir.StringValue, parse: StrptimeParse) -> ir.Value:
     """Apply a semantic parser using the shared native expression implementation."""
-    from marivo.datasource._temporal_expressions import (
+    from marivo.datasource.spi import (
         TemporalExpressionError,
     )
-    from marivo.datasource._temporal_expressions import (
+    from marivo.datasource.spi import (
         parse_strptime as native_strptime,
     )
 
@@ -648,7 +633,7 @@ def _hour_clock(value: ir.Value, prefix: ir.DateValue, *, engine: str) -> ir.Tim
     if not isinstance(hour, ir.IntegerValue):
         raise compilation_error("an integer hour", "invalid hour representation")
     prefix_clock = timestamp(prefix)
-    if engine == "clickhouse":
+    if query_dialect(engine).civil_date_needs_neutral_carrier:
         # DATE-to-timestamp otherwise adopts the session timezone before the
         # composite clock can use its inherited source authority.
         prefix_clock = timestamp(
@@ -698,10 +683,7 @@ def source_time(
             location=f"analysis.source_time[{axis.ref.kind}:{axis.ref.path}]",
         )
     physical_is_aware = (
-        frozen.kind == "instant"
-        if frozen is not None
-        else isinstance(physical, dt.Timestamp)
-        and (physical.timezone is not None or engine == "clickhouse")
+        frozen.kind == "instant" if frozen is not None else timestamp_is_instant(physical, engine)
     ) and not isinstance(parse, (StrptimeParse, HourPrefixParse))
     if isinstance(parse, HourPrefixParse):
         if prefix is None:
@@ -719,7 +701,7 @@ def source_time(
     elif parse is not None and not isinstance(parse, TimestampParse):
         raise compilation_error("a supported time parser", "unresolved parser")
     if physical_is_aware:
-        if engine == "clickhouse" and value.type().timezone is None:
+        if query_dialect(engine).timestamp_has_implicit_timezone and value.type().timezone is None:
             value = value.cast(dt.Timestamp(timezone="UTC", scale=value.type().scale))
         authority: SourceTimeAuthority = InstantSourceTime(
             axis=axis.ref.path, physical_type=str(physical)

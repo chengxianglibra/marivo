@@ -14,7 +14,7 @@ from marivo.analysis.model.execution_errors import (
     MaterializationError,
     RecoveryPendingError,
 )
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value, terminal_runs
 from tests.support.execution_logs import execution_records
 

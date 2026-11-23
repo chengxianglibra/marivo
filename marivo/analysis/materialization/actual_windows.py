@@ -230,8 +230,8 @@ def _restrict_window_reads(
         )
         owner = prepared.sources[root]
         relation = (
-            owner._bind_key_relation(parameter_data(key_columns, output))
-            if owner.provider.name == "duckdb"
+            owner.bind_key_relation(parameter_data(key_columns, output))
+            if owner.provider.query_policy.owns_arrow_key_relations
             else None
         )
         relations[read_id] = instantiate(

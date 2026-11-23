@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import datetime, time, timedelta
 
 import ibis
@@ -13,18 +12,9 @@ from marivo._definition.expressions import BuiltinSampleCoordinate
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 from marivo._kernel.temporal import Grain
 from marivo._kernel.timezones import normalize_timezone, same_timezone
-from marivo.datasource._temporal_expressions import render, timestamp
+from marivo.datasource.spi import localize, query_dialect, render, timestamp
 
 KEY_TYPE = dt.Timestamp(timezone="UTC", scale=6)
-
-
-def _isfinite_signature(value: datetime) -> bool:
-    raise NotImplementedError("native timestamp finiteness")
-
-
-_finite_clock: Callable[[ir.TimestampValue], ir.BooleanValue] = ibis.udf.scalar.builtin(
-    _isfinite_signature, name="isfinite", signature=((dt.timestamp,), dt.boolean)
-)
 
 
 def reusable_date_day(calendar: CalendarCoordinate, date_timezone: str, engine: str) -> bool:
@@ -60,8 +50,6 @@ def builtin_key(
     engine: str | None = None,
 ) -> ir.Value:
     """Use the executing backend's civil truncation and native interpretation."""
-    from marivo.datasource._temporal_expressions import localize
-
     grain = calendar.grain_spec
     assert grain.unit is not None
     if (
@@ -84,11 +72,11 @@ def builtin_wall_key(wall: ir.Value, grain: Grain, *, engine: str | None) -> ir.
     if grain.unit in ("second", "minute", "hour"):
         # Generic compiler paths also build expressions before a provider is
         # known. Only an explicit engine can qualify backend-specific functions.
-        if grain.count == 1 and engine in ("duckdb", "postgres", "trino", "clickhouse"):
+        dialect = query_dialect(engine)
+        if grain.count == 1 and grain.unit in dialect.native_subday_grains:
             bucket = wall.truncate({"second": "s", "minute": "m", "hour": "h"}[grain.unit])
-            if engine in ("duckdb", "postgres"):
-                # Extraction in the original arithmetic produced NULL for infinite clocks.
-                return _finite_clock(timestamp(wall)).ifelse(bucket, ibis.null())
+            if dialect.finite_calendar_clock is not None:
+                return dialect.finite_calendar_clock(timestamp(wall)).ifelse(bucket, ibis.null())
             return bucket
         units = {"second": 1, "minute": 60, "hour": 3600}
         assert grain.count is not None
@@ -106,8 +94,6 @@ def builtin_sample_key(
     value: ir.Value, calendar: BuiltinSampleCoordinate, *, engine: str | None
 ) -> ir.Value:
     """Build an actual sample key and distinguish the two instants in a civil fold."""
-    from marivo.datasource._temporal_expressions import localize
-
     zone = calendar.timezone
     instant = timestamp(value)
     wall = render(zone, instant)

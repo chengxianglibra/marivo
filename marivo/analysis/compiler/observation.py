@@ -48,6 +48,7 @@ from marivo.analysis.model.data_types import (
     DataType,
     DurationDataType,
 )
+from marivo.datasource.spi import DEFAULT_BACKEND_TYPE
 from marivo.semantic._numeric_duration import recipe_duration
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
@@ -75,7 +76,7 @@ class ReductionInput:
     preserve_sample_presence: bool = False
     calendars: tuple[tuple[str, CalendarGrouping], ...] = ()
     sampled: bool = False
-    provider: str = "duckdb"
+    provider: str = DEFAULT_BACKEND_TYPE
     sample_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
 
 

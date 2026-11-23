@@ -230,7 +230,7 @@ def test_parsed_and_civil_time_periods(prepared_session: Session, field: str) ->
 def test_preview_rejects_anchor_before_opening(
     prepared_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.datasource.backends as backends
+    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*args: object, **kwargs: object) -> None:
         pytest.fail("unqualified preview opened a datasource")
@@ -337,7 +337,7 @@ elapsed=ms.measure_column(name="elapsed",entity=facts,column="elapsed",additivit
         assert str(column.dtype) == "duration[ns][pyarrow]"
         assert pa.array(column).cast(pa.int64()).to_pylist() == [ticks]
     from marivo.analysis.errors import AnalysisStageUnavailableError
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Unsupported source Duration quantile read business data")
@@ -503,7 +503,7 @@ def test_parsed_version_boundaries(prepared_session: Session) -> None:
 def test_version_axis_precision_is_checked_before_read(
     prepared_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     def forbidden(*args: object, **kwargs: object) -> None:
         pytest.fail("lossy version selection submitted a business read")
@@ -606,7 +606,7 @@ def test_calendar_bucket_keeps_nullable_timestamp_and_unmatched_rows(
 
 
 def _memory_calendars(expression: ir.Table) -> ir.Table:
-    from marivo.datasource._calendar_relations import CalendarData, memory_calendar
+    from marivo.datasource.engines.calendar_relations import CalendarData, memory_calendar
 
     return (
         expression.op()

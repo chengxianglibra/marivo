@@ -3,9 +3,9 @@
 import ibis
 import pytest
 
-from marivo.analysis.materialization.graph_source_execution import _mysql_source_timezones
 from marivo.analysis.materialization.temporal_sql import lower_temporal
-from marivo.datasource._temporal_expressions import localize
+from marivo.datasource.engines.mysql_query import source_timezones
+from marivo.datasource.temporal_primitives import localize
 
 
 @pytest.mark.parametrize(
@@ -27,7 +27,7 @@ def test_generated_mysql_sql_keeps_required_conversion_zones(consumer: str) -> N
     assert "CONVERT_TZ(" in sql
     if consumer == "grouped_count":
         assert "GROUP BY\n    1" in sql
-    assert _mysql_source_timezones(sql) == (
+    assert source_timezones(sql) == (
         () if consumer == "raw_count" else ("+00:00", "America/New_York")
     )
     assert sql == str(ibis.to_sql(lower_temporal(expression, "mysql"), dialect="mysql"))

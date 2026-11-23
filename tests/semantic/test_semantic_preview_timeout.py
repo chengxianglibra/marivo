@@ -18,24 +18,24 @@ from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 from marivo._kernel.refs import ref as ref_factory
-from marivo.datasource import backends
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceSourceCapabilityError
-from marivo.datasource.inspection import (
+from marivo.datasource.inspection.details import (
     ExecutionCapabilities,
     Partitioning,
     PhysicalExtent,
-    SourceInspection,
 )
+from marivo.datasource.inspection.source import SourceInspection
 from marivo.datasource.ir import (
     DatasourceIR,
     EntitySourceIR,
     QueryParamScalar,
     QueryParamScalarList,
 )
-from marivo.datasource.metadata import ColumnMetadata
-from marivo.datasource.preview import PreviewResult
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.metadata_types import ColumnMetadata
+from marivo.datasource.runtime import backends as backends
+from marivo.datasource.runtime.connections import DatasourceConnectionService
+from marivo.datasource.runtime.preview import PreviewResult
 from marivo.datasource.source import AuthoringScope, TableSource
 from marivo.semantic import catalog as catalog_module
 from marivo.semantic.catalog import SemanticCatalog
@@ -234,7 +234,7 @@ def _probe(
             _project_root=project_root,
         )
 
-    monkeypatch.setattr("marivo.datasource.inspection._inspect_resolved_source", inspect_source)
+    monkeypatch.setattr("marivo.datasource.spi.inspect_resolved_source", inspect_source)
     monkeypatch.setattr(
         "marivo.datasource.engines.mysql.execute_provider_statement",
         lambda *_args, **_kwargs: ({"@@session.max_execution_time": 30000},),

@@ -6,6 +6,8 @@ from collections.abc import Iterator, Mapping
 from functools import lru_cache
 from importlib import import_module
 
+import ibis.expr.datatypes as dt
+
 from marivo.datasource.engines.base import (
     GENERIC_PROFILE as GENERIC_PROFILE,
 )
@@ -21,9 +23,11 @@ from marivo.datasource.engines.base import (
 from marivo.datasource.engines.base import (
     quote_identifier as quote_identifier,
 )
+from marivo.datasource.engines.query import EngineQueryPolicy, QueryDialectProfile
 
+DEFAULT_BACKEND_TYPE = "duckdb"
 SUPPORTED_BACKEND_TYPES: tuple[str, ...] = (
-    "duckdb",
+    DEFAULT_BACKEND_TYPE,
     "trino",
     "mysql",
     "postgres",
@@ -94,3 +98,22 @@ def profile_for_backend_name(name: str | None) -> EngineProfile:
 def profile_for_backend(backend: object) -> EngineProfile:
     raw = getattr(backend, "name", None)
     return profile_for_backend_name(str(raw).lower() if raw is not None else None)
+
+
+def query_dialect(backend_type: str | None) -> QueryDialectProfile:
+    """Get the selected dialect, using neutral expressions for an unowned source."""
+    profile = profile_for_backend_type(backend_type) if backend_type is not None else None
+    return (profile or GENERIC_PROFILE).dialect
+
+
+def query_policy(backend_type: str | None) -> EngineQueryPolicy:
+    """Get native query admissions for the exact declared provider."""
+    profile = profile_for_backend_type(backend_type) if backend_type is not None else None
+    return (profile or GENERIC_PROFILE).query_policy
+
+
+def timestamp_is_instant(dtype: dt.DataType, backend_type: str | None) -> bool:
+    """Interpret physical timestamp types using the selected source authority."""
+    return isinstance(dtype, dt.Timestamp) and (
+        dtype.timezone is not None or query_dialect(backend_type).timestamp_has_implicit_timezone
+    )

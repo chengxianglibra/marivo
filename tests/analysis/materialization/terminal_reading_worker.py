@@ -15,7 +15,7 @@ import marivo.analysis as mv
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.materialization.terminal_store import describe
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.shared_fixtures import catalog_value, frozen_coordinates, terminal_runs, time_population
 
 

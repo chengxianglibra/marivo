@@ -77,7 +77,7 @@ def test_datasource_import_does_not_load_semantic_analysis_or_packaged_skills(
 
 def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
     from marivo.datasource.ir import DatasourceIR
-    from marivo.datasource.loader import load_datasources
+    from marivo.datasource.store.loader import load_datasources
 
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True)
@@ -95,7 +95,7 @@ def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
 
 def test_load_datasources_rejects_required_trino_user_none(tmp_path: Path) -> None:
     from marivo.datasource.errors import DatasourceFieldInvalidError
-    from marivo.datasource.loader import load_datasources
+    from marivo.datasource.store.loader import load_datasources
 
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True)

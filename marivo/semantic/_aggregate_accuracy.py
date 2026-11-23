@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from marivo._kernel.source_aggregates import native_aggregate
+from marivo.datasource.spi import native_aggregate
 from marivo.semantic.ir import DIRECT_ONLY_AGGREGATES, AggKind
 
 

@@ -35,8 +35,12 @@ from marivo.analysis.methods.carriers.frame_calendar import freeze_calendar
 from marivo.analysis.model.data_types import DataColumn, TimestampDataType
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import CompiledRead, SourceSession
-from marivo.datasource.runtime import DatasourceConnectionConfig, DatasourceConnectionService
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.connections import (
+    DatasourceConnectionConfig,
+    DatasourceConnectionService,
+)
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic._expression_values import RowPredicate
 from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
 from marivo.semantic.reader import SemanticProject
@@ -744,7 +748,9 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
         guard.setattr(
             "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
         )
-        guard.setattr("marivo.datasource.runtime.DatasourceConnectionConfig.operation", forbidden)
+        guard.setattr(
+            "marivo.datasource.runtime.connections.DatasourceConnectionConfig.operation", forbidden
+        )
         pending.show()
     card = capsys.readouterr().out
     fixed = pending.compute()
@@ -757,7 +763,9 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     monkeypatch.setattr(
         "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
-    monkeypatch.setattr("marivo.datasource.runtime.DatasourceConnectionConfig.operation", forbidden)
+    monkeypatch.setattr(
+        "marivo.datasource.runtime.connections.DatasourceConnectionConfig.operation", forbidden
+    )
     aligned = fixed.align(fixed, on=((fixed.axes[0], fixed.axes[0]),)).compute()
     assert _memory(aligned).metadata.source_reads == facts
     assert len(_memory(aligned).metadata.source_reads) == len(set(facts))

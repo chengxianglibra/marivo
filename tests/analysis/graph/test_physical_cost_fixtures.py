@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from marivo.analysis.model.data_types import ScalarDataType
-from marivo.datasource.adapters import PhysicalRequirement
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.read_types import PhysicalRequirement
 from tests.analysis.graph.physical_workloads import _data, _rows, _tables, workload
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 

@@ -55,7 +55,7 @@ from marivo.analysis.materialization.query_parameters import instantiate
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.programs import FormulaInput
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic._numeric_lowering import NumericCheck
 
 
@@ -138,13 +138,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
             source_stages = tuple(sources[value.stage_id] for value in selected)
             owner = prepared.sources.get(source_stages[0].source_id, prepared.source)
             try:
-                if owner.provider.name not in (
-                    "duckdb",
-                    "postgres",
-                    "mysql",
-                    "trino",
-                    "clickhouse",
-                ):
+                if not owner.provider.query_policy.sample_fusion:
                     raise SampleReductionUnavailableError(
                         "provider has no qualified native sample route"
                     )

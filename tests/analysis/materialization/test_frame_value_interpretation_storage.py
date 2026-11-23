@@ -112,7 +112,7 @@ from dataclasses import asdict
 from pathlib import Path
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.analysis.materialization.graph_reading import FrameReader, OutputRead
 assert Path(mv.__file__).resolve().parents[2] == Path(sys.argv[3])
 expected = json.loads(Path(sys.argv[2]).read_text())

@@ -280,7 +280,7 @@ import json, sys
 import duckdb, ibis
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.shared_fixtures import frozen_coordinates
 
 def forbidden(*args, **kwargs):
@@ -537,7 +537,7 @@ def test_raw_instant_membership_keeps_native_projection_without_rule_audit(
     import sqlglot
     from sqlglot import expressions as sge
 
-    from marivo.datasource import _temporal_expressions as source_time
+    from marivo.datasource import spi as source_time
     from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j1")
@@ -857,7 +857,7 @@ from marivo.analysis import timezone as analysis_timezone
 from marivo.analysis.methods.carriers import frame_calendar
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.shared_fixtures import frozen_coordinates, run_ids
@@ -1050,7 +1050,7 @@ from marivo.analysis import timezone as analysis_timezone
 from marivo.analysis.methods.carriers import frame_calendar
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.shared_fixtures import frozen_coordinates, run_ids
 from tests.support.json import obj, read

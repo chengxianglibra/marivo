@@ -140,7 +140,7 @@ from unittest.mock import patch
 import marivo.analysis as mv
 assert Path(mv.__file__).resolve().parents[2] == Path(sys.argv[4])
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 
 def forbidden(*args, **kwargs):
     raise AssertionError('cold approximate distinct attempted source access')

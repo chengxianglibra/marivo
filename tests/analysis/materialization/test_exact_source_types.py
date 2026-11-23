@@ -15,9 +15,9 @@ from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_types import DataColumn, DecimalDataType
 from marivo.analysis.model.errors import CoreRuleError
 from marivo.analysis.model.execution_errors import MaterializationError
-from marivo.datasource.adapters import _require_decimal_transport
 from marivo.datasource.errors import DatasourceSourceCapabilityError
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import _require_decimal_transport
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, source_case, source_params

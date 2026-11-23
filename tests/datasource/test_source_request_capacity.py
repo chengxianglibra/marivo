@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from marivo.datasource.adapters import PhysicalRequirement
 from marivo.datasource.engines.clickhouse import validate_query_size
 from marivo.datasource.errors import DatasourceSourceCapabilityError
+from marivo.datasource.runtime.read_types import PhysicalRequirement
 from tests.datasource.source_cases import source_case, source_params
 
 

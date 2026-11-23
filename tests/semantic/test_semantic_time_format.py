@@ -1,6 +1,6 @@
 import pytest
 
-from marivo.datasource.strptime import (
+from marivo.datasource.engines.strptime import (
     python_to_mysql_strptime,
     python_to_postgres_strptime,
 )

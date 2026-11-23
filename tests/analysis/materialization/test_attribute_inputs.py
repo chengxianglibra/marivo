@@ -21,7 +21,7 @@ from marivo.analysis.dsl.population import Population
 from marivo.analysis.materialization.frame_evaluation import evaluate_attribute_inputs
 from marivo.analysis.model.frame_contracts import CheckedStageInputT
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import CompiledRead
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic._expression_values import FieldExpression
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, terminal_runs
@@ -92,7 +92,7 @@ def session(
 def test_same_root_ratio_has_direct_parent_and_fine_reads_per_endpoint(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
@@ -531,7 +531,7 @@ def test_native_mean_retains_wider_sum_without_imposing_sum_int64_overflow(
 def test_additional_root_has_two_independent_roles_without_fact_fanout(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     other = catalog_value(session.catalog, "sales.otherfacts.value", kind="measure")
@@ -573,7 +573,7 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
     from marivo.analysis.compiler.graph_plan import FrameCompute, SourceReadStage
     from marivo.analysis.core.attribute import AttributeInputProgram
     from marivo.analysis.materialization import frame_evaluation
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
@@ -713,7 +713,7 @@ def test_missing_checked_parent_aggregate_cannot_turn_into_known_empty(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.analysis.core.attribute import AttributeInputError
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     execute = SourceSession.execute
 
@@ -756,7 +756,7 @@ def test_unproved_sample_sequence_stays_closed_before_source_read(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.analysis.binding.attribute_rules import AttributeRuleError
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     calls = []
     monkeypatch.setattr(SourceSession, "execute", lambda *args: calls.append(args))
@@ -784,7 +784,7 @@ def _keyed_values(
 def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
@@ -1076,7 +1076,7 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
 ) -> None:
     from marivo.analysis.materialization import graph_source_execution
     from marivo.analysis.model.execution_errors import MaterializationError
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
@@ -1188,7 +1188,7 @@ def test_joint_compound_identity_counts_preserve_prepared_axis_groups(session: S
 def test_source_capture_copies_metrics_without_business_reads(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
     metrics = {"sum": value.sum(), "mean": value.mean()}
@@ -1214,7 +1214,7 @@ def test_role_specific_native_carriers_and_shuffled_rows_survive_direct_inputs(
     from marivo.analysis.core.attribute import AttributeInputProgram
     from marivo.analysis.materialization import graph_local_execution
     from marivo.analysis.model.data_types import DecimalDataType
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER value TYPE DECIMAL(18,2)")

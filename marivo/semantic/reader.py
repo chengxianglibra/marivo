@@ -16,7 +16,7 @@ from marivo._kernel.refs import Ref, SemanticKindTag
 from marivo._kernel.symbolic import LookupSymbol, native_symbol_ref
 from marivo.datasource import credentials as cr
 from marivo.datasource.ir import DatasourceIR
-from marivo.datasource.runtime import DatasourceConnectionConfig, DatasourceConnectionService
+from marivo.datasource.spi import DatasourceConnectionConfig, DatasourceConnectionService
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.errors import (

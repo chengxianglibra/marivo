@@ -162,7 +162,8 @@ def test_lost_commit_ack_returns_committed_output_without_source_replay(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     case = analysis_dsl_case_factory("j2")
     execute = SourceSession.execute

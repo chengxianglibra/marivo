@@ -17,7 +17,7 @@ from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.model.time_authority import ReportTimeAuthority
 from marivo.datasource import credentials as cr
-from marivo.datasource.runtime import DatasourceConnectionConfig, DatasourceConnectionService
+from marivo.datasource.spi import DatasourceConnectionConfig, DatasourceConnectionService
 from marivo.semantic.catalog import SemanticCatalog
 
 

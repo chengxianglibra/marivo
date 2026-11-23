@@ -14,7 +14,7 @@ import sqlglot as sg
 import sqlglot.expressions as sge
 
 import marivo.analysis as mv
-from marivo.datasource._calendar_relations import (
+from marivo.datasource.engines.calendar_relations import (
     calendar_data,
     calendar_range,
     compile_calendar_range,

@@ -12,15 +12,23 @@ import pytest
 from ibis.backends import BaseBackend
 
 import marivo.datasource as md
-from marivo.datasource import adapters, backends, manage, runtime
-from marivo.datasource import secrets as datasource_secrets
 from marivo.datasource._lifetime import BackendLease
-from marivo.datasource.adapters import (
-    SourceSession,
-    provider_for,
-)
+from marivo.datasource.credentials import secrets as datasource_secrets
 from marivo.datasource.engines import mysql
 from marivo.datasource.errors import DatasourceSourceCapabilityError
+from marivo.datasource.inspection import manage as manage
+from marivo.datasource.runtime import (
+    adapters as adapters,
+)
+from marivo.datasource.runtime import (
+    backends as backends,
+)
+from marivo.datasource.runtime import (
+    connections as runtime,
+)
+from marivo.datasource.runtime import session_factory
+from marivo.datasource.runtime.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.session_factory import open_source_session
 from tests.datasource.source_cases import datasource
 
 
@@ -30,10 +38,10 @@ def test_provider_session_reuses_the_built_backend_lease(
     backend = Mock(spec=BaseBackend)
     backend.name = "duckdb"
     built = backends.BuiltDatasourceBackend(backend, ())
-    monkeypatch.setattr(runtime, "open_backend", lambda *_args, **_kwargs: built)
+    monkeypatch.setattr(session_factory, "open_backend", lambda *_args, **_kwargs: built)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
 
-    session = provider_for("duckdb").open(datasource("duckdb", {}))
+    session = open_source_session(provider_for("duckdb"), datasource("duckdb", {}))
     assert session._backend_lease is built.lease
     built.disconnect()
     session.close()
@@ -57,7 +65,7 @@ def test_probe_releases_the_owned_backend_and_caches_only_success(
     monkeypatch.setattr(manage, "load_datasource", lambda *_args: datasource("trino", {}))
     monkeypatch.setattr(manage, "open_backend", lambda *_args, **_kwargs: built)
     probe = Mock(side_effect=RuntimeError("probe failed") if failed else None)
-    monkeypatch.setattr(adapters, "_probe_backend", probe)
+    monkeypatch.setattr(manage, "probe_backend", probe)
     cache = Mock()
     monkeypatch.setattr(datasource_secrets, "try_persist_backend_env_sourced", cache)
 
@@ -301,7 +309,7 @@ def test_unscoped_connection_preserves_declared_native_transport_settings(
 def test_probe_timeout_requires_native_evidence_and_retains_backend_diagnostics(
     native: bool, tmp_path: Path
 ) -> None:
-    from marivo.datasource import manage
+    from marivo.datasource.inspection import manage as manage
 
     def fail(_state: manage._ProbeState) -> manage.DatasourceTestResult:
         if native:

@@ -9,12 +9,12 @@ import ibis.expr.operations as ops
 import pandas as pd
 import pytest
 
-from marivo.analysis.materialization.mysql_key_parameters import membership
 from marivo.analysis.materialization.query_parameters import instantiate
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
-from marivo.datasource.adapters import PhysicalRequirement
+from marivo.datasource.engines.mysql_query import bind_complete_key_membership
 from marivo.datasource.errors import DatasourceSourceCapabilityError
+from marivo.datasource.runtime.read_types import PhysicalRequirement
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.query_keys import integer_string_keys as _keys
 
@@ -26,12 +26,14 @@ _COLUMNS = (
 
 def test_mysql_complete_key_payload_has_bounded_expression_size() -> None:
     table = ibis.table({"id": "int64", "tenant": "string"}, name="facts")
+    schema = ibis.schema({"key.0": "int64", "key.1": "string"})
     sizes = []
     for count in (10, 1_000, 10_000):
-        predicate = membership(
-            _COLUMNS,
+        predicate = bind_complete_key_membership(
+            schema,
             tuple((2**53 + index, "a" if index % 2 else None) for index in range(count)),
             {"key.0": table.id, "key.1": table.tenant},
+            None,
         )
         assert predicate is not None
         result = table.filter(predicate)
@@ -40,7 +42,9 @@ def test_mysql_complete_key_payload_has_bounded_expression_size() -> None:
         sizes.append(len(result.op().find(ops.Node)))
     assert sizes[0] == sizes[1] == sizes[2]
     with pytest.raises(ValueError):
-        membership(_COLUMNS, ((1, "a" * 32768),), {"key.0": table.id, "key.1": table.tenant})
+        bind_complete_key_membership(
+            schema, ((1, "a" * 32768),), {"key.0": table.id, "key.1": table.tenant}, None
+        )
 
 
 def test_mysql_repeated_parameter_slot_keeps_all_join_constraints() -> None:

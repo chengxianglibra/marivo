@@ -15,7 +15,7 @@ def test_artifact_rejects_unknown_evidence_without_source_replay(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
     from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")

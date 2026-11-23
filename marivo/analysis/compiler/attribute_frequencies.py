@@ -185,9 +185,9 @@ def frequency_finishers(
     stage: SourceReadStage, fields: Mapping[str, ir.Value]
 ) -> tuple[tuple[str, Literal["rank_bounds", "duckdb_native", "postgres_native"]], ...]:
     """Retain each original reducer's already-qualified numeric finish recipe."""
-    from marivo._kernel.source_aggregates import native_aggregate
     from marivo.analysis.compiler.graph_plan import read_members
     from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
+    from marivo.datasource.spi import native_aggregate
     from marivo.semantic._numeric_lowering import lower_row
 
     result: list[tuple[str, Literal["rank_bounds", "duckdb_native", "postgres_native"]]] = []

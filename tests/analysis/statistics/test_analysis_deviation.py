@@ -147,7 +147,7 @@ def test_exported_time_scores_allow_explicit_pandas_refit(
     empty: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
     from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")

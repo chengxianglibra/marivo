@@ -27,7 +27,7 @@ from marivo.analysis.model.attribute_failures import (
 )
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import CompiledRead
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic._expression_values import FieldExpression
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
@@ -265,7 +265,7 @@ from unittest.mock import patch
 import marivo
 import marivo.analysis as mv
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 def forbidden(*args, **kwargs):
     raise AssertionError('cold facts attempted a source/model read')
 with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceSession, '__init__', forbidden):
@@ -382,7 +382,7 @@ bare = ms.measure_column(name='bare', entity=facts, column='amount', unit=None, 
 def test_additive_exact_values_and_independent_role_reads(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
@@ -520,7 +520,7 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
     from marivo.analysis.model.attribute_failures import AttributeFineFiber
     from marivo.analysis.model.data_types import ScalarDataType
     from marivo.analysis.model.execution_errors import MaterializationError
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER amount TYPE DOUBLE")
@@ -979,7 +979,7 @@ def test_new_attribute_uses_only_its_own_live_components(
     from marivo.analysis.materialization.graph_local_execution import LocalKernel
     from marivo.analysis.methods.carriers.stages import StageOutput
     from marivo.analysis.model.frame_contracts import CheckReceipt
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute("DELETE FROM facts")
@@ -1157,7 +1157,7 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     from marivo.analysis.binding.attribute_rules import RuleScale
     from marivo.analysis.core.frame_method_facts import FrameLinearMethod
     from marivo.analysis.model.data_types import DecimalDataType, ScalarDataType
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     if not mean:
         with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
@@ -1264,7 +1264,7 @@ from decimal import Decimal
 import marivo
 import marivo.analysis as mv
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.analysis.model.data_types import DecimalDataType
 assert Path(marivo.__file__).resolve().parents[1] == Path(sys.argv[3])
 def forbidden(*args, **kwargs):
@@ -1295,7 +1295,7 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
 
 def test_captured_frame_attribute_level(session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
     from marivo.analysis.binding.frame_attribute import attribute
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
@@ -1512,7 +1512,7 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
 ) -> None:
     from marivo.analysis.core.attribute import AttributeInputError
     from marivo.analysis.model.attribute_failures import AttributeClosureWitness
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     database = tmp_path / "contribution.duckdb"
     with duckdb.connect(str(database)) as connection:
@@ -1588,7 +1588,7 @@ def test_integer_sum_decimal_carrier_rejects_one_unit_independent_drift(
 ) -> None:
     from marivo.analysis.core.attribute import AttributeInputError
     from marivo.analysis.model.attribute_failures import AttributeClosureWitness
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
@@ -1626,7 +1626,7 @@ def test_incompatible_same_root_scopes_are_rejected_before_attribute_reads(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.analysis.core.attribute import AttributeInputError
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
@@ -1709,7 +1709,7 @@ def test_float_method_facts_capture_native_ratio_and_survive_cold_recovery(
 
     import marivo
     from marivo.analysis.core.frame_method_facts import FrameRatioMethod
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
@@ -1758,7 +1758,7 @@ import sys
 from unittest.mock import patch
 import marivo.analysis as mv
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 def forbidden(*args, **kwargs):
     raise AssertionError('cold facts attempted a source/model read')
 with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSession,'__init__',forbidden):
@@ -2032,7 +2032,7 @@ def test_exact_rate_mix_rejects_invalid_group_components(
 def test_exact_rate_mix_rejects_small_component_drift_before_final_closure(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
@@ -2062,7 +2062,7 @@ def test_exact_rate_mix_rejects_small_component_drift_before_final_closure(
 def test_exact_rate_mix_rejects_original_fine_ratio_drift(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")

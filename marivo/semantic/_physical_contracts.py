@@ -9,6 +9,7 @@ import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
 from marivo._kernel.refs import Ref, SemanticKind, SemanticKindTag
+from marivo.datasource.spi import timestamp_is_instant
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 from marivo.semantic.ir import (
     DateParse,
@@ -41,9 +42,7 @@ def time_type_issue(
     declared = (
         parse.timezone if isinstance(parse, DateParse | TimestampParse | StrptimeParse) else None
     )
-    aware = isinstance(physical, dt.Timestamp) and (
-        physical.timezone is not None or engine == "clickhouse"
-    )
+    aware = timestamp_is_instant(physical, engine)
     received = f"{engine} physical_type={str(physical)!r}, parser_timezone={declared!r}"
     if aware and declared is not None:
         return PhysicalTypeIssue(
@@ -128,9 +127,7 @@ def validate_bound_field(value: ir.Value, *, ref: Ref[SemanticKindTag], registry
         from marivo.semantic._source_timezone import require_source_timezone, source_timezone_axis
 
         physical = value.type()
-        aware = isinstance(physical, dt.Timestamp) and (
-            physical.timezone is not None or datasource.backend_type == "clickhouse"
-        )
+        aware = timestamp_is_instant(physical, datasource.backend_type)
         if not aware:
             require_source_timezone(
                 registry,

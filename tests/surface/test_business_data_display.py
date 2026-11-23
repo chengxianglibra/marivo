@@ -7,8 +7,8 @@ import pytest
 
 from marivo._kernel.data_render import _DataCard
 from marivo._kernel.refs import ref as ref_factory
-from marivo.datasource.manage import RawSqlResult
-from marivo.datasource.preview import PreviewCoverage, PreviewResult
+from marivo.datasource.inspection.raw_sql import RawSqlResult
+from marivo.datasource.runtime.preview import PreviewCoverage, PreviewResult
 
 
 @pytest.fixture(params=("preview", "raw_sql"))

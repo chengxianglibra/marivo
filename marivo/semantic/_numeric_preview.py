@@ -32,12 +32,12 @@ from marivo._definition.graph import children, direct_refs, walk
 from marivo._definition.relations import PopulationContains
 from marivo._definition.types import field_read_key
 from marivo._kernel.refs import SemanticKind, ref
-from marivo._kernel.source_aggregates import (
+from marivo.datasource.spi import (
+    SourceSession,
     aggregate_operation,
     aggregate_repair_action,
     native_aggregate,
 )
-from marivo.datasource.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._numeric_duration import recipe_duration
 from marivo.semantic._numeric_lowering import (

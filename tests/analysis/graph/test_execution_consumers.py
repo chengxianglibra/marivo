@@ -9,7 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.model.data_types import ScalarDataType
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.graph.reference_fixtures import reference_data

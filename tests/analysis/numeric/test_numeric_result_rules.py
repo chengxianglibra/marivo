@@ -231,7 +231,7 @@ from decimal import Decimal
 import pyarrow as pa
 from unittest.mock import patch
 import marivo.analysis as mv
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 with patch.object(SourceSession, 'execute', side_effect=AssertionError('source read')):
     session = mv.session.resume(sys.argv[1])
     product = session.persisted_frame(sys.argv[2]).to_pandas()['product']

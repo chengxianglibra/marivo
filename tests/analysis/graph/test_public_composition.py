@@ -235,7 +235,7 @@ import ibis
 import marivo.analysis as mv
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 import marivo.semantic as ms
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime.connections import DatasourceConnectionService
 from tests.shared_fixtures import run_ids
 
 def forbidden(*args, **kwargs):
@@ -267,7 +267,7 @@ def test_members_schema_preflight_does_not_submit_business_rows(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j1")
 

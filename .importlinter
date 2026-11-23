@@ -29,6 +29,12 @@ ancestors =
     marivo._kernel
     marivo._definition
     marivo._authoring
+    marivo.datasource
+    marivo.datasource.credentials
+    marivo.datasource.engines
+    marivo.datasource.inspection
+    marivo.datasource.runtime
+    marivo.datasource.store
 
 [importlinter:contract:pure-layers-no-heavy-runtime]
 name = Pure analysis and shared primitives exclude execution dependencies
@@ -184,3 +190,20 @@ modules =
     marivo.datasource.engines.mysql
     marivo.datasource.engines.trino
     marivo.datasource.engines.clickhouse
+
+
+[importlinter:contract:engines-protected]
+name = Only datasource engines import concrete engine implementations
+type = protected
+protected_modules =
+    marivo.datasource.engines.duckdb
+    marivo.datasource.engines.postgres
+    marivo.datasource.engines.mysql
+    marivo.datasource.engines.mysql_query
+    marivo.datasource.engines._mysql_backend
+    marivo.datasource.engines.trino
+    marivo.datasource.engines.trino_query
+    marivo.datasource.engines.clickhouse
+    marivo.datasource.engines.clickhouse_query
+allowed_importers =
+    marivo.datasource.engines

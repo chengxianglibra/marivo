@@ -14,7 +14,7 @@ from marivo.analysis.compiler.source_time import (
     source_time_predicate,
 )
 from marivo.analysis.model.time_authority import CivilDateSourceTime
-from marivo.datasource._temporal_lowering import lower_temporal
+from marivo.datasource.engines.temporal_lowering import lower_temporal
 from marivo.semantic._source_timezone import DeclaredSourceTimezone
 from marivo.semantic.ir import DateParse, TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
@@ -106,7 +106,7 @@ def test_fixed_offset_never_reaches_backend_as_a_timezone_name(engine: str) -> N
 def test_fixed_offset_native_projection_matches_independent_offset_sql(
     engine: str, profile: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource._temporal_expressions import render
+    from marivo.datasource.temporal_primitives import render
     from tests.datasource.source_cases import SourceData, source_case
 
     columns = (

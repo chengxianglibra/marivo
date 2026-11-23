@@ -16,11 +16,12 @@ from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource import adapters
-from marivo.datasource.backends import build_backend
 from marivo.datasource.engines import duckdb as duckdb_engine
 from marivo.datasource.errors import DatasourceRawSqlError
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.runtime import adapters as adapters
+from marivo.datasource.runtime.backends import build_backend
+from marivo.datasource.runtime.session_factory import probe_backend
 
 
 def test_duckdb_connection_settings_are_effective() -> None:
@@ -73,7 +74,7 @@ def test_governed_probe_submits_exact_ibis_compilation(
 
     monkeypatch.setattr(type(backend), "execute", capture)
     try:
-        duckdb_engine.PROFILE.probe(backend)
+        probe_backend(duckdb_engine.PROFILE.name, backend)
         expected = backend.compile(ibis.literal(1).name("probe").as_table(), limit=None)
         assert submitted == [expected]
     finally:

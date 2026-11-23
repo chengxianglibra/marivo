@@ -224,7 +224,7 @@ def patch_semantic_connections(
     Resolver callers retain their backend; operation-owned previews still close
     their acquired backend through the production connection owner.
     """
-    from marivo.datasource.runtime import DatasourceConnectionService
+    from marivo.datasource.runtime.connections import DatasourceConnectionService
 
     owner = DatasourceConnectionService(backend_factory=factory, use_datasources=False)
     with patch.object(project, "_connection_operation", side_effect=owner.operation):
@@ -235,7 +235,7 @@ def in_memory_datasource_ir(name: str) -> DatasourceIR:
     """Return a fresh complete DuckDB declaration for source-free authoring checks."""
     from dataclasses import replace
 
-    from marivo.datasource._builtin import default_datasource
+    from marivo.datasource.store.builtin import default_datasource
 
     return replace(default_datasource(), semantic_id=name, name=name, wall_clock_timezone="UTC")
 
@@ -1161,7 +1161,7 @@ def revenue():
 
 def datasource_arguments_source(arguments: Mapping[str, object]) -> str:
     """Render test declaration kwargs, preserving EnvRef constructor syntax."""
-    from marivo.datasource.credential_inputs import EnvRef
+    from marivo.datasource.credentials.inputs import EnvRef
 
     return ", ".join(
         f"{key}=md.env({value.name!r})" if isinstance(value, EnvRef) else f"{key}={value!r}"

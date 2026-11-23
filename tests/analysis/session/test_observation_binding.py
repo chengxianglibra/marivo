@@ -130,7 +130,7 @@ def bound_catalog(
         fanout: bool = False,
         sampled: bool = False,
     ) -> Session:
-        import marivo.datasource.backends as backends
+        from marivo.datasource.runtime import backends as backends
 
         def forbidden(*args: object, **kwargs: object) -> None:
             raise AssertionError("binding opened a datasource")
@@ -451,7 +451,7 @@ def filtered():
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    import marivo.datasource.backends as backends
+    from marivo.datasource.runtime import backends as backends
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("binding opened a datasource")
@@ -480,7 +480,7 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
 ) -> None:
     from marivo._definition.expressions import MemberCount
     from marivo._definition.graph import walk
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     session = bound_catalog()
     entity = catalog_get(session.catalog, "entity:sales.orders", kind="entity")

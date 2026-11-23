@@ -16,7 +16,7 @@ from ibis.common.deferred import Deferred
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic._expression_values import MetricExpression, RowExpression
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.shared_fixtures import (
@@ -597,7 +597,7 @@ import sys
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 def forbidden(*args, **kwargs):
     raise AssertionError('terminal group read accessed source or Semantic')
 ms.load = forbidden

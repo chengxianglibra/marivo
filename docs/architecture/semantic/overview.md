@@ -107,7 +107,7 @@ recoverable nominal Entity/Field authority or hidden Metric state.
 
 | Responsibility | Code |
 | --- | --- |
-| Physical adapters and managed reads | [datasource/runtime.py](../../../marivo/datasource/runtime.py), [engines](../../../marivo/datasource/engines/) |
+| Physical adapters and managed reads | [datasource SPI](../../../marivo/datasource/spi.py), [datasource runtime](../../../marivo/datasource/runtime/) |
 | Declaration capture and restricted syntax | [authoring.py](../../../marivo/semantic/authoring.py), [validator.py](../../../marivo/semantic/validator.py) |
 | Project assembly and materialization | [loader.py](../../../marivo/semantic/loader.py), [reader.py](../../../marivo/semantic/reader.py), [materializer.py](../../../marivo/semantic/materializer.py) |
 | Catalog, validation and snapshots | [catalog.py](../../../marivo/semantic/catalog.py), [readiness.py](../../../marivo/semantic/readiness.py), [validation.py](../../../marivo/semantic/validation.py) |

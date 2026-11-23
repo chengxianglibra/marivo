@@ -515,8 +515,8 @@ def _restrict(
     matched = table.semi_join(keys, [fields[slot].identical_to(keys[slot]) for slot in names])
     owner = prepared.sources[item.root.ref.path]
     relation = (
-        owner._bind_key_relation(parameter_data(key_columns, output))
-        if owner.provider.name == "duckdb"
+        owner.bind_key_relation(parameter_data(key_columns, output))
+        if owner.provider.query_policy.owns_arrow_key_relations
         else None
     )
     prepared.relations[identifier] = instantiate(

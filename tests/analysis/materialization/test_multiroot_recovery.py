@@ -14,8 +14,9 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
-from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.session_factory import open_source_session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.analysis.materialization.multiroot_recovery_worker import verify
@@ -99,8 +100,9 @@ def test_native_independent_multiroot_fixed_and_cold(
             finally:
                 admin.disconnect()
             connection = stack.enter_context(
-                provider_for(backend).open(
-                    datasource(backend, {"path": str(path), "read_only": True})
+                open_source_session(
+                    provider_for(backend),
+                    datasource(backend, {"path": str(path), "read_only": True}),
                 )
             )
             cases = [

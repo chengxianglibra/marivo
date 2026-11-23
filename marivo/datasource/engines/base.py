@@ -4,19 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, runtime_checkable
 
 import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 
+from marivo.datasource.engines.query import EngineQueryPolicy, QueryDialectProfile
 from marivo.datasource.engines.requirements import ModuleRequirement
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
+from marivo.datasource.metadata_types import MetadataWarning, TableMetadata, schema_only_metadata
 
 if TYPE_CHECKING:
-    from marivo.datasource.adapters import SourceSession
-    from marivo.datasource.capabilities import ProviderHttpCredentials
-    from marivo.datasource.metadata import MetadataWarning, TableMetadata
+    import pandas as pd
+    import pyarrow as pa
 
 BackendDatetimeDecodePolicy: TypeAlias = Literal["local_naive_label", "utc_naive_instant"]
 PartitionValueSource: TypeAlias = Literal["metadata", "system_catalog"]
@@ -24,6 +25,18 @@ NativeQueryTimeout: TypeAlias = Callable[[BaseBackend, int], AbstractContextMana
 MetadataResolutionFailure: TypeAlias = Literal["metadata_unavailable"]
 ConnectBackend: TypeAlias = Callable[[str, Mapping[str, object]], BaseBackend]
 ReadTableFact: TypeAlias = Callable[[BaseBackend, DatasourceIR, TableSourceIR], str | None]
+
+
+class IssuedQueryReader(Protocol):
+    def __call__(
+        self,
+        backend: BaseBackend,
+        sql: str,
+        table: ir.Table,
+        schema: pa.Schema,
+        mark_submitted: Callable[[], None],
+        /,
+    ) -> pd.DataFrame: ...
 
 
 class ConnectOwned(Protocol):
@@ -77,9 +90,36 @@ class TableRefRequest:
     datasource_ir: DatasourceIR
 
 
+class BoundPartitionRelation(Protocol):
+    @property
+    def relation(self) -> ir.Table: ...
+
+
+class PartitionReader(Protocol):
+    """Bounded system-catalog reads on a caller-owned connection."""
+
+    def bind(self, source: TableSourceIR, *, source_identity: str) -> BoundPartitionRelation: ...
+
+    def collect_bounded(
+        self,
+        expression: ir.Table,
+        *,
+        source_identities: tuple[str, ...],
+        purpose: str,
+        max_rows: int,
+    ) -> pd.DataFrame: ...
+
+
+@runtime_checkable
+class ProviderHttpCredentials(Protocol):
+    """Scoped HTTP credentials attached to a provider connection."""
+
+    def headers_for(self, url: str) -> dict[str, str]: ...
+
+
 @dataclass(frozen=True)
 class PartitionProbeRequest:
-    backend: BaseBackend
+    open_reader: Callable[[], AbstractContextManager[PartitionReader]]
     datasource_ir: DatasourceIR
     source: TableSourceIR
     partition_columns: tuple[str, ...]
@@ -150,12 +190,16 @@ class EngineProfile:
     translate_strptime_format: Callable[[str], str]
     datetime_decode_policy: BackendDatetimeDecodePolicy
     native_query_timeout: NativeQueryTimeout | None
+    dialect: QueryDialectProfile = field(default_factory=QueryDialectProfile)
+    query_policy: EngineQueryPolicy = field(default_factory=EngineQueryPolicy)
+    read_issued_query: IssuedQueryReader | None = None
+    arrow_reads: bool = False
+    issued_query_only: bool = False
     connection_conflict: Callable[[Exception], bool] = no_connection_conflict
     # Native failures that resubmitting the same issued read can clear.
     transient_failure: Callable[[Exception], bool] = no_transient_failure
     install_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
     connect_owned: ConnectOwned | None = None
-    query_packet_limit: Callable[[BaseBackend], tuple[int, str]] | None = None
     verify_named_timezone: Callable[[BaseBackend, str], None] | None = None
     table_engine: ReadTableFact | None = None
     table_join_issue: ReadTableFact | None = None
@@ -168,46 +212,6 @@ class EngineProfile:
                 "authoring_capabilities.timeout_enforced must match "
                 "whether native_query_timeout is configured"
             )
-
-    def open(
-        self,
-        datasource: DatasourceIR,
-        *,
-        terminal_timeout_seconds: int | None = None,
-    ) -> SourceSession:
-        """Open the selected provider's owned source session."""
-        from marivo.datasource.adapters import SourceSession
-        from marivo.datasource.errors import DatasourceBackendTypeUnsupportedError, repair
-        from marivo.datasource.runtime import open_backend
-
-        if datasource.backend_type != self.name:
-            raise DatasourceBackendTypeUnsupportedError(
-                message="Selected datasource provider differs from the declaration.",
-                expected=self.name,
-                received=datasource.backend_type,
-                location="datasource adapter",
-                repair=repair(
-                    kind="configure",
-                    canonical_id="register",
-                    action="Select the provider named by the datasource declaration.",
-                ),
-            )
-        selected = open_backend(
-            datasource,
-            timeout_seconds=30 if terminal_timeout_seconds is not None else None,
-            terminal_timeout_seconds=terminal_timeout_seconds,
-        )
-        try:
-            return SourceSession(self, datasource, selected.backend, backend_lease=selected.lease)
-        except BaseException:
-            selected.disconnect()
-            raise
-
-    def probe(self, backend: BaseBackend) -> None:
-        """Round-trip an Ibis literal through this provider's native transport."""
-        from marivo.datasource.adapters import _probe_backend
-
-        _probe_backend(self.name, backend)
 
 
 def identity_str(value: str) -> str:
@@ -271,9 +275,7 @@ def _generic_connect_unsupported(name: str, kwargs: Mapping[str, object]) -> Bas
 
 
 def generic_metadata_inspect(request: MetadataInspectRequest) -> TableMetadata:
-    from marivo.datasource.metadata import _schema_only
-
-    return _schema_only(
+    return schema_only_metadata(
         datasource=request.datasource,
         table=request.table,
         database=request.database,
@@ -285,9 +287,7 @@ def generic_metadata_inspect(request: MetadataInspectRequest) -> TableMetadata:
 
 def schema_only_metadata_inspect(request: MetadataInspectRequest) -> TableMetadata:
     """Read physical columns through the bound Ibis relation alone."""
-    from marivo.datasource.metadata import MetadataWarning, _schema_only
-
-    return _schema_only(
+    return schema_only_metadata(
         datasource=request.datasource,
         table=request.table,
         database=request.database,

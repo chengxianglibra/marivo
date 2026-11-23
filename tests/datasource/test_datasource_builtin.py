@@ -13,14 +13,14 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource import store
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
     DatasourceFieldInvalidError,
     DatasourceMissingError,
 )
-from marivo.datasource.loader import load_datasources
 from marivo.datasource.source import TableSource
+from marivo.datasource.store import declarations as store
+from marivo.datasource.store.loader import load_datasources
 from marivo.semantic.loader import load_project
 from tests.shared_fixtures import bootstrap_sales_project
 
@@ -97,7 +97,7 @@ def test_builtin_cannot_be_removed(project_root: Path) -> None:
 
 def test_managed_connections_have_independent_memory(project_root: Path) -> None:
     assert md.load().test(ms.ref.datasource("default")).ok
-    from marivo.datasource.runtime import DatasourceConnectionService
+    from marivo.datasource.runtime.connections import DatasourceConnectionService
 
     service = DatasourceConnectionService(project_root)
     with service.use_backend("default") as first:
@@ -204,7 +204,7 @@ def test_unknown_source_does_not_fall_back(project_root: Path) -> None:
     with pytest.raises(DatasourceMissingError):
         md.load().describe("missing")
 
-    from marivo.datasource.runtime import DatasourceConnectionService
+    from marivo.datasource.runtime.connections import DatasourceConnectionService
 
     with (
         pytest.raises(DatasourceMissingError),

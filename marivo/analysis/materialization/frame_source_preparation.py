@@ -61,11 +61,11 @@ from marivo.analysis.model.frame_metadata import (
 )
 from marivo.analysis.model.frame_structure import PendingDataColumn, PendingDataSchema, axis_role
 from marivo.analysis.model.time_facts import FrameSourceTime, merge_source_times
-from marivo.datasource.json_source import JsonResponseCache
+from marivo.datasource.spi import JsonResponseCache
 
 if TYPE_CHECKING:
     from marivo.analysis.core.frame_data import FrameNode
-    from marivo.datasource.runtime import DatasourceConnectionService
+    from marivo.datasource.spi import DatasourceConnectionService
 
 
 @dataclass(frozen=True, slots=True)

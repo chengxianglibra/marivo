@@ -255,7 +255,8 @@ def test_native_calendar_merge_rejects_conflicting_executor_interpretations(
 
     import pandas as pd
 
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = _session(tmp_path, monkeypatch, semantic_project_factory)
     one = catalog_value(session.catalog, "sales.one.amount", kind="measure")

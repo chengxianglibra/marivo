@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from marivo.datasource._capabilities.contracts import repair_for_authoring_code
 from marivo.datasource.errors import repair
-from marivo.datasource.manage import DatasourceFailure, DatasourceTestResult
+from marivo.datasource.inspection.errors import repair_for_authoring_code
+from marivo.datasource.inspection.manage import DatasourceFailure, DatasourceTestResult
 
 
 def test_authoring_repair_mapping_is_exact() -> None:

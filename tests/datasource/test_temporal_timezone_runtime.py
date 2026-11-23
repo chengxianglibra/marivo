@@ -23,11 +23,12 @@ from marivo.analysis.compiler.source_time import (
     source_time_predicate,
 )
 from marivo.analysis.materialization.temporal_sql import lower_temporal
-from marivo.datasource.adapters import provider_for
-from marivo.datasource.capabilities import provider_statement_log
+from marivo.datasource.engines.statements import provider_statement_log
 from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.ir import TableSourceIR
-from marivo.datasource.timezone import verify_source_timezone
+from marivo.datasource.runtime.adapters import provider_for
+from marivo.datasource.runtime.session_factory import open_source_session
+from marivo.datasource.runtime.timezone import verify_source_timezone
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.ir import HourPrefixParse, StrptimeParse, TimestampParse
@@ -186,7 +187,7 @@ def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
                     case.session.datasource,
                     fields={**case.session.datasource.fields, "user": user},
                 )
-                with provider_for("clickhouse").open(datasource) as owner:
+                with open_source_session(provider_for("clickhouse"), datasource) as owner:
                     session_zone = owner._backend.con.query(
                         "SELECT getSetting('session_timezone')"
                     ).first_row
@@ -322,8 +323,8 @@ def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
 def test_mysql_utc_timestamp_transport_and_source_timezones(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource._temporal_expressions import localize
     from marivo.datasource.engines.mysql import verify_source_timezone as verify_mysql
+    from marivo.datasource.temporal_primitives import localize
 
     data = SourceData(
         columns="point TIMESTAMP(6), clock DATETIME(6)",
@@ -500,8 +501,8 @@ def test_gap_fold_ranges_match_native_source_localization(
 def test_clickhouse_date_offsets_ignore_server_timezone(
     zone: str, hours: int, analysis: bool
 ) -> None:
-    from marivo.datasource._temporal_expressions import localize, timestamp
-    from marivo.datasource._temporal_lowering import lower_temporal as lower_native
+    from marivo.datasource.engines.temporal_lowering import lower_temporal as lower_native
+    from marivo.datasource.temporal_primitives import localize, timestamp
     from tests.datasource.environment.clickhouse_analysis import connection
 
     expression = localize(zone, timestamp(ibis.literal(date(2026, 7, 1))))

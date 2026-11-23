@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
+import ibis.expr.schema as sch
 import ibis.expr.types as ir
+import pandas as pd
 import pyarrow as pa
 
 from marivo._definition.graph import computation_fingerprint
@@ -26,11 +28,12 @@ from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.data_types import DataColumn, ScalarDataType
 from marivo.analysis.model.errors import reject
+from marivo.datasource.spi import KeyRows, calendar_data, query_policy
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo
     from marivo.analysis.materialization.graph_source_execution import PreparedSources
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.spi import SourceSession
     from marivo.semantic._compiled_state import CompiledSemanticState
 
 
@@ -121,12 +124,11 @@ def instantiate(
         return _replace_parameter(
             expression, name, unit if len(output.table) else unit.filter(ibis.literal(False))
         )
-    import pandas as pd
-
     from marivo.analysis.compiler.source_predicates import source_parameter_comparisons
 
     if provider is not None:
         expression = source_parameter_comparisons(expression, name, provider)
+    policy = query_policy(provider)
     records = tuple(output.table.loc[:, list(output.keys)].itertuples(index=False, name=None))
     from marivo.analysis.model.data_types import DecimalDataType, TimestampDataType
 
@@ -140,14 +142,12 @@ def instantiate(
         # JSON has no nonfinite numbers. Retain the existing generic key path
         # when a mixed coordinate needs a native infinity, rather than rejecting it.
         and (
-            provider in ("duckdb", "clickhouse")
+            policy.accepts_nonfinite_inline_time_keys
             or not any(
                 isinstance(value, float) and not isfinite(value) for row in records for value in row
             )
         )
     ):
-        from marivo.datasource._calendar_relations import calendar_data
-
         records = tuple(
             tuple(row[column.slot_id] for column in columns)
             for row in parameter_data(columns, output).to_pylist()
@@ -157,79 +157,23 @@ def instantiate(
         )
         return _replace_parameter(expression, name, literal)
 
-    if provider == "mysql":
+    if policy.bind_key_membership is not None:
         # Native readers can return nullable integer keys as unambiguous floats.
         # Normalize against the planned key schema before forming JSON names.
         records = tuple(
             tuple(row[column.slot_id] for column in columns)
             for row in parameter_data(columns, output).to_pylist()
         )
-    if (
-        provider in ("postgres", "trino", "clickhouse")
-        and (records or provider in ("trino", "clickhouse"))
-        and columns
-        and all(
-            isinstance(column.dtype, ScalarDataType)
-            and column.dtype.name
-            in (
-                ("int64", "string", "boolean", "date")
-                if provider == "postgres"
-                else ("int64", "string")
-            )
-            for column in columns
+    schema = ibis.schema({column.slot_id: ibis_type(column.dtype) for column in columns})
+    if policy.inline_key_relation is not None:
+        normalized = tuple(
+            tuple(None if pd.isna(value) else value for value in row) for row in records
         )
-    ):
-        if provider == "clickhouse":
-            fields = {
-                f"field_{index}": ibis_type(column.dtype) for index, column in enumerate(columns)
-            }
-            array_type = dt.Array(dt.Struct(fields))
-            literal = ibis.literal(
-                tuple(
-                    {
-                        f"field_{index}": None if pd.isna(value) else value
-                        for index, value in enumerate(row)
-                    }
-                    for row in records
-                ),
-                type=array_type,
-            )
-            # Empty arrays otherwise have element type Nothing in native SQL.
-            # The explicit key schema supplies the tuple field types and NA contract.
-            literal = ops.Cast(literal, to=array_type).to_expr()
-            expanded = literal.name("__keys").as_table().unnest("__keys")
-            keys = expanded.select(
-                **{
-                    column.slot_id: expanded["__keys"][f"field_{index}"]
-                    for index, column in enumerate(columns)
-                }
-            )
-            return _replace_parameter(expression, name, keys)
-        arrays = (
-            ibis.literal(True)
-            .as_table()
-            .select(
-                **{
-                    f"__keys_{index}": ibis.literal(
-                        tuple(None if pd.isna(row[index]) else row[index] for row in records),
-                        type=dt.Array(ibis_type(column.dtype)),
-                    )
-                    for index, column in enumerate(columns)
-                }
-            )
-        )
-        expanded = arrays.unnest("__keys_0", offset="__keys_position")
-        keys = expanded.select(
-            **{
-                column.slot_id: expanded["__keys_0"]
-                if index == 0
-                else expanded[f"__keys_{index}"][expanded["__keys_position"]]
-                for index, column in enumerate(columns)
-            }
-        )
-        return _replace_parameter(expression, name, keys)
+        inline = policy.inline_key_relation(schema, normalized)
+        if inline is not None:
+            return _replace_parameter(expression, name, inline)
     expression = _tuple_predicates(
-        expression, name, columns, records, provider=provider, source=source
+        expression, name, schema, records, provider=provider, source=source
     )
     if not any(node.name == name for node in expression.op().find(ops.UnboundTable)):
         return expression
@@ -280,8 +224,8 @@ def _replace_parameter(expression: ir.Table, name: str, table: ir.Table) -> ir.T
 def _tuple_predicates(
     expression: ir.Table,
     name: str,
-    columns: tuple[DataColumn, ...],
-    records: tuple[tuple[object, ...], ...],
+    schema: sch.Schema,
+    records: KeyRows,
     *,
     provider: str | None = None,
     source: SourceSession | None = None,
@@ -339,29 +283,26 @@ def _tuple_predicates(
                 else:
                     break
             else:
-                if {key for _, key in pairs} != {column.slot_id for column in columns}:
+                if {key for _, key in pairs} != set(schema.names):
                     continue
                 predicate = None
-                if provider == "mysql" and len(pairs) == len(columns):
-                    from marivo.analysis.materialization.mysql_key_parameters import (
-                        membership,
-                        qualifies_strings,
-                    )
-
+                bind = query_policy(provider).bind_key_membership
+                if bind is not None and len(pairs) == len(schema):
                     values_by_key = {key: value.to_expr() for value, key in pairs}
-                    if qualifies_strings(values_by_key, source):
-                        predicate = membership(columns, records, values_by_key, source)
-                typed = {column.slot_id: column.dtype for column in columns}
+                    if source is not None:
+                        predicate = source.complete_key_membership(schema, records, values_by_key)
+                    elif all(not value.type().is_string() for value in values_by_key.values()):
+                        predicate = bind(schema, records, values_by_key, None)
                 rows = []
                 for record in records if predicate is None else ():
-                    values = dict(zip((column.slot_id for column in columns), record, strict=True))
+                    values = dict(zip(schema.names, record, strict=True))
                     rows.append(
                         ibis.and_(
                             *(
                                 left.to_expr().identical_to(
                                     ibis.literal(
                                         None if missing(values[key]) else values[key],
-                                        type=ibis_type(typed[key]),
+                                        type=schema[key],
                                     )
                                 )
                                 for left, key in pairs

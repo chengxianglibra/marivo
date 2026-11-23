@@ -18,7 +18,7 @@ from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.model.disclosure import CallableInput, NavigationInput
 from marivo.analysis.model.help_contracts import ANALYSIS_HELP_RENDER_BUDGETS
 from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.introspection.live.reflect import import_registered_callable, return_annotation_text
 from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 from tests.shared_fixtures import DslCaseFactory

@@ -15,7 +15,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._kernel.refs import ref
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime.connections import DatasourceConnectionService
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._metric_time import metric_time_occurrences
 from marivo.semantic.errors import SemanticError, SemanticLoadFailed

@@ -51,7 +51,7 @@ from marivo.analysis.model.frame_structure import (
 )
 from marivo.analysis.model.time_facts import FramePairedAxisSchema
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 
 
 @pytest.fixture

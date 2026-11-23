@@ -62,7 +62,7 @@ from marivo.analysis.model.frame_source_reads import (
     FrameSourceReadScope,
     merge_source_reads,
 )
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.spi import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 
 if TYPE_CHECKING:

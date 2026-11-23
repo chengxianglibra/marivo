@@ -54,7 +54,8 @@ from marivo.analysis.materialization.graph_source_execution import (
 )
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import (

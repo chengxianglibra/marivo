@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.analysis.graph.physical_workloads import workload
 from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source

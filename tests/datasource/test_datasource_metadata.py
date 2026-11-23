@@ -10,26 +10,24 @@ import pytest
 
 import marivo.datasource as md
 from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES
-from marivo.datasource import backends
-from marivo.datasource.authoring import (
-    ClickHouseSpec,
-    DuckDBSpec,
-    MySQLSpec,
-    PostgresSpec,
-    TrinoSpec,
-)
-from marivo.datasource.backends import BuiltDatasourceBackend
 from marivo.datasource.errors import DatasourceMetadataError
-from marivo.datasource.metadata import (
+from marivo.datasource.inspection.metadata import _inspect_source
+from marivo.datasource.inspection.metadata import inspect_table as _inspect_table
+from marivo.datasource.metadata_types import (
     ColumnMetadata,
     MetadataWarning,
     PartitionMetadata,
     TableMetadata,
     TablePhysicalProfile,
-    _inspect_source,
 )
-from marivo.datasource.metadata import (
-    inspect_table as _inspect_table,
+from marivo.datasource.runtime import backends as backends
+from marivo.datasource.runtime.backends import BuiltDatasourceBackend
+from marivo.datasource.store.authoring import (
+    ClickHouseSpec,
+    DuckDBSpec,
+    MySQLSpec,
+    PostgresSpec,
+    TrinoSpec,
 )
 
 
@@ -2290,7 +2288,7 @@ def test_inspect_table_duckdb_populates_physical_profile_from_estimated_size(
 
 
 def test_table_metadata_to_dict_includes_key_constraints() -> None:
-    from marivo.datasource.metadata import UniqueConstraintMetadata
+    from marivo.datasource.metadata_types import UniqueConstraintMetadata
 
     metadata = TableMetadata(
         datasource="wh",
@@ -2318,7 +2316,7 @@ def test_table_metadata_to_dict_includes_key_constraints() -> None:
 def test_non_duckdb_backend_emits_primary_keys_unavailable_warning(
     project_root: Path,
 ) -> None:
-    from marivo.datasource.metadata import _with_primary_key_capability_warning
+    from marivo.datasource.inspection.metadata import _with_primary_key_capability_warning
 
     metadata = TableMetadata(
         datasource="wh",

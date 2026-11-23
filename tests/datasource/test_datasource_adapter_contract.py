@@ -22,15 +22,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from marivo.datasource.adapters import (
-    TIMESTAMP_UNIT_METADATA_KEY,
-    CompiledRead,
-    PhysicalRequirement,
-    SourceIR,
-    SourceSession,
-    provider_for,
-    provider_names,
-)
 from marivo.datasource.errors import (
     DatasourceBackendTypeUnsupportedError,
     DatasourceSourceCapabilityError,
@@ -44,6 +35,13 @@ from marivo.datasource.ir import (
     ParquetSourceIR,
     SourceParamIR,
     TableSourceIR,
+)
+from marivo.datasource.runtime.adapters import SourceSession, provider_for, provider_names
+from marivo.datasource.runtime.read_types import (
+    TIMESTAMP_UNIT_METADATA_KEY,
+    CompiledRead,
+    PhysicalRequirement,
+    SourceIR,
 )
 from tests.support.execution_logs import execution_records
 
@@ -117,7 +115,7 @@ def test_all_providers_resolve_without_opening() -> None:
 
 def test_selected_provider_does_not_import_unselected_modules() -> None:
     code = """
-from marivo.datasource.adapters import provider_for
+from marivo.datasource.runtime.adapters import provider_for
 assert provider_for('duckdb').name == 'duckdb'
 for name in ('postgres', 'mysql', 'trino', 'clickhouse'):
     assert provider_for(name).name == name
@@ -605,8 +603,8 @@ def test_private_key_relation_keeps_arrow_schema_and_native_values(
     )
     execute = Mock(wraps=session._backend.to_pyarrow)
     monkeypatch.setattr(session._backend, "to_pyarrow", execute)
-    keys = session._bind_key_relation(data)
-    second = session._bind_key_relation(data)
+    keys = session.bind_key_relation(data)
+    second = session.bind_key_relation(data)
     node = keys.op()
     assert isinstance(node, ops.InMemoryTable)
     assert node.name.startswith("_marivo_keys_") and node.name != second.op().name
@@ -627,7 +625,7 @@ def test_private_key_relation_requires_bound_source_and_exact_session_owner(
     session: SourceSession,
 ) -> None:
     data = pa.table({"key": pa.array([10], type=pa.int64())})
-    owned = session._bind_key_relation(data)
+    owned = session.bind_key_relation(data)
     bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
     qualified = session.qualify(
         bound, PhysicalRequirement("basic.keys", 1, frozenset({"scan", "join"}))
@@ -645,7 +643,7 @@ def test_private_key_relation_requires_bound_source_and_exact_session_owner(
     with SourceSession(
         session.provider, session.datasource, session._backend, owns_backend=False
     ) as foreign:
-        foreign_keys = foreign._bind_key_relation(data)
+        foreign_keys = foreign.bind_key_relation(data)
         arbitrary = ibis.memtable(data)
         changed_data = ibis.memtable(pa.table({"key": [11]}))
         forged_name = changed_data.op().copy(name=owned.op().name).to_expr()
@@ -657,13 +655,13 @@ def test_private_key_relation_requires_bound_source_and_exact_session_owner(
 def test_private_key_relation_accepts_typed_empty_and_rejects_null_type(
     session: SourceSession,
 ) -> None:
-    empty = session._bind_key_relation(pa.table({"key": pa.array([], type=pa.int64())}))
+    empty = session.bind_key_relation(pa.table({"key": pa.array([], type=pa.int64())}))
     assert session.execute(_key_read(session, empty)).empty
     with pytest.raises(DatasourceSourceCapabilityError):
-        session._bind_key_relation(pa.table({"key": [None]}))
+        session.bind_key_relation(pa.table({"key": [None]}))
     session.close()
     with pytest.raises(DatasourceSourceCapabilityError):
-        session._bind_key_relation(pa.table({"key": pa.array([], type=pa.int64())}))
+        session.bind_key_relation(pa.table({"key": pa.array([], type=pa.int64())}))
 
 
 @pytest.mark.parametrize("fail", (False, True))
@@ -680,8 +678,8 @@ def test_private_key_relations_close_on_borrowed_success_and_failure(
             session.provider, session.datasource, backend, owns_backend=False
         ) as borrowed,
     ):
-        keys = borrowed._bind_key_relation(pa.table({"key": [10]}))
-        unused = borrowed._bind_key_relation(pa.table({"key": [11]}))
+        keys = borrowed.bind_key_relation(pa.table({"key": [10]}))
+        unused = borrowed.bind_key_relation(pa.table({"key": [11]}))
         read = _key_read(borrowed, keys)
         borrowed.execute(read)
         assert keys.op().name in backend.list_tables()
@@ -709,7 +707,7 @@ def test_private_key_relation_cleanup_precedes_owned_connection_release(
     calls.attach_mock(disconnect, "disconnect")
     monkeypatch.setattr(session._backend, "drop_view", drop)
     monkeypatch.setattr(session._backend, "disconnect", disconnect)
-    keys = session._bind_key_relation(pa.table({"key": [10]}))
+    keys = session.bind_key_relation(pa.table({"key": [10]}))
     session.execute(_key_read(session, keys))
     session.close()
     assert [call[0] for call in calls.mock_calls] == ["drop", "disconnect"]
@@ -724,7 +722,7 @@ def test_private_key_relation_rejects_non_duckdb_provider() -> None:
         provider_for("postgres"), _datasource("postgres"), backend, owns_backend=False
     ) as source:
         with pytest.raises(DatasourceSourceCapabilityError) as caught:
-            source._bind_key_relation(pa.table({"key": [10]}))
+            source.bind_key_relation(pa.table({"key": [10]}))
         assert caught.value.received == "postgres"
         assert caught.value.expected is not None
         assert "DuckDB" in caught.value.expected
@@ -741,7 +739,8 @@ def test_join_union_require_explicit_local_engine_qualification(session: SourceS
 def test_missing_selected_drivers_have_structured_install_repairs() -> None:
     code = """
 import builtins
-from marivo.datasource.adapters import provider_for
+from marivo.datasource.runtime.adapters import provider_for
+from marivo.datasource.runtime.session_factory import open_source_session
 from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 original = builtins.__import__
@@ -762,7 +761,7 @@ for backend, blocked_driver in (
         env_refs={}, ai_context=AiContextIR(), python_symbol='missing',
         location=DatasourceSourceLocation('missing.py', 1))
     try:
-        provider_for(backend).open(datasource)
+        open_source_session(provider_for(backend), datasource)
     except DatasourceConnectionError as error:
         assert error.expected and error.received and error.repair
     else:

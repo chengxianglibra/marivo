@@ -17,7 +17,7 @@ from marivo._definition.relations import (
 )
 from marivo._definition.types import AxisBinding
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_metric
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns

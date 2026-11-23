@@ -144,7 +144,7 @@ def test_contract_reads_do_not_execute_or_print(
     import ibis
 
     import marivo.analysis as mv
-    from marivo.datasource.runtime import DatasourceConnectionService
+    from marivo.datasource.runtime.connections import DatasourceConnectionService
     from marivo.semantic import _expression_binding
 
     references = [

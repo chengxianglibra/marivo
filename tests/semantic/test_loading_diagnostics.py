@@ -17,7 +17,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._help import help as marivo_help
 from marivo.datasource.errors import DatasourceDuplicateError, DatasourceLoadError
-from marivo.datasource.loader import load_datasources
+from marivo.datasource.store.loader import load_datasources
 from marivo.semantic.check import _error_to_dict, main
 from marivo.semantic.errors import SemanticError, SemanticLoadFailed
 from marivo.semantic.loader import load_project
@@ -343,7 +343,7 @@ def test_real_import_recursion_retains_importlib_traceback(tmp_path: Path) -> No
         )
     code = """import json, sys
 from pathlib import Path
-from marivo.datasource.loader import load_datasources
+from marivo.datasource.store.loader import load_datasources
 from marivo.semantic.loader import load_project
 root = Path(sys.argv[1])
 sys.setrecursionlimit(150)

@@ -9,10 +9,10 @@ import ibis
 import pandas as pd
 import pytest
 
-from marivo.datasource.adapters import PhysicalRequirement
-from marivo.datasource.capabilities import provider_statement_log
 from marivo.datasource.engines.base import MetadataInspectRequest
+from marivo.datasource.engines.statements import provider_statement_log
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.read_types import PhysicalRequirement
 from tests.datasource.source_cases import (
     PROFILES,
     ROWS,

@@ -13,11 +13,11 @@ from marivo._definition.relations import AttributeKeys, PopulationProgram
 from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.source_predicates import (
     distinct_returned_keys,
-    postgres_returned_text,
     same_returned_key,
 )
 from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.analysis.model.data_types import DurationDataType
+from marivo.datasource.spi import query_dialect
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
@@ -28,8 +28,9 @@ from marivo.semantic._numeric_lowering import (
 
 def normalized_returned_key(value: ir.Value, provider: str) -> ir.Value:
     """Normalize numeric key widths without casting away string padding."""
-    if value.type().is_string() and provider == "postgres":
-        return postgres_returned_text(value)
+    decode = query_dialect(provider).returned_string
+    if value.type().is_string() and decode is not None:
+        return decode(value)
     dtype = ibis_type(data_type(value.type())).copy(nullable=value.type().nullable)
     if dtype != value.type():
         value = force_cast(value, dtype)

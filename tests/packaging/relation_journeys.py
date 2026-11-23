@@ -27,7 +27,7 @@ from marivo.analysis.model.data_schema import (
     DataSchema,
     IntervalDataAxis,
 )
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import _scalar, forbidden, snapshot
 from tests.analysis.numeric.attribution_workflows import allocation

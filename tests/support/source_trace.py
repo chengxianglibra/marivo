@@ -19,13 +19,13 @@ from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacki
 from marivo.analysis.materialization import query_parameters
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_types import DataColumn
-from marivo.datasource.adapters import (
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import (
     BoundSource,
     CompiledRead,
     Parameter,
     PhysicalRequirement,
     QualifiedSource,
-    SourceSession,
 )
 from tests.analysis.materialization.domain_recovery_worker import _result_facts, _scalar
 from tests.support.json import Json
@@ -114,7 +114,7 @@ def capture_source(monkeypatch: pytest.MonkeyPatch, *, measure_cost: bool = Fals
     execute = SourceSession.execute
     enter = SourceSession.__enter__
     qualify = SourceSession.qualify
-    bind_keys = SourceSession._bind_key_relation
+    bind_keys = SourceSession.bind_key_relation
     instantiate = query_parameters.instantiate
     compile_read = SourceSession.compile
     pending_keys: list[tuple[int, int]] = []
@@ -132,7 +132,7 @@ def capture_source(monkeypatch: pytest.MonkeyPatch, *, measure_cost: bool = Fals
                 trace.returned_arrow_bytes.append(
                     pa.Table.from_pandas(result, preserve_index=False).nbytes
                 )
-            from marivo.datasource._calendar_relations import CalendarData
+            from marivo.datasource.engines.calendar_relations import CalendarData
 
             trace.calendar_payload_bytes.append(
                 sum(len(node.payload.encode()) for node in read.expression.op().find(CalendarData))
@@ -222,7 +222,7 @@ def capture_source(monkeypatch: pytest.MonkeyPatch, *, measure_cost: bool = Fals
     monkeypatch.setattr(query_parameters, "instantiate", captured_parameter)
     monkeypatch.setattr(SourceSession, "compile", compiled)
     monkeypatch.setattr(SourceSession, "execute", captured_execute)
-    monkeypatch.setattr(SourceSession, "_bind_key_relation", captured_keys)
+    monkeypatch.setattr(SourceSession, "bind_key_relation", captured_keys)
     monkeypatch.setattr(SourceSession, "__enter__", entered)
     monkeypatch.setattr(SourceSession, "qualify", qualified)
     return trace

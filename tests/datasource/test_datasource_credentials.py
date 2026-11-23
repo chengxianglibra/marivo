@@ -22,10 +22,17 @@ import marivo
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._help.render import help as show_help
-from marivo.datasource import backends, credentials, manage, secrets
+from marivo.datasource import credentials
+from marivo.datasource.credentials import secrets as secrets
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import CredentialFailureReason, DatasourceConnectionError
-from marivo.datasource.runtime import DatasourceConnectionService, load_datasource, open_backend
+from marivo.datasource.inspection import manage as manage
+from marivo.datasource.runtime import backends as backends
+from marivo.datasource.runtime.connections import (
+    DatasourceConnectionService,
+    load_datasource,
+    open_backend,
+)
 
 
 class HostResolver:

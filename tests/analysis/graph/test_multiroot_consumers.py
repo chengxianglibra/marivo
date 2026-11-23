@@ -18,8 +18,9 @@ import marivo.analysis as mv
 import marivo.datasource as md
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.model.execution_errors import MaterializationError
-from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.session_factory import open_source_session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case, source_params
@@ -251,8 +252,9 @@ def test_independent_roots_and_temporal_fold(
                 admin.raw_sql(f"INSERT INTO {name} VALUES {rows.values}")
             admin.disconnect()
             connection = stack.enter_context(
-                provider_for("duckdb").open(
-                    datasource("duckdb", {"path": str(path), "read_only": True})
+                open_source_session(
+                    provider_for("duckdb"),
+                    datasource("duckdb", {"path": str(path), "read_only": True}),
                 )
             )
             subject, left, right = [

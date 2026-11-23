@@ -13,9 +13,9 @@ import ibis
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
-from marivo.datasource.json_source import json_source_url, read_json_source
+from marivo.datasource.runtime.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.json_source import json_source_url, read_json_source
 
 _EVENT_SCHEMA = {"event_id": "int64", "amount": "int64", "status": "string"}
 _EVENT_COLUMNS = {name: name for name in _EVENT_SCHEMA}

@@ -257,7 +257,7 @@ def test_selected_original_rereads_current_postgres_and_myisam_rows(
 def test_selected_bulk_keys_preserve_large_integer_tuple_correlation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, profile: str
 ) -> None:
-    from marivo.datasource.adapters import PhysicalRequirement
+    from marivo.datasource.runtime.read_types import PhysicalRequirement
 
     large = 2**53 + 1
     data = SourceData(

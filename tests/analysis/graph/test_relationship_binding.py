@@ -339,7 +339,7 @@ import marivo.analysis as mv
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.analysis.graph.execution_fixtures import source_graph
 import marivo.semantic as ms
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime.connections import DatasourceConnectionService
 def forbidden(*args, **kwargs):
     raise AssertionError('Artifact branch accessed current Semantic or source')
 ms.load = forbidden

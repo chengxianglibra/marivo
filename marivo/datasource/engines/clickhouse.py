@@ -5,16 +5,19 @@ from __future__ import annotations
 import re
 from collections.abc import Collection, Iterator, Mapping
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Literal
+from functools import partial
+from typing import Any, Literal
 
 import ibis.expr.types as ir
 from ibis.backends import BaseBackend
-
-from marivo.datasource.capabilities import (
-    ProviderStatement,
-    execute_provider_statement,
-    register_provider_statements,
+from ibis.backends.sql.datatypes import (
+    ClickHouseType,
 )
+from ibis.expr.datatypes import (
+    DataType,
+)
+
+from marivo.datasource.engines.aggregate_policy import CLICKHOUSE_AGGREGATES
 from marivo.datasource.engines.base import (
     AuthoringCapabilities,
     EngineMetadataIntrospection,
@@ -22,24 +25,55 @@ from marivo.datasource.engines.base import (
     MetadataInspectRequest,
     PartitionProbeRequest,
     PartitionProbeResult,
+    PartitionReader,
     TableRefRequest,
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.engines.clickhouse_query import (
+    date_literal,
+    inline_key_relation,
+    lower_query_numeric,
+    read_issued_query,
+    row_number,
+    utc_day,
+    validate_temporal_parsers,
+)
+from marivo.datasource.engines.query import (
+    EngineQueryPolicy,
+    OriginalStringPolicy,
+    QueryDialectProfile,
+    nullable_join_value,
+)
 from marivo.datasource.engines.requirements import CLICKHOUSE_REQUIREMENT
-from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
+from marivo.datasource.engines.statements import (
+    ProviderStatement,
+    execute_provider_statement,
+    register_provider_statements,
+)
+from marivo.datasource.engines.strptime import python_to_mysql_strptime
+from marivo.datasource.errors import (
+    DatasourceSourceCapabilityError,
+    _backend_failure_summary,
+    repair,
+)
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
-from marivo.datasource.strptime import python_to_mysql_strptime
-
-if TYPE_CHECKING:
-    from marivo.datasource.adapters import SourceSession
-    from marivo.datasource.metadata import (
-        ColumnMetadata,
-        MetadataWarning,
-        PartitionMetadata,
-        TableMetadata,
-        TablePhysicalProfile,
-    )
+from marivo.datasource.metadata_types import (
+    ColumnMetadata,
+    MetadataWarning,
+    PartitionMetadata,
+    TableMetadata,
+    TablePhysicalProfile,
+    _bool_from_nullable,
+    _database_label,
+    _empty_to_none,
+    _int_or_none,
+    _merge_columns,
+    _schema_columns,
+)
+from marivo.datasource.metadata_types import (
+    MetadataWarning as _Warning,
+)
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
@@ -103,35 +137,6 @@ def transient_failure(error: Exception) -> bool:
     return False
 
 
-def validate_temporal_parsers(backend: BaseBackend, sql: str) -> None:
-    """Qualify explicit-format parsers remaining in the final executable SQL."""
-    if "parsedatetimeornull" not in sql.lower():
-        return
-    version = backend.version
-    if tuple(int(part) for part in version.split(".")[:2]) >= (23, 3):
-        return
-    import sqlglot
-    from sqlglot import expressions as sge
-
-    for function in sqlglot.parse_one(sql, read="clickhouse").find_all(sge.Anonymous):
-        if function.name.lower() != "parsedatetimeornull":
-            continue
-        fields = ", ".join(sorted({column.name for column in function.find_all(sge.Column)}))
-        argument = function.expressions[1]
-        format = argument.this if isinstance(argument, sge.Literal) else "<expression>"
-        raise DatasourceSourceCapabilityError(
-            message="The selected ClickHouse server cannot parse this explicit time format.",
-            expected="ClickHouse 23.3 or newer for nonordered ms.strptime formats",
-            received=f"ClickHouse {version}; fields={fields or '<scalar>'}; format={format[:200]}",
-            location="datasource.clickhouse.strptime",
-            repair=repair(
-                kind="configure",
-                canonical_id="clickhouse",
-                action="Use a canonical year/month/day encoding, expose a native Date32/DateTime64 column, or upgrade ClickHouse to 23.3 or newer.",
-            ),
-        )
-
-
 _CH_DISTRIBUTED_ENGINE_RE = re.compile(r"^Distributed\('([^']+)',\s*'([^']+)',\s*'([^']+)'")
 
 
@@ -147,7 +152,7 @@ def table_name_parts(request: TableRefRequest) -> tuple[str, ...]:
 
 
 def clickhouse_system_parts_target(
-    session: SourceSession,
+    session: PartitionReader,
     datasource_ir: DatasourceIR,
     source: TableSourceIR,
 ) -> tuple[str, str]:
@@ -183,16 +188,12 @@ def clickhouse_system_parts_target(
 
 
 def inspect_partition_values(request: PartitionProbeRequest) -> PartitionProbeResult:
-    from marivo.datasource.adapters import SourceSession
-
     if len(request.partition_columns) != 1:
         raise RuntimeError(
             "clickhouse system.parts mapping only supports single bare partition columns"
         )
     column = request.partition_columns[0]
-    with SourceSession(
-        PROFILE, request.datasource_ir, request.backend, owns_backend=False
-    ) as session:
+    with request.open_reader() as session:
         database, table = clickhouse_system_parts_target(
             session, request.datasource_ir, request.source
         )
@@ -389,8 +390,6 @@ _CH_PARTITION_BARE_RE = re.compile(r"^(\w+)$")
 
 
 def _nullable_from_clickhouse(is_nullable_value: object, type_str: str) -> bool | None:
-    from marivo.datasource.metadata import _bool_from_nullable
-
     result = _bool_from_nullable(is_nullable_value)
     if result is not None:
         return result
@@ -401,8 +400,6 @@ def _parse_clickhouse_partition_key(
     partition_key: str,
     catalog_columns: Mapping[str, ColumnMetadata],
 ) -> tuple[PartitionMetadata, ...]:
-    from marivo.datasource.metadata import PartitionMetadata
-
     if not partition_key or partition_key == "tuple()":
         return ()
     elements: list[str] = []
@@ -471,9 +468,6 @@ def _dereference_clickhouse_distributed(
     ch_database: str,
     warnings: list[MetadataWarning],
 ) -> str:
-    from marivo.datasource.errors import _backend_failure_summary
-    from marivo.datasource.metadata import MetadataWarning as _Warning
-
     match = _CH_DISTRIBUTED_ENGINE_RE.match(engine_full)
     if not match:
         return ""
@@ -508,13 +502,6 @@ def _clickhouse_physical_profile(
     engine_full: str,
     warnings: list[MetadataWarning],
 ) -> TablePhysicalProfile | None:
-    from marivo.datasource.errors import _backend_failure_summary
-    from marivo.datasource.metadata import MetadataWarning as _Warning
-    from marivo.datasource.metadata import (
-        TablePhysicalProfile,
-        _int_or_none,
-    )
-
     profile_database = database
     profile_table = table
     distributed_local_table: str | None = None
@@ -596,13 +583,6 @@ def _clickhouse_projectable_columns(
     standard_column_names: Collection[str],
     warnings: list[MetadataWarning],
 ) -> tuple[ColumnMetadata, ...]:
-    from ibis.backends.sql.datatypes import ClickHouseType
-    from ibis.expr.datatypes import DataType
-
-    from marivo.datasource.errors import _backend_failure_summary
-    from marivo.datasource.metadata import ColumnMetadata
-    from marivo.datasource.metadata import MetadataWarning as _Warning
-
     target_database = database
     target_table = table
     if engine == "Distributed":
@@ -704,17 +684,6 @@ def _inspect_clickhouse(
     table_expr: Any,
     include_partitions: bool,
 ) -> TableMetadata:
-    from marivo.datasource.errors import _backend_failure_summary
-    from marivo.datasource.metadata import (
-        ColumnMetadata,
-        MetadataWarning,
-        TableMetadata,
-        _database_label,
-        _empty_to_none,
-        _merge_columns,
-        _schema_columns,
-    )
-
     schema_columns = _schema_columns(table_expr)
     ch_database = _database_label(database) or "default"
     warnings: list[MetadataWarning] = []
@@ -1001,6 +970,34 @@ def _validate_query(backend: BaseBackend, sql: str) -> None:
 
 
 PROFILE = EngineProfile(
+    dialect=QueryDialectProfile(
+        aggregates=CLICKHOUSE_AGGREGATES,
+        original_strings=OriginalStringPolicy(
+            columns=partial(decoded_string_columns, enums=True),
+            unavailable="ClickHouse original strings require visible decoded-carrier metadata",
+            unsupported="ClickHouse column {column}: encoded string carrier is unsupported; use String or Enum8/Enum16 decoded values; FixedString is excluded from Attribute; Query preserves decoded string NUL padding",
+        ),
+        query_string_columns=decoded_string_columns,
+        date_literal=date_literal,
+        utc_day=utc_day,
+        row_number=row_number,
+        join_value=nullable_join_value,
+        lower_query_numeric=lower_query_numeric,
+        timestamp_has_implicit_timezone=True,
+        civil_date_needs_neutral_carrier=True,
+        calendar_clock_needs_utc_carrier=True,
+        preserve_utc_conversions=True,
+        native_subday_grains=frozenset({"second", "minute", "hour"}),
+        supports_native_frame_top=True,
+    ),
+    read_issued_query=read_issued_query,
+    issued_query_only=True,
+    query_policy=EngineQueryPolicy(
+        key_fusion="numeric",
+        sample_fusion=True,
+        inline_key_relation=inline_key_relation,
+        accepts_nonfinite_inline_time_keys=True,
+    ),
     name="clickhouse",
     aliases=(),
     authoring_func="clickhouse",

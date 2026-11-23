@@ -21,8 +21,9 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
-from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provider_for
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.connections import DatasourceConnectionService
+from marivo.datasource.runtime.read_types import PhysicalRequirement
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import _scalar, forbidden, snapshot
 from tests.analysis.materialization.publication_fixtures import publication_counts

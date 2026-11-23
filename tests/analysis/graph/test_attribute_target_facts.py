@@ -134,7 +134,7 @@ from unittest.mock import patch
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 
 def forbidden(*args, **kwargs):
     raise AssertionError('cold method facts attempted source access')

@@ -1,0 +1,225 @@
+"""Read-only catalog over configured project datasources."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from marivo._kernel.project import resolve_project_root
+from marivo._kernel.render import Card, RenderableResult
+from marivo._kernel.symbolic import DatasourceIdentityHandle, DatasourceSymbol
+from marivo.datasource.credentials.inputs import credential_labels
+from marivo.datasource.inspection.manage import (
+    DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+    DatasourceDescription,
+    DatasourceList,
+    DatasourceTestResult,
+    _describe_in_project,
+    _list_in_project,
+    _test_in_project,
+)
+from marivo.datasource.ir import AiContextIR
+from marivo.datasource.store import declarations as _store
+from marivo.datasource.store.builtin import (
+    DEFAULT_DATASOURCE_DESCRIPTION,
+    DEFAULT_DATASOURCE_NAME,
+)
+
+
+def _format_mapping(mapping: dict[str, object]) -> str:
+    if not mapping:
+        return "(none)"
+    return ", ".join(f"{key}: {value}" for key, value in sorted(mapping.items()))
+
+
+def _format_env_refs(fields: dict[str, object], mapping: dict[str, str]) -> str:
+    if not mapping:
+        return "(none)"
+    return " | ".join(credential_labels(fields, mapping)) + f" ({len(mapping)} refs)"
+
+
+def _format_tuple(values: tuple[str, ...]) -> str:
+    if not values:
+        return "(none)"
+    return ", ".join(values)
+
+
+def _ai_context_lines(context: AiContextIR) -> tuple[str, ...]:
+    return (
+        f"business_definition: {context.business_definition or '(none)'}",
+        f"guardrails: {_format_tuple(context.guardrails)}",
+    )
+
+
+@dataclass(frozen=True, repr=False)
+class DatasourceCatalog(RenderableResult):
+    """Read-only catalog over configured project datasources.
+
+    Binds datasource browsing and connection tests to one project, giving a
+    ``ms.load()``-like entry point for datasource discovery.
+
+    Args:
+        workspace_dir: Project root directory resolved from the environment,
+            nearest ancestor manifest, or current directory when omitted.
+
+    Returns:
+        DatasourceCatalog with list(), describe(), and
+        test() methods.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> catalog = md.load()
+        >>> catalog.list()
+        >>> catalog.describe("wh")
+        >>> md.inspect(ms.ref.datasource("wh"), md.table("orders"))
+
+    Constraints:
+        catalog is obtained via md.load(), not constructed directly.
+        Methods retain this workspace and read its current local and configured
+        external declarations. They do not follow later cwd or environment changes.
+    """
+
+    workspace_dir: Path
+
+    def list(self) -> DatasourceList:
+        """List configured project datasources as a displayable DatasourceList.
+
+        Returns:
+            ``DatasourceList`` containing sorted ``DatasourceSummary`` rows.
+
+        Example:
+            >>> catalog = md.load()
+            >>> catalog.list().show()
+        """
+        return _list_in_project(project_root=self.workspace_dir)
+
+    def describe(self, name: str) -> DatasourceDescription:
+        """Show connection fields, env refs and the declared source timezone.
+
+        Args:
+            name: The datasource name to describe.
+
+        Returns:
+            A ``DatasourceDescription`` with literal_fields, env_refs and wall_clock_timezone.
+
+        Example:
+            >>> catalog.describe("wh")
+        """
+        return _describe_in_project(name, project_root=self.workspace_dir)
+
+    def test(
+        self,
+        name: str | DatasourceSymbol | DatasourceIdentityHandle,
+        *,
+        timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+    ) -> DatasourceTestResult:
+        """Test connectivity to a datasource.
+
+        Args:
+            name: The datasource name, loaded Datasource object, or native datasource lookup symbol to test.
+            timeout_seconds: Positive native connection and query timeout request.
+                Unsupported settings are skipped; this is not a total-call
+                deadline. Defaults to ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``.
+
+        Returns:
+            A ``DatasourceTestResult`` with ok status, latency, and typed repair.
+
+        Example:
+            >>> result = catalog.test("wh")
+
+        Constraints:
+            Uses this Catalog's bound workspace. The caller thread opens the
+            connection and runs an Ibis-compiled literal probe. The backend is
+            always disconnected; native connection and query timeouts are
+            independent requests, not a complete-call deadline. Successful
+            env-sourced credentials may be cached in user-global plaintext
+            state; injected credentials are not cached. Cache write warnings
+            do not change a successful result. Probe SQL and diagnostics are
+            recorded in project-local execution logs independently of telemetry.
+        """
+        return _test_in_project(
+            name,
+            timeout_seconds=timeout_seconds,
+            project_root=self.workspace_dir,
+            persist_env_secrets=True,
+        )
+
+    def _repr_identity(self) -> str:
+        count = len(_store.load_all(self.workspace_dir))
+        return f"DatasourceCatalog datasources={count}"
+
+    def _card(self) -> Card:
+        datasources = sorted(
+            _store.load_all(self.workspace_dir).values(),
+            key=lambda item: item.name,
+        )
+        card = Card(
+            identity=f"DatasourceCatalog datasources={len(datasources)}",
+            available=(
+                ".list()",
+                ".describe(name)",
+                ".test(name)",
+                ".show()",
+            ),
+        )
+        if not datasources:
+            card = card.field(label="datasources", value="none")
+        for datasource in datasources:
+            if datasource.name == DEFAULT_DATASOURCE_NAME:
+                card = card.field("source", DEFAULT_DATASOURCE_DESCRIPTION)
+            card = card.listing(
+                label=datasource.name,
+                items=(
+                    f"backend_type={datasource.backend_type}",
+                    f"fields={_format_mapping(datasource.fields)}",
+                    f"credentials={_format_env_refs(datasource.fields, datasource.env_refs)}",
+                    *_ai_context_lines(datasource.ai_context),
+                ),
+            )
+        return card
+
+
+def load(
+    *,
+    workspace_dir: str | Path | None = None,
+) -> DatasourceCatalog:
+    """Load the project datasource catalog.
+
+    Returns a ``DatasourceCatalog`` for browsing and inspecting configured
+    project datasources, providing an ``ms.load()``-consistent entry point.
+
+    Args:
+        workspace_dir: Optional exact project root directory. When omitted,
+            resolves from ``MARIVO_PROJECT_ROOT``, the nearest ancestor
+            manifest, or the current directory.
+
+    Returns:
+        A ``DatasourceCatalog`` for browsing configured datasources.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> catalog = md.load()
+        >>> catalog.list()
+        >>> catalog.describe("wh")
+        >>> md.inspect(ms.ref.datasource("wh"), md.table("orders"))
+
+    Constraints:
+        The catalog is read-only; use ``md.register()`` and ``md.remove()``
+        to modify project datasources.
+        Reads include local and configured external model roots. Conflicting
+        names fail; catalog methods retain the exact resolved workspace.
+        Model declarations and relative imports use fresh namespaces for each
+        declaration load, without modifying sys.path. Model-to-model absolute
+        imports are unsupported. Loaded modules remain until process exit.
+        Restart Python after package upgrades or changes to ordinary imported
+        dependencies; those dependencies retain standard Python module caching.
+        Execution failures expose the declaration location and exception type.
+        Inspect the error's traceback field for the original exception chain.
+    """
+    if workspace_dir is None:
+        workspace_dir = resolve_project_root()
+    elif isinstance(workspace_dir, str):
+        workspace_dir = Path(workspace_dir)
+    resolved_workspace = workspace_dir.resolve()
+    _store.require_project_config(resolved_workspace)
+    return DatasourceCatalog(workspace_dir=resolved_workspace)

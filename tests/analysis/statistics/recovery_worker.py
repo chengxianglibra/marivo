@@ -20,7 +20,7 @@ import pyarrow as pa
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import snapshot as frame_snapshot
 from tests.analysis.statistics.deviation_oracle import PROFILES, expected, forbidden

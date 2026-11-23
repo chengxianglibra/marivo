@@ -1,0 +1,130 @@
+"""Metadata-only source inspection for datasource authoring."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from marivo._authoring.model import AuthoringRepair
+from marivo.datasource.errors import (
+    DatasourceAuthoringError,
+    DatasourceObservedEffects,
+    repair,
+)
+
+
+def _authoring_error(
+    *,
+    code: str,
+    stage: Literal["inspect", "preflight", "acquire", "cache", "project"],
+    expected: str,
+    received: str,
+    reason: str,
+    scope_state: Literal["known", "none", "unknown"] | None,
+) -> DatasourceAuthoringError:
+    return DatasourceAuthoringError(
+        code=code,
+        stage=stage,
+        expected=expected,
+        received=received,
+        reason=reason,
+        effect_observed=DatasourceObservedEffects(query_executed=False, scope_state=scope_state),
+        repair=repair_for_authoring_code(code),
+    )
+
+
+def repair_for_authoring_code(code: str) -> AuthoringRepair:
+    """Return the exact typed repair registered for one authoring blocker."""
+    if code == "datasource_missing":
+        return repair(
+            kind="register",
+            canonical_id="register",
+            action="Register the datasource before inspecting this source.",
+            preserves_evidence=False,
+        )
+    if code in {
+        "source_mismatch",
+        "native_timeout_configuration_failed",
+    }:
+        return repair(
+            kind="configure",
+            canonical_id="inspect",
+            action="Inspect the datasource configuration before retrying this operation.",
+            preserves_evidence=False,
+        )
+    if code == "transformed_partition_unsupported":
+        return repair(
+            kind="rescope",
+            canonical_id="time_range",
+            action=(
+                "If the inspected source exposes a date or timestamp output column and the "
+                "adapter supports predicate pushdown, rescope with md.time_range(...); "
+                "otherwise choose a source or scope with expressible partition predicates."
+            ),
+            preserves_evidence=True,
+        )
+    if code in {"selected_columns_required", "unknown_source_column"}:
+        return repair(
+            kind="inspect",
+            canonical_id="inspect",
+            action="Inspect the captured source schema before selecting columns.",
+            preserves_evidence=True,
+        )
+    if code in {
+        "partition_state_unknown",
+        "incomplete_partition_fields",
+        "partition_predicate_unsupported",
+    }:
+        return repair(
+            kind="rescope",
+            canonical_id="source_inspection.partitions",
+            action="Rescope using the captured partition evidence.",
+            preserves_evidence=True,
+        )
+    if code in {"cache_stale", "schema_stale", "fingerprint_stale"}:
+        return repair(
+            kind="reacquire",
+            canonical_id="source_inspection.sample",
+            action="Reacquire bounded evidence from the inspected source.",
+            preserves_evidence=False,
+        )
+    if code == "acquisition_execution_failed":
+        return repair(
+            kind="reacquire",
+            canonical_id="source_inspection.sample",
+            action=(
+                "Only if the caller's remaining data-access budget permits, retry this exact "
+                "bounded acquisition at most once. Caller-provided read, row, and timeout limits "
+                "take precedence. If the same structured code and backend name recur, stop and "
+                "report the datasource backend blocker."
+            ),
+            preserves_evidence=False,
+        )
+    if code == "acquisition_connection_failed":
+        return repair(
+            kind="reconnect",
+            canonical_id="datasource_catalog.test",
+            action="Validate the datasource connection before reacquiring bounded evidence.",
+            preserves_evidence=True,
+        )
+    if code == "acquisition_preparation_failed":
+        return repair(
+            kind="inspect",
+            canonical_id="source_inspection.sample",
+            action="Inspect the reported source or adapter failure before retrying bounded acquisition.",
+            preserves_evidence=True,
+        )
+    if code == "acquisition_source_failed":
+        return repair(
+            kind="inspect",
+            canonical_id="inspect",
+            action="Inspect the captured source identity before reacquiring bounded evidence.",
+            preserves_evidence=True,
+        )
+    if code == "typed_schema_required":
+        return repair(
+            kind="configure",
+            canonical_id="inspect",
+            action="Configure a non-empty authored schema before inspection.",
+            preserves_evidence=False,
+        )
+    raise ValueError(f"No typed authoring repair is registered for {code!r}.")

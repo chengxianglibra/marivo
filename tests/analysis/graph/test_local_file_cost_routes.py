@@ -9,7 +9,8 @@ import pandas as pd
 import pytest
 
 from marivo.analysis.model.data_types import ScalarDataType
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from tests.analysis.graph.physical_workloads import _rows, workload
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 

@@ -16,7 +16,6 @@ import pytest
 import marivo
 import marivo.datasource as md
 from marivo._kernel.refs import ref as ref_factory
-from marivo.datasource import runtime as datasource_runtime
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.ir import (
     DatasourceIR,
@@ -24,8 +23,9 @@ from marivo.datasource.ir import (
     QueryParamScalar,
     QueryParamScalarList,
 )
-from marivo.datasource.json_source import JsonResponseCache
-from marivo.datasource.preview import PreviewResult
+from marivo.datasource.runtime import connections as datasource_runtime
+from marivo.datasource.runtime.json_source import JsonResponseCache
+from marivo.datasource.runtime.preview import PreviewResult
 from marivo.semantic.catalog import (
     Domain,
     SemanticCatalog,
@@ -110,7 +110,7 @@ def test_invalid_preview_limits_are_structured_before_connection(
     catalog, _root = scoped_catalog
     amount = catalog_value(catalog, "sales.orders.amount", kind="field")
     monkeypatch.setattr(
-        "marivo.datasource.runtime.open_backend",
+        "marivo.datasource.runtime.connections.open_backend",
         lambda *args, **kwargs: pytest.fail("invalid preview limit opened a connection"),
     )
 
@@ -313,7 +313,7 @@ def test_complete_batch_is_validated_before_connection(
 
     forged = UnregisteredDomain(_ref=sales._ref, _details=sales._details, _catalog=catalog)
     monkeypatch.setattr(
-        "marivo.datasource.runtime.open_backend",
+        "marivo.datasource.runtime.connections.open_backend",
         lambda *args, **kwargs: pytest.fail("connection opened"),
     )
     with pytest.raises(SemanticRuntimeError):
@@ -341,7 +341,7 @@ def test_cross_datasource_preview_fails_before_connection(
     )
     catalog = SemanticCatalog(project)
     monkeypatch.setattr(
-        "marivo.datasource.runtime.open_backend",
+        "marivo.datasource.runtime.connections.open_backend",
         lambda *args, **kwargs: pytest.fail("connection opened"),
     )
     with pytest.raises(SemanticRuntimeError):
@@ -390,7 +390,7 @@ def test_json_source_parameters_use_native_entity_pairs(
     catalog = SemanticCatalog(project)
     original_open_backend = datasource_runtime.open_backend
     monkeypatch.setattr(
-        "marivo.datasource.runtime.open_backend",
+        "marivo.datasource.runtime.connections.open_backend",
         lambda *args, **kwargs: pytest.fail("connection opened"),
     )
     entity = catalog_value(catalog, "sales.events", kind="entity")
@@ -455,8 +455,10 @@ def test_json_source_parameters_use_native_entity_pairs(
             temp=True,
         )
 
-    monkeypatch.setattr("marivo.datasource.runtime.open_backend", original_open_backend)
-    monkeypatch.setattr("marivo.datasource.json_source.read_json_source", fake_read_json_source)
+    monkeypatch.setattr("marivo.datasource.runtime.connections.open_backend", original_open_backend)
+    monkeypatch.setattr(
+        "marivo.datasource.runtime.adapters.read_json_source", fake_read_json_source
+    )
     result = catalog.preview(
         entity,
         scope=default_scope(),
@@ -525,8 +527,9 @@ def test_metric_preview_reuses_physical_partition_preflight(
 ) -> None:
     from dataclasses import replace
 
-    from marivo.datasource.inspection import SourceInspection, _inspect_resolved_source
-    from marivo.datasource.metadata import PartitionMetadata
+    from marivo.datasource.inspection.inspection import _inspect_resolved_source
+    from marivo.datasource.inspection.source import SourceInspection
+    from marivo.datasource.metadata_types import PartitionMetadata
 
     catalog, _root = scoped_catalog
 
@@ -550,7 +553,7 @@ def test_metric_preview_reuses_physical_partition_preflight(
             ),
         )
 
-    monkeypatch.setattr("marivo.datasource.inspection._inspect_resolved_source", inspect_source)
+    monkeypatch.setattr("marivo.datasource.spi.inspect_resolved_source", inspect_source)
     metric = catalog.get("metric:sales.revenue")
     scope = (
         md.partition({"region": "east"}, max_rows=10, timeout_seconds=30)

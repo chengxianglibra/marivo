@@ -38,14 +38,13 @@ from marivo._definition.types import InputContext
 from marivo._kernel.config import AUTHORED_DIR
 from marivo._kernel.refs import FieldKind, Ref, SemanticKind, SemanticKindTag
 from marivo._kernel.refs import ref as ref_factory
-from marivo.datasource._builtin import default_datasource
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
     DatasourceError,
     DatasourceLoadError,
 )
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
-from marivo.datasource.loader import _load_models_datasources, _models_root_errors
+from marivo.datasource.spi import default_datasource, load_models_datasources, models_root_errors
 from marivo.semantic._compiled_state import (
     CompilationGraph,
     CompiledSemanticState,
@@ -930,7 +929,7 @@ def load_project(
     datasource_irs: list[DatasourceIR] = [default_datasource()]
 
     datasource_roots = tuple(spec.models_root for spec in root_specs)
-    errors.extend(_wrap_datasource_error(error) for error in _models_root_errors(datasource_roots))
+    errors.extend(_wrap_datasource_error(error) for error in models_root_errors(datasource_roots))
     if errors:
         return LoadResult(status="errored", errors=tuple(errors))
 
@@ -940,7 +939,7 @@ def load_project(
         _ensure_package(module_prefix, root_spec.semantic_root)
         all_model_dirs.extend(_discover_model_dirs(root_spec.semantic_root))
 
-    datasource_result = _load_models_datasources(datasource_roots, isolate_failures=allow_partial)
+    datasource_result = load_models_datasources(datasource_roots, isolate_failures=allow_partial)
     source_errors: tuple[SemanticError, ...] = tuple(
         _wrap_datasource_error(error) for error in datasource_result.errors
     )

@@ -8,23 +8,23 @@ from types import SimpleNamespace
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource import adapters as datasource_adapters
-from marivo.datasource import backends as datasource_backends
-from marivo.datasource import secrets as datasource_secrets
-from marivo.datasource import store as datasource_store
-from marivo.datasource.authoring import (
-    ClickHouseSpec,
-    DuckDBSpec,
-    MySQLSpec,
-    PostgresSpec,
-    TrinoSpec,
-)
+from marivo.datasource.credentials import secrets as datasource_secrets
 from marivo.datasource.errors import (
     DatasourceBackendTypeUnsupportedError,
     DatasourceEnvVarMissingError,
     DatasourceFieldInvalidError,
 )
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.runtime import adapters as datasource_adapters
+from marivo.datasource.runtime import backends as datasource_backends
+from marivo.datasource.store import declarations as datasource_store
+from marivo.datasource.store.authoring import (
+    ClickHouseSpec,
+    DuckDBSpec,
+    MySQLSpec,
+    PostgresSpec,
+    TrinoSpec,
+)
 
 
 @pytest.fixture
@@ -183,8 +183,8 @@ def test_duckdb_http_auth_installs_scoped_secret_on_connect(
     auth_kwargs: dict[str, object],
     env_name: str,
 ) -> None:
-    from marivo.datasource.backends import build_backend_with_secrets
     from marivo.datasource.engines.duckdb import DuckDbHttpCredentials
+    from marivo.datasource.runtime.backends import build_backend_with_secrets
 
     monkeypatch.setenv(env_name, "sensitive-token")
     datasource = datasource_store.save_one(
@@ -211,7 +211,7 @@ def test_duckdb_http_auth_installs_scoped_secret_on_connect(
             "SELECT count(*) FROM duckdb_secrets() WHERE name = 'marivo_hawkeye_0'"
         ).fetchone()[0]
         assert secrets_count == 1
-        from marivo.datasource.capabilities import provider_statement_log
+        from marivo.datasource.engines.statements import provider_statement_log
 
         log = provider_statement_log(built.backend)
         assert len(log) == 1

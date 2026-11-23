@@ -11,9 +11,10 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._kernel import execution_log as _execution_log
-from marivo.datasource.adapters import CompiledRead, PhysicalRequirement, SourceSession
+from marivo.datasource.credentials.secrets import LocalPlaintextCache
 from marivo.datasource.ir import TableSourceIR
-from marivo.datasource.secrets import LocalPlaintextCache
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead, PhysicalRequirement
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.driver_audit import native_audit
 from tests.datasource.source_cases import ROWS, source_case, source_params

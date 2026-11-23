@@ -12,7 +12,7 @@ from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
     _native_query_expression,
 )
-from marivo.datasource.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.adapters import SourceSession, provider_for
 from tests.datasource.source_cases import datasource
 
 

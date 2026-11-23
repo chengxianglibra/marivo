@@ -2,21 +2,13 @@
 
 from __future__ import annotations
 
-from marivo.datasource.authoring import (
-    ClickHouseSpec,
-    DatasourceSpec,
-    DuckDBSpec,
-    MySQLSpec,
-    PostgresSpec,
-    TrinoSpec,
-    clickhouse,
-    duckdb,
-    mysql,
-    postgres,
-    trino,
+from marivo.datasource.credentials import (
+    CredentialRequest,
+    CredentialResolver,
+    SecretValue,
+    credential_scope,
 )
-from marivo.datasource.catalog import DatasourceCatalog, load
-from marivo.datasource.credential_inputs import (
+from marivo.datasource.credentials.inputs import (
     EnvRef,
     HttpBearerSecret,
     HttpHeadersSecret,
@@ -26,28 +18,20 @@ from marivo.datasource.credential_inputs import (
     http_headers_secret,
     s3_secret,
 )
-from marivo.datasource.credentials import (
-    CredentialRequest,
-    CredentialResolver,
-    SecretValue,
-    credential_scope,
-)
 from marivo.datasource.errors import DatasourceCredentialError, DatasourceCredentialScopeError
-from marivo.datasource.inspection import (
-    PartitionInspection,
-    SourceInspection,
-    inspect,
-)
-from marivo.datasource.manage import (
+from marivo.datasource.inspection.catalog import DatasourceCatalog, load
+from marivo.datasource.inspection.details import PartitionInspection
+from marivo.datasource.inspection.inspection import inspect
+from marivo.datasource.inspection.manage import (
     DatasourceDescription,
     DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
-    raw_sql,
     register,
     remove,
 )
-from marivo.datasource.snapshot import DiscoveryEvidence
+from marivo.datasource.inspection.raw_sql import raw_sql
+from marivo.datasource.inspection.source import SourceInspection
 from marivo.datasource.source import (
     TableSource,
     csv,
@@ -59,6 +43,16 @@ from marivo.datasource.source import (
     time_range,
     unpruned,
 )
+from marivo.datasource.store.authoring import (
+    ClickHouseSpec,
+    DatasourceSpec,
+    DuckDBSpec,
+    MySQLSpec,
+    PostgresSpec,
+    TrinoSpec,
+)
+from marivo.datasource.store.builders import clickhouse, duckdb, mysql, postgres, trino
+from marivo.datasource.store.evidence import DiscoveryEvidence
 
 __all__ = [
     "ClickHouseSpec",

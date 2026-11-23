@@ -11,8 +11,10 @@ import pytest
 
 from marivo._kernel.refs import RefPayloadV1, ref
 from marivo.analysis.compiler.source_time import source_time
-from marivo.datasource.adapters import PhysicalRequirement, provider_for
 from marivo.datasource.errors import DatasourceConnectionError
+from marivo.datasource.runtime.adapters import provider_for
+from marivo.datasource.runtime.read_types import PhysicalRequirement
+from marivo.datasource.runtime.session_factory import open_source_session
 from marivo.semantic.ir import TargetDimensionContract, TimestampParse
 from tests.datasource.source_cases import SourceData, source_case
 from tests.shared_fixtures import declared_test_timezone
@@ -107,7 +109,7 @@ def test_mysql_reader_initialization_failure_is_typed_and_releases_connection(
         monkeypatch.setattr(Cursor, "execute", execute)
         with (
             pytest.raises(DatasourceConnectionError) as failure,
-            provider_for("mysql").open(case.session.datasource),
+            open_source_session(provider_for("mysql"), case.session.datasource),
         ):
             pytest.fail("A failed UTC reader was admitted")
         assert failure.value.received == "timezone initialization failure"

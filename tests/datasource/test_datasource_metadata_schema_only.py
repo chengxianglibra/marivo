@@ -10,20 +10,19 @@ import pytest
 
 import marivo.datasource as md
 from marivo._kernel.render import AgentResult
-from marivo.datasource.authoring import DuckDBSpec
 from marivo.datasource.engines import ENGINE_PROFILES
 from marivo.datasource.engines.base import MetadataInspectRequest, schema_only_metadata_inspect
+from marivo.datasource.inspection.metadata import _inspect_source, inspect_table
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
-from marivo.datasource.metadata import (
+from marivo.datasource.metadata_types import (
     ColumnMetadata,
     MetadataWarning,
     PartitionMetadata,
     TableMetadata,
     TablePhysicalProfile,
     UniqueConstraintMetadata,
-    _inspect_source,
-    inspect_table,
 )
+from marivo.datasource.store.authoring import DuckDBSpec
 
 
 @pytest.mark.parametrize("backend_type", tuple(ENGINE_PROFILES))

@@ -17,14 +17,15 @@ import marivo.semantic as ms
 from marivo._help.render import render_help_text
 from marivo._kernel.refs import ref as ref_factory
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource import store
-from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
 from marivo.datasource.credentials import remember_injected
 from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceRawSqlError,
     DatasourceSourceCapabilityError,
 )
+from marivo.datasource.runtime.session_factory import open_source_session
+from marivo.datasource.store import declarations as store
+from marivo.datasource.store.authoring import DuckDBSpec, TrinoSpec
 from tests.support.refs import as_ref
 
 
@@ -62,7 +63,7 @@ def test_raw_sql_does_not_classify_sql_text(tmp_path: Path) -> None:
 
 
 def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
-    from marivo.datasource.manage import RawSqlResult
+    from marivo.datasource.inspection.raw_sql import RawSqlResult
 
     _register_raw_sql_fixture(tmp_path)
 
@@ -85,7 +86,7 @@ def test_raw_sql_works_after_inspect_table_on_same_duckdb_file(tmp_path: Path) -
     """Metadata inspection must release its handle before a native file reader opens."""
     _register_raw_sql_fixture(tmp_path)
 
-    from marivo.datasource.metadata import inspect_table as _inspect_table
+    from marivo.datasource.inspection.metadata import inspect_table as _inspect_table
 
     _inspect_table("warehouse", table="orders", project_root=tmp_path)
 
@@ -191,9 +192,9 @@ def _patch_trino_timeout_to_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     import dataclasses
     from contextlib import nullcontext
 
-    from marivo.datasource import manage as manage_mod
     from marivo.datasource.engines import require_profile_for_backend_type
     from marivo.datasource.engines.base import EngineProfile
+    from marivo.datasource.inspection import raw_sql as manage_mod
 
     original = require_profile_for_backend_type
     trino_profile = original("trino")
@@ -230,7 +231,7 @@ def test_raw_sql_trino_describe_executes_directly_without_readonly_transaction(
     backend = _RawSqlBackend({"DESCRIBE orders": cursor})
     service = _RawSqlService(backend)
 
-    import marivo.datasource.manage as manage_mod
+    from marivo.datasource.inspection import raw_sql as manage_mod
 
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
     _patch_trino_timeout_to_noop(monkeypatch)
@@ -274,7 +275,7 @@ def test_raw_sql_trino_show_executes_directly_and_bounds_rows(
     )
     service = _RawSqlService(backend)
 
-    import marivo.datasource.manage as manage_mod
+    from marivo.datasource.inspection import raw_sql as manage_mod
 
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
     _patch_trino_timeout_to_noop(monkeypatch)
@@ -306,7 +307,7 @@ def test_raw_sql_trino_select_submits_verbatim_without_transaction(
     backend = _RawSqlBackend({"FROM orders": _FakeCursor(["n"], [(2,)])})
     service = _RawSqlService(backend)
 
-    import marivo.datasource.manage as manage_mod
+    from marivo.datasource.inspection import raw_sql as manage_mod
 
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
     _patch_trino_timeout_to_noop(monkeypatch)
@@ -347,7 +348,7 @@ def test_raw_sql_trino_group_by_order_by_is_submitted_verbatim(
     )
     service = _RawSqlService(backend)
 
-    import marivo.datasource.manage as manage_mod
+    from marivo.datasource.inspection import raw_sql as manage_mod
 
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
     _patch_trino_timeout_to_noop(monkeypatch)
@@ -381,7 +382,7 @@ def test_raw_sql_trino_user_limit_is_preserved(
     backend = _RawSqlBackend({"LIMIT 5": _FakeCursor(["id"], [(1,)])})
     service = _RawSqlService(backend)
 
-    import marivo.datasource.manage as manage_mod
+    from marivo.datasource.inspection import raw_sql as manage_mod
 
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
     _patch_trino_timeout_to_noop(monkeypatch)
@@ -412,7 +413,7 @@ def test_raw_sql_trino_user_offset_is_preserved(
     backend = _RawSqlBackend({"OFFSET 10": _FakeCursor(["id"], [(11,)])})
     service = _RawSqlService(backend)
 
-    import marivo.datasource.manage as manage_mod
+    from marivo.datasource.inspection import raw_sql as manage_mod
 
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
     _patch_trino_timeout_to_noop(monkeypatch)
@@ -443,7 +444,7 @@ def test_raw_sql_trino_user_fetch_first_is_preserved(
     backend = _RawSqlBackend({"FETCH FIRST 5 ROWS ONLY": _FakeCursor(["id"], [(1,)])})
     service = _RawSqlService(backend)
 
-    import marivo.datasource.manage as manage_mod
+    from marivo.datasource.inspection import raw_sql as manage_mod
 
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
     _patch_trino_timeout_to_noop(monkeypatch)
@@ -474,7 +475,7 @@ def test_raw_sql_trino_cte_is_submitted_verbatim(
     backend = _RawSqlBackend({"ORDER BY amount DESC": _FakeCursor(["id", "amount"], [(2, 20.0)])})
     service = _RawSqlService(backend)
 
-    import marivo.datasource.manage as manage_mod
+    from marivo.datasource.inspection import raw_sql as manage_mod
 
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
     _patch_trino_timeout_to_noop(monkeypatch)
@@ -509,7 +510,7 @@ def test_raw_sql_trino_select_into_is_not_normalized_to_ctas(
     backend = _RawSqlBackend({"SELECT * INTO": _FakeCursor(["n"], [(0,)])})
     service = _RawSqlService(backend)
 
-    import marivo.datasource.manage as manage_mod
+    from marivo.datasource.inspection import raw_sql as manage_mod
 
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
     _patch_trino_timeout_to_noop(monkeypatch)
@@ -609,7 +610,7 @@ def test_raw_sql_to_pandas_is_defensively_isolated(tmp_path: Path) -> None:
 
 
 def test_raw_sql_to_pandas_recursive_isolation_for_object_columns() -> None:
-    from marivo.datasource.manage import RawSqlResult
+    from marivo.datasource.inspection.raw_sql import RawSqlResult
 
     result = RawSqlResult(
         _datasource=ref_factory.datasource("wh"),
@@ -778,7 +779,7 @@ def test_raw_sql_repairs_use_native_failure_evidence(
         remember_injected(backend, (md.SecretValue(_RAW_SQL_CANARY),))
     service = _RawSqlService(backend)
     monkeypatch.setattr(
-        "marivo.datasource.manage.DatasourceConnectionService", lambda _root: service
+        "marivo.datasource.inspection.raw_sql.DatasourceConnectionService", lambda _root: service
     )
     _patch_trino_timeout_to_noop(monkeypatch)
 
@@ -840,7 +841,7 @@ def test_raw_sql_logs_native_statement_consumption_and_failure(
 def test_connectivity_worker_preserves_explicit_root_and_context(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.manage import test_no_persist
+    from marivo.datasource.inspection.manage import test_no_persist
     from tests.support.execution_logs import execution_records
 
     _register_raw_sql_fixture(tmp_path)
@@ -890,12 +891,12 @@ def test_raw_sql_result_cannot_reenter_typed_analysis(
     session = mv.session.get_or_create("raw-sql-terminal", timezone="UTC")
     with pytest.raises(AnalysisError):
         session.observe({"raw": result})  # type: ignore[dict-item]  # Terminal results are invalid analysis inputs.
-    from marivo.datasource.adapters import provider_for
+    from marivo.datasource.runtime.adapters import provider_for
 
     datasource = store.load_one("warehouse", project_root=tmp_path)
     assert datasource is not None
     with (
-        provider_for("duckdb").open(datasource) as source_session,
+        open_source_session(provider_for("duckdb"), datasource) as source_session,
         pytest.raises(DatasourceSourceCapabilityError),
     ):
         source_session.bind(result, source_identity="raw-sql-terminal")  # type: ignore[arg-type]  # Reject a terminal result.
@@ -904,7 +905,7 @@ def test_raw_sql_result_cannot_reenter_typed_analysis(
 
 
 def test_raw_sql_result_rejects_returned_row_count_drift() -> None:
-    from marivo.datasource.manage import RawSqlResult
+    from marivo.datasource.inspection.raw_sql import RawSqlResult
 
     with pytest.raises(ValueError):
         RawSqlResult(

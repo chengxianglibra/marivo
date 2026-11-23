@@ -18,9 +18,11 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._kernel.compat import UTC
 from marivo.cli import init_project
-from marivo.datasource.adapters import CompiledRead, SourceSession
-from marivo.datasource.inspection import SourceInspection
+from marivo.datasource.inspection.source import SourceInspection
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.datasource.source import AuthoringScope, TableSource
+from marivo.datasource.store.evidence_payload import datasource_spec_fingerprint
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -43,7 +45,7 @@ class _ScopedSnapshotInputs(_SnapshotInputs):
 
 @pytest.fixture(autouse=True)
 def clear_snapshot_memory() -> None:
-    from marivo.datasource import authoring_store
+    from marivo.datasource.store import authoring_store as authoring_store
 
     authoring_store._SNAPSHOT_MEMORY.clear()
 
@@ -56,7 +58,7 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_snapshot_identity_includes_nonsecret_source_parameters() -> None:
-    from marivo.datasource.authoring_store import snapshot_identity
+    from marivo.datasource.store.evidence_payload import snapshot_identity
 
     source = md.json(
         "https://api.example/query",
@@ -80,7 +82,7 @@ def test_snapshot_identity_includes_nonsecret_source_parameters() -> None:
 
 
 def test_snapshot_identity_list_source_params_deterministic_and_order_sensitive() -> None:
-    from marivo.datasource.authoring_store import snapshot_identity
+    from marivo.datasource.store.evidence_payload import snapshot_identity
 
     source = md.json(
         "https://api.example/query",
@@ -108,7 +110,7 @@ def test_snapshot_identity_list_source_params_deterministic_and_order_sensitive(
 
 
 def test_source_param_value_round_trips_flat_list_and_rejects_invalid() -> None:
-    from marivo.datasource.authoring_store import _source_param_value
+    from marivo.datasource.store.evidence_payload import _source_param_value
 
     assert _source_param_value(["a", "b"]) == ["a", "b"]
     assert _source_param_value([1, 2.5, True, "x"]) == [1, 2.5, True, "x"]
@@ -123,7 +125,7 @@ def test_source_param_value_round_trips_flat_list_and_rejects_invalid() -> None:
 
 
 def test_snapshot_identity_and_payload_include_half_open_time_range() -> None:
-    from marivo.datasource.authoring_store import _scope_payload, snapshot_identity
+    from marivo.datasource.store.evidence_payload import _scope_payload, snapshot_identity
 
     source = md.table("events")
     first_scope = md.time_range(
@@ -239,7 +241,7 @@ def test_snapshot_cache_omits_values_and_credentials_by_default(
     inspection: SourceInspection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource import store
+    from marivo.datasource.store import declarations as store
 
     datasource = store.load_one("warehouse", project_root=project_root)
     assert datasource is not None
@@ -254,7 +256,7 @@ def test_snapshot_cache_omits_values_and_credentials_by_default(
         ),
     )
     monkeypatch.setattr(
-        "marivo.datasource.engines.base.EngineProfile.open",
+        "marivo.datasource.inspection.snapshot.open_source_session",
         lambda profile, datasource, *, terminal_timeout_seconds=None: SourceSession(
             profile,
             datasource,
@@ -356,7 +358,7 @@ def test_private_disk_reload_marks_values_unavailable_without_querying(
     inspection: SourceInspection,
     query_spy: _QuerySpy,
 ) -> None:
-    from marivo.datasource import authoring_store
+    from marivo.datasource.store import authoring_store as authoring_store
 
     scope = md.unpruned(max_rows=100, timeout_seconds=30)
     inspection.sample(scope=scope, columns=("region",), persist_values=False, refresh=True)
@@ -379,7 +381,7 @@ def test_private_disk_reload_rejects_tampered_value_fields(
     inspection: SourceInspection,
     query_spy: _QuerySpy,
 ) -> None:
-    from marivo.datasource import authoring_store
+    from marivo.datasource.store import authoring_store as authoring_store
 
     scope = md.unpruned(max_rows=100, timeout_seconds=30)
     first = inspection.sample(
@@ -410,7 +412,7 @@ def test_opted_in_disk_reload_preserves_only_bounded_values_without_querying(
     inspection: SourceInspection,
     query_spy: _QuerySpy,
 ) -> None:
-    from marivo.datasource import authoring_store
+    from marivo.datasource.store import authoring_store as authoring_store
 
     scope = md.unpruned(max_rows=100, timeout_seconds=30)
     first = inspection.sample(
@@ -462,7 +464,7 @@ def test_evidence_format_mismatch_reacquires_once_and_repairs_artifact(
     inspection: SourceInspection,
     query_spy: _QuerySpy,
 ) -> None:
-    from marivo.datasource import authoring_store
+    from marivo.datasource.store import authoring_store as authoring_store
 
     scope = md.unpruned(max_rows=100, timeout_seconds=30)
     first = inspection.sample(scope=scope, columns=("region",), refresh=True)
@@ -494,7 +496,7 @@ def test_private_disk_reload_rejects_wrong_named_retained_row_shape(
     query_spy: _QuerySpy,
     tampered_row: dict[str, object],
 ) -> None:
-    from marivo.datasource import authoring_store
+    from marivo.datasource.store import authoring_store as authoring_store
 
     scope = md.unpruned(max_rows=100, timeout_seconds=30)
     first = inspection.sample(
@@ -531,7 +533,7 @@ def test_query_free_snapshot_lookup_rejects_resigned_invalid_payloads(
     query_spy: _QuerySpy,
     tamper: str,
 ) -> None:
-    from marivo.datasource import authoring_store
+    from marivo.datasource.store import authoring_store as authoring_store
 
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30),
@@ -555,14 +557,14 @@ def test_query_free_snapshot_lookup_rejects_resigned_invalid_payloads(
         payload["coverage"]["scope_exactness"] = "scope_exact"
     _rewrite_payload(path, payload, resign=True)
     authoring_store._SNAPSHOT_MEMORY.clear()
-    from marivo.datasource import store as datasource_store
+    from marivo.datasource.store import declarations as datasource_store
 
     datasource = datasource_store.load_one("warehouse", project_root=project_root)
     assert datasource is not None
 
     valid = authoring_store.AuthoringStore(project_root).valid_snapshots(
         datasource=inspection._datasource,
-        datasource_fingerprint=authoring_store.datasource_spec_fingerprint(datasource),
+        datasource_fingerprint=datasource_spec_fingerprint(datasource),
         source=inspection.source,
     )
 
@@ -577,7 +579,7 @@ def test_query_free_snapshot_lookup_rejects_digest_failure(
     query_spy: _QuerySpy,
     tamper: str,
 ) -> None:
-    from marivo.datasource import authoring_store
+    from marivo.datasource.store import authoring_store as authoring_store
 
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=100, timeout_seconds=30),
@@ -592,14 +594,14 @@ def test_query_free_snapshot_lookup_rejects_digest_failure(
         payload.pop("payload_digest", None)
     _rewrite_payload(path, payload, resign=False)
     authoring_store._SNAPSHOT_MEMORY.clear()
-    from marivo.datasource import store as datasource_store
+    from marivo.datasource.store import declarations as datasource_store
 
     datasource = datasource_store.load_one("warehouse", project_root=project_root)
     assert datasource is not None
 
     valid = authoring_store.AuthoringStore(project_root).valid_snapshots(
         datasource=inspection._datasource,
-        datasource_fingerprint=authoring_store.datasource_spec_fingerprint(datasource),
+        datasource_fingerprint=datasource_spec_fingerprint(datasource),
         source=inspection.source,
     )
 
@@ -612,7 +614,7 @@ def test_expired_snapshot_is_reused_and_reports_stale(
     query_spy: _QuerySpy,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource import authoring_store
+    from marivo.datasource.store import authoring_store as authoring_store
 
     now = datetime(2026, 7, 11, 0, 0, tzinfo=UTC)
     monkeypatch.setattr(authoring_store, "_utc_now", lambda: now)
@@ -628,13 +630,13 @@ def test_expired_snapshot_is_reused_and_reports_stale(
     assert expired.created_at == now
     assert expired.expires_at == now + timedelta(hours=24)
 
-    from marivo.datasource import store as datasource_store
+    from marivo.datasource.store import declarations as datasource_store
 
     datasource = datasource_store.load_one("warehouse", project_root=inspection._project_root)
     assert datasource is not None
     persisted = authoring_store.AuthoringStore(inspection._project_root).valid_snapshots(
         datasource=inspection._datasource,
-        datasource_fingerprint=authoring_store.datasource_spec_fingerprint(datasource),
+        datasource_fingerprint=datasource_spec_fingerprint(datasource),
         source=inspection.source,
         now=now + timedelta(hours=25),
     )
@@ -707,7 +709,7 @@ def test_newer_persisted_refresh_replaces_remembered_generation_without_query(
     query_spy: _QuerySpy,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource import authoring_store
+    from marivo.datasource.store import authoring_store as authoring_store
 
     first_time = datetime(2026, 7, 11, 0, 0, tzinfo=UTC)
     monkeypatch.setattr(authoring_store, "_utc_now", lambda: first_time)

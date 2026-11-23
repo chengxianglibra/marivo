@@ -15,8 +15,9 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
-from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import provider_for
+from marivo.datasource.runtime.session_factory import open_source_session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import distribution_data
 from tests.analysis.materialization.domain_recovery_worker import snapshot
@@ -63,8 +64,9 @@ def test_native_distributions_independent_fixed_and_cold(
                 admin.raw_sql(f"INSERT INTO {name} VALUES {data.values}")
             admin.disconnect()
             connection = stack.enter_context(
-                provider_for(backend).open(
-                    datasource(backend, {"path": str(path), "read_only": True})
+                open_source_session(
+                    provider_for(backend),
+                    datasource(backend, {"path": str(path), "read_only": True}),
                 )
             )
             subject, facts = [
@@ -190,7 +192,7 @@ import pandas as pd
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot

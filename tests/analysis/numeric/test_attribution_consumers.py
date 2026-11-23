@@ -11,7 +11,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project

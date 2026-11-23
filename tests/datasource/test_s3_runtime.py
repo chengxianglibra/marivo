@@ -14,7 +14,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource.runtime import load_datasource, open_backend
+from marivo.datasource.runtime.connections import load_datasource, open_backend
 from tests.datasource.environment.credentials import password
 
 pytestmark = [

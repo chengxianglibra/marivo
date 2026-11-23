@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
+import ibis.expr.types as ir
+import pandas as pd
+import pyarrow as pa
 from ibis.backends import BaseBackend
 
-from marivo.datasource.capabilities import (
-    ProviderStatement,
-    execute_provider_statement,
-    register_provider_statements,
-)
+from marivo.datasource.engines.aggregate_policy import MYSQL_AGGREGATES
 from marivo.datasource.engines.base import (
     AuthoringCapabilities,
     EngineMetadataIntrospection,
@@ -23,17 +22,42 @@ from marivo.datasource.engines.base import (
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.engines.mysql_query import (
+    bind_complete_key_membership,
+    lower_query_numeric,
+    preserve_string_equality,
+    source_timezones,
+    string_bytes,
+)
+from marivo.datasource.engines.query import EngineQueryPolicy, QueryDialectProfile
 from marivo.datasource.engines.requirements import MYSQL_REQUIREMENT
+from marivo.datasource.engines.statements import (
+    ProviderStatement,
+    execute_provider_statement,
+    register_provider_statements,
+)
+from marivo.datasource.engines.strptime import python_to_mysql_strptime
 from marivo.datasource.errors import (
     DatasourceConnectionError,
     DatasourceSourceCapabilityError,
+    _backend_failure_summary,
     repair,
 )
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
-from marivo.datasource.strptime import python_to_mysql_strptime
-
-if TYPE_CHECKING:
-    from marivo.datasource.metadata import TableMetadata
+from marivo.datasource.metadata_types import (
+    ColumnMetadata,
+    MetadataWarning,
+    PartitionMetadata,
+    TableMetadata,
+    TablePhysicalProfile,
+    _bool_from_nullable,
+    _database_label,
+    _empty_to_none,
+    _int_or_none,
+    _merge_columns,
+    _partition_column_from_expression,
+    _schema_columns,
+)
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
@@ -301,21 +325,6 @@ def _inspect_mysql(
     include_partitions: bool,
     default_database: str | None,
 ) -> TableMetadata:
-    from marivo.datasource.errors import _backend_failure_summary
-    from marivo.datasource.metadata import (
-        ColumnMetadata,
-        MetadataWarning,
-        PartitionMetadata,
-        TableMetadata,
-        TablePhysicalProfile,
-        _bool_from_nullable,
-        _database_label,
-        _empty_to_none,
-        _int_or_none,
-        _merge_columns,
-        _partition_column_from_expression,
-        _schema_columns,
-    )
 
     schema_columns = _schema_columns(table_expr)
     schema_name = _database_label(database) or default_database
@@ -627,13 +636,42 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
     yield
 
 
+def _read_issued_query(
+    backend: BaseBackend,
+    sql: str,
+    expression: ir.Table,
+    schema: pa.Schema,
+    mark_submitted: Callable[[], None],
+) -> pd.DataFrame:
+    from marivo.datasource.engines._mysql_backend import read_issued_query
+
+    return read_issued_query(backend, sql, expression, schema, mark_submitted)
+
+
 PROFILE = EngineProfile(
+    dialect=QueryDialectProfile(
+        aggregates=MYSQL_AGGREGATES,
+        string_bytes=string_bytes,
+        string_equality=preserve_string_equality,
+        original_string_column=original_string_column,
+        lower_query_numeric=lower_query_numeric,
+        source_timezones=source_timezones,
+        timezone_endpoint_years=(1971, 2037),
+        preview_requires_terminal_scope=True,
+        supports_native_frame_top=True,
+    ),
+    read_issued_query=_read_issued_query,
+    query_policy=EngineQueryPolicy(
+        key_fusion="collated",
+        sample_fusion=True,
+        bind_key_membership=bind_complete_key_membership,
+        query_packet_limit=query_packet_limit,
+    ),
     name="mysql",
     aliases=(),
     authoring_func="mysql",
     required_modules=(MYSQL_REQUIREMENT,),
     connect=connect,
-    query_packet_limit=query_packet_limit,
     verify_named_timezone=verify_source_timezone,
     identifier_quote="`",
     table_name_parts=table_name_parts,

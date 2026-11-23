@@ -11,7 +11,6 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource import loader, store
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
     DatasourceFieldInvalidError,
@@ -19,6 +18,8 @@ from marivo.datasource.errors import (
     DatasourceMissingError,
 )
 from marivo.datasource.source import TableSource
+from marivo.datasource.store import declarations as store
+from marivo.datasource.store import loader as loader
 from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.reader import SemanticProject
 

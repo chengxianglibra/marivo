@@ -15,8 +15,9 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import provider_for
+from marivo.datasource.runtime.session_factory import open_source_session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
@@ -130,8 +131,9 @@ def test_long_path_sum_and_count(
             finally:
                 admin.disconnect()
             connection = stack.enter_context(
-                provider_for(backend).open(
-                    datasource(backend, {"path": str(database), "read_only": True})
+                open_source_session(
+                    provider_for(backend),
+                    datasource(backend, {"path": str(database), "read_only": True}),
                 )
             )
             cases = [Case(connection, TableSourceIR(name), {"backend": backend}) for name in names]
@@ -228,7 +230,7 @@ def test_long_path_sum_and_count(
         snapshots = {name: snapshot(value) for name, value in outputs.items()}
         with monkeypatch.context() as offline:
             offline.setattr(ms, "load", forbidden)
-            offline.setattr("marivo.datasource.adapters.SourceSession.execute", forbidden)
+            offline.setattr("marivo.datasource.runtime.adapters.SourceSession.execute", forbidden)
             for name, value in outputs.items():
                 assert snapshot(session.persisted_frame(value.artifact_id)) == snapshots[name]
         assert terminal_runs(session) == before

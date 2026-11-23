@@ -390,8 +390,9 @@ def test_mysql_family_integer_sum_keeps_bound_transport(
 ) -> None:
     from dataclasses import replace
 
-    from marivo.datasource.adapters import CompiledRead, SourceSession
     from marivo.datasource.errors import DatasourceSourceCapabilityError
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     minimum, maximum = -(2**63), 2**63 - 1
     rows = (
@@ -502,7 +503,8 @@ def test_public_native_numeric_methods(
                 "cancelled_weight": amount.weighted_mean(weight=weight - 2),
             }
         )
-        from marivo.datasource.adapters import CompiledRead, SourceSession
+        from marivo.datasource.runtime.adapters import SourceSession
+        from marivo.datasource.runtime.read_types import CompiledRead
 
         statements: list[str] = []
         original_execute = SourceSession.execute
@@ -547,7 +549,8 @@ def test_public_native_quantile_algorithms(
 ) -> None:
     from dataclasses import replace
 
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     data = replace(
         DATA,
@@ -885,7 +888,8 @@ def test_same_source_read_filter_population_consumer(
     profile: str,
     selection: Literal["string", "null", "nul"],
 ) -> None:
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     big = 9007199254740993
     columns = (
@@ -959,7 +963,7 @@ def test_same_source_read_filter_population_consumer(
         statements: list[str] = []
         uploads: list[int] = []
         execute = SourceSession.execute
-        bind_keys = SourceSession._bind_key_relation
+        bind_keys = SourceSession.bind_key_relation
 
         def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
             statements.append(read.sql)
@@ -970,7 +974,7 @@ def test_same_source_read_filter_population_consumer(
             return bind_keys(owner, table)
 
         monkeypatch.setattr(SourceSession, "execute", record)
-        monkeypatch.setattr(SourceSession, "_bind_key_relation", record_upload)
+        monkeypatch.setattr(SourceSession, "bind_key_relation", record_upload)
 
         def assert_source_read() -> None:
             assert statements
@@ -1016,7 +1020,8 @@ def test_mysql_source_selection_preserves_fetched_char_and_charset_values(
     backend: str,
     profile: str,
 ) -> None:
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     data = SourceData(
         DATA.columns.replace(
@@ -1070,7 +1075,8 @@ def test_empty_source_selection_retains_original_identity_check(
     profile: str,
 ) -> None:
     from marivo.analysis.errors import AnalysisError
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     data = SourceData(
         DATA.columns,
@@ -1110,7 +1116,7 @@ def test_empty_source_selection_retains_original_identity_check(
             raise AssertionError("the source must check its original identities before selection")
 
         monkeypatch.setattr(SourceSession, "execute", record)
-        monkeypatch.setattr(SourceSession, "_bind_key_relation", no_key_upload)
+        monkeypatch.setattr(SourceSession, "bind_key_relation", no_key_upload)
         with pytest.raises(AnalysisError):
             session.observe({"weight": weight.sum()}, where=mv.in_population(selected)).compute()
         assert statements
@@ -1145,7 +1151,7 @@ import sys
 from unittest.mock import patch
 import pandas as pd
 import marivo.analysis as mv
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.analysis.session.core import Session
 
 def forbidden(*args, **kwargs):

@@ -71,7 +71,7 @@ def test_definition_read_does_not_prescribe_readiness(
     assert marivo.help is show_help
     monkeypatch.setattr("marivo.semantic.catalog.load", _no_io)
     monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", _no_io)
-    monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
+    monkeypatch.setattr("marivo.datasource.runtime.backends.build_backend", _no_io)
 
     contract = catalog.get("metric:sales.revenue").render()
 
@@ -99,7 +99,7 @@ def test_error_instance_keeps_concrete_facts(
         ),
     )
     monkeypatch.setattr("marivo.semantic.reader.SemanticProject.load", _no_io)
-    monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
+    monkeypatch.setattr("marivo.datasource.runtime.backends.build_backend", _no_io)
     assert error.kind == "synthetic_failure"
     assert error.expected == "sales/_domain.py"
     assert error.received == "sales/metrics.py only"
@@ -159,7 +159,7 @@ def test_validate_cards_disclose_failed_facts_and_scope_without_queries(
         ),
     )
     report = ValidationReport("failed", (check,), check.checked_at, "definition:fixture")
-    monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
+    monkeypatch.setattr("marivo.datasource.runtime.backends.build_backend", _no_io)
     assert check.observed == {"null_count": 2, "row_count": 10}
     assert check.user_data_queried is True
 
@@ -185,7 +185,7 @@ def test_decorator_help_example_loads_the_declared_object(
     descriptor = REGISTRY.by_canonical_id(semantic_target(target))
     assert isinstance(descriptor, AuthoringCapability)
     assert descriptor.minimal_example is not None
-    monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
+    monkeypatch.setattr("marivo.datasource.runtime.backends.build_backend", _no_io)
     local_assertions = ""
     if target in {"measure", "metric"}:
         symbol = path.rsplit(".", 1)[-1]

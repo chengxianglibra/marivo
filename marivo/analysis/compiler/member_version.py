@@ -54,7 +54,7 @@ class _VersionValue:
             return result
         value = self.value
         if self.authority.kind == "civil_date":
-            from marivo.datasource._temporal_expressions import localize, timestamp
+            from marivo.datasource.spi import localize, timestamp
 
             value = localize(self.authority.timezone, timestamp(value))
         bound = _bound(value, boundary)
@@ -308,9 +308,9 @@ def row_version_predicate(
 ) -> ir.BooleanValue:
     """Match a fact's qualified time in the left join, preserving unmatched facts."""
     from marivo.analysis.compiler.errors import compilation_error
-    from marivo.datasource._temporal_expressions import render, timestamp
+    from marivo.datasource.spi import query_dialect, render, timestamp
 
-    if engine not in ("duckdb", "trino"):
+    if not query_dialect(engine).supports_per_row_attribute_time:
         raise compilation_error(
             "DuckDB or Trino for per-row observe attribute time",
             engine,
@@ -330,7 +330,7 @@ def row_version_predicate(
             )
     civil = control.type().is_date()
     if civil:
-        from marivo.datasource._temporal_expressions import localize
+        from marivo.datasource.spi import localize
 
         assert control_authority.kind == "civil_date"
         control = localize(control_authority.timezone, timestamp(control))
@@ -355,7 +355,7 @@ def row_version_predicate(
     point = control
     left, right = start.value, end.value
     if left.type().is_date():
-        from marivo.datasource._temporal_expressions import localize
+        from marivo.datasource.spi import localize
 
         assert start.authority.kind == "civil_date" and end.authority.kind == "civil_date"
         left = localize(start.authority.timezone, timestamp(left))

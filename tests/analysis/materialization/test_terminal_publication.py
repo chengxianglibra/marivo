@@ -777,7 +777,7 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     session = source_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
@@ -1140,7 +1140,7 @@ from unittest.mock import patch
 import pyarrow as pa
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 
 def forbidden(*args, **kwargs):
     raise AssertionError('cold reduce reopened source')

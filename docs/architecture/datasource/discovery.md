@@ -143,7 +143,9 @@ evidence; they do not authorize enums, keys, additivity, timezones or allocation
 Continue through the [semantic authoring workflow](../semantic/authoring-workflow.md)
 when reusable meaning is needed.
 
-[inspection.py](../../../marivo/datasource/inspection.py) and
-[metadata.py](../../../marivo/datasource/metadata.py) own metadata acquisition.
-[snapshot.py](../../../marivo/datasource/snapshot.py) owns bounded
+[inspection.py](../../../marivo/datasource/inspection/inspection.py) and
+[metadata.py](../../../marivo/datasource/inspection/metadata.py) own metadata acquisition.
+[metadata_types.py](../../../marivo/datasource/metadata_types.py) defines the physical
+records shared by inspection and engine profiles.
+[snapshot.py](../../../marivo/datasource/inspection/snapshot.py) owns bounded
 evidence capture and retention.

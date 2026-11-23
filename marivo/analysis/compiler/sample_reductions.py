@@ -6,7 +6,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 import ibis
-import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
@@ -28,7 +27,6 @@ from marivo._definition.expressions import (
 from marivo._definition.observations import SampleAxisMatches, sample_key_matches
 from marivo._definition.relations import PopulationDependency, sample_population
 from marivo._definition.types import AxisBinding, CalendarCoordinate
-from marivo._kernel.source_aggregates import aggregate_operation, native_aggregate
 from marivo._kernel.temporal import Grain
 from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.native_formula import normalized_returned_key
@@ -42,6 +40,7 @@ from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.model.data_types import DurationDataType
 from marivo.analysis.model.programs import FormulaInput
 from marivo.analysis.model.unique_keys import UniqueKeys
+from marivo.datasource.spi import aggregate_operation, native_aggregate, query_dialect
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
@@ -50,15 +49,6 @@ from marivo.semantic._numeric_lowering import (
     lower_metric_formula,
     native_mean,
     numeric_binary,
-)
-
-
-def _row_number_signature() -> int:
-    raise NotImplementedError("native one-based row number")
-
-
-_clickhouse_row_number: Callable[[], ir.IntegerScalar] = ibis.udf.agg.builtin(
-    _row_number_signature, name="row_number", signature=((), dt.int64)
 )
 
 
@@ -581,12 +571,7 @@ class SampleLowerer:
                 )
             candidate = table if node.include_null else table.filter(value.notnull())
             rank = self.name("rank")
-            # ClickHouse 22.3 cannot evaluate arithmetic over a window function
-            # in the same projection. Keep its native one-based rank private,
-            # avoiding Ibis's row_number() - 1 normalization.
-            position = (
-                _clickhouse_row_number() if self.provider == "clickhouse" else ibis.row_number()
-            )
+            position, origin = query_dialect(self.provider).row_number()
             ordered = candidate.mutate(
                 **{
                     rank: position.over(
@@ -604,7 +589,7 @@ class SampleLowerer:
                     )
                 }
             )
-            selected = ordered.filter(ordered[rank] == (1 if self.provider == "clickhouse" else 0))
+            selected = ordered.filter(ordered[rank] == origin)
             result = (
                 table.group_by(*keys).aggregate(**metrics)
                 if keys

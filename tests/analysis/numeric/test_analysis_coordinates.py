@@ -297,7 +297,7 @@ import ibis
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime.connections import DatasourceConnectionService
 
 def forbidden(*args, **kwargs):
     raise AssertionError('cold output read touched source, models or DuckDB')

@@ -13,14 +13,14 @@ from marivo._kernel.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult, result
 from marivo._kernel.temporal import TimeScopeContractV1
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.session._lazy_read_model import SessionSummary
-from marivo.datasource.manage import (
+from marivo.datasource.inspection.manage import (
     DatasourceDescription,
     DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
-    RawSqlResult,
 )
-from marivo.datasource.preview import PreviewCoverage, PreviewResult
+from marivo.datasource.inspection.raw_sql import RawSqlResult
+from marivo.datasource.runtime.preview import PreviewCoverage, PreviewResult
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringAssessment,

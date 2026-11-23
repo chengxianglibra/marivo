@@ -25,6 +25,8 @@ from marivo.datasource._capabilities.model import (
     DatasourceRootGroup,
     DatasourceTypeContract,
 )
+from marivo.datasource.inspection.source import SourceInspection
+from marivo.datasource.store.evidence import DiscoveryEvidence
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.targets import canonical_target
 
@@ -199,7 +201,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
     descriptor_rows: tuple[AuthoringCapability, ...] = (
         _capability(
             "env",
-            "marivo.datasource.credential_inputs.env",
+            "marivo.datasource.credentials.inputs.env",
             "Reference a credential lookup name without capturing its value.",
             output="EnvRef",
             example='md.env("PG_PASSWORD")',
@@ -207,7 +209,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "s3_secret",
-            "marivo.datasource.credential_inputs.s3_secret",
+            "marivo.datasource.credentials.inputs.s3_secret",
             "Declare scoped static S3 credentials.",
             output="S3Secret",
             example='md.s3_secret(scope="s3://lake/", region="us-east-1", key_id=md.env("KEY"), secret=md.env("SECRET"))',
@@ -215,7 +217,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "http_bearer_secret",
-            "marivo.datasource.credential_inputs.http_bearer_secret",
+            "marivo.datasource.credentials.inputs.http_bearer_secret",
             "Declare scoped HTTP bearer credentials.",
             output="HttpBearerSecret",
             example='md.http_bearer_secret(scope="https://api.example/", token=md.env("TOKEN"))',
@@ -223,7 +225,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "http_headers_secret",
-            "marivo.datasource.credential_inputs.http_headers_secret",
+            "marivo.datasource.credentials.inputs.http_headers_secret",
             "Declare scoped custom HTTP headers.",
             output="HttpHeadersSecret",
             example='md.http_headers_secret(scope="https://api.example/", headers={"x-api-key": md.env("KEY")})',
@@ -231,7 +233,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "duckdb",
-            "marivo.datasource.authoring.duckdb",
+            "marivo.datasource.store.builders.duckdb",
             "Build a DuckDB datasource specification with optional URL-scoped S3 and HTTP secrets.",
             output="DatasourceSpec",
             inputs=_inputs(("mapping_key", "DatasourceName")),
@@ -243,7 +245,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "trino",
-            "marivo.datasource.authoring.trino",
+            "marivo.datasource.store.builders.trino",
             "Build a Trino datasource specification. Exact median/quantile fails source "
             "compilation because Trino has no qualified native exact algorithm. Explicit approx_median/approx_quantile uses "
             "native approx_percentile. Execution qualifies actual types and never substitutes "
@@ -258,7 +260,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "mysql",
-            "marivo.datasource.authoring.mysql",
+            "marivo.datasource.store.builders.mysql",
             "Build a MySQL datasource specification.",
             output="DatasourceSpec",
             inputs=_inputs(("mapping_key", "DatasourceName")),
@@ -267,7 +269,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "postgres",
-            "marivo.datasource.authoring.postgres",
+            "marivo.datasource.store.builders.postgres",
             "Build a Postgres datasource specification.",
             output="DatasourceSpec",
             inputs=_inputs(("mapping_key", "DatasourceName")),
@@ -276,7 +278,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "clickhouse",
-            "marivo.datasource.authoring.clickhouse",
+            "marivo.datasource.store.builders.clickhouse",
             "Build a ClickHouse datasource specification.",
             output="DatasourceSpec",
             inputs=_inputs(("mapping_key", "DatasourceName")),
@@ -285,7 +287,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "register",
-            "marivo.datasource.manage.register",
+            "marivo.datasource.inspection.manage.register",
             "Persist a user datasource specification; default is reserved for built-in in-memory DuckDB.",
             output="DatasourceSummary",
             inputs=_inputs(("subject", "DatasourceSpec")),
@@ -300,7 +302,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "remove",
-            "marivo.datasource.manage.remove",
+            "marivo.datasource.inspection.manage.remove",
             "Remove one persisted datasource declaration; the built-in default cannot be removed.",
             output="bool",
             inputs=_inputs(("subject", "DatasourceName")),
@@ -310,7 +312,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "load",
-            "marivo.datasource.catalog.load",
+            "marivo.datasource.inspection.catalog.load",
             "Load the read-only datasource catalog, including built-in default.",
             output="DatasourceCatalog",
             effects=_LOCAL,
@@ -495,7 +497,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "inspect",
-            "marivo.datasource.inspection.inspect",
+            "marivo.datasource.inspection.inspection.inspect",
             "Read physical metadata with operation-owned connections and requested native 30s connection settings.",
             output="SourceInspection",
             inputs=_inputs(("subject", "DatasourceSymbol"), ("dependency", "TableSource")),
@@ -511,7 +513,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "raw_sql",
-            "marivo.datasource.manage.raw_sql",
+            "marivo.datasource.inspection.raw_sql.raw_sql",
             "Run terminal SQL exploration; all returned rows load into client memory without "
             "a row or byte cap. Control query size with filters, partition predicates, aggregation, "
             "and SQL LIMIT; LIMIT does not bound scan cost. Use read-only SQL and credentials. "
@@ -548,7 +550,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "RawSqlResult.to_pandas",
-            "marivo.datasource.manage.RawSqlResult.to_pandas",
+            "marivo.datasource.inspection.raw_sql.RawSqlResult.to_pandas",
             "Convert all retained query rows to an isolated pandas DataFrame in result column "
             "order without re-executing SQL. pandas infers dtypes from the retained values.",
             kind="method",
@@ -559,7 +561,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "DatasourceCatalog.list",
-            "marivo.datasource.catalog.DatasourceCatalog.list",
+            "marivo.datasource.inspection.catalog.DatasourceCatalog.list",
             "List built-in default and configured datasources from a loaded catalog.",
             kind="method",
             output="DatasourceList",
@@ -570,7 +572,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "DatasourceCatalog.describe",
-            "marivo.datasource.catalog.DatasourceCatalog.describe",
+            "marivo.datasource.inspection.catalog.DatasourceCatalog.describe",
             "Describe built-in default or configured datasource fields and env references from a loaded catalog.",
             kind="method",
             output="DatasourceDescription",
@@ -582,7 +584,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "DatasourceCatalog.test",
-            "marivo.datasource.catalog.DatasourceCatalog.test",
+            "marivo.datasource.inspection.catalog.DatasourceCatalog.test",
             "Round-trip an Ibis-compiled literal in the Catalog's bound workspace with native timeout requests and best-effort caching of validated env secrets.",
             kind="method",
             output="DatasourceTestResult",
@@ -597,7 +599,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "SourceInspection.partitions",
-            "marivo.datasource.inspection.SourceInspection.partitions",
+            "marivo.datasource.inspection.source.SourceInspection.partitions",
             "Read one bounded ordered edge of partition metadata; status distinguishes complete, truncated, and incomplete metadata.",
             kind="method",
             output="PartitionInspection",
@@ -617,7 +619,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "SourceInspection.source_column",
-            "marivo.datasource.inspection.SourceInspection.source_column",
+            "marivo.datasource.inspection.source.SourceInspection.source_column",
             "Return a table's physical field name from inspected metadata for constructing "
             "md.table(columns=...); sample and time_range instead use inspected output names.",
             kind="method",
@@ -639,7 +641,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         _capability(
             "SourceInspection.sample",
-            "marivo.datasource.inspection.SourceInspection.sample",
+            "marivo.datasource.inspection.source.SourceInspection.sample",
             "Acquire scoped evidence; native query timeouts are optional and exclude connection/complete-call timing. "
             "By default a matching snapshot is reused, including an expired snapshot marked stale; "
             "refresh=True forces another read. A source read uses the credential scope active at the call; "
@@ -913,22 +915,22 @@ REGISTRY = _build_registry()
 
 def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
     """Build private type contracts without exposing constructors as help targets."""
-    from marivo.datasource.authoring import (
-        ClickHouseSpec,
-        DuckDBSpec,
-        MySQLSpec,
-        PostgresSpec,
-        TrinoSpec,
-    )
-    from marivo.datasource.catalog import DatasourceCatalog
     from marivo.datasource.credentials import CredentialRequest, CredentialResolver, SecretValue
-    from marivo.datasource.inspection import (
+    from marivo.datasource.inspection.catalog import DatasourceCatalog
+    from marivo.datasource.inspection.details import (
         ExecutionCapabilities,
         Partitioning,
         PartitionInspection,
         PhysicalExtent,
-        SourceInspection,
     )
+    from marivo.datasource.inspection.manage import (
+        DatasourceDescription,
+        DatasourceFailure,
+        DatasourceList,
+        DatasourceSummary,
+        DatasourceTestResult,
+    )
+    from marivo.datasource.inspection.raw_sql import RawSqlResult
     from marivo.datasource.ir import (
         CsvSourceIR,
         JsonSourceIR,
@@ -936,16 +938,14 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         SourceParamIR,
         TableSourceIR,
     )
-    from marivo.datasource.manage import (
-        DatasourceDescription,
-        DatasourceFailure,
-        DatasourceList,
-        DatasourceSummary,
-        DatasourceTestResult,
-        RawSqlResult,
-    )
-    from marivo.datasource.snapshot import DiscoveryEvidence
     from marivo.datasource.source import PartitionScope, UnprunedScope
+    from marivo.datasource.store.authoring import (
+        ClickHouseSpec,
+        DuckDBSpec,
+        MySQLSpec,
+        PostgresSpec,
+        TrinoSpec,
+    )
 
     show_render = ("show", "render")
     contracts: dict[type, DatasourceTypeContract] = {}
@@ -1006,7 +1006,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         methods=("reveal",),
         consumers=("SecretValue.reveal",),
     )
-    from marivo.datasource.credential_inputs import (
+    from marivo.datasource.credentials.inputs import (
         EnvRef,
         HttpBearerSecret,
         HttpHeadersSecret,

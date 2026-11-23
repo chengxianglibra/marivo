@@ -9,13 +9,10 @@ import pandas as pd
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource import secrets as datasource_secrets
-from marivo.datasource.authoring import (
-    DuckDBSpec,
-    TrinoSpec,
-)
-from marivo.datasource.backends import BuiltDatasourceBackend
+from marivo.datasource.credentials import secrets as datasource_secrets
 from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceMissingError
+from marivo.datasource.runtime.backends import BuiltDatasourceBackend
+from marivo.datasource.store.authoring import DuckDBSpec, TrinoSpec
 
 
 class _ProbeCursor:
@@ -133,7 +130,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
             self.disconnected = True
 
     backend = _FakeBackend()
-    import marivo.datasource.manage as registry_mod
+    from marivo.datasource.inspection import manage as registry_mod
 
     monkeypatch.setattr(
         registry_mod,
@@ -151,7 +148,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
 def test_datasource_test_success_persists_env_sourced_secret(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import provider_for
+    from marivo.datasource.runtime.adapters import provider_for
 
     provider_for("trino")
     md.register(
@@ -206,7 +203,7 @@ def test_datasource_test_success_persists_env_sourced_secret(
 def test_datasource_test_failure_does_not_persist_env_sourced_secret(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import provider_for
+    from marivo.datasource.runtime.adapters import provider_for
 
     provider_for("trino")
     md.register(
@@ -261,7 +258,7 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
 def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource import manage as manage_mod
+    from marivo.datasource.inspection import manage as manage_mod
     from tests.datasource.source_cases import datasource
 
     monkeypatch.setattr(manage_mod, "load_datasource", lambda _name, _root: datasource("trino", {}))

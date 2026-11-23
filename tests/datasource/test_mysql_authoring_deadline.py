@@ -11,10 +11,11 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.adapters import CompiledRead, SourceSession
-from marivo.datasource.capabilities import provider_statement_log
+from marivo.datasource.engines.statements import provider_statement_log
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.environment import mysql_analysis as mysql
 from tests.datasource.source_cases import source_case

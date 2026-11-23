@@ -213,7 +213,7 @@ def test_public_duration_field_comparison(
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
     export_dsl_parquet_models(case, case.root)

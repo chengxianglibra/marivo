@@ -15,7 +15,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.errors import SemanticError, SemanticLoadFailed
 from tests.analysis.statistics.pandas_workflows import receipt_paths
@@ -90,7 +90,7 @@ import math
 import sys
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime.connections import DatasourceConnectionService
 from tests.shared_fixtures import run_ids
 
 def forbidden(*args, **kwargs):

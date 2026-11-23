@@ -13,9 +13,9 @@ from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.adapters import PhysicalRequirement
 from marivo.datasource.errors import DatasourceRawSqlError
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime.connections import DatasourceConnectionService
+from marivo.datasource.runtime.read_types import PhysicalRequirement
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import ROWS, source_case, source_params

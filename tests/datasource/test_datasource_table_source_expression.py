@@ -8,7 +8,10 @@ import pytest
 
 import marivo.datasource as md
 from marivo.datasource.errors import DatasourceSourceCapabilityError
-from marivo.datasource.table_source import supports_table_lookup, table_source_expression
+from marivo.datasource.runtime.table_source import (
+    supports_table_lookup,
+    table_source_expression,
+)
 
 
 class _RecordingBackend:

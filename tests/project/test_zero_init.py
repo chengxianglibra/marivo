@@ -10,8 +10,8 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.errors import SessionStateError
-from marivo.datasource.catalog import DatasourceCatalog
 from marivo.datasource.errors import DatasourceLoadError
+from marivo.datasource.inspection.catalog import DatasourceCatalog
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.check import run_check
 from marivo.semantic.errors import SemanticLoadFailed

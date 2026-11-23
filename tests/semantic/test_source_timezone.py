@@ -127,7 +127,7 @@ def test_native_missing_timezone_rejects_before_business_read(
         semantic_project_factory,
         fields=f"axis=ms.time_dimension_column(name='axis',entity=events,column={column!r})\n",
     )
-    from marivo.datasource.runtime import DatasourceConnectionService
+    from marivo.datasource.runtime.connections import DatasourceConnectionService
 
     monkeypatch.setattr(
         DatasourceConnectionService,

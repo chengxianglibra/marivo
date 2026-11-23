@@ -11,17 +11,17 @@ import pytest
 from ibis.backends import BaseBackend
 
 import marivo.datasource as md
-from marivo.datasource.authoring import DuckDBSpec
-from marivo.datasource.capabilities import (
+from marivo.datasource.engines import duckdb, postgres
+from marivo.datasource.engines.statements import (
     provider_statement,
     provider_statement_log,
     render_provider_statement,
 )
-from marivo.datasource.engines import duckdb, postgres
 from marivo.datasource.errors import DatasourceConnectionError
+from marivo.datasource.inspection.metadata import inspect_table
 from marivo.datasource.ir import JsonSourceIR
-from marivo.datasource.json_source import _request_payload
-from marivo.datasource.metadata import inspect_table
+from marivo.datasource.runtime.json_source import _request_payload
+from marivo.datasource.store.authoring import DuckDBSpec
 
 
 def test_render_does_not_reinterpret_slot_values() -> None:

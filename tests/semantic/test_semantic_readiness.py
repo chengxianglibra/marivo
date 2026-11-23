@@ -215,7 +215,7 @@ def test_readiness_never_uses_discovery_or_preview_history(
     history.mkdir(parents=True)
 
     baseline = project.readiness(refs=("sales.orders.amount",))
-    from marivo.datasource import authoring_store
+    from marivo.datasource.store import authoring_store as authoring_store
 
     now = datetime(2026, 8, 21, tzinfo=UTC)
     monkeypatch.setattr(authoring_store, "_utc_now", lambda: now)
@@ -237,7 +237,7 @@ def test_readiness_never_uses_discovery_or_preview_history(
     assert stale_snapshot.id == fresh_snapshot.id
     assert stale_snapshot.cache_status == "stale"
 
-    from marivo.datasource.authoring_store import AuthoringStore
+    from marivo.datasource.store.authoring_store import AuthoringStore
 
     monkeypatch.setattr(
         AuthoringStore,
@@ -376,7 +376,7 @@ def test_readiness_defers_native_timestamp_kind_and_authority_without_probing(
     monkeypatch: pytest.MonkeyPatch,
     parse: str,
 ) -> None:
-    from marivo.datasource import runtime as datasource_runtime
+    from marivo.datasource.runtime import connections as datasource_runtime
 
     project = semantic_project_factory(
         {

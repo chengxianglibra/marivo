@@ -9,9 +9,10 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.credentials.secrets import LocalPlaintextCache
 from marivo.datasource.ir import TableSourceIR
-from marivo.datasource.secrets import LocalPlaintextCache
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import ROWS, source_case, source_params
 from tests.shared_fixtures import datasource_arguments_source

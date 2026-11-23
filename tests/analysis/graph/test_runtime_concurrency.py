@@ -26,14 +26,15 @@ from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.model.execution_errors import SessionBusyError
-from marivo.datasource import backends
-from marivo.datasource.adapters import CompiledRead, SourceSession
-from marivo.datasource.backends import (
+from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.runtime import backends as backends
+from marivo.datasource.runtime.adapters import SourceSession
+from marivo.datasource.runtime.backends import (
     BuiltDatasourceBackend,
     EffectiveDatasourceKwargs,
     _build_backend_from_effective,
 )
-from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.runtime.read_types import CompiledRead
 from tests.analysis.materialization.concurrency_worker import observation, snapshot
 from tests.shared_fixtures import DslCase, catalog_get, terminal_run, terminal_runs
 

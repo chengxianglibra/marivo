@@ -11,7 +11,7 @@ import ibis.expr.types as ir
 
 from marivo._kernel.numeric_types import exact_unsigned
 from marivo._kernel.refs import ref
-from marivo.datasource.adapters import (
+from marivo.datasource.spi import (
     BoundSource,
     SourceSession,
 )
@@ -69,7 +69,7 @@ def bind_entity_output(
         catalog_definition_fingerprint=fingerprint,
     )
     if sidecar is not None and sidecar.bodies.get(ref.entity(entity_id)) is not None:
-        from marivo.datasource.adapters import PhysicalRequirement
+        from marivo.datasource.spi import PhysicalRequirement
 
         qualified = source.qualify(
             bound, PhysicalRequirement("semantic.entity_output", 1, relation_operations(relation))

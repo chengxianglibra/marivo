@@ -21,7 +21,7 @@ from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.model.artifact_data import ArtifactManifest
 from marivo.analysis.model.execution_errors import MaterializationError, RecoveryPendingError
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from tests.analysis.materialization.terminal_recovery_worker import method_result
 from tests.formal._recovery_reader import snapshot
 

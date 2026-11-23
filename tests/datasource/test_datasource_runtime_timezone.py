@@ -6,10 +6,10 @@ from typing import cast
 import pytest
 from ibis.backends import BaseBackend
 
-from marivo.datasource.adapters import SourceSession, provider_for
-from marivo.datasource.capabilities import provider_statement_log
+from marivo.datasource.engines.statements import provider_statement_log
 from marivo.datasource.errors import DatasourceConnectionError
-from marivo.datasource.timezone import verify_source_timezone
+from marivo.datasource.runtime.adapters import SourceSession, provider_for
+from marivo.datasource.runtime.timezone import verify_source_timezone
 from tests.datasource.source_cases import datasource
 
 

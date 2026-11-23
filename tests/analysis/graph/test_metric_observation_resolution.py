@@ -6,7 +6,7 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.errors import SemanticRuntimeError
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value, terminal_runs

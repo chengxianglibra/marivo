@@ -7,12 +7,9 @@ from pathlib import Path
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource import store as datasource_store
-from marivo.datasource.authoring import (
-    DuckDBSpec,
-    TrinoSpec,
-)
 from marivo.datasource.errors import DatasourceFieldInvalidError
+from marivo.datasource.store import declarations as datasource_store
+from marivo.datasource.store.authoring import DuckDBSpec, TrinoSpec
 
 
 @pytest.fixture(autouse=True)

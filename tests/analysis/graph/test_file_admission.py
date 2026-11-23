@@ -10,7 +10,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.materialization.file_fixtures import author_file_case

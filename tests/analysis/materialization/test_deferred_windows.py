@@ -215,7 +215,8 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
     assert session.observe(
         {"revenue": revenue}, where=((at >= scope.start) & (at < scope.end))
     ).compute().to_pandas()["revenue"].tolist() == [20]
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     execute = SourceSession.execute
 
@@ -970,7 +971,8 @@ def test_time_product_reuses_checked_domain(
     import pandas as pd
 
     from marivo.analysis.errors import AnalysisError
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     session = window_session
     people = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
@@ -1266,7 +1268,8 @@ def test_sparse_month_comparison_distinguishes_missing_rows_from_explicit_zero(
 def test_extra_native_key_requires_complete_shift_mapping_before_completion(
     window_session: Session, monkeypatch: pytest.MonkeyPatch, shifted: bool
 ) -> None:
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
+    from marivo.datasource.runtime.read_types import CompiledRead
 
     execute = SourceSession.execute
     injected: list[str] = []
@@ -1319,7 +1322,7 @@ def test_direct_shift_comparison_reopens_in_fresh_process_without_source(
     worker = """
 import sys
 import marivo.analysis as mv
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 
 def forbidden(*args, **kwargs):
     raise AssertionError('fixed comparison attempted a source read')

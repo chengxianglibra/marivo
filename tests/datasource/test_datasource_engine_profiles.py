@@ -7,19 +7,19 @@ import pytest
 from ibis.backends import BaseBackend
 
 import marivo.datasource as md
-from marivo.datasource.authoring import (
-    ClickHouseSpec,
-    DuckDBSpec,
-    MySQLSpec,
-    PostgresSpec,
-    TrinoSpec,
-)
-from marivo.datasource.backends import SUPPORTED_BACKEND_TYPES
 from marivo.datasource.engines import (
     ENGINE_PROFILES,
     GENERIC_PROFILE,
     profile_for_backend_name,
     profile_for_backend_type,
+)
+from marivo.datasource.runtime.backends import SUPPORTED_BACKEND_TYPES
+from marivo.datasource.store.authoring import (
+    ClickHouseSpec,
+    DuckDBSpec,
+    MySQLSpec,
+    PostgresSpec,
+    TrinoSpec,
 )
 
 

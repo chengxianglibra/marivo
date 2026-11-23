@@ -38,7 +38,7 @@ from marivo.analysis.model.data_types import (
 )
 from marivo.analysis.model.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.catalog import Dimension, Entity
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
@@ -299,7 +299,7 @@ def test_cold_frame_key_bridge_keeps_minimum_separate_from_null(session: Session
     saved = _frame(
         session, TimestampDataType("ns", "UTC"), pa.timestamp("ns", "UTC"), [-(2**63), 0, None]
     ).persist()
-    script = "\nfrom tests.shared_fixtures import catalog_value\n\nimport os, sys\nfrom unittest.mock import patch\nimport pyarrow as pa\nimport marivo.analysis as mv\nfrom tests.shared_fixtures import terminal_runs\nfrom marivo.analysis.materialization import frame_source_preparation\nfrom marivo.datasource.adapters import SourceSession\nos.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]\ndef forbidden(*args, **kwargs):\n    raise AssertionError('cold FrameKeys projection attempted source access')\nwith patch.object(SourceSession, '__init__', forbidden), patch.object(frame_source_preparation, 'open_query_sources', forbidden):\n    session = mv.session.resume(sys.argv[2])\n    saved = session.persisted_frame(sys.argv[3])\n    before = terminal_runs(session)\n    target = catalog_value(session.catalog, 'sales.facts.t', kind='field')\n    population = session.population_from(saved, on=((saved.axes[0], target),))\n    result = session.frame(population).compute()\n    assert pa.array(result.to_pandas().iloc[:, 0]).cast(pa.int64()).to_pylist() == [-(2**63), 0, None]\n    assert terminal_runs(session) == before\nprint('cold-frame-keys-temporal-exact')\n"
+    script = "\nfrom tests.shared_fixtures import catalog_value\n\nimport os, sys\nfrom unittest.mock import patch\nimport pyarrow as pa\nimport marivo.analysis as mv\nfrom tests.shared_fixtures import terminal_runs\nfrom marivo.analysis.materialization import frame_source_preparation\nfrom marivo.datasource.runtime.adapters import SourceSession\nos.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]\ndef forbidden(*args, **kwargs):\n    raise AssertionError('cold FrameKeys projection attempted source access')\nwith patch.object(SourceSession, '__init__', forbidden), patch.object(frame_source_preparation, 'open_query_sources', forbidden):\n    session = mv.session.resume(sys.argv[2])\n    saved = session.persisted_frame(sys.argv[3])\n    before = terminal_runs(session)\n    target = catalog_value(session.catalog, 'sales.facts.t', kind='field')\n    population = session.population_from(saved, on=((saved.axes[0], target),))\n    result = session.frame(population).compute()\n    assert pa.array(result.to_pandas().iloc[:, 0]).cast(pa.int64()).to_pylist() == [-(2**63), 0, None]\n    assert terminal_runs(session) == before\nprint('cold-frame-keys-temporal-exact')\n"
     result = subprocess.run(
         [
             sys.executable,
@@ -327,14 +327,14 @@ def test_explicit_source_key_transport_preserves_minimum_tick_and_null(
             "INSERT INTO facts VALUES ('A','2000-01-01 00:00:00+00',10),('B','1970-01-01 00:00:00+00',20),('C',NULL,30)"
         )
     selected = _frame(session, TimestampDataType("us", "UTC"), physical, [-(2**63), 0, None])
-    original = SourceSession._bind_key_relation
+    original = SourceSession.bind_key_relation
     transported: list[pa.Table] = []
 
     def bind(self: SourceSession, data: pa.Table) -> ir.Table:
         transported.append(data)
         return original(self, data)
 
-    monkeypatch.setattr(SourceSession, "_bind_key_relation", bind)
+    monkeypatch.setattr(SourceSession, "bind_key_relation", bind)
     population = _population(session, selected, joint=True)
     computed = session.observe(
         {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()},

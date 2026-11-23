@@ -508,7 +508,7 @@ def test_trino_decimal_mean_uses_native_avg(trino_session: mv.Session) -> None:
 def test_computed_measure_graph_reads_only_at_execute(
     computation_session: mv.Session, metric: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime.adapters import SourceSession
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("computed graph read business rows before execute")

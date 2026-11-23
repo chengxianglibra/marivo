@@ -10,7 +10,7 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._kernel.refs import ref as ref_factory
-from marivo.datasource.authoring import DuckDBSpec
+from marivo.datasource.store.authoring import DuckDBSpec
 from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.errors import (
     SemanticDecoratorError,
