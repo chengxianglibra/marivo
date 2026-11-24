@@ -687,6 +687,7 @@ PROFILE = EngineProfile(
         supports_native_frame_top=True,
         conditional_aggregate_style="case_when",
         supports_sql_window_frames=True,
+        stored_date_can_be_incomplete=True,
         window_frame_nulls_safe=True,
         float_order_keys=partial(floating_order_keys, has_native_nan=False),
     ),

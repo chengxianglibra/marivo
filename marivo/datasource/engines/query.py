@@ -180,6 +180,7 @@ class QueryDialectProfile:
         "none"
     )
     supports_sql_window_frames: bool = False
+    stored_date_can_be_incomplete: bool = False
     # SUM on nullable inputs returns NULL with no valid value in the frame.
     window_frame_nulls_safe: bool = False
     supports_grouping_sets: bool = False

@@ -31,6 +31,7 @@ from marivo.analysis.materialization.prepared_sources import PreparedSources, Pr
 from marivo.analysis.materialization.query_parameters import instantiate, parameter_data
 from marivo.analysis.materialization.query_sources import prepare_query_sources
 from marivo.analysis.materialization.source_reads import qualify_query_sources
+from marivo.analysis.materialization.window_source_fusion import fuse_window_groups
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_schema import DataSchema
 from marivo.semantic.spi import CompiledSemanticState
@@ -271,13 +272,18 @@ def prepare_actual_window_read(
         consumption_timezone=program.timezone,
         frame_schemas=frame_schemas,
     )
-    selected = _restrict_window_reads(selected, graph, candidates)
     selected = replace(selected, optimization_policy=prepared.optimization_policy)
-    plan = optimize_query(plan_query(graph, selected.schemas), policy=prepared.optimization_policy)
-    lowered = lower_query(plan, selected.relations, selected.population_checks)
-    qualify_query_sources(selected, lowered)
+    restricted = _restrict_window_reads(selected, graph, candidates)
+    plan = optimize_query(
+        plan_query(graph, restricted.schemas), policy=prepared.optimization_policy
+    )
+    lowered = lower_query(plan, restricted.relations, restricted.population_checks)
+    lowered = fuse_window_groups(
+        replace(selected, graph=graph), program.state, lowered, authorized=candidates
+    )
+    qualify_query_sources(restricted, lowered)
     return PreparedWindowRead(
-        selected,
+        restricted,
         lowered,
         frame_key_inputs=dict(zip(program.key_inputs, key_outputs, strict=True)),
         report_domain=candidates.table,

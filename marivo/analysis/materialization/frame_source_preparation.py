@@ -63,6 +63,7 @@ from marivo.analysis.materialization.sample_windows import (
 )
 from marivo.analysis.materialization.source_qualification import qualify_attribute_game_sources
 from marivo.analysis.materialization.source_reads import qualify_query_sources
+from marivo.analysis.materialization.window_source_fusion import fuse_window_groups
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.model.data_schema import (
     CalendarDataAxis,
@@ -552,6 +553,8 @@ class _FrameSourcePreparation:
             and not sample_windows
             and not checked_inputs
         ):
+            if isinstance(binding, SourceFrameBinding):
+                lowered = fuse_window_groups(prepared, binding.state, lowered)
             lowered = optimize_lowered_source(prepared, lowered, self.policy)
         if prepared is not None:
             lowered = push_source_key_predicate(

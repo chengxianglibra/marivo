@@ -283,6 +283,7 @@ $$
 | 候选键传播（`UniqueKeys`） | 沿关系算子传播精确候选键，消除冗余的 `DISTINCT`、`first`/`last` 重复序扫描与 `Top` 重复键聚合。 | [候选键传播](../../../marivo/analysis/compiler/unique_keys.py) |
 | 单元素分组与覆盖共享（`unique_keys_degenerate_per`、`unique_keys_degenerate_over`、`shared_output_coverage_check`） | 隐式样本以精确候选键证明每个已出现的外层键只有一个完整样本时，可省去同载体的原生整数或 Decimal 单元素归约。Frame 分区键覆盖候选键时，按行完成现有统计量，保留原生成器的值、有效性和检查。一次 `observe(..., by=P)` 内，来源绑定、谓词和完整坐标支持域完全相同的普通归约（包括合格 `CommonRead`）共享同一覆盖见证。 | [来源样本](../../../marivo/analysis/compiler/sample_reductions.py) · [Frame 计划](../../../marivo/analysis/compiler/frame_plan.py) · [覆盖检查](../../../marivo/analysis/materialization/query_coverage_fusion.py) |
 | 单调逆像边界下推与单射分桶延后 | 合格端点上将时间范围直接下推为原始 `DATE` 或有序编码列的半开常量比较；同区 `day` 日历在无 DST 异常区间内先按原日值分组，再于分组后恢复 UTC 桶键。 | [源端时间优化](../../../marivo/analysis/compiler/source_time.py) |
+| L6 原生窗口合并（`l6_window_prereduction`） | 合格同源存储 DATE 时钟在可证明唯一民用午夜与原贡献区间上组织状态，补齐格点后以 `OVER` 合并计数、精确极值、承载范围已证明的 SUM、单例 AVG 和安全整数加权状态。稀疏输出保留当前窗口有贡献的键，显式域继续按完整键补全及验证。内部实际域在计算状态前保留捕获键对应的贡献区间并集，执行终结后用同一完整键域发布。可存储不完整 DATE 的 MySQL 仅在各原端点使用原始 DATE 比较时采用相同区间映射。 | [日期格点与状态](../../../marivo/analysis/compiler/window_prereduction.py) · [来源资格](../../../marivo/analysis/materialization/window_source_fusion.py) · [五引擎对照](../../../tests/formal/verify_window_prereduction_runtime.py) |
 | L6 摘要状态（仅归因博弈） | 公开相邻 `Frame.reduce` 各自完成，不做自动跨步归并；Shapley 归因对合格目标复用 L6 充分状态以本地合并联盟值，其余回退原生联盟查询。 | [Frame 归约](../../../marivo/analysis/methods/query_values.py) · [Shapley 状态](../../../marivo/analysis/methods/frame_attribute_shapley.py) |
 | 帧内同求值公共子表达式缓存 | 单次 `evaluate_frame` 内复用相同的分组索引、`over` 分区结果与配对统计端点求值（按带类型字面量区分缓存键）。 | [帧内求值缓存](../../../marivo/analysis/methods/frame_evaluation.py) |
 
@@ -292,7 +293,7 @@ $$
 
 | 改写方向 | 代数依据 | 必须满足的健全性前提 |
 | --- | --- | --- |
-| L6 窗口预归约与 SQL 窗口函数下推 | L6 + 窗口切片分解 | 归约满足精确 L6 同态（`sum` 三态、`count`、`min`/`max`、精确 `mean`/`weighted_mean`，以及桶内唯一性已检且跨桶时间不交的 `first`/`last`）；窗口边界与输出桶对齐（`all_history`/`since`/`to_date`/`trailing_periods`）；预归约须涵盖显示范围之前的必要历史桶，并对每个受支持普通键先与日历目录左连接补全无当前桶贡献的端点后再执行 `OVER (...)`，最终仅保留**当前窗口帧内**贡献数 `n_window > 0` 的端点。 |
+| 窗口预归约扩展到其他载体与有序样本 | L6 + 窗口切片分解 | 未证明原累加或输运范围、尚无同民用日边界证明、依赖样本顺序或非同态摘要时，继续按原端点求值。精确去重、分位、相关以及嵌套 `per` 保留原有义务。 |
 | 精确来源 SUM 的样本坍缩 | L6 + T1/T2 | 精确载体仍须证明中间小计与直接归约的范围和失败行为。分组内先溢出、全体合计因异号抵消而成功是必须保留的差异。 |
 | L7 普通键谓词与 `Frame.fix` 穿透 `GROUP BY` 下推 | L7 + 检查义务分离 | 下推部分仅引用满足精确 collation 语义的普通分组键，原位剩余条件须是逐行全函数，原全量检查（`nulls="error"`、覆盖、唯一性）仍在未过滤域上独立保留；当存在显式输出域 `by=P`、`by=()` 或独立分支广播时，须**同步用同一谓词裁剪输出域 `K`**；对含 `MetricWindow` 的查询，**普通轴**键谓词可下推至事实表，**时间轴**谓词仅可收缩窗口求值端点而不可截断历史贡献。 |
 | 终端融合扩展至 `Frame.reduce` / `over` / `fix` / 同源 `align` | 拉回 + 前推 + `presence` 代数 | 同源待执行图、合格物理载体与排序规则（浮点 `Top` 须对齐 `NaN` 序），且保留全输入检查摘要与完整键/presence 契约。 |
