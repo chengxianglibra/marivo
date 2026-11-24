@@ -46,6 +46,7 @@ from marivo.analysis.materialization.interval_reports import (
     restrict_plan,
     retain_domain,
 )
+from marivo.analysis.materialization.key_predicate_pushdown import push_source_key_predicate
 from marivo.analysis.materialization.native_calendar import bind_pandas_calendars
 from marivo.analysis.materialization.optimization import optimize_lowered_source
 from marivo.analysis.materialization.prepared_sources import PreparedSources
@@ -212,6 +213,7 @@ def prepare_frame_sources(
     *,
     run_interval_domain: RunIntervalDomain | None = None,
     policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY,
+    protected_inputs: frozenset[int] = frozenset(),
 ) -> PreparedFrameSources:
     """Open, prepare, lower and qualify sources in captured discovery order."""
     # Validate every dependency before any HTTP source can acquire business data.
@@ -222,7 +224,7 @@ def prepare_frame_sources(
         ):
             qualify_source_inputs(backing.root.graph, backing.root.state)
     state = _FrameSourcePreparation(
-        captured, stack, run_interval_domain, list(captured.operations), policy
+        captured, stack, run_interval_domain, list(captured.operations), policy, protected_inputs
     )
     for input_id, current in captured.source_frames.items():
         state.prepare(input_id, current)
@@ -257,6 +259,7 @@ class _FrameSourcePreparation:
     run_interval_domain: RunIntervalDomain | None
     operations: list[FrameOperationName]
     policy: OptimizationPolicy
+    protected_inputs: frozenset[int]
     connection_services: dict[tuple[Path, int], DatasourceConnectionService] = field(
         default_factory=dict
     )
@@ -547,6 +550,15 @@ class _FrameSourcePreparation:
         ):
             lowered = optimize_lowered_source(prepared, lowered, self.policy)
         if prepared is not None:
+            lowered = push_source_key_predicate(
+                self.captured,
+                input_id,
+                active_graph,
+                lowered,
+                prepared,
+                self.protected_inputs,
+                self.policy,
+            )
             try:
                 qualify_query_sources(prepared, lowered)
             except MaterializationError as error:

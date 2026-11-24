@@ -80,6 +80,15 @@ def deferred_day_key(
     return _DeferredDayKey(rebound.op(), key.cast(KEY_TYPE).op()).to_expr()
 
 
+def physical_day_key(value: ops.Value, engine: str) -> ops.Value | None:
+    """Return the raw DATE for an exact UTC day carrier."""
+    if isinstance(value, _DeferredDayKey) and isinstance(raw := value.raw.to_expr(), ir.DateValue):
+        expected = query_dialect(engine).utc_day(raw, "UTC").cast(KEY_TYPE)
+        if expected.op() == value.key:
+            return value.raw
+    return None
+
+
 def has_deferred_day_keys(expression: ir.Expr) -> bool:
     return bool(expression.op().find(_DeferredDayKey))
 

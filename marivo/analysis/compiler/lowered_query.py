@@ -24,6 +24,17 @@ class PopulationCheck:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class OutputCoverage:
+    """The original business read and full-domain witness branches of a coverage check."""
+
+    business: LoweredRead
+    keys: tuple[str, ...]
+    alias: str
+    witnesses: ir.Table
+    diagnostics: ir.Table
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class LoweredRead:
     """An Ibis payload associated with the authoritative plan stage by ID."""
 
@@ -31,6 +42,7 @@ class LoweredRead:
     expression: ir.Table
     numeric_checks: tuple[tuple[str, NumericCheck], ...] = ()
     population_checks: tuple[PopulationCheck, ...] = ()
+    output_coverage: OutputCoverage | None = None
 
     @property
     def obligations(self) -> StageObligations:

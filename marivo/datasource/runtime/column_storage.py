@@ -49,3 +49,17 @@ class StoredProjectionFacts:
                     stored = False
             self._stored[identity] = stored
         return self._stored[identity]
+
+    def preserves_reduction_carrier(self, binding: BoundSource, field: ops.Field) -> bool:
+        """Qualify the stored operand's physical representation for direct reduction."""
+        if field.rel != binding.relation.op() or not self.proves(binding):
+            return False
+        dtype = field.dtype
+        if not dtype.is_decimal():
+            return True
+        # PostgreSQL NUMERIC permits NaN even with a declared precision, and
+        # unconstrained NUMERIC can exceed the native Arrow decimal carrier.
+        if self._profile.name == "postgres":
+            return False
+        # Ibis also describes DuckDB's physical HUGEINT as decimal(38,0).
+        return not (self._profile.name == "duckdb" and dtype.precision == 38 and dtype.scale == 0)

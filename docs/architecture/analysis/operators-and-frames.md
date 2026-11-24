@@ -410,6 +410,11 @@ implemented with sum/mean/first, which have different type and empty-input contr
 
 Fix and pure direct value projection compose without aggregation. Top, partition
 statistics and share generally change meaning when moved across fix. Strict input
-errors remain required even when their rows are excluded. No new source predicate
-pushdown is implied. Cross-Frame comparison and correlation keep their existing
-coordinate correspondence requirements.
+errors remain required even when their rows are excluded. A qualified pending
+observation can restrict ordinary source key groups. The original coordinate
+checks and fixed-axis removal still govern completion. Native input types must
+also establish that excluded groups cannot fail during result conversion.
+DuckDB reports physical `HUGEINT` and `DECIMAL(38,0)` through the same Ibis type.
+Both retain the full read when that type is the only available carrier proof.
+Cross-Frame comparison and correlation retain their coordinate correspondence
+requirements.

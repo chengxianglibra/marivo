@@ -517,6 +517,8 @@ def _evaluate_frame(
             if policy == DEFAULT_OPTIMIZATION_POLICY
             else partial(prepare_frame_sources, policy=policy)
         )
+        if state.protected_inputs:
+            prepare = partial(prepare, protected_inputs=state.protected_inputs)
         prepared = prepare(captured, stack, run_interval_domain=state.run_domain)
         compiled = state.compile(prepared)
         output = state.execute(prepared, compiled)

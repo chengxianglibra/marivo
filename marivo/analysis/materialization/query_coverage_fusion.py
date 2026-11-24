@@ -14,7 +14,7 @@ from marivo._definition.relations import (
 )
 from marivo._definition.types import AxisBinding
 from marivo.analysis.binding.programs import FormulaProgram
-from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead
+from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead, OutputCoverage
 from marivo.analysis.compiler.observation import common_slot
 from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.compiler.query_stages import (
@@ -275,17 +275,21 @@ def _shared_domains(
     return tuple(retained), tuple(repeated)
 
 
+def _coverage_payload(read: LoweredRead) -> ir.Table:
+    if read.obligations.numeric_presence is None:
+        return read.expression.mutate(__numeric_present=ibis.literal(True))
+    return read.expression
+
+
 def _attach_coverage_witnesses(
     original: LoweredRead, missing: ir.Table, keys: tuple[str, ...], name: str
-) -> ir.Table:
+) -> tuple[ir.Table, OutputCoverage]:
     witnesses = (
         missing.order_by(*(missing[key].asc(nulls_first=False) for key in keys)).limit(6)
         if keys
         else missing.limit(1)
     )
-    expression = original.expression
-    if original.obligations.numeric_presence is None:
-        expression = expression.mutate(__numeric_present=ibis.literal(True))
+    expression = _coverage_payload(original)
     checks = tuple(alias for alias, _ in original.numeric_checks)
     failures = (
         expression.aggregate(
@@ -310,7 +314,26 @@ def _attach_coverage_witnesses(
         },
         **{name: ibis.literal(True)},
     )
-    return rows.union(diagnostics)
+    return rows.union(diagnostics), OutputCoverage(original, keys, name, witnesses, diagnostics)
+
+
+def rebind_covered_business(original: LoweredRead, restricted: LoweredRead) -> LoweredRead:
+    """Replace only business rows, retaining the original bounded witnesses and check flags."""
+    coverage = original.output_coverage
+    if coverage is None:
+        return restricted
+    rows = _coverage_payload(restricted).anti_join(coverage.witnesses, ibis.literal(True))
+    expression = rows.mutate(**{coverage.alias: ibis.literal(False)}).union(coverage.diagnostics)
+    check = dict(original.numeric_checks)[coverage.alias]
+    return replace(
+        restricted,
+        expression=expression,
+        numeric_checks=(
+            *restricted.numeric_checks,
+            (coverage.alias, replace(check, violation=expression[coverage.alias])),
+        ),
+        output_coverage=coverage,
+    )
 
 
 def _with_coverage_witnesses(
@@ -325,7 +348,7 @@ def _with_coverage_witnesses(
     sharing: bool,
 ) -> LoweredQuery:
     name = "__query_population_uncovered"
-    expression = _attach_coverage_witnesses(
+    expression, coverage = _attach_coverage_witnesses(
         lowered.read(carrier.stage_id), missing, candidate.keys, name
     )
     expected = "an output Population covering every required complete coordinate"
@@ -380,6 +403,7 @@ def _with_coverage_witnesses(
             replace(
                 read,
                 expression=expression,
+                output_coverage=coverage,
                 numeric_checks=(
                     *read.numeric_checks,
                     (name, NumericCheck(expression[name], expected, received)),

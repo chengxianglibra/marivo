@@ -155,6 +155,7 @@
       "tests/analysis/materialization/test_frame_population_bridge.py",
       "tests/analysis/materialization/test_frame_temporal_expressions.py",
       "tests/analysis/materialization/test_graph_dataset_reads.py",
+      "tests/analysis/materialization/test_key_predicate_pushdown.py",
       "tests/analysis/materialization/test_materialization_guard.py",
       "tests/analysis/materialization/test_mysql_attribute_strings.py",
       "tests/analysis/materialization/test_native_expression_reuse.py",
