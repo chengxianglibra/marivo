@@ -8,6 +8,8 @@ description: Marivo 0.6.13 版本说明。
 
 ## 亮点
 
+- 使用 `MARIVO_CREDENTIAL_RESOLVER` 为 Python、CLI 和服务配置进程级宿主凭据解析器；显式的 `md.credential_scope` 优先。详见[宿主凭据配置](/zh-cn/docs/v0.6/reference/configuration/#集成宿主凭据)。
+- 需要认证的数据源属性 HTTP 接口现在通过 `env_refs` 返回已声明的凭据引用名，不解析凭据值。
 - 符合条件的分析查询可共享来源读取和条件聚合，减少重复分组及成员关系计算，并将合格的键限制下推到原生读取。
 - 符合条件的 Frame 筛选、投影和终端操作可以合并；合格的民用日期窗口可共享原生分组状态。这些优化保留原有检查和结果语义。
 

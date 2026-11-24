@@ -8,6 +8,8 @@ Released on November 24, 2026. Marivo 0.6.13 improves analysis execution and str
 
 ## Highlights
 
+- Configure `MARIVO_CREDENTIAL_RESOLVER` to load a process-wide host credential resolver for Python, the CLI, and services. Explicit `md.credential_scope` settings take precedence. See [host credential configuration](/docs/latest/reference/configuration/#integrate-host-credentials).
+- The authenticated datasource-properties HTTP endpoint now returns declared credential reference names in `env_refs` without resolving their values.
 - Eligible analysis queries share source reads and conditional aggregates, reduce redundant grouping and membership work, and push qualifying key restrictions into native reads.
 - Eligible Frame filters, projections and terminal operations can be combined; qualifying civil-date windows can share native grouped state. These optimizations retain the original checks and result semantics.
 

@@ -4,8 +4,6 @@ title: Configuration and deployment
 description: Configure project roots, shared models, and persistent local state.
 ---
 
-<span id="integrate-host-credentials"></span>
-
 Use this reference when choosing a project root or sharing definitions between repositories.
 
 ## Know which files to share
@@ -44,8 +42,27 @@ Install Marivo in the Python environment that runs your analysis. For reproducib
 
 ### Prepare the runtime
 
-Provide the project, required datasource drivers and environment-backed credentials. Remote sources also need network access. If you need to reopen saved results, keep `.marivo/` on writable persistent storage; a disposable working directory loses them unless you preserve that state.
+Provide the project, required datasource drivers and credentials. Remote sources also need network access. If you need to reopen saved results, keep `.marivo/` on writable persistent storage; a disposable working directory loses them unless you preserve that state.
 
 Run Doctor with the exact project root and check the Python executable and Marivo package version and path. Add `--datasource <name> --connect` only when you intend to test that datasource's live connection. A successful connection test confirms connectivity; check support for the operation you need separately.
 
-For a custom credential service, query `marivo.help("datasource.credential_scope")` for the host integration API.
+## Integrate host credentials
+
+Set the resolver factory in the environment that starts the Python script, the
+`marivo` CLI, or the Marivo service.
+
+```bash
+export MARIVO_CREDENTIAL_RESOLVER="databot_credentials:resolver"
+```
+
+The module must be importable in that Python environment. Its zero-argument
+factory returns a `CredentialResolver` that handles your `md.env("NAME")`
+references. At the first credential request, Marivo imports the module and calls
+the factory. All threads in the process share the returned resolver instance.
+An explicit `md.credential_scope(resolver=...)` takes precedence.
+
+A factory load failure stops credential lookup with
+`DatasourceCredentialError(reason="unavailable")`. Restart the process after
+fixing the configuration. The static Doctor report defers hosted credential checks
+to `marivo doctor --datasource <name> --connect`. See
+`marivo.help("datasource.credential_scope")` for the resolver interface.

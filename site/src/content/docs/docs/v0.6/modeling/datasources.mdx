@@ -233,7 +233,13 @@ md.duckdb(name="lake", secrets=[
 ])
 ```
 
-Without a host resolver, lookup uses the environment and then `~/.marivo/secrets.toml`. `md.credential_scope` routes the same references to a host resolver without persistence. Each operation resolves again, so rotated credentials apply on the next operation. `md.load().test` checks a literal round-trip, not access to S3 or HTTP; cached keys have not necessarily been validated at those endpoints.
+An explicit `md.credential_scope` or a configured `MARIVO_CREDENTIAL_RESOLVER`
+handles the same references and keeps the resolved values in memory. With
+neither configured, Marivo reads the environment and then
+`~/.marivo/secrets.toml`. Each new connection resolves the references again.
+`md.load().test` validates a literal round-trip. Validate S3 or HTTP access with
+a separate endpoint operation. See
+[host credential configuration](/docs/v0.6/reference/configuration/#integrate-host-credentials).
 
 Scopes accept host and path prefixes without user info, queries or fragments. DuckDB shares its secret catalog across connections to the same database instance. A file or named in-memory database with scoped secrets requires exclusive managed access until the Marivo connection closes. Use separate databases for concurrent access with different credentials.
 
