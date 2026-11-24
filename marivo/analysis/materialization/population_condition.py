@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 
 import ibis
 import ibis.expr.types as ir
@@ -11,7 +12,11 @@ from marivo._definition.graph import walk
 from marivo._definition.observations import ContributionBinding
 from marivo._definition.relations import (
     AttributeKeys,
+    CalendarKeys,
+    IntervalKeys,
     PopulationDependency,
+    PopulationProduct,
+    PopulationProgram,
     condition_populations,
 )
 from marivo._definition.types import (
@@ -30,7 +35,13 @@ from marivo._kernel.temporal import InstantAnchor
 from marivo.analysis.binding.membership import membership_reads
 from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.compiler.observation import calendar_field
+from marivo.analysis.compiler.population_factorization import (
+    PopulationOptimizations,
+    independent_product_groups,
+    product_members,
+)
 from marivo.analysis.compiler.predicate import population_key
+from marivo.analysis.compiler.query_stages import RuleDecision
 from marivo.analysis.compiler.source_predicates import string_bytes
 from marivo.analysis.compiler.source_time import temporal_bound
 from marivo.analysis.materialization.population_domains import PrepareDomain, _domain_table
@@ -73,19 +84,7 @@ def membership_time_axes(
     )
 
 
-def _append_membership_time(
-    axis: CalendarCoordinate | IntervalCoordinate,
-    contribution: ContributionBinding,
-    columns: Mapping[str, str],
-    carrier: ir.Table,
-    allowed: ir.Table,
-    target_name: str,
-    *,
-    private_endpoint: bool,
-    inputs: set[str],
-    predicates: list[ir.BooleanValue],
-    ranges: list[ir.BooleanValue],
-) -> None:
+def _membership_clock(contribution: ContributionBinding, columns: Mapping[str, str]) -> str:
     if contribution.time is None:
         reject(
             "a contribution clock for time coordinates in in_population",
@@ -102,7 +101,23 @@ def _append_membership_time(
         source_at=contribution.time.source_at,
         step_ats=contribution.time.step_ats,
     )
-    clock = columns[field_read_key(clock_read)]
+    return columns[field_read_key(clock_read)]
+
+
+def _append_membership_time(
+    axis: CalendarCoordinate | IntervalCoordinate,
+    contribution: ContributionBinding,
+    columns: Mapping[str, str],
+    carrier: ir.Table,
+    allowed: ir.Table,
+    target_name: str,
+    *,
+    private_endpoint: bool,
+    inputs: set[str],
+    predicates: list[ir.BooleanValue],
+    ranges: list[ir.BooleanValue],
+) -> None:
+    clock = _membership_clock(contribution, columns)
     time = carrier[clock]
     calendar_slot = next((slot for slot, item in contribution.calendars if item == axis), None)
     if private_endpoint and contribution.window_key is not None:
@@ -134,6 +149,20 @@ def _append_membership_time(
     predicates.append(buckets == allowed[target_name])
 
 
+@dataclass(frozen=True, slots=True)
+class _MembershipScope:
+    facts: ir.Table
+    contribution: ContributionBinding
+    columns: Mapping[str, str]
+    entities: Mapping[str, ir.Table]
+    state: CompiledSemanticState
+    field_value: Callable[[str, ir.Table], ir.Value]
+    prepare_domain: PrepareDomain
+    source_times: list[FrameSourceTime]
+    reads: Mapping[AxisBinding, FieldRead | EntityIdentityRead]
+    allocated: frozenset[FieldRead | EntityIdentityRead]
+
+
 def prepare_condition_memberships(
     table: ir.Table,
     contribution: ContributionBinding,
@@ -144,15 +173,25 @@ def prepare_condition_memberships(
     field_value: Callable[[str, ir.Table], ir.Value],
     prepare_domain: PrepareDomain,
     source_times: list[FrameSourceTime],
+    population_optimizations: PopulationOptimizations | None = None,
 ) -> tuple[ir.Table, tuple[tuple[str, str], ...]]:
-    """Classify every fact once while retaining the condition's original input domain."""
-    facts = table
-    reads = dict(contribution.population_reads)
-    allocated = {
-        read
-        for membership in contribution.memberships
-        for read in membership_reads(membership, contribution.root)
-    }
+    """Classify every fact while retaining the condition's original input domain."""
+    scope = _MembershipScope(
+        table,
+        contribution,
+        columns,
+        entities,
+        state,
+        field_value,
+        prepare_domain,
+        source_times,
+        dict(contribution.population_reads),
+        frozenset(
+            read
+            for membership in contribution.memberships
+            for read in membership_reads(membership, contribution.root)
+        ),
+    )
     marks: dict[PopulationDependency, str] = {}
     conditions = (
         *contribution.intrinsic_conditions,
@@ -162,131 +201,209 @@ def prepare_condition_memberships(
         for domain in condition_populations(condition):
             if domain in marks:
                 continue
-            selected = prepare_domain(domain)
             index = len(marks)
             marker = f"__predicate_present_{index}"
             while marker in table.columns:
                 marker += "_"
-            renamed = {
-                key: f"__predicate_{index}_{i}" for i, key in enumerate(selected.key_columns)
-            }
-            identity_columns = {
-                key
-                for axis, group in zip(domain.axes, selected.key_groups, strict=True)
-                if isinstance(axis, AxisBinding) and axis.field is None
-                for key in group
-            }
-            provider = expression_backend_name(table)
-            allowed = _domain_table(selected).view()
-            allowed = (
-                allowed.select(
-                    **{
-                        new: (
-                            string_bytes(allowed[old], provider)
-                            if old in identity_columns and allowed[old].type().is_string()
-                            else allowed[old]
-                        )
-                        for old, new in renamed.items()
-                    }
-                )
-                if renamed
-                else allowed
-            )
-            # Complete identity tuples already form a set. Native DISTINCT can
-            # collapse byte-distinct string identities before their byte match.
-            exact_keys = tuple(
-                key
-                for key in selected.key_columns
-                if key in identity_columns
-                or (
-                    not allowed[renamed[key]].type().is_string()
-                    and not allowed[renamed[key]].type().is_floating()
-                )
-            )
-            if (
-                domain.axes
-                and not selected.unique_keys.proves(exact_keys)
-                and not all(
-                    isinstance(axis, AxisBinding) and axis.field is None for axis in domain.axes
-                )
-            ):
-                allowed = allowed.distinct()
             private_endpoint = any(
                 isinstance(node, AttributeKeys)
                 for node in walk((domain,), resolve=lambda _: None).order
             )
-            related = {
-                index: (_witness_path(read), read if isinstance(read, FieldRead) else None)
-                for index, axis in enumerate(domain.axes)
-                if isinstance(axis, AxisBinding)
-                and requires_path_witness(read := reads[axis])
-                and not (private_endpoint and read in allocated)
-            }
-            ordinary = not related and all(isinstance(axis, AxisBinding) for axis in domain.axes)
-            carrier = table if ordinary else facts.view()
-            carrier, witness_keys, inputs = _related_columns(
-                carrier,
-                related,
-                entities,
-                state,
-                field_value=field_value,
-                source_times=source_times,
-            )
-            predicates: list[ir.BooleanValue] = []
-            ranges: list[ir.BooleanValue] = []
-            for position, (axis, group) in enumerate(
-                zip(domain.axes, selected.key_groups, strict=True)
-            ):
-                if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
-                    _append_membership_time(
-                        axis,
-                        contribution,
-                        columns,
-                        carrier,
-                        allowed,
-                        renamed[group[0]],
-                        private_endpoint=private_endpoint,
-                        inputs=inputs,
-                        predicates=predicates,
-                        ranges=ranges,
-                    )
-                    continue
-                assert isinstance(axis, AxisBinding)
-                read = reads[axis]
-                if position in witness_keys:
-                    matches = witness_keys[position]
-                else:
-                    matches = tuple(columns[key] for key in coordinate_read_keys(read))
-                    inputs.update(matches)
-                for left, right in zip(matches, group, strict=True):
-                    left_value, right_value = carrier[left], allowed[renamed[right]]
-                    if axis.field is None:
-                        predicate = _identity_value(left_value, provider) == right_value
-                    else:
-                        predicate = left_value.identical_to(right_value)
-                    assert isinstance(predicate, ir.BooleanValue)
-                    predicates.append(predicate)
-            if ordinary:
-                allowed = allowed.mutate(**{marker: ibis.literal(True)})
-                table = table.left_join(allowed, predicates or ibis.literal(True)).select(
-                    table, allowed[marker]
-                )
+            groups = _membership_groups(domain, scope, private_endpoint, population_optimizations)
+            if len(groups) == 1:
+                table = _match_domain(table, scope, groups[0], index, marker, private_endpoint)
             else:
-                table = _mark_matching_facts(
-                    table, carrier, allowed, predicates, ranges, tuple(sorted(inputs)), marker
+                parts: list[str] = []
+                for factor, group in enumerate(groups):
+                    part = f"{marker}_factor_{factor}"
+                    while part in table.columns:
+                        part += "_"
+                    temporal = _temporal_factor(table, scope, group)
+                    table = (
+                        _match_domain(table, scope, group, index, part, False)
+                        if temporal is None
+                        else table.mutate(**{part: temporal})
+                    )
+                    parts.append(part)
+                table = table.mutate(**{marker: ibis.and_(*(table[part] for part in parts))}).drop(
+                    *parts
                 )
-            table = table.mutate(**{marker: table[marker].fill_null(False)})
-            if contribution.memberships and not private_endpoint:
-                identity = normalize_target_entity(state.registry, contribution.root.ref.path)
-                root_keys = identity.version_row_key or identity.primary_key
-                matched = (
-                    table[marker]
-                    .any()
-                    .over(ibis.window(group_by=[table[key] for key in root_keys]))
-                )
-                table = table.mutate(**{marker: matched})
             marks[domain] = marker
     return table, tuple((population_key(domain), marker) for domain, marker in marks.items())
+
+
+def _membership_groups(
+    domain: PopulationDependency,
+    scope: _MembershipScope,
+    private_endpoint: bool,
+    optimizations: PopulationOptimizations | None,
+) -> tuple[PopulationDependency, ...]:
+    if (
+        optimizations is None
+        or not optimizations.policy.allows("population_product_factorization")
+        or not isinstance(domain, PopulationProgram)
+        or not isinstance(domain.root, PopulationProduct)
+    ):
+        return (domain,)
+    members = product_members(domain)
+    if scope.contribution.memberships or private_endpoint:
+        optimizations.decisions.append(
+            RuleDecision(
+                "population_product_factorization",
+                "refused",
+                members,
+                "The bound membership or private endpoint requires the original joint witness.",
+            )
+        )
+        return (domain,)
+    groups = independent_product_groups(domain, scope.reads)
+    shared = len(groups) == 1
+    optimizations.decisions.append(
+        RuleDecision(
+            "population_product_factorization",
+            "refused" if shared else "adopted",
+            members,
+            "Shared multivalued path occurrences retain their joint witness."
+            if shared
+            else "Independent complete witnesses compose as a conjunction.",
+        )
+    )
+    return groups
+
+
+def _temporal_factor(
+    table: ir.Table, scope: _MembershipScope, domain: PopulationDependency
+) -> ir.BooleanValue | None:
+    """Use captured half-open ranges without constructing a time-key relation."""
+    if not isinstance(domain, PopulationProgram) or not isinstance(
+        domain.root, (CalendarKeys, IntervalKeys)
+    ):
+        return None
+    (axis,) = domain.axes
+    assert isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+    time = table[_membership_clock(scope.contribution, scope.columns)]
+    ranges = tuple(
+        (time >= temporal_bound(time, start, axis.timezone))
+        & (time < temporal_bound(time, end, axis.timezone))
+        for _, start, end in population_time_ranges(axis)
+    )
+    return ibis.or_(*ranges).fill_null(False) if ranges else ibis.literal(False)
+
+
+def _match_domain(
+    table: ir.Table,
+    scope: _MembershipScope,
+    domain: PopulationDependency,
+    index: int,
+    marker: str,
+    private_endpoint: bool,
+) -> ir.Table:
+    selected = scope.prepare_domain(domain)
+    renamed = {key: f"__predicate_{index}_{i}" for i, key in enumerate(selected.key_columns)}
+    identity_columns = {
+        key
+        for axis, group in zip(domain.axes, selected.key_groups, strict=True)
+        if isinstance(axis, AxisBinding) and axis.field is None
+        for key in group
+    }
+    provider = expression_backend_name(table)
+    allowed = _domain_table(selected).view()
+    allowed = (
+        allowed.select(
+            **{
+                new: (
+                    string_bytes(allowed[old], provider)
+                    if old in identity_columns and allowed[old].type().is_string()
+                    else allowed[old]
+                )
+                for old, new in renamed.items()
+            }
+        )
+        if renamed
+        else allowed
+    )
+    # Complete identity tuples already form a set. Native DISTINCT can
+    # collapse byte-distinct string identities before their byte match.
+    exact_keys = tuple(
+        key
+        for key in selected.key_columns
+        if key in identity_columns
+        or (
+            not allowed[renamed[key]].type().is_string()
+            and not allowed[renamed[key]].type().is_floating()
+        )
+    )
+    if (
+        domain.axes
+        and not selected.unique_keys.proves(exact_keys)
+        and not all(isinstance(axis, AxisBinding) and axis.field is None for axis in domain.axes)
+    ):
+        allowed = allowed.distinct()
+    related = {
+        index: (_witness_path(read), read if isinstance(read, FieldRead) else None)
+        for index, axis in enumerate(domain.axes)
+        if isinstance(axis, AxisBinding)
+        and requires_path_witness(read := scope.reads[axis])
+        and not (private_endpoint and read in scope.allocated)
+    }
+    ordinary = not related and all(isinstance(axis, AxisBinding) for axis in domain.axes)
+    carrier = table if ordinary else scope.facts.view()
+    carrier, witness_keys, inputs = _related_columns(
+        carrier,
+        related,
+        scope.entities,
+        scope.state,
+        field_value=scope.field_value,
+        source_times=scope.source_times,
+    )
+    predicates: list[ir.BooleanValue] = []
+    ranges: list[ir.BooleanValue] = []
+    for position, (axis, group) in enumerate(zip(domain.axes, selected.key_groups, strict=True)):
+        if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+            _append_membership_time(
+                axis,
+                scope.contribution,
+                scope.columns,
+                carrier,
+                allowed,
+                renamed[group[0]],
+                private_endpoint=private_endpoint,
+                inputs=inputs,
+                predicates=predicates,
+                ranges=ranges,
+            )
+            continue
+        assert isinstance(axis, AxisBinding)
+        read = scope.reads[axis]
+        if position in witness_keys:
+            matches = witness_keys[position]
+        else:
+            matches = tuple(scope.columns[key] for key in coordinate_read_keys(read))
+            inputs.update(matches)
+        for left, right in zip(matches, group, strict=True):
+            left_value, right_value = carrier[left], allowed[renamed[right]]
+            if axis.field is None:
+                predicate = _identity_value(left_value, provider) == right_value
+            else:
+                predicate = left_value.identical_to(right_value)
+            assert isinstance(predicate, ir.BooleanValue)
+            predicates.append(predicate)
+    if ordinary:
+        allowed = allowed.mutate(**{marker: ibis.literal(True)})
+        table = table.left_join(allowed, predicates or ibis.literal(True)).select(
+            table, allowed[marker]
+        )
+    else:
+        table = _mark_matching_facts(
+            table, carrier, allowed, predicates, ranges, tuple(sorted(inputs)), marker
+        )
+    table = table.mutate(**{marker: table[marker].fill_null(False)})
+    if scope.contribution.memberships and not private_endpoint:
+        identity = normalize_target_entity(scope.state.registry, scope.contribution.root.ref.path)
+        root_keys = identity.version_row_key or identity.primary_key
+        matched = table[marker].any().over(ibis.window(group_by=[table[key] for key in root_keys]))
+        table = table.mutate(**{marker: matched})
+    return table
 
 
 def requires_path_witness(read: FieldRead | EntityIdentityRead) -> bool:

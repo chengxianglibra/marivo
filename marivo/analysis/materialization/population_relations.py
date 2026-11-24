@@ -9,15 +9,19 @@ import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
+from marivo._definition.correspondence import coordinate_matches
 from marivo._definition.expressions import EntityCount
+from marivo._definition.graph import computation_fingerprint
 from marivo._definition.observations import ContributionBinding
-from marivo._definition.population_builders import axis_description
+from marivo._definition.population_builders import axis_description, predicate_fields
 from marivo._definition.relations import (
     PopulationClassify,
+    PopulationFilter,
     PopulationImage,
     PopulationPreimage,
     PopulationProgram,
     SourceIdentities,
+    condition_populations,
 )
 from marivo._definition.types import (
     AxisBinding,
@@ -28,6 +32,8 @@ from marivo._definition.types import (
 )
 from marivo._kernel.temporal import InstantAnchor
 from marivo.analysis.compiler.member_version import prepare_version_filter
+from marivo.analysis.compiler.population_factorization import PopulationOptimizations
+from marivo.analysis.compiler.query_stages import RuleDecision
 from marivo.analysis.compiler.source_predicates import string_bytes
 from marivo.analysis.materialization.population_domains import (
     PrepareDomain,
@@ -47,6 +53,93 @@ from marivo.semantic.spi import (
     normalize_target_relationship,
     normalize_target_version_selection,
 )
+
+
+def classify_after_filter(
+    definition: PopulationProgram,
+    node: PopulationFilter,
+    state: CompiledSemanticState,
+    optimizations: PopulationOptimizations | None,
+) -> PopulationClassify | None:
+    """Delay direct total scalar extensions while carrying the original predicate domain."""
+    if (
+        optimizations is None
+        or not optimizations.policy.allows("classify_after_filter")
+        or (stored_projection := optimizations.stored_projection) is None
+        or not isinstance(node.operand, PopulationProgram)
+        or not isinstance(classification := node.operand.root, PopulationClassify)
+    ):
+        return None
+    original = classification.operand
+    if any(
+        position >= len(original.axes)
+        for _, position in predicate_fields(definition.axes, node.predicate)
+    ):
+        return None
+    if any(
+        not any(coordinate_matches(axis, prior) for prior in original.axes)
+        for domain in condition_populations(node.predicate)
+        for axis in domain.axes
+    ):
+        return None
+    if isinstance(original, PopulationProgram) and isinstance(original.root, SourceIdentities):
+        # Direct SourceIdentities already share one physical read with classify.
+        return None
+    if not all(
+        _direct_scalar_classification(read, state) and stored_projection(read.entity.ref.path)
+        for read in classification.reads
+    ):
+        return None
+    filtered = PopulationProgram(
+        PopulationFilter(original, node.predicate), definition.owner, original.axes
+    )
+    optimizations.decisions.append(
+        RuleDecision(
+            "classify_after_filter",
+            "adopted",
+            ("population:" + computation_fingerprint(definition),),
+            "The predicate consumes existing axes and classification uses verified stored scalar columns.",
+        )
+    )
+    return replace(classification, operand=filtered)
+
+
+def _direct_scalar_classification(
+    read: FieldRead | EntityIdentityRead, state: CompiledSemanticState
+) -> bool:
+    if not isinstance(read, FieldRead) or read.path or read.at is not None or read.versioned:
+        return False
+    dimension = state.registry.dimensions.get(read.field.ref.path)
+    return (
+        dimension is not None
+        and not dimension.is_time_dimension
+        and dimension.entity == read.entity.ref.path
+        and dimension.source_column is not None
+    )
+
+
+def _reflexive_round_trip(node: PopulationPreimage, state: CompiledSemanticState) -> bool:
+    if (
+        not isinstance(node.operand, PopulationProgram)
+        or not isinstance(selection := node.operand.root, SourceIdentities)
+        or not isinstance(node.targets, PopulationProgram)
+        or node.targets.root != PopulationImage(node.operand, node.path, node.subject)
+        or len(node.path.steps) != 1
+        or selection.entity != node.path.source
+        or selection.entity != node.path.target
+        or selection.at != node.path.source_at
+        or node.path.steps[0].target_at is not None
+    ):
+        return False
+    relationship = normalize_target_relationship(
+        state.registry, node.path.steps[0].relationship.ref.ref.path
+    )
+    source = normalize_target_entity(state.registry, selection.entity.ref.path)
+    return (
+        relationship.from_entity_ref.path == selection.entity.ref.path
+        and relationship.to_entity_ref.path == selection.entity.ref.path
+        and set(relationship.keys) == {(key, key) for key in source.primary_key}
+    )
 
 
 def prepare_member_fields(
@@ -319,6 +412,30 @@ def traverse_membership_paths(
     if required_keys:
         allocation = allocation.filter(*(allocation[key].notnull() for key in required_keys))
     return allocation, tuple(result_groups)
+
+
+def reflexive_preimage(
+    node: PopulationPreimage,
+    state: CompiledSemanticState,
+    prepare_domain: PrepareDomain,
+    population_optimizations: PopulationOptimizations | None,
+) -> PreparedPopulation | None:
+    """Reuse exactly the source identity domain for a proved reflexive round trip."""
+    if (
+        population_optimizations is not None
+        and population_optimizations.policy.allows("L3_left_total_elimination")
+        and _reflexive_round_trip(node, state)
+    ):
+        population_optimizations.decisions.append(
+            RuleDecision(
+                "L3_left_total_elimination",
+                "adopted",
+                ("population:" + computation_fingerprint(node.operand),),
+                "The source identity projects its own complete primary key through the exact round trip.",
+            )
+        )
+        return prepare_domain(node.operand)
+    return None
 
 
 def prepare_relationship_population(

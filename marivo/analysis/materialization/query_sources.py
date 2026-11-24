@@ -12,8 +12,6 @@ from urllib.error import HTTPError
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo._kernel.errors import MarivoError
-
 if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo
 
@@ -24,14 +22,16 @@ from marivo._definition.relations import (
     FrameKeys,
     PopulationDependency,
     ReadQuery,
-    population_keys,
+    finite_population_domain,
 )
 from marivo._definition.types import (
     AxisBinding,
     FieldRead,
 )
+from marivo._kernel.errors import MarivoError
 from marivo.analysis.binding.graph import BoundGraph, read_input_graph
 from marivo.analysis.compiler.lowered_query import PopulationCheck
+from marivo.analysis.compiler.population_factorization import PopulationOptimizations
 from marivo.analysis.compiler.populations import frame_key_groups
 from marivo.analysis.compiler.query_program import FrameParameter, PopulationParameterPlan
 from marivo.analysis.compiler.query_stages import (
@@ -193,13 +193,14 @@ def _prepare_population_reads(
     relations: dict[str, ir.Table],
     source_times: list[FrameSourceTime],
     consumption_timezone: str,
+    population_optimizations: PopulationOptimizations,
 ) -> dict[str, tuple[PopulationCheck, ...]]:
     population_checks: dict[str, tuple[PopulationCheck, ...]] = {}
     prepared_populations: dict[str, PreparedPopulation] = {}
     for population in populations:
         required = population_entities(population, state)
         datasources = {state.registry.entities[path].datasource for path in required}
-        finite = population_keys(population) is not None
+        finite = finite_population_domain(population)
         if not finite and len(datasources) != 1 and not parameters:
             _route_gap(
                 "one datasource for a source-driven Population",
@@ -213,6 +214,7 @@ def _prepare_population_reads(
             source_times=source_times,
             consumption_timezone=consumption_timezone,
             prepared=prepared_populations,
+            population_optimizations=population_optimizations,
         )
         source_id = "population:" + computation_fingerprint(population)
         keys = tuple(
@@ -282,6 +284,25 @@ def _scope_source_schemas(
     return tuple(own_schemas)
 
 
+def _population_optimizations(
+    policy: OptimizationPolicy,
+    entities: Mapping[str, ir.Table],
+    bounds: Mapping[str, BoundSource],
+    owners: Mapping[str, SourceSession],
+) -> PopulationOptimizations:
+    def stored_projection(path: str) -> bool:
+        bound = bounds.get(path)
+        owner = owners.get(path)
+        return (
+            bound is not None
+            and owner is not None
+            and entities.get(path) is bound.relation
+            and owner.stored_projection.proves(bound)
+        )
+
+    return PopulationOptimizations(policy, stored_projection=stored_projection)
+
+
 def prepare_query_sources(
     graph: BoundGraph,
     state: CompiledSemanticState,
@@ -327,6 +348,7 @@ def prepare_query_sources(
     )
     _check_frame_parameter_types(parameters, entities, bounds, state)
     source_times: list[FrameSourceTime] = []
+    population_optimizations = _population_optimizations(policy, entities, bounds, owners)
     prepare_contribution_reads(
         graph,
         state,
@@ -338,7 +360,7 @@ def prepare_query_sources(
         relations,
         source_times,
         consumption_timezone,
-        conditional=policy.allows("conditional_source_merge"),
+        population_optimizations=population_optimizations,
     )
     populations = _query_populations(graph)
     population_checks = _prepare_population_reads(
@@ -353,6 +375,7 @@ def prepare_query_sources(
         relations,
         source_times,
         consumption_timezone,
+        population_optimizations,
     )
     own_schemas = _scope_source_schemas(
         schemas,
@@ -387,6 +410,7 @@ def prepare_query_sources(
         owners,
         entities,
         population_checks=population_checks,
+        population_decisions=tuple(dict.fromkeys(population_optimizations.decisions)),
         source_times=merge_source_times(
             tuple(source_times), *(dependency.source_times for dependency in dependency_inputs)
         ),

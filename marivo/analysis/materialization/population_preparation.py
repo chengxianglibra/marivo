@@ -36,6 +36,7 @@ from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.observe import bind_observation
 from marivo.analysis.compiler.lowered_query import PopulationCheck
 from marivo.analysis.compiler.member_version import prepare_version_filter
+from marivo.analysis.compiler.population_factorization import PopulationOptimizations
 from marivo.analysis.compiler.predicate import lower_condition, population_key
 from marivo.analysis.materialization.population_domains import (
     PrepareDomain,
@@ -46,8 +47,10 @@ from marivo.analysis.materialization.population_domains import (
 )
 from marivo.analysis.materialization.population_layout import finite_population, population_layout
 from marivo.analysis.materialization.population_relations import (
+    classify_after_filter,
     prepare_member_fields,
     prepare_relationship_population,
+    reflexive_preimage,
 )
 from marivo.analysis.materialization.prepared_fields import PrepareFields
 from marivo.analysis.model.errors import reject
@@ -208,6 +211,7 @@ def bind_population(
     source_times: list[FrameSourceTime] | None = None,
     consumption_timezone: str = "UTC",
     prepared: dict[str, PreparedPopulation] | None = None,
+    population_optimizations: PopulationOptimizations | None = None,
 ) -> PreparedPopulation:
     """Share prepared relations within one exact source binding and time context."""
 
@@ -215,7 +219,14 @@ def bind_population(
     key = computation_fingerprint(definition)
     if key not in cache:
         cache[key] = _prepare_population(
-            definition, entities, state, prepare_fields, source_times, consumption_timezone, cache
+            definition,
+            entities,
+            state,
+            prepare_fields,
+            source_times,
+            consumption_timezone,
+            cache,
+            population_optimizations,
         )
     return cache[key]
 
@@ -228,6 +239,7 @@ def _prepare_population(
     source_times: list[FrameSourceTime] | None,
     consumption_timezone: str,
     cache: dict[str, PreparedPopulation],
+    population_optimizations: PopulationOptimizations | None,
 ) -> PreparedPopulation:
     """Build a real Ibis relation without submitting business reads.
 
@@ -245,6 +257,7 @@ def _prepare_population(
             source_times=source_times,
             consumption_timezone=consumption_timezone,
             prepared=cache,
+            population_optimizations=population_optimizations,
         )
 
     parameter = entities.get("population-parameter:" + computation_fingerprint(definition))
@@ -254,14 +267,24 @@ def _prepare_population(
         return PreparedPopulation(
             parameter, key_groups, presence="__population_unit" if not columns else None
         )
-    finite = population_keys(definition)
+    deferred_product = population_optimizations is not None and population_optimizations.factorized(
+        definition
+    )
+    finite = None if deferred_product else population_keys(definition)
     if finite is not None:
         return finite_population(definition, finite, layout)
     assert isinstance(definition, PopulationProgram)
     node = definition.root
     if isinstance(node, PopulationFilter):
-        return _filter_domain(definition, node, key_groups, columns, prepare_domain)
+        classify = classify_after_filter(definition, node, state, population_optimizations)
+        if classify is None:
+            return _filter_domain(definition, node, key_groups, columns, prepare_domain)
+        node = classify
     if isinstance(node, (PopulationImage, PopulationPreimage)):
+        if isinstance(node, PopulationPreimage):
+            reflexive = reflexive_preimage(node, state, prepare_domain, population_optimizations)
+            if reflexive is not None:
+                return reflexive
         return prepare_relationship_population(
             node,
             entities,

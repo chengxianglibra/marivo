@@ -29,7 +29,7 @@ from marivo._definition.relations import (
     PopulationProgram,
     PopulationSet,
     condition_populations,
-    population_keys,
+    finite_population_domain,
 )
 from marivo._definition.types import (
     CalendarCoordinate,
@@ -279,6 +279,19 @@ def _plan_query(
     )
 
 
+def _population_dependencies(
+    population: PopulationDependency,
+) -> tuple[PopulationDependency, ...] | None:
+    node = population.root if isinstance(population, PopulationProgram) else None
+    if isinstance(node, PopulationProduct):
+        return node.factors
+    if isinstance(node, PopulationSet) and all(
+        not finite_population_domain(item) for item in (node.left, node.right)
+    ):
+        return node.left, node.right
+    return None
+
+
 def _plan_population_dependencies(
     graph: BoundGraph,
     root: ObserveQuery,
@@ -319,7 +332,7 @@ def _plan_population_dependencies(
                 replace(column, slot_id=f"key.{i}") for i, column in enumerate(domain_columns)
             )
 
-        if population_keys(population) is not None:
+        if finite_population_domain(population):
             continue  # Keep schema-bound key types, execute finite keys locally.
         slots = tuple(column.slot_id for column in domain_columns)
         column_slots = {
@@ -330,21 +343,13 @@ def _plan_population_dependencies(
             tuple(column_slots[column] for column in group)
             for group in population_schema.key_groups
         )
-        domain_node = population.root if isinstance(population, PopulationProgram) else None
-        operands = (
-            domain_node.factors
-            if isinstance(domain_node, PopulationProduct)
-            else (domain_node.left, domain_node.right)
-            if isinstance(domain_node, PopulationSet)
-            and all(population_keys(item) is None for item in (domain_node.left, domain_node.right))
-            else None
-        )
+        operands = _population_dependencies(population)
         if operands is not None:
             # Reuse the checked complete inputs in both local and fused execution.
             factors = tuple(
                 next(item for item in population_inputs if item.definition == factor)
                 for factor in operands
-                if population_keys(factor) is None
+                if not finite_population_domain(factor)
             )
             population_stages.append(
                 LocalCompute(

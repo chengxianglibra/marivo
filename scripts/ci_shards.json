@@ -159,6 +159,7 @@
       "tests/analysis/materialization/test_mysql_attribute_strings.py",
       "tests/analysis/materialization/test_native_expression_reuse.py",
       "tests/analysis/materialization/test_observe_regressions.py",
+      "tests/analysis/materialization/test_population_rewrites.py",
       "tests/analysis/materialization/test_public_refusals.py",
       "tests/analysis/materialization/test_query_preparation.py",
       "tests/analysis/materialization/test_reference_recovery.py",

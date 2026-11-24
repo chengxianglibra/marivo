@@ -12,6 +12,7 @@ import pyarrow as pa
 
 from marivo._definition.observations import ContributionBinding
 from marivo.analysis.binding.graph import BoundGraph
+from marivo.analysis.compiler.population_factorization import PopulationOptimizations
 from marivo.analysis.compiler.query_program import PopulationParameterPlan
 from marivo.analysis.compiler.query_stages import SourceField, SourceSchema
 from marivo.analysis.materialization.prepared_fields import PreparedFields
@@ -111,6 +112,7 @@ def _prepare_contribution_read(
     source_times: list[FrameSourceTime],
     consumption_timezone: str,
     *,
+    population_optimizations: PopulationOptimizations,
     conditional: bool,
 ) -> tuple[SourceSchema, ir.Table]:
     registry = state.registry
@@ -121,6 +123,7 @@ def _prepare_contribution_read(
         entities,
         state,
         consumption_timezone=consumption_timezone,
+        population_optimizations=population_optimizations,
     )
     source_times.extend(prepared.source_times)
     for dependency in prepared.dependencies:
@@ -204,7 +207,7 @@ def prepare_contribution_reads(
     source_times: list[FrameSourceTime],
     consumption_timezone: str,
     *,
-    conditional: bool,
+    population_optimizations: PopulationOptimizations,
 ) -> None:
     registry = state.registry
     observation = graph.signature.observation
@@ -221,7 +224,11 @@ def prepare_contribution_reads(
         )
         for contribution in contributions
     )
-    candidates = candidate_conditional_domains(contributions, contracts) if conditional else ()
+    candidates = (
+        candidate_conditional_domains(contributions, contracts)
+        if population_optimizations.policy.allows("conditional_source_merge")
+        else ()
+    )
     domains = frozenset(
         domain
         for domain in candidates
@@ -247,6 +254,7 @@ def prepare_contribution_reads(
             source_bindings,
             bound_times,
             consumption_timezone,
+            population_optimizations=population_optimizations,
             conditional=allow,
         )
         if (
@@ -266,6 +274,7 @@ def prepare_contribution_reads(
                 source_bindings,
                 bound_times,
                 consumption_timezone,
+                population_optimizations=population_optimizations,
                 conditional=False,
             )
         source_times.extend(bound_times)

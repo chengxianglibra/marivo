@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from marivo.analysis.compiler.frame_filter_fusion import fuse_frame_filters
@@ -28,6 +29,18 @@ def optimize_lowered_source(
     include_sample: bool = True,
 ) -> LoweredQuery:
     """Keep source-sample folding ahead of key and terminal fusion."""
+    if prepared.population_decisions:
+        lowered = replace(
+            lowered,
+            plan=replace(
+                lowered.plan,
+                optimization_decisions=tuple(
+                    dict.fromkeys(
+                        (*lowered.plan.optimization_decisions, *prepared.population_decisions)
+                    )
+                ),
+            ),
+        )
     if include_sample:
         lowered = sample_fusion.fuse_sample_reductions(prepared, lowered)
     if policy.enabled_rules & SOURCE_KEY_RULE_IDS:

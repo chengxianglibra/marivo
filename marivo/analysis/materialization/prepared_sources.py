@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from marivo.analysis.binding.graph import BoundGraph
     from marivo.analysis.compiler.lowered_query import LoweredQuery, PopulationCheck
-    from marivo.analysis.compiler.query_stages import SourceSchema
+    from marivo.analysis.compiler.query_stages import RuleDecision, SourceSchema
     from marivo.analysis.methods.carriers.stages import StageOutput
     from marivo.analysis.model.frame_contracts import CheckReceipt
     from marivo.analysis.model.time_facts import FrameSourceTime
@@ -49,6 +49,7 @@ class PreparedSources:
         default_factory=dict
     )
     optimization_policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY
+    population_decisions: tuple[RuleDecision, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, eq=False)

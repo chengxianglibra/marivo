@@ -28,6 +28,9 @@ OptimizationRuleId: TypeAlias = Literal[
     "unique_keys_degenerate_per",
     "unique_keys_degenerate_over",
     "shared_output_coverage_check",
+    "population_product_factorization",
+    "L3_left_total_elimination",
+    "classify_after_filter",
     # Current rules without plan decisions.
     "required_slots",
     "attribute_frequency_sharing",
@@ -37,10 +40,7 @@ OptimizationRuleId: TypeAlias = Literal[
     "injective_time_bucket",
     "shapley_summary_state",
     "frame_evaluation_cache",
-    # Reserved rules from O5–O9.
-    "population_product_factorization",
-    "L3_left_total_elimination",
-    "classify_after_filter",
+    # Reserved rules from O6–O9.
     "L7_key_pushdown",
     "l6_window_prereduction",
     "implicit_per_collapse",

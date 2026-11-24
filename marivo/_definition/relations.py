@@ -168,6 +168,17 @@ def _condition_value(recipe: Resolver, values: tuple[bool, ...]) -> bool:
     invalid("Expected an admitted membership boolean recipe; capture it through in_population.")
 
 
+def finite_population_domain(definition: PopulationDependency) -> bool:
+    """Determine finite product availability without enumerating its tuples."""
+    if isinstance(definition, LiteralPopulation):
+        return True
+    if isinstance(definition.root, (IntervalKeys, CalendarKeys)):
+        return True
+    if isinstance(definition.root, PopulationProduct):
+        return all(finite_population_domain(factor) for factor in definition.root.factors)
+    return population_keys(definition) is not None
+
+
 def population_keys(
     definition: PopulationDependency,
 ) -> tuple[tuple[CoordinateValue, ...], ...] | None:

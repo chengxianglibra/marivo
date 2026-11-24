@@ -19,11 +19,11 @@ from marivo._definition.query import (
 )
 from marivo._definition.relations import (
     PopulationDependency,
-    condition_populations,
 )
 from marivo.analysis.binding.programs import FormulaProgram, PopulationInput
 from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.optimization import required_slots
+from marivo.analysis.compiler.population_factorization import unused_factored_products
 from marivo.analysis.compiler.query_program import ResultProgram, SourceParameter
 from marivo.analysis.compiler.query_stages import (
     FrameKeysInput,
@@ -35,7 +35,6 @@ from marivo.analysis.compiler.query_stages import (
     SourceReadStage,
     local_steps,
     read_components,
-    read_members,
 )
 from marivo.analysis.compiler.source_predicates import (
     source_parameter_comparisons,
@@ -51,6 +50,10 @@ from marivo.analysis.materialization.native_query_relation import (
     native_query_relation,
 )
 from marivo.analysis.materialization.query_coverage_fusion import _fold_output_coverage
+from marivo.analysis.materialization.query_factored_populations import (
+    carrier_condition_domains,
+    retain_factor_checks,
+)
 from marivo.analysis.materialization.query_key_values import _distinct
 from marivo.analysis.materialization.query_parameters import _replace_parameter, inline_key_relation
 from marivo.analysis.materialization.query_plan_transport import (
@@ -250,28 +253,15 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
         )
         if not qualified_query_provider(owner):
             continue
-        domains: tuple[PopulationDependency, ...]
-        if program.output_population is not None:
-            domains = (program.output_population,)
-        else:
-            graph = prepared.graph
-            observation = None if graph is None else graph.signature.observation
-            if observation is None:
-                continue
-            occurrences = {
-                carrier_stage.occurrence,
-                *(member.occurrence for member in read_members(carrier_stage)),
-            }
-            domains = tuple(
-                domain
-                for contribution in observation.contributions
-                if contribution.occurrence in occurrences
-                for condition in (*contribution.intrinsic_conditions, contribution.common_condition)
-                if condition is not None
-                for domain in condition_populations(condition)
-            )
+        domains = carrier_condition_domains(prepared, carrier_stage, program)
         consumed = walk(domains, resolve=dict(program.declared).get).order
         if any(binding.definition not in consumed for binding in redundant):
+            continue
+        products = unused_factored_products(
+            lowered.plan, candidate.stage_id, redundant, prepared.population_decisions
+        )
+        if products:
+            lowered = retain_factor_checks(lowered, candidate, program, products)
             continue
         removed = {binding.stage_id for binding in redundant}
         if any(

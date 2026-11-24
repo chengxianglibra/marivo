@@ -95,3 +95,11 @@ amount = ms.measure_column(name='amount', entity=orders, column='amount', additi
             {"selected": metric.where(matched), "other": metric.where(~matched)}
         )
         assert result.compute().to_pandas().to_dict("list") == {"selected": [160], "other": [200]}
+
+        # Independent customer and calendar factors qualify for separate
+        # membership support, including the exact open upper boundary.
+        calendar = first.by(mv.grain("day"))
+        factored = session.observe(
+            {"selected": metric}, where=mv.in_population(mv.product(one, calendar))
+        )
+        assert factored.compute().to_pandas()["selected"].tolist() == [30]

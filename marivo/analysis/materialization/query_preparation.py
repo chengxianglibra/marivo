@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
+from functools import partial
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -37,6 +38,7 @@ from marivo.analysis.binding.coordinates import identity_projection
 from marivo.analysis.binding.membership import membership_reads
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.compiler.observation import reduction_input
+from marivo.analysis.compiler.population_factorization import PopulationOptimizations
 from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.compiler.source_time import (
     entity_engine,
@@ -83,16 +85,18 @@ def prepare_population(
     source_times: list[FrameSourceTime] | None = None,
     consumption_timezone: str = "UTC",
     prepared: dict[str, PreparedPopulation] | None = None,
+    population_optimizations: PopulationOptimizations | None = None,
 ) -> PreparedPopulation:
     """Bind Population and field preparation within the same source scope."""
     return bind_population(
         definition,
         entities,
         state,
-        prepare_fields,
+        partial(prepare_fields, population_optimizations=population_optimizations),
         source_times=source_times,
         consumption_timezone=consumption_timezone,
         prepared=prepared,
+        population_optimizations=population_optimizations,
     )
 
 
@@ -320,6 +324,7 @@ def prepare_fields(
     *,
     root_table: ir.Table | None = None,
     consumption_timezone: str = "UTC",
+    population_optimizations: PopulationOptimizations | None = None,
 ) -> PreparedFields:
     """Prepare expressions and declared many-to-one joins without reading values."""
 
@@ -338,7 +343,7 @@ def prepare_fields(
         table = _filter_before_version_joins(table, scope, entities, predicate_conditions)
     physical_axes = reduction_input(contribution, "", None).axes
     projected = project_scalar_fields(table, scope, entities, calendar)
-    _prepare_memberships(projected, scope, entities, physical_axes)
+    _prepare_memberships(projected, scope, entities, physical_axes, population_optimizations)
     if predicate_conditions:
         if projected.checks:
             _scope_projection_checks(projected, contribution, predicate_conditions)
@@ -450,6 +455,7 @@ def _prepare_memberships(
     scope: QueryFieldScope,
     entities: Mapping[str, ir.Table],
     physical_axes: tuple[tuple[str, str], ...],
+    population_optimizations: PopulationOptimizations | None,
 ) -> None:
     contribution, state = scope.contribution, scope.state
     table, columns, originals = projected.table, projected.columns, projected.originals
@@ -488,7 +494,10 @@ def _prepare_memberships(
         entities,
         state,
         field_value=scope.value,
-        prepare_domain=lambda domain: prepare_population(domain, entities, state),
+        prepare_domain=lambda domain: prepare_population(
+            domain, entities, state, population_optimizations=population_optimizations
+        ),
+        population_optimizations=population_optimizations,
         source_times=scope.source_times,
     )
     table = prepared_memberships[0]
