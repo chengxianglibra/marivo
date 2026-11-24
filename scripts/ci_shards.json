@@ -404,6 +404,7 @@
       "tests/analysis/materialization/test_frame_fix.py",
       "tests/analysis/materialization/test_frame_lineage.py",
       "tests/analysis/materialization/test_frame_storage.py",
+      "tests/analysis/materialization/test_frame_terminal_fusion.py",
       "tests/analysis/materialization/test_frame_top_remote.py",
       "tests/analysis/materialization/test_frame_value_interpretation_storage.py",
       "tests/analysis/materialization/test_mean_recovery.py",

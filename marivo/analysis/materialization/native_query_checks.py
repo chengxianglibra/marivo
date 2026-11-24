@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import Literal
 
 import ibis
 import ibis.expr.operations as ops
@@ -389,5 +390,6 @@ def finish_native_query(finish: NativeQueryFinish, frame: pd.DataFrame) -> pd.Da
                 )
         frame = frame.loc[frame[finish.frame_top.presence].astype("boolean").fillna(False)]
     if finish.order:
-        frame = frame.sort_values(list(finish.order), kind="stable", na_position="last")
+        null_position: Literal["first", "last"] = "first" if finish.nulls_first else "last"
+        frame = frame.sort_values(list(finish.order), kind="stable", na_position=null_position)
     return frame.loc[:, [column.slot_id for column in finish.columns]].reset_index(drop=True)

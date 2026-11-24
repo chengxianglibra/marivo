@@ -266,9 +266,16 @@ def test_terminal_relation_returns_only_selected_rows(
         if operation == "read":
             assert rows["amount"].iloc[:3].tolist() == [10, 30, 20]
             assert pd.isna(rows["amount"].iloc[3])
-    assert trace.returned_rows == [2 if operation == "top" else 4]
     assert len(trace.native_sql) == len(reads) == len(outputs) == 1
     assert isinstance(reads[0][0].program, NativeRead)
+    if operation == "rows":
+        assert trace.returned_rows == [1]
+        assert outputs[0].table["value.0"].tolist() == [4]
+        assert tuple(outputs[0].table.columns) == ("value.0",)
+        assert outputs[0].frame_schema is not None
+        assert not locals_
+        return
+    assert trace.returned_rows == [2 if operation == "top" else 4]
     if operation == "top":
         assert reads[0][0].program.finish is not None
         assert reads[0][0].program.finish.frame_top is not None

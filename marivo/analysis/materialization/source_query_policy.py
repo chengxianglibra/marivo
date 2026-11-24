@@ -54,6 +54,8 @@ def qualify_query_source(
     read: LoweredRead,
     identity_slots: frozenset[str],
     attribute_slots: frozenset[str] = frozenset(),
+    *,
+    exact_fields: bool = False,
 ) -> str | None:
     """Qualify finite source values independently of key identity and string carriers."""
     policy = owner.provider.query_policy
@@ -73,7 +75,10 @@ def qualify_query_source(
                 and column.dtype == ScalarDataType("int64")
             )
             and not (
-                policy.key_fusion == "numeric"
+                (
+                    policy.key_fusion == "numeric"
+                    or (exact_fields and column.slot_id in attribute_slots)
+                )
                 and (column.slot_id not in stage.keys or column.slot_id in attribute_slots)
                 and (
                     column.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
@@ -108,6 +113,51 @@ def qualify_query_source(
         return "remote aggregate producer numeric coordinates retain their pandas key boundary"
     if policy.key_fusion == "collated" and stage.keys:
         return _aggregate_key_collation(owner, stage, read)
+    return None
+
+
+def qualify_native_field_relation(
+    stage: SourceReadStage,
+    read: LoweredRead,
+    owner: SourceSession,
+    identities: set[str],
+    field_input: bool,
+    admitted: set[str],
+    *,
+    frame_endpoint: bool = False,
+) -> str | None:
+    """Qualify native field transport and its retained declared checks."""
+    qualified_frame_fields = frame_endpoint and field_input
+    if not qualified_frame_fields:
+        if owner.provider.query_policy.key_fusion == "key_counts" and any(
+            (
+                not (
+                    column.dtype == ScalarDataType("int64")
+                    and (column.slot_id in identities or field_input)
+                )
+                and column.dtype != ScalarDataType("string")
+            )
+            or isinstance(column.dtype, DecimalDataType)
+            for column in stage.columns
+        ):
+            return "PostgreSQL field relations qualify decoded strings and complete identity keys; other values retain their pandas boundary"
+        if not owner.provider.query_policy.supports_fused_arithmetic and any(
+            column.dtype == ScalarDataType("float64") for column in stage.columns
+        ):
+            return "floating producer slots retain pandas missing-value semantics"
+    if any(name not in admitted for name, _ in read.numeric_checks) or {
+        name for name, _ in read.numeric_checks
+    } != {name for name, _, _ in stage.preparation_checks}:
+        return "field producer retains an unsupported check"
+    if any(
+        check.expected
+        not in (
+            "non-null complete identity keys",
+            "a non-null complete identity for every input tuple",
+        )
+        for check in read.population_checks
+    ):
+        return "field producer retains an unsupported Population check"
     return None
 
 

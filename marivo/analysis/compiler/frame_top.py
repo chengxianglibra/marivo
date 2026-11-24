@@ -30,6 +30,46 @@ from marivo.datasource.spi import query_dialect
 from marivo.semantic.spi import NumericCheck
 
 
+def native_frame_key_types(schema: DataSchema, *, exact_strings: bool) -> bool:
+    return all(
+        column.dtype == ScalarDataType("int64")
+        or (exact_strings and column.dtype == ScalarDataType("string"))
+        for axis in schema.axes
+        for column in axis.columns
+    )
+
+
+def native_top_order(
+    data: ir.Table,
+    score: ir.Value,
+    keys: tuple[str, ...],
+    provider: str,
+    *,
+    descending: bool,
+) -> tuple[ir.Value, ...] | None:
+    """Rank typed scores with a complete, byte-exact deterministic tie breaker."""
+    if score.type().is_floating():
+        floating_order = query_dialect(provider).float_order_keys
+        if floating_order is None:
+            return None
+        score_order = floating_order(score, descending)
+    else:
+        if score.type().is_string():
+            score = string_bytes(score, provider)
+        score_order = (
+            score.desc(nulls_first=False) if descending else score.asc(nulls_first=False),
+        )
+    return (
+        *score_order,
+        *(
+            (string_bytes(data[key], provider) if data[key].type().is_string() else data[key]).asc(
+                nulls_first=True
+            )
+            for key in keys
+        ),
+    )
+
+
 def _bounded_read(
     stage: SourceReadStage,
     read: LoweredRead,
@@ -100,15 +140,8 @@ def _bounded_read(
         )
     assert isinstance(operation.score, ValueSlot)
     score = data[schema.values[operation.score.index].slot_id]
-    order = (
-        score.desc(nulls_first=False) if operation.descending else score.asc(nulls_first=False),
-        *(
-            (string_bytes(data[key], provider) if data[key].type().is_string() else data[key]).asc(
-                nulls_first=True
-            )
-            for key in stage.keys
-        ),
-    )
+    order = native_top_order(data, score, stage.keys, provider, descending=operation.descending)
+    assert order is not None
     selected = (
         data.order_by(*order)
         .limit(operation.n)
@@ -147,7 +180,10 @@ def _bounded_read(
 
 
 def bound_pending_frame_top(
-    compiled: CompiledFramePlan[CheckedStageInputT], providers: Mapping[str, str]
+    compiled: CompiledFramePlan[CheckedStageInputT],
+    providers: Mapping[str, str],
+    *,
+    protected_inputs: frozenset[int] = frozenset(),
 ) -> CompiledFramePlan[CheckedStageInputT]:
     """Admit direct integer-field reads with one complete consumer."""
     plan = compiled.lowered.plan
@@ -169,16 +205,30 @@ def bound_pending_frame_top(
         source = by_id[top.inputs[0]]
         schema = top.program.input_schema
         operation = top.program.operation
+        if operation.n >= 2**63:
+            decisions.append(
+                RuleDecision(
+                    "pending_frame_top",
+                    "refused",
+                    (top.stage_id,),
+                    "Limit exceeds the native signed int64 row-count parameter.",
+                )
+            )
+            continue
         reason = "the Top input is not one direct pending source field read"
         if (
             isinstance(node.inputs[0], SourceFrameInput)
             and isinstance(node.inputs[0].graph.root, ReadQuery)
+            and id(node) not in protected_inputs
+            and id(node.inputs[0]) not in protected_inputs
             and isinstance(source, SourceReadStage)
-            and boundaries.get(source.stage_id) == owners.get(source.stage_id)
+            and source.stage_id in owners
+            and boundaries.get(source.stage_id) == owners[source.stage_id]
         ):
             reason = "this provider has no admitted native field-read Top route"
             provider = providers.get(owners[source.stage_id], "")
-            if query_dialect(provider).supports_native_frame_top:
+            dialect = query_dialect(provider)
+            if dialect.supports_native_frame_top:
                 reason = "the complete source input has multiple consumers or parameter inputs"
                 if plan.consumers_of(source.stage_id) == (top.stage_id,) and not (
                     source.inputs or source.parameters
@@ -190,10 +240,18 @@ def bound_pending_frame_top(
                             is_instance(axis, DataAxis) and axis.kind == "member"
                             for axis in schema.axes
                         )
+                        and native_frame_key_types(
+                            schema, exact_strings=dialect.native_frame_string_keys_match_transport
+                        )
                         and all(
-                            column.dtype in (ScalarDataType("int64"), ScalarDataType("string"))
-                            for axis in schema.axes
-                            for column in axis.columns
+                            column.dtype
+                            in (
+                                ScalarDataType("int64"),
+                                ScalarDataType("float64"),
+                                ScalarDataType("boolean"),
+                                ScalarDataType("string"),
+                            )
+                            for column in schema.values
                         )
                         and isinstance(operation.score, ValueSlot)
                         and schema.values[operation.score.index].dtype == ScalarDataType("int64")

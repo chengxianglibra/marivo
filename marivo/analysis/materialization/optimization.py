@@ -60,7 +60,7 @@ def optimize_compiled_frame(
 ) -> CompiledFramePlan[CheckedStageInputT]:
     """Apply terminal Top before local selection and projection fusion."""
     if include_top and policy.allows("pending_frame_top"):
-        compiled = bound_pending_frame_top(compiled, providers)
+        compiled = bound_pending_frame_top(compiled, providers, protected_inputs=protected_inputs)
     if policy.allows("L1"):
         compiled = fuse_frame_filters(compiled, protected_inputs=protected_inputs)
     if policy.allows("L5_select_fusion"):

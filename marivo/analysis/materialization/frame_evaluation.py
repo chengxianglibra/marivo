@@ -42,6 +42,7 @@ from marivo.analysis.materialization.frame_source_preparation import (
     PreparedFrameSources,
     prepare_frame_sources,
 )
+from marivo.analysis.materialization.frame_terminal_fusion import fuse_frame_terminal
 from marivo.analysis.materialization.graph_source_execution import run_frame_plan
 from marivo.analysis.materialization.native_calendar import freeze_output_calendars
 from marivo.analysis.materialization.optimization import optimize_compiled_frame
@@ -218,6 +219,7 @@ class _FrameEvaluation:
     method_productions: list[tuple[str, AttributeMethodPayload]] = field(default_factory=list)
     source_reads: list[FrameSourceRead] = field(default_factory=list)
     completed_frames: dict[str, StageOutput] = field(default_factory=dict)
+    terminal_sources: dict[str, PreparedSources] = field(default_factory=dict)
     operation_inputs: dict[int, str] = field(init=False)
     protected_inputs: frozenset[int] = field(init=False)
 
@@ -406,6 +408,9 @@ class _FrameEvaluation:
             prepared.plans,
             frame_inputs=self.captured.expressions,
         )
+        compiled, self.terminal_sources = fuse_frame_terminal(
+            compiled, prepared.prepared, self.protected_inputs
+        )
         return optimize_compiled_frame(
             compiled,
             {
@@ -441,7 +446,7 @@ class _FrameEvaluation:
             input_id = stage_inputs.get(stage.stage_id)
             # Native attribution coalitions consume fixed parent keys; they do
             # not introduce reporting calendar positions for a source Frame.
-            if input_id is not None:
+            if input_id is not None and input_id in prepared_by_input:
                 prepared_source = prepared_by_input[input_id]
                 source = prepared_source.sources.get(stage.source_id, prepared_source.source)
                 for axis in source_schemas[input_id].axes:
@@ -465,7 +470,7 @@ class _FrameEvaluation:
         try:
             return run_frame_plan(
                 compiled,
-                source_prepared=prepared_by_input,
+                source_prepared={**prepared_by_input, **self.terminal_sources},
                 read_fixed=read_fixed,
                 adapt_source=adapt_source,
                 observe_read=observe_read,

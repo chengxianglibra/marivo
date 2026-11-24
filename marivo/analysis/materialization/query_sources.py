@@ -544,6 +544,7 @@ def open_query_sources(
     frame_schemas: Mapping[str, DataSchema] | None = None,
     json_responses: dict[str, JsonResponseCache] | None = None,
     reuse_sources: PreparedSources | None = None,
+    shared_sessions: dict[str, SourceSession] | None = None,
     policy: OptimizationPolicy = DEFAULT_OPTIMIZATION_POLICY,
 ) -> Iterator[PreparedSources]:
     """Open sources, sharing HTTP responses only inside the caller's evaluation."""
@@ -565,6 +566,9 @@ def open_query_sources(
         for name in datasources:
             if name in sources:
                 continue
+            if shared_sessions is not None and name in shared_sessions:
+                sources[name] = shared_sessions[name]
+                continue
             datasource = state.registry.datasources[name]
             namespace = dumps(
                 (name, datasource.backend_type, dict(datasource.fields), dict(datasource.env_refs)),
@@ -579,6 +583,8 @@ def open_query_sources(
                     json_responses=responses.setdefault(namespace, {}),
                 )
             )
+            if shared_sessions is not None:
+                shared_sessions[name] = sources[name]
         if not sources:
             _route_gap(
                 "a source contribution",

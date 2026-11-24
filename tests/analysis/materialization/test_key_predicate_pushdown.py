@@ -82,7 +82,9 @@ def test_pending_ordinary_where_and_fix_reach_the_original_grouping_input(
         expected = [(None, "z", None)]
 
     trace = capture_source(monkeypatch)
-    ordinary = compute_with_policy(query, _OFF)
+    # Isolate the ordinary-key pushdown from the independent post-group terminal Fix.
+    baseline = _OFF.with_rule("frame_terminal_fix", enabled=False)
+    ordinary = compute_with_policy(query, baseline)
     assert not _before_group(trace.native_sql)
     assert trace.returned_rows == [4]
     trace.native_sql.clear()

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
+from marivo.analysis.model.data_schema import DataSchema
 from marivo.analysis.model.data_types import DataColumn
 
 
@@ -18,6 +19,15 @@ class NativeFrameTopFinish:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeCheckOrigin:
+    """A check kept at its original source and complete coordinate layout."""
+
+    name: str
+    source_id: str
+    keys: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class NativeQueryFinish:
     """Restore source-union row order and its exact complete-axis layout."""
 
@@ -25,3 +35,6 @@ class NativeQueryFinish:
     order: tuple[str, ...]
     layout: ComparisonEndpoint | None
     frame_top: NativeFrameTopFinish | None = None
+    frame_schema: DataSchema | None = None
+    nulls_first: bool = False
+    check_origins: tuple[NativeCheckOrigin, ...] = ()

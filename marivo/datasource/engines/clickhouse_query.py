@@ -222,6 +222,10 @@ def query_dialect_profile(
         preserve_utc_conversions=True,
         native_subday_grains=frozenset({"second", "minute", "hour"}),
         supports_native_frame_top=True,
+        # The driver returns undecodable String bytes as hexadecimal text.
+        native_frame_string_keys_match_transport=False,
+        supports_full_outer_join=True,
+        frame_int64_sum_wraps=True,
         conditional_aggregate_style="clickhouse_if",
         supports_sql_window_frames=True,
         window_frame_nulls_safe=True,

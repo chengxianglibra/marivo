@@ -34,6 +34,11 @@ OptimizationRuleId: TypeAlias = Literal[
     "L7_key_pushdown",
     "implicit_per_collapse",
     "attribute_grouping_sets",
+    "frame_top_float_decimal",
+    "frame_terminal_fix",
+    "frame_terminal_reduce",
+    "frame_terminal_over",
+    "frame_terminal_align",
     "l6_window_prereduction",
     # Current rules without plan decisions.
     "required_slots",
@@ -44,12 +49,6 @@ OptimizationRuleId: TypeAlias = Literal[
     "injective_time_bucket",
     "shapley_summary_state",
     "frame_evaluation_cache",
-    # Reserved rules from O9.
-    "frame_top_float_decimal",
-    "frame_terminal_fix",
-    "frame_terminal_reduce",
-    "frame_terminal_over",
-    "frame_terminal_align",
 ]
 
 FUSION_LAW_IDS: Final[frozenset[FusionLawId]] = frozenset(get_args(FusionLawId))

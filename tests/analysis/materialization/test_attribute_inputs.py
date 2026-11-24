@@ -1106,10 +1106,16 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
     failure = source_completion._source_check_failure
 
     def failed(
-        stage: SourceReadStage, name: str, expected: str, received: str, rows: pd.DataFrame
+        stage: SourceReadStage,
+        name: str,
+        expected: str,
+        received: str,
+        rows: pd.DataFrame,
+        *,
+        source_id: str | None = None,
     ) -> NoReturn:
         coordinates.append(rows.to_dict(orient="records"))
-        failure(stage, name, expected, received, rows)
+        failure(stage, name, expected, received, rows, source_id=source_id)
 
     monkeypatch.setattr(source_completion, "_source_check_failure", failed)
     with pytest.raises(MaterializationError) as ordinary:

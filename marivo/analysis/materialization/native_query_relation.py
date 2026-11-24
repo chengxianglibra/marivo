@@ -32,12 +32,14 @@ from marivo._definition.query import (
 from marivo._definition.types import AxisBinding
 from marivo._kernel.validation import is_instance
 from marivo.analysis.binding.programs import FormulaProgram, PopulationInput
+from marivo.analysis.compiler.frame_top import native_top_order
 from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.native_formula import lower_native_formula
 from marivo.analysis.compiler.query_program import ResultProgram, SourceParameter
 from marivo.analysis.compiler.query_stages import (
     FrameKeysInput,
     LocalCompute,
+    NativeRead,
     QueryStage,
     SourceReadStage,
     local_result,
@@ -49,7 +51,6 @@ from marivo.analysis.compiler.query_stages import (
     read_reduction,
     require_reduction,
 )
-from marivo.analysis.compiler.source_predicates import string_bytes as _string_bytes
 from marivo.analysis.compiler.source_predicates import (
     string_without_collation,
 )
@@ -65,11 +66,11 @@ from marivo.analysis.materialization.native_query_inputs import (
 )
 from marivo.analysis.materialization.source_query_policy import (
     qualified_query_provider,
+    qualify_native_field_relation,
     qualify_query_source,
     qualify_query_top,
 )
 from marivo.analysis.model.data_types import (
-    DecimalDataType,
     DurationDataType,
     ScalarDataType,
     TimestampDataType,
@@ -135,46 +136,6 @@ def _project_native_read(
     )
 
 
-def _native_field_issue(
-    stage: SourceReadStage,
-    read: LoweredRead,
-    owner: SourceSession,
-    identities: set[str],
-    field_input: bool,
-    admitted: set[str],
-) -> str | None:
-    if owner.provider.query_policy.key_fusion == "key_counts" and any(
-        (
-            not (
-                column.dtype == ScalarDataType("int64")
-                and (column.slot_id in identities or field_input)
-            )
-            and column.dtype != ScalarDataType("string")
-        )
-        or isinstance(column.dtype, DecimalDataType)
-        for column in stage.columns
-    ):
-        return "PostgreSQL field relations qualify decoded strings and complete identity keys; other values retain their pandas boundary"
-    if not owner.provider.query_policy.supports_fused_arithmetic and any(
-        column.dtype == ScalarDataType("float64") for column in stage.columns
-    ):
-        return "floating producer slots retain pandas missing-value semantics"
-    if any(name not in admitted for name, _ in read.numeric_checks) or {
-        name for name, _ in read.numeric_checks
-    } != {name for name, _, _ in stage.preparation_checks}:
-        return "field producer retains an unsupported check"
-    if any(
-        check.expected
-        not in (
-            "non-null complete identity keys",
-            "a non-null complete identity for every input tuple",
-        )
-        for check in read.population_checks
-    ):
-        return "field producer retains an unsupported Population check"
-    return None
-
-
 def _lower_native_top(
     expression: ir.Table,
     program: ResultProgram,
@@ -208,20 +169,11 @@ def _lower_native_top(
         issue = qualify_query_top(owner, program, score)
         if issue is not None:
             return issue
-    if score.type().is_floating() and not owner.provider.query_policy.supports_fused_arithmetic:
-        return "Top-N retains pandas floating missing-score semantics"
-    score = _string_bytes(score, owner.provider.name) if score.type().is_string() else score
-    order = (
-        score.desc(nulls_first=False) if operation.descending else score.asc(nulls_first=False),
-        *(
-            (
-                _string_bytes(expression[key], owner.provider.name)
-                if expression[key].type().is_string()
-                else expression[key]
-            ).asc(nulls_first=True)
-            for key in program.keys
-        ),
+    order = native_top_order(
+        expression, score, program.keys, owner.provider.name, descending=operation.descending
     )
+    if order is None:
+        return "Top-N retains a floating score without an exact native order"
     expression = expression.order_by(*order).limit(operation.n)
     return expression, evaluated.checks
 
@@ -433,6 +385,7 @@ class _NativeRelationLowerer:
     attribute_leaf: FrameKeysInput | None
     field_inputs: set[str]
     integer_identities: dict[str, set[str]]
+    frame_endpoint: bool
 
     def lower(self, identifier: str, parent: str | None) -> NativeQueryRelation | str:
         stage = self.by_id[identifier]
@@ -536,6 +489,10 @@ class _NativeRelationLowerer:
             return "producer physical inputs do not belong to the consumer SourceSession"
         if read_finish(stage) is not None:
             return "producer retains a governed host finish"
+        if self.frame_endpoint and isinstance(stage.program, NativeRead):
+            if stage.inputs or stage.parameters or stage.attribute_state or stage.attribute_native:
+                return "producer retains a previously checked native boundary"
+            return _project_native_read(stage, read, owner.provider.name)
         common_issue = _common_read_issue(owner, stage, read)
         if common_issue is not None:
             return common_issue
@@ -550,6 +507,7 @@ class _NativeRelationLowerer:
                 )
                 if field_input
                 else frozenset(),
+                exact_fields=self.frame_endpoint and field_input,
             )
             if issue is not None:
                 return issue
@@ -564,7 +522,15 @@ class _NativeRelationLowerer:
         }
         reduction = read_reduction(stage)
         if reduction is None:
-            issue = _native_field_issue(stage, read, owner, identities, field_input, admitted)
+            issue = qualify_native_field_relation(
+                stage,
+                read,
+                owner,
+                identities,
+                field_input,
+                admitted,
+                frame_endpoint=self.frame_endpoint,
+            )
             if issue is not None:
                 return issue
         elif (
@@ -750,6 +716,7 @@ def native_query_relation(
     terminal: bool = False,
     shared: bool = False,
     allowed_consumers: frozenset[str] = frozenset(),
+    frame_endpoint: bool = False,
 ) -> NativeQueryRelation | str:
     """Qualify one finite relation without weakening source ownership or checks."""
     plan = lowered.plan
@@ -795,4 +762,5 @@ def native_query_relation(
         attribute_leaf,
         field_inputs,
         integer_identities,
+        frame_endpoint,
     ).lower(producer, None if terminal or shared else consumers[0])

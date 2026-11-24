@@ -91,7 +91,7 @@ from marivo.analysis.model.frame_metadata import (
 from marivo.analysis.model.frame_structure import PendingDataColumn, PendingDataSchema, axis_role
 from marivo.analysis.model.optimization_policy import DEFAULT_OPTIMIZATION_POLICY
 from marivo.analysis.model.time_facts import FrameSourceTime, merge_source_times
-from marivo.datasource.spi import JsonResponseCache, TableSourceIR
+from marivo.datasource.spi import JsonResponseCache, SourceSession, TableSourceIR
 from marivo.semantic.spi import normalize_target_entity
 
 if TYPE_CHECKING:
@@ -265,6 +265,9 @@ class _FrameSourcePreparation:
     connection_services: dict[tuple[Path, int], DatasourceConnectionService] = field(
         default_factory=dict
     )
+    source_sessions: dict[tuple[Path, int, int, str], dict[str, SourceSession]] = field(
+        default_factory=dict
+    )
     json_responses: dict[tuple[Path, int], dict[str, JsonResponseCache]] = field(
         default_factory=dict
     )
@@ -393,20 +396,45 @@ class _FrameSourcePreparation:
         if service is None:
             service = self.stack.enter_context(binding.connection.operation())
             self.connection_services[scope] = service
+        timezone = frame_local(current).report_timezone_name
+        shared = self._repeatable_source_sessions(scope, timezone, binding, graph)
         prepared = self.stack.enter_context(
             open_query_sources(
                 service,
                 graph,
                 binding.state,
                 memo=memo,
-                consumption_timezone=frame_local(current).report_timezone_name,
+                consumption_timezone=timezone,
                 frame_schemas=key_schemas,
                 json_responses=self.json_responses.setdefault(scope, {}),
                 reuse_sources=reuse_sources,
+                shared_sessions=shared,
                 policy=self.policy,
             )
         )
         return prepared
+
+    def _repeatable_source_sessions(
+        self,
+        connection: tuple[Path, int],
+        timezone: str,
+        binding: SourceFrameBinding,
+        graph: BoundGraph,
+    ) -> dict[str, SourceSession] | None:
+        if (
+            "align" not in self.operations
+            or not self.policy.allows("frame_terminal_align")
+            or not all(
+                isinstance(
+                    normalize_target_entity(binding.state.registry, path).source, TableSourceIR
+                )
+                for path in _query_entities(graph, binding.state)
+            )
+        ):
+            return None
+        # Equal transport, clock and immutable semantic state share one owner.
+        # Each child still builds its own prepared logical scopes and check sets.
+        return self.source_sessions.setdefault((*connection, id(binding.state), timezone), {})
 
     def _resolve_pending_interval(
         self,

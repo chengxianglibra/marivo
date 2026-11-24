@@ -743,6 +743,7 @@ PROFILE = EngineProfile(
         preview_requires_terminal_scope=True,
         supports_per_row_attribute_time=True,
         supports_native_frame_top=True,
+        supports_full_outer_join=True,
         conditional_aggregate_style="filter_where",
         supports_sql_window_frames=True,
         window_frame_nulls_safe=True,

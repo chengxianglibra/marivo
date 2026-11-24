@@ -48,6 +48,7 @@ from marivo.analysis.materialization.query_components import (
     attribute_witness_order,
     complete_components,
 )
+from marivo.analysis.materialization.query_runtime_types import effective_frame_schema
 from marivo.analysis.methods.attribute_quantiles import FrequencyRankIndex, frequency_state
 from marivo.analysis.methods.carriers.stage_components import ComponentFrame
 from marivo.analysis.methods.carriers.stages import StageOutput
@@ -354,10 +355,16 @@ def validate_source_checks(
                     key=lambda column: int(column.rsplit(".", 1)[1]),
                 )
             )
+            origin = (
+                next((item for item in finish.check_origins if item.name == name), None)
+                if finish is not None
+                else None
+            )
+            keys = stage.keys if origin is None else origin.keys
             coordinates = (
                 frame.loc[violation, list(witness_slots)]
                 .head(1)
-                .rename(columns=dict(zip(witness_slots, stage.keys, strict=False)))
+                .rename(columns=dict(zip(witness_slots, keys, strict=False)))
                 if witness_slots
                 else frame.loc[violation, list(stage.keys)].head(6)
             )
@@ -367,6 +374,7 @@ def validate_source_checks(
                 check.expected,
                 check.received,
                 coordinates,
+                source_id=None if origin is None else origin.source_id,
             )
 
 
@@ -376,11 +384,11 @@ def _source_check_failure(
     expected: str,
     received: str,
     coordinates: pd.DataFrame,
+    *,
+    source_id: str | None = None,
 ) -> NoReturn:
     """Keep the owning preparation/numeric failure for actual or known-empty input."""
-    received = (
-        f"{received}; source={stage.source_id}; coordinates={coordinates.to_dict(orient='records')}"
-    )
+    received = f"{received}; source={source_id or stage.source_id}; coordinates={coordinates.to_dict(orient='records')}"
     if any(name == column for column, _, _ in stage.preparation_checks):
         if expected == "an output Population covering every required complete coordinate":
             raise MaterializationError(
@@ -426,6 +434,35 @@ def _attribute_source_check_failure(
     except SemanticExpressionError as error:
         error.details["attribute_context"] = context
         raise
+
+
+def _ordered_rows(frame: pd.DataFrame, keys: tuple[str, ...]) -> pd.DataFrame:
+    if not any(
+        isinstance(dtype, pd.ArrowDtype) and pa.types.is_floating(dtype.pyarrow_dtype)
+        for key in keys
+        for dtype in (frame[key].dtype,)
+    ):
+        return frame.sort_values(list(keys), kind="stable", na_position="last").reset_index(
+            drop=True
+        )
+    # pandas' multi-key sort can produce duplicate categorical labels for
+    # distinct Arrow floating encodings of the same signed zero.
+    for key in reversed(keys):
+        frame = frame.sort_values(key, kind="stable", na_position="last")
+    return frame.reset_index(drop=True)
+
+
+def _completed_native_frame(stage: SourceReadStage, completed: StageOutput) -> StageOutput:
+    finish = require_finish(stage)
+    schema = finish.frame_schema
+    if schema is None:
+        return replace(completed, layout=finish.layout)
+    return replace(
+        completed,
+        layout=finish.layout,
+        frame_schema=effective_frame_schema(schema, completed.columns),
+        key_groups=tuple(tuple(column.slot_id for column in axis.columns) for axis in schema.axes),
+    )
 
 
 def complete_source_frame(
@@ -492,9 +529,7 @@ def complete_source_frame(
                 numeric_failure("lossless signed int64 Duration ticks", str(error))
     output = frame.loc[:, [c.slot_id for c in stage.columns]]
     if ordered and stage.keys and read_finish(stage) is None:
-        output = output.sort_values(
-            list(stage.keys), kind="stable", na_position="last"
-        ).reset_index(drop=True)
+        output = _ordered_rows(output, stage.keys)
     completed = StageOutput.from_source_frame(
         output,
         stage.columns,
@@ -505,7 +540,7 @@ def complete_source_frame(
         unique_keys=stage.unique_keys,
     )
     if read_finish(stage) is not None:
-        completed = replace(completed, layout=require_finish(stage).layout)
+        completed = _completed_native_frame(stage, completed)
     return completed
 
 

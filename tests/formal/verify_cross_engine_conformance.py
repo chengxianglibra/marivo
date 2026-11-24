@@ -572,10 +572,12 @@ def test_live_exact_integer_top_retains_composite_bytes(
             key_types=(ScalarDataType("string"), ScalarDataType("int64")),
             value_types={"score": ScalarDataType("int64")},
         )
-        assert any(
+        bounded = any(
             "__frame_top_present" in sql and f"limit {limit}" in sql.lower()
             for sql in trace.native_sql[submitted:]
         )
+        # Keep checking the complete decoded byte keys on ClickHouse.
+        assert bounded is (provider != "clickhouse")
 
 
 @pytest.mark.parametrize("provider, profile", source_params(CASES))

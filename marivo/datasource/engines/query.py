@@ -176,6 +176,8 @@ class QueryDialectProfile:
     preview_requires_terminal_scope: bool = False
     supports_per_row_attribute_time: bool = False
     supports_native_frame_top: bool = False
+    # SQL byte equality and order agree with completed Frame string keys.
+    native_frame_string_keys_match_transport: bool = True
     conditional_aggregate_style: Literal["none", "filter_where", "case_when", "clickhouse_if"] = (
         "none"
     )
@@ -184,6 +186,8 @@ class QueryDialectProfile:
     # SUM on nullable inputs returns NULL with no valid value in the frame.
     window_frame_nulls_safe: bool = False
     supports_grouping_sets: bool = False
+    supports_full_outer_join: bool = False
+    frame_int64_sum_wraps: bool = False
     # Exact integer SUM can use a sufficiently wide native accumulator even
     # when the declared result remains int64.
     grouping_sets_wide_integer_sum_bytes: frozenset[int] = frozenset()
