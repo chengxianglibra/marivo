@@ -31,9 +31,11 @@ _ON = OptimizationPolicy.default()
 _OFF = _ON.with_rule("L7_key_pushdown", enabled=False)
 
 
-def _decisions(query: mv.AnalysisFrame) -> tuple[RuleDecision, ...]:
+def _decisions(
+    query: mv.AnalysisFrame, *, policy: OptimizationPolicy = _ON
+) -> tuple[RuleDecision, ...]:
     with ExitStack() as stack:
-        plans = prepare_frame_sources(capture_frame_inputs(query), stack).plans
+        plans = prepare_frame_sources(capture_frame_inputs(query), stack, policy=policy).plans
     return tuple(
         decision
         for source in plans.values()

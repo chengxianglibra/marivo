@@ -21,19 +21,22 @@ from marivo._definition.query import (
     CoordinateSlot,
     FilterValues,
     PresenceSlot,
+    SelectValues,
+    Statistic,
     ValueBinary,
     ValueExpression,
     ValueLiteral,
+    ValuePartition,
     ValueSlot,
     ValueUnary,
 )
 from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
 from marivo.analysis.compiler.frame_filter_fusion import frame_filter_steps, fuse_frame_filters
-from marivo.analysis.compiler.frame_plan import plan_frame
+from marivo.analysis.compiler.frame_plan import frame_program, plan_frame
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead
-from marivo.analysis.compiler.optimization import optimize_query
+from marivo.analysis.compiler.optimization import optimize_query, required_slots
 from marivo.analysis.compiler.query_planning import plan_query
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.compiler.query_stages import (
@@ -1286,3 +1289,39 @@ def test_total_l1_requalifies_without_switching_native_terminal_paths(
             assert isinstance(stage, SourceReadStage)
             expression = merged.read(stage.stage_id).expression
             assert expression.select("key").to_pyarrow().column("key").to_pylist() == [1]
+
+
+def test_backward_projection_retains_source_obligations() -> None:
+    check = DataColumn("numeric_check.0", "numeric_check.0", ScalarDataType("boolean"), False)
+    presence = DataColumn("__numeric_present", "present", ScalarDataType("boolean"), False)
+    columns = (*_COLUMNS, check, presence)
+    physical = tuple((column.slot_id, column.slot_id) for column in columns)
+    source = SourceReadStage(
+        "input", "source", (), columns, _KEY, ProjectionRead(physical), physical, (), None
+    )
+    operation = SelectValues((("x", ValueSlot(0)),))
+    program = ResultProgram(operation, _COLUMNS, _KEY, (), (_KEY,), (_KEY,))
+    publish = LocalCompute("output", ("input",), _COLUMNS[:2], _KEY, program)
+    plan = QueryPlan((source, publish), (("input", ("output",)), ("output", ())), "output", (_KEY,))
+    demanded = next(item for item in required_slots(plan) if item.stage_id == "input")
+    assert demanded.columns == ("key", "x", "numeric_check.0", "__numeric_present")
+
+
+def test_partition_memo_keeps_distinct_partition_values() -> None:
+    schema = DataSchema(
+        (DataAxis("key", (_COLUMNS[0],), name="key"),),
+        (_COLUMNS[1],),
+        value_paths=(("x",),),
+    )
+    summed = Statistic("sum", ValueSlot(0))
+    shifted = Statistic("sum", ValueBinary("add", ValueSlot(0), ValueLiteral(1)))
+    selection = SelectValues(
+        (("original", ValuePartition(summed, ())), ("shifted", ValuePartition(shifted, ())))
+    )
+    program = frame_program(schema, selection)
+    frame = pd.DataFrame({"key": [10, 11], "x": [1, 3]})
+    for memoize in (False, True):
+        result = query_values.evaluate_frame(program, (frame,), memoize=memoize)
+        original, shifted_column = (value.slot_id for value in program.output_schema.values)
+        assert result[original].tolist() == [4, 4]
+        assert result[shifted_column].tolist() == [6, 6]

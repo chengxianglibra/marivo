@@ -143,12 +143,22 @@ GitHub Actions 在 Python 3.12 上独立运行 `formal`，各版本的 `check` �
 .venv/bin/python -m pip install -e ".[formal]"
 make verify-formal
 make verify-formal-deep
+make verify-formal-runtime
 ```
 
 `verify-formal` 使用确定性 Hypothesis 配置（每个属性最多 30 个样本），
 `verify-formal-deep` 的配置上限为 300 个样本。两个入口均执行 `tests/formal/verify_*.py`
-中的本地用例。`verify-formal-runtime` 预留给五引擎一致性用例，需该模块与运行中的
-Podman `marivo-multisource` 服务。
+中的本地用例。`verify-formal-runtime` 执行这些文件中标记为 Runtime 的用例，
+覆盖 DuckDB、PostgreSQL、MySQL、Trino 和 ClickHouse。远端引擎通过各自的开关启用，
+复用已经运行的 Podman `marivo-multisource` 服务。
+[启动与选择方法](tests/datasource/environment/README.md)
+
+新增可执行改写时，在 [规则目录](marivo/analysis/model/optimization_rules.py)
+声明其稳定 ID，在 [形式化登记](tests/formal/verify_rewrite_registry.py)
+登记同一改动提交中的证明或差分用例。登记守卫读取 Analysis 的策略与决策调用，
+也检查只改变执行路径且不会发出决策的规则。差分用例应保持已选数值内核，
+检查结果、顺序、类型、NULL 或有效 NaN、存在性以及应执行的检查。
+远端 SQL 和原生数值边界由对应的 Runtime 用例验证。
 
 Z3 读取由生产约分函数翻译出的整数约束，验证任意非负因子计数的约分规则。解析、
 规范化和单位组合另用独立的有符号指数模型检查有限输入。Population 验证通过公开 API

@@ -56,7 +56,9 @@ test:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n $(if $(findstring ::,$(TESTS)),0,$(PYTEST_WORKERS)) $(TESTS)
 
-FORMAL_RUNTIME_TEST := tests/formal/verify_cross_engine_conformance.py
+FORMAL_RUNTIME_TEST := $(wildcard tests/formal/verify_*.py) \
+	tests/analysis/materialization/test_frame_terminal_fusion.py \
+	tests/analysis/materialization/test_frame_top_remote.py
 
 verify-formal: export MARIVO_FORMAL_PROFILE := ci
 verify-formal-deep: export MARIVO_FORMAL_PROFILE := deep
@@ -70,7 +72,10 @@ verify-formal verify-formal-deep:
 
 verify-formal-runtime: export MARIVO_FORMAL_PROFILE := ci
 verify-formal-runtime:
-	@test -f "$(FORMAL_RUNTIME_TEST)" || { echo "error: formal Runtime requires $(FORMAL_RUNTIME_TEST)" >&2; exit 1; }
+	@test -n "$(strip $(FORMAL_RUNTIME_TEST))" || { echo "error: no formal Runtime files selected" >&2; exit 1; }
+	@for target in $(FORMAL_RUNTIME_TEST); do \
+		test -f "$$target" || { echo "error: missing formal Runtime file $$target" >&2; exit 1; }; \
+	done
 	@./scripts/require-venv.sh pytest z3 hypothesis
 	@$(MAKE) --no-print-directory runtime-test TESTS='$(FORMAL_RUNTIME_TEST)'
 

@@ -10,6 +10,7 @@ from sqlglot import exp, parse_one
 
 import marivo.analysis as mv
 from marivo.analysis.model.execution_errors import MaterializationError
+from marivo.analysis.model.optimization_policy import OptimizationPolicy
 from marivo.datasource.spi import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_key_predicate_pushdown import _OFF, _decisions
@@ -80,11 +81,13 @@ amount = ms.measure_column(name='amount', entity=orders, column='amount', additi
             else observed.where(observed.coord(observed.axes[0]) == 7)
         )
         trace = capture_source(monkeypatch)
-        baseline = compute_with_policy(selected, _OFF)
+        policy = OptimizationPolicy.default().with_rule("frame_terminal_fix", enabled=False)
+        control = policy.with_rule("L7_key_pushdown", enabled=False)
+        baseline = compute_with_policy(selected, control)
         assert trace.returned_rows == [4]
         trace.native_sql.clear()
         trace.returned_rows.clear()
-        actual = selected.compute()
+        actual = compute_with_policy(selected, policy)
         pd.testing.assert_frame_equal(baseline.to_pandas(), actual.to_pandas())
         keys = [(7, 10, 11), (7, 20, None)]
         if explicit:
@@ -95,7 +98,7 @@ amount = ms.measure_column(name='amount', entity=orders, column='amount', additi
             for row in actual.to_pandas().itertuples(index=False, name=None)
         ]
         assert len(rows) == len(expected) and set(rows) == set(expected)
-        decisions = _decisions(selected)
+        decisions = _decisions(selected, policy=policy)
         assert any(item.status == "adopted" for item in decisions), decisions
         assert trace.returned_rows == [2]
         assert len(trace.native_sql) == 1
@@ -104,6 +107,7 @@ amount = ms.measure_column(name='amount', entity=orders, column='amount', additi
             group.parent is not None and group.parent.find(exp.Where) is not None
             for group in sql.find_all(exp.Group)
         )
+        pd.testing.assert_frame_equal(selected.compute().to_pandas(), actual.to_pandas())
 
 
 @pytest.mark.parametrize("window", (False, True), ids=("calendar-day", "trailing-window"))
@@ -163,20 +167,24 @@ amount = ms.measure_column(name='amount', entity=orders, column='amount', additi
         )
         query = frame.where(frame.coord(frame.axes[0]) == 7)
         trace = capture_source(monkeypatch)
-        baseline = compute_with_policy(query, _OFF).to_pandas()
+        # Hold the independent window fusion off on both sides to isolate L7.
+        policy = OptimizationPolicy.default().with_rule("l6_window_prereduction", enabled=False)
+        control = policy.with_rule("L7_key_pushdown", enabled=False)
+        baseline = compute_with_policy(query, control).to_pandas()
         baseline_rows = sum(trace.returned_rows)
         trace.returned_rows.clear()
         trace.native_sql.clear()
-        actual = query.compute().to_pandas()
+        actual = compute_with_policy(query, policy).to_pandas()
         pd.testing.assert_frame_equal(actual, baseline)
         expected = [5, 11, None] if window else [11, None]
         assert actual.iloc[:, 0].tolist() == [7] * len(expected)
         assert [None if pd.isna(cell) else cell for cell in actual["clocked"]] == expected
         assert actual["independent"].tolist() == [5] * len(expected)
         assert sum(trace.returned_rows) < baseline_rows
-        decisions = _decisions(query)
+        decisions = _decisions(query, policy=policy)
         assert len(decisions) == 1
         assert decisions[0].status == "adopted", decisions
+        pd.testing.assert_frame_equal(query.compute().to_pandas(), actual)
 
 
 @pytest.mark.parametrize(

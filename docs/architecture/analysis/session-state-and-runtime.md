@@ -132,18 +132,29 @@ datasource/credential isolation. No automatic pagination or retry occurs.
 `compute()` and `persist()` retain their existing signatures. Fixed Frame
 operations and reopening never recover a request or read its API again.
 
-After Frame planning, a qualified pending field-read Top can bound the native
-read on DuckDB, PostgreSQL, MySQL, Trino or ClickHouse. The initial route requires
-one consumer, ordinary complete identity axes with integer/string keys, and a
-direct int64 score. Native ordering preserves NA-last and complete-key ties.
+After Frame planning, a qualified pending read or observation with one consumer
+can bound Top in its native source statement. The planner requires complete
+ordinary integer/string keys and a supported score and projection. Direct
+Int64 scores, qualified Float64 or exact Decimal scores and certain native
+aggregate scores are eligible. Datasource supplies the exact carrier and
+ordering checks. Oversized limits and projections whose transport cannot be
+proved retain normal source completion.
+
 Demanded full-input numeric, nonnullable and other retained integrity checks
-precede cropping, including Top-0. When the input relation proves its complete
-key unique, native and local Top omit duplicate-key auditing. Unknown inputs
-must complete their key check before cropping; Top-0 or Top-1 output cardinality
-cannot prove input uniqueness. Top does not certify source declarations; use
-explicit source_check to audit them. Source row-count summaries remain.
-Completed and reopened inputs continue through fixed-data execution without
-source reads or uploads. Unsupported expressions retain their local stages.
+precede cropping, including Top(0). A complete candidate key can discharge the
+duplicate-key check. Otherwise the input must complete that check before
+cropping. The direct Int64 route also returns a source row-count summary.
+ClickHouse string keys finish through the decoder before Frame key operations.
+Use explicit source_check to audit source declarations.
+
+Qualified pending fix, reduce, partition statistics and same-source alignment can
+also finish within one source statement. Their admission checks the bound
+physical relation, key and value carriers, source owner, consumers, and required
+checks. A provider without exact full outer alignment completes that step locally.
+Completed and reopened inputs use their captured data without source reads or
+uploads. Other inputs follow their original stage boundaries.
+[Top and terminal rules](../../../marivo/analysis/materialization/frame_terminal_fusion.py) ·
+[Analysis algebra](algebra-theory.md#当前编译器已实现的优化通道)
 
 `QueryPlan` owns executable stage layouts; lowering and physical rewrites return
 that plan together with stage-ID-associated Ibis/check payloads. Native execution

@@ -346,7 +346,10 @@ within that evaluation, including across selected outputs and arithmetic. Cache
 identity distinguishes literal carriers such as integer, float and Decimal.
 The broadcast reduction does not sort its intermediate groups; public reduce
 still returns canonical key order. Local Top(0) completes its score expression
-and then returns typed empty rows without sorting.
+and then returns typed empty rows without sorting. A qualified pending source
+can compute the partition and its terminal operation in one native statement
+while retaining the complete original partition and required checks.
+[Pending source evaluation](session-state-and-runtime.md)
 
 `column.share(along=axes)` requires a nonempty tuple of
 distinct complete axes from that Column's input. All other input axes define

@@ -24,6 +24,12 @@ from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.optimization_policy import OptimizationPolicy
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_population_membership import _session as membership_session
+from tests.analysis.materialization.test_query_optimization import (
+    optimization_session as optimization_session,
+)
+from tests.analysis.materialization.test_query_optimization import (
+    test_common_read_cse_projects_each_logical_value_and_check as test_common_read_cse_projects_each_logical_value_and_check,
+)
 from tests.formal.reference.bridge import (
     observe_case,
     observe_ordered_samples,
@@ -671,6 +677,34 @@ def test_shared_sample_folds_preserve_each_finish(
     optimized, control = _trace_three_paths(expected, query, monkeypatch)
     assert len(optimized.native_sql) == 1
     assert len(control.native_sql) == 2
+
+
+def test_source_member_counts_keep_complete_tuples_and_null_categories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    facts = (
+        Fact(1, 1, 0, 0, 10, None),
+        Fact(2, 1, 0, 0, 10, None),
+        Fact(3, None, 0, 0, 10, None),
+        Fact(4, None, 0, 0, 10, None),
+        Fact(5, None, 0, 0, 10, None),
+    )
+    session = open_source(tmp_path, facts)
+    entity = catalog_value(session.catalog, "trial.facts", kind="entity")
+    category = catalog_value(session.catalog, "trial.facts.group_id", kind="dimension")
+    population = session.members(entity).classify(by=(mv.identity(entity), category))
+    query = session.observe({"value": population.count()}, by=(category,))
+    expected = Result(((1,), (None,)), {}, {"value": Column.from_values({(1,): 2, (None,): 3})})
+    off = OptimizationPolicy.disabled()
+    for policy in (off, off.with_rule("source_member_count", enabled=True)):
+        with monkeypatch.context() as patch:
+            trace = capture_source(patch)
+            assert_equivalent(expected, run_frame(query, policy))
+        if policy is off:
+            assert sum(trace.returned_rows) >= len(facts)
+        else:
+            assert trace.returned_rows == [2]
+            assert "COUNT" in trace.native_sql[0].upper()
 
 
 def test_native_population_check_fusion_keeps_complete_selected_support(
