@@ -118,16 +118,21 @@ def _calendar(
     )
 
 
-def test_identity_outer_keeps_na_presence_and_complete_composite_keys(
+def test_nested_fixed_alignment_preserves_complete_keys_and_presence(
     local: LocalFrameServices,
 ) -> None:
     left = _memory(local, (MEMBER,), (("t1", "A", None), ("t2", "A", 0)))
     right = _memory(local, (MEMBER,), (("t1", "A", 7), ("t3", "A", 9)))
-    result = left.align(right, on=_on(left, right)).compute().to_pandas()
-    assert result.iloc[:, 0].tolist() == [("t1", "A"), ("t2", "A"), ("t3", "A")]
-    assert result["left_present"].tolist() == [True, True, False]
-    assert result["right_present"].tolist() == [True, False, True]
-    assert result["left.m"].isna().tolist() == [True, False, True]
+    aligned = left.align(right, on=_on(left, right)).compute()
+    nested = aligned.align(aligned, on=_on(aligned, aligned)).compute().to_pandas()
+    assert nested["accounts"].tolist() == [("t1", "A"), ("t2", "A"), ("t3", "A")]
+    assert nested["left_present"].tolist() == [True, True, True]
+    assert nested["left.left_present"].tolist() == [True, True, False]
+    assert nested["left.right_present"].tolist() == [True, False, True]
+    assert nested["left.left.m"].isna().tolist() == [True, False, True]
+
+
+def test_fixed_frame_rejects_duplicate_composite_keys(local: LocalFrameServices) -> None:
     with pytest.raises(AnalysisError):
         _memory(local, (MEMBER,), (("t1", "A", 1), ("t1", "A", 2)))
 
@@ -259,16 +264,6 @@ def test_full_quarter_offset_and_ordinal_align_retain_paired_values(
         rows = aligned.to_pandas()
         assert rows["left.m"].tolist() == [10]
         assert rows["right.m"].tolist() == [3]
-
-
-def test_nested_presence_stays_authoritative(local: LocalFrameServices) -> None:
-    left = _memory(local, (FIELD,), (("A", 10),))
-    right = _memory(local, (FIELD,), (("B", 20),))
-    first = left.align(right, on=_on(left, right)).compute()
-    nested = first.align(first, on=_on(first, first)).compute().to_pandas()
-    assert nested["left_present"].tolist() == [True, True]
-    assert nested["left.left_present"].tolist() == [True, False]
-    assert nested["left.right_present"].tolist() == [False, True]
 
 
 def test_real_duckdb_observation_frames_with_explicit_complete_axis_mapping(

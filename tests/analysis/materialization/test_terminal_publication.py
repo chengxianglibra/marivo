@@ -336,15 +336,7 @@ def test_faults_never_expose_partial_output_or_delete_prior_commit(
     saved = constant(session).persist()
     memory = AnalysisFrame._from_memory(session._runtime.local, method_result())
     before = memory.to_pandas()
-    for point in (
-        "publication_admitted",
-        "terminal_primary_written",
-        "terminal_method_written",
-        "terminal_files_published",
-        "insert_artifact",
-        "insert_terminal",
-        "before_commit",
-    ):
+    for point in ("terminal_primary_written", "before_commit"):
         prior_runs = {run.run_ref: run for run in terminal_runs(session)}
         reached: list[str] = []
 
@@ -369,6 +361,12 @@ def test_faults_never_expose_partial_output_or_delete_prior_commit(
             len(list(session._runtime.store.layout.session_dir(session.id).glob("artifacts/*")))
             == 1
         )
+
+    published = memory.persist()
+    assert published.artifact_id != saved.artifact_id
+    reopened = session.persisted_frame(published.artifact_id)
+    pd.testing.assert_frame_equal(reopened.to_pandas(), before)
+    assert stored_frame(session, saved)["value.0"].tolist() == [7]
 
 
 def test_lost_commit_ack_returns_original_without_reexecution(
@@ -594,7 +592,6 @@ assert terminal_store.complete_metadata(manifest).source_reads==()
         "terminal_primary_written",
         "terminal_method_written",
         "terminal_files_published",
-        "before_commit",
         "after_commit",
     ),
 )

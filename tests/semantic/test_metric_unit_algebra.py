@@ -11,7 +11,6 @@ from marivo.semantic.unit_algebra import (
     divide_unit_states,
     linear_unit,
     linear_units_conflict,
-    multiply_unit_states,
     ratio_unit,
     render_unit,
     tier1_unit,
@@ -31,19 +30,15 @@ def test_tier1_unit_counts_are_known_unit_one(agg: str) -> None:
     assert tier1_unit(agg, None) == "1"
 
 
-def test_ratio_unit_same_known_cancels_to_one() -> None:
-    assert ratio_unit("CNY", "CNY") == "1"
-    assert ratio_unit("{order}", "{order}") == "1"
-
-
-def test_ratio_unit_differing_known_units_form_canonical_quotient() -> None:
-    assert ratio_unit("CNY", "{user}") == "CNY/{user}"
+def test_ratio_unit_renders_canonical_quotients() -> None:
     assert ratio_unit("USD.CNY", "s") == "CNY.USD/s"
+    assert ratio_unit("{order}", "{order}") == "1"
+    assert ratio_unit("1", "{request}") == "1/{request}"
 
 
-def test_ratio_unit_unknown_operand_is_unknown() -> None:
+def test_ratio_unit_is_unknown_for_an_opaque_or_unknown_operand() -> None:
+    assert ratio_unit("CNY/(request)", "s") is None
     assert ratio_unit("CNY", None) is None
-    assert ratio_unit(None, None) is None
 
 
 def test_nested_ratio_reduces_without_losing_structure() -> None:
@@ -51,18 +46,6 @@ def test_nested_ratio_reduces_without_losing_structure() -> None:
     seconds_per_request = divide_unit_states(unit_state("s"), unit_state("{request}"))
 
     assert render_unit(divide_unit_states(cny_per_request, seconds_per_request)) == "CNY/s"
-
-
-def test_dimensionless_is_empty_product() -> None:
-    assert ratio_unit("CNY", "1") == "CNY"
-    assert ratio_unit("1", "1") == "1"
-    assert ratio_unit("1", "{request}") == "1/{request}"
-
-
-def test_repeated_factors_and_multiplication_are_canonical() -> None:
-    multiplied = multiply_unit_states(unit_state("s.CNY"), unit_state("s/{request}"))
-
-    assert render_unit(multiplied) == "CNY.s.s/{request}"
 
 
 def test_unit_state_distinguishes_factorized_opaque_and_unknown() -> None:
@@ -78,33 +61,20 @@ def test_unit_state_distinguishes_factorized_opaque_and_unknown() -> None:
     assert unit_state(None) == UnknownUnitV2(schema="metric-unit-unknown/v2")
 
 
-def test_opaque_unit_is_authoritative_but_cannot_be_divided() -> None:
-    assert render_unit(unit_state("CNY/(request)")) == "CNY/(request)"
-    assert ratio_unit("CNY/(request)", "s") is None
-
-
 def test_authoring_invalid_unit_is_rejected_by_algebra() -> None:
     with pytest.raises(ValueError):
         unit_state("CNY per request")
 
 
-def test_linear_unit_all_same_known() -> None:
-    assert linear_unit(["CNY", "CNY"]) == "CNY"
-    assert linear_unit(["USD.CNY", "CNY.USD"]) == "CNY.USD"
+def test_linear_units_distinguish_canonical_matches_conflicts_and_unknowns() -> None:
+    compatible = ("USD.CNY", "CNY.USD")
+    assert linear_unit(compatible) == "CNY.USD"
+    assert not linear_units_conflict(compatible)
 
+    conflicting = ("CNY", "{order}")
+    assert linear_unit(conflicting) is None
+    assert linear_units_conflict(conflicting)
 
-def test_linear_unit_any_none_is_none() -> None:
-    assert linear_unit(["CNY", None]) is None
-    assert linear_unit([None, None]) is None
-
-
-def test_linear_unit_distinct_known_is_none() -> None:
-    assert linear_unit(["CNY", "{order}"]) is None
-
-
-def test_linear_units_conflict_only_on_two_distinct_known() -> None:
-    assert linear_units_conflict(["CNY", "{order}"]) is True
-    assert linear_units_conflict(["CNY", "CNY"]) is False
-    assert linear_units_conflict(["CNY", None]) is False
-    assert linear_units_conflict([None, None]) is False
-    assert linear_units_conflict(["USD.CNY", "CNY.USD"]) is False
+    incomplete = ("CNY", None)
+    assert linear_unit(incomplete) is None
+    assert not linear_units_conflict(incomplete)

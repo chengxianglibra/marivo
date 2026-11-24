@@ -156,7 +156,10 @@ Population 表示带类型、按完整元组去重的有限键集。客户的复
 - **Shapley 置换博弈**：对非线性成对目标，以联合细键为参与者集合 $G$；对任意联盟 $S \subseteq G$，特征函数 $v(S)$ 是将 $S$ 中所有组取本期、其余组 $G \setminus S$ 取基期后的整式重算，单个参与者沿置换加入的边际贡献为 $v(S \cup \{g\}) - v(S)$，每条采样置换路径满足效率公理 $\sum_{g \in G} \phi_g = v(G) - v(\varnothing)$。满足 L6 摘要可重构条件的目标在本地合并各参与者状态求 $v(S)$，不满足的目标回退到源端原生联盟查询。[归因与博弈契约](populations-and-observation.md#captured-source-contribution-targets) · [精确归因实现](../../../marivo/analysis/methods/frame_attribute_contribution.py) · [Shapley 博弈实现](../../../marivo/analysis/methods/frame_attribute_shapley.py)
 
 **量纲代数与可加性权限半格。**
-- **量纲**：可分解单位构成原子符号上的自由阿贝尔群 $\mathbb{Z}^{(\Sigma)}$（乘法为指数向量相加，除法为相减，约分消去公因子，无量纲 `"1"` 为单位元），并附加不透明单位与吸收元 `None`（未知单位）；加减法要求兼容相等的单位，`ms.rescale` 作为显式声明的态射更改目标单位。[单位代数实现](../../../marivo/semantic/unit_algebra.py) · [单位代数形式化验证](../../../tests/formal/verify_unit_algebra.py)
+- **可分解单位**构成原子符号上的自由阿贝尔群 $\mathbb{Z}^{(\Sigma)}$（乘法为指数向量相加，除法为相减，约分消去公因子，无量纲 `"1"` 为单位元）。
+  量纲代数还包含不透明单位和以 `None` 表示的未知单位。语义表达式的加减中，裸常数沿用另一操作数的单位。
+  单位检查只在两个已知单位不兼容时拒绝加减。任一操作数的单位未知时，结果单位为 `None`。
+  `ms.rescale` 作为显式声明的态射更改目标单位。[加减单位检查](../../../marivo/semantic/expressions/operations.py) · [单位代数实现](../../../marivo/semantic/unit_algebra.py) · [单位代数形式化验证](../../../tests/formal/verify_unit_algebra.py)
 - **可加性权限**：`additive_all()`（全集）、`additive_except(E)`（补集）、`additive_over(A)`（显式轴集）与 `non_additive()`（空集）构成交半格。同单位线性行算术取权限交集，常数缩放保持权限，乘除法重置为空集除非显式再声明。[可加性权限声明](../semantic/expressions.md#sum-permission-declarations)
 
 **重新绑定。** 对 Metric 改换期间、条件或样本，是在新上下文中重新求值。固定 Frame 的选择和归约使用捕获的键与值。`session.population_from(frame, on=...)` 投影并去重所选普通轴的完整联合键，按显式 Field 或 Entity 目标建立新的语义绑定。版本化目标字段省略锚点时，须能确认沿用同一个未锚定的直接字段；换绑到另一个版本化字段须给出目标时间锚点。[固定键的来源桥接](populations-and-observation.md#fixed-data-bridge-to-a-new-source-question) · [版本化字段的准入检查](../../../marivo/analysis/dsl/frame_population.py)
