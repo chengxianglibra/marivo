@@ -309,7 +309,7 @@ _PAGES = (
             "GET /v2/semantic/objects browses summaries or runs vector search with query (1–512 characters, with non-whitespace text). Apply kind/domain filters before ranking. Continue with the same query, filters and limit.",
             "By default serve verifies the pinned Granite model and tokenizer and downloads missing or invalid files before listener readiness. Set MARIVO_VECTOR_MODEL_CACHE_DIR to override the shared model cache. Startup fails if model preparation fails or runtime dependencies are missing.",
             "For offline provisioning use --experimental-granite-model PATH with a local .onnx or .ort model and sibling tokenizer.json. Use --experimental-granite-cache-dir to reuse matching vectors across restarts. /v2/info reports asynchronous index readiness in catalog.search.",
-            "Use canonical kind:path IDs. Append /{id} for detail, /{id}/related?relation=dependencies or dependents for links, and /{id}/datasource-properties for approved datasource settings.",
+            "Use canonical kind:path IDs. Append /{id} for detail, /{id}/related?relation=dependencies or dependents for links, and /{id}/datasource-properties for approved settings and declared credential references (env_refs).",
             "POST /v2/semantic/reload with an empty body loads the Catalog and re-encodes only new or changed search text by canonical object ID. A failure preserves the old snapshot. Active loads return catalog_load_in_progress. Saved results remain fixed. The host owns credentials, user permissions and report publication.",
         ),
         discovery_group="results.service",

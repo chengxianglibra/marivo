@@ -38,8 +38,11 @@ def test_datasource_projection_filters_unapproved_or_unsafe_shapes() -> None:
         "backend_type": "trino",
         "wall_clock_timezone": None,
         "properties": {"catalog": "hive"},
+        "env_refs": {"user": "PRIVATE_USER"},
         "has_omitted_fields": True,
     }
+    approved = replace(definition, fields=(("catalog", "hive"),))
+    assert _datasource_properties(approved)["has_omitted_fields"] is False
     # Even allowlisted keys are rejected before materializing nested or oversized values.
     nested = replace(definition, fields=(("client_tags", (("hidden",),)),))
     assert _datasource_properties(nested)["properties"] == {}

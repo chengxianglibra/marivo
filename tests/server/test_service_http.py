@@ -832,31 +832,46 @@ def test_datasource_properties_are_authenticated_snapshot_reads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MARIVO_CREDENTIAL_RESOLVER", "missing_process_credentials:resolver")
+    monkeypatch.setenv("PRIVATE_USER", "resolved-user-value")
     _models(tmp_path, "before")
     datasource = tmp_path / "models/datasources/warehouse.py"
-    trino = tmp_path / "models/datasources/remote.py"
-    trino.write_text(
+    remote_model = tmp_path / "models/datasources/remote.py"
+    remote_model.write_text(
         "import marivo.datasource as md\n"
         "md.trino(name='remote', host='coordinator.example', port=8080, "
         "catalog='hive', source='client', client_tags=['standby'], "
-        "user=md.env('PRIVATE_USER'), session_properties={'password':'hidden-value'})\n"
+        "user=md.env('PRIVATE_USER'), auth=md.env('vault:warehouse/trino'), "
+        "session_properties={'password':'hidden-value'})\n"
+        "md.duckdb(name='files', secrets=[md.http_bearer_secret("
+        "scope='https://media.example/', token=md.env('MEDIA_TOKEN'))])\n"
     )
     endpoint = "/v2/semantic/objects/datasource%3Awarehouse/datasource-properties"
-    remote = "/v2/semantic/objects/datasource%3Aremote/datasource-properties"
+    remote = "/v2/semantic/objects/datasource%3Aremote"
+    remote_properties = remote + "/datasource-properties"
     with server(tmp_path) as request:
-        _error(request(endpoint, bearer=None), 401, "unauthorized")
+        _error(request(remote_properties, bearer=None), 401, "unauthorized")
         spec = _ok(request("/v2/openapi.json"))
         before = _ok(request(endpoint))
         _schema(spec, "DatasourceProperties", before)
         assert before["properties"]["path"] == "private-storage-name.duckdb"
+        assert before["env_refs"] == {}
         detail = _ok(request("/v2/semantic/objects/datasource%3Awarehouse"))
         assert "private-storage-name" not in json.dumps(detail)
-        properties = _ok(request(remote))
+        properties = _ok(request(remote_properties))
+        _schema(spec, "DatasourceProperties", properties)
         assert properties["properties"]["host"] == "coordinator.example"
         assert properties["properties"]["client_tags"] == ["standby"]
+        assert properties["env_refs"] == {"user": "PRIVATE_USER", "auth": "vault:warehouse/trino"}
         assert properties["has_omitted_fields"] is True
         assert "hidden-value" not in json.dumps(properties)
-        assert "PRIVATE_USER" not in json.dumps(properties)
+        assert "resolved-user-value" not in json.dumps(properties)
+        detail = _ok(request(remote))
+        _schema(spec, "SemanticObject", detail)
+        assert "env_refs" not in detail["definition"]
+        assert "PRIVATE_USER" not in json.dumps(detail)
+        files = _ok(request("/v2/semantic/objects/datasource%3Afiles/datasource-properties"))
+        _schema(spec, "DatasourceProperties", files)
+        assert files["env_refs"] == {"http@https://media.example/.token": "MEDIA_TOKEN"}
         _error(
             request("/v2/semantic/objects/metric%3Asales.total/datasource-properties"),
             404,
@@ -874,10 +889,16 @@ def test_datasource_properties_are_authenticated_snapshot_reads(
         assert len(updated) == old_stat.st_size
         datasource.write_text(updated)
         os.utime(datasource, ns=(old_stat.st_atime_ns, old_stat.st_mtime_ns))
+        remote_model.write_text(remote_model.read_text().replace("PRIVATE_USER", "NEXT_USER"))
         assert _ok(request(endpoint)) == before
+        assert _ok(request(remote_properties)) == properties
         _ok(request("/v2/semantic/reload", method="POST"))
         after = _ok(request(endpoint))
         assert after["properties"]["path"] == "another-storage-name.duckdb"
+        assert _ok(request(remote_properties))["env_refs"] == {
+            "user": "NEXT_USER",
+            "auth": "vault:warehouse/trino",
+        }
         datasource.write_text("def invalid(:\n")
         _error(request("/v2/semantic/reload", method="POST"), 422, "catalog_load_failed")
         assert _ok(request(endpoint)) == after

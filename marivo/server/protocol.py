@@ -112,7 +112,7 @@ ROUTES = (
         "datasource_properties",
         "/v2/semantic/objects/{id}/datasource-properties",
         "DatasourceProperties",
-        "Read approved datasource configuration from the current Catalog snapshot",
+        "Read approved datasource configuration and credential references from the current Catalog snapshot",
     ),
     Route(
         "reload",
@@ -485,6 +485,7 @@ def _catalog_schemas() -> dict[str, JsonObject]:
                 "type": "object",
                 "additionalProperties": either(STRING, INT, BOOL, arr(STRING)),
             },
+            env_refs=mapping(STRING),
             has_omitted_fields=BOOL,
         ),
     }

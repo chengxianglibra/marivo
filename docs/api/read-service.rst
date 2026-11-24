@@ -77,7 +77,10 @@ context, formulas, units, time bindings and project-relative provenance while
 omitting connection fields and file/HTTP source locations.
 For an exact ``datasource:<name>`` identity,
 ``GET /v2/semantic/objects/{id}/datasource-properties`` exposes approved literal
-settings to callers with the project token.
+settings and declared credential references to callers with the project token.
+``env_refs`` maps credential fields to their exact ``md.env(...)`` lookup names
+without resolving credential values. It is ``{}`` when the datasource declares
+no references.
 
 The service loads the Catalog in a fresh interpreter without querying business
 sources. ``GET /v2/info`` reports its load status. Send an empty body to

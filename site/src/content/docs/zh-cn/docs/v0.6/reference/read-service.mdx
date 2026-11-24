@@ -196,14 +196,19 @@ curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
 环境引用、文件/HTTP 来源地址及外部模型的绝对路径。关联导航接受 `dependencies` 或
 `dependents`，使用完整已加载范围，已知但未加载的依赖单列于 `outside_scope`。
 
-独立的 datasource-properties 接口接受精确的 `datasource:<name>` 身份，返回
-`backend_type`、`wall_clock_timezone`、`properties` 和 `has_omitted_fields`。
-缺失或非数据源身份返回 404。接口按引擎和数据形状投影允许公开的字面属性，省略
-环境引用、凭据、任意嵌套选项及不符合条件的值；普通语义详情的投影不变。
-该接口会向**所有持有项目 API token 的调用方**展示允许的连接配置与 DuckDB 路径，
-宿主需要自行实施用户和项目授权。字段名或格式无法证明字面值不含秘密：Marivo
-在快照前合并 `extra` 和字面字段，作者应使用凭据引用保存秘密。
-`has_omitted_fields` 只表示字面配置有字段被省略，不代表凭据或连接状态。
+独立的 `datasource-properties` 接口接受精确的 `datasource:<name>` 身份，返回
+`backend_type`、`wall_clock_timezone`、`properties`、`env_refs` 和
+`has_omitted_fields`。缺失或非数据源身份返回 404。`properties` 只包含符合后端
+白名单和数据形状要求的字面字段。`env_refs` 将凭据字段映射到 `md.env(...)` 声明的
+原始查找名。DuckDB S3 和 HTTP 的字段键保留其作用域。没有声明引用时返回 `{}`。
+服务直接从定义读取引用名，无需解析凭据。`has_omitted_fields` 表示 `properties`
+是否省略了字面字段。
+运行 0.6.12 的服务会省略 `env_refs` 字段。
+
+该接口会向**所有持有项目 API token 的调用方**展示允许的连接配置、DuckDB 路径与
+凭据引用。宿主需要自行实施用户和项目授权。普通语义详情省略这些配置和引用。Marivo
+在生成快照前将 `extra` 合并到字面字段。请将秘密值存放在数据源声明之外，并用
+`md.env(...)` 引用。
 
 属性与语义对象在同一隔离、有界 Catalog 加载中捕获。快照就绪后读取无需新启进程，
 也不连接数据源；首次加载、原子重载、失败保留旧快照及读取预算沿用 Catalog 规则。

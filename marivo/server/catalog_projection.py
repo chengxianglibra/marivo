@@ -35,8 +35,7 @@ DEFINITION_FIELDS: dict[type[object], str] = {
     RelationshipDefinition: "context from_entity to_entity keys cardinality dependencies",
 }
 
-# These fields are intentionally available only through the authenticated
-# datasource-properties endpoint, never through the ordinary Catalog detail.
+# Literal field allowlist for the authenticated datasource-properties endpoint.
 _DATASOURCE_FIELDS: dict[str, frozenset[str]] = {
     "duckdb": frozenset({"path", "read_only"}),
     "trino": frozenset(
@@ -87,6 +86,7 @@ def _datasource_properties(definition: DatasourceDefinition) -> JsonObject:
         "backend_type": definition.backend_type,
         "wall_clock_timezone": definition.wall_clock_timezone,
         "properties": properties,
+        "env_refs": dict(definition.env_refs),
         "has_omitted_fields": len(properties) < len(definition.fields),
     }
 

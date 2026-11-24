@@ -236,17 +236,22 @@ external absolute model paths are omitted. Related navigation accepts
 unloaded dependencies separately as `outside_scope`.
 
 The dedicated datasource-properties endpoint accepts an exact `datasource:<name>`
-identity and returns `backend_type`, `wall_clock_timezone`, `properties` and
-`has_omitted_fields`. It returns 404 for absent or non-datasource identities. It
-projects a bounded allowlist of literal fields by backend and omits environment
-references, credentials, arbitrary nested options and unapproved or unsafe-shaped
-values. The ordinary semantic detail remains unchanged. This endpoint intentionally
-exposes approved connection settings and DuckDB paths to **every holder of the
-project's API token**. Hosts must enforce their own user/project authorization.
-Allowed literal values cannot be proven secret-free by their field name or format:
-Marivo merges `extra` into literal fields before the snapshot. Authors must keep
-secrets in credential references, not literal configuration. `has_omitted_fields`
-indicates omitted literal fields, not credential availability or connection status.
+identity and returns `backend_type`, `wall_clock_timezone`, `properties`,
+`env_refs` and `has_omitted_fields`. It returns 404 for absent or non-datasource
+identities. `properties` contains only allowlisted literal fields with approved
+value shapes for the backend. `env_refs` maps credential fields to the exact
+lookup names supplied to `md.env(...)`. DuckDB S3 and HTTP field keys retain
+their scopes. The map is `{}` for datasources without references. The service
+reads these names from the definition without resolving credentials.
+`has_omitted_fields` indicates whether `properties` omits any literal fields.
+Services running 0.6.12 omit the `env_refs` field.
+
+This endpoint exposes approved connection settings, DuckDB paths and credential
+references to **every holder of the project's API token**. Hosts must enforce
+their own user/project authorization. Ordinary semantic details omit these
+settings and references. Marivo merges `extra` into literal fields before
+capturing the snapshot. Keep secret values outside datasource declarations and
+use `md.env(...)` to reference them.
 
 Properties are captured in the same isolated, bounded Catalog load as semantic
 objects. Warm requests read the immutable snapshot without starting a new process or
