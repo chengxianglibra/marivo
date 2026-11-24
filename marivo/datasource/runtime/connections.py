@@ -164,7 +164,7 @@ class DatasourceConnectionConfig:
     """Reader-owned connection configuration without live backend state."""
 
     project_root: Path
-    resolver: cr.CredentialResolver | None = field(repr=False)
+    resolver: cr.ResolverBinding | None = field(repr=False)
 
     @contextmanager
     def operation(self) -> Iterator[DatasourceConnectionService]:

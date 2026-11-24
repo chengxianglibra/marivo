@@ -127,6 +127,12 @@ def _isolate_prior_generation_notices(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_process_resolver_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each credential test selects its own providers."""
+    monkeypatch.delenv("MARIVO_CREDENTIAL_RESOLVER", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _disable_telemetry_outside_telemetry_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep unrelated tests from writing local telemetry for every public call."""
     monkeypatch.setenv("MARIVO_TELEMETRY", "off")

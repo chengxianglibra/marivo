@@ -828,7 +828,10 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
         assert _ok(request(_path(ids))) == report
 
 
-def test_datasource_properties_are_authenticated_snapshot_reads(tmp_path: Path) -> None:
+def test_datasource_properties_are_authenticated_snapshot_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MARIVO_CREDENTIAL_RESOLVER", "missing_process_credentials:resolver")
     _models(tmp_path, "before")
     datasource = tmp_path / "models/datasources/warehouse.py"
     trino = tmp_path / "models/datasources/remote.py"

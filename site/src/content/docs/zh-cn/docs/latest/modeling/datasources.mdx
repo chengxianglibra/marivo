@@ -230,7 +230,11 @@ md.duckdb(name="lake", secrets=[
 ])
 ```
 
-没有宿主 resolver 时，依次从环境变量和 `~/.marivo/secrets.toml` 查找；`md.credential_scope` 将相同引用交给宿主，返回值不落盘。每次操作重新解析，轮换的凭据在下一次操作生效。`md.load().test` 只验证字面量往返，不验证 S3 或 HTTP 访问，因此缓存的 key 未必经过对应端点验证。
+显式的 `md.credential_scope` 或已配置的 `MARIVO_CREDENTIAL_RESOLVER` 都能处理
+相同的凭据引用，解析后的值保留在内存中。未配置宿主 resolver 时，Marivo 依次读取环境变量
+和 `~/.marivo/secrets.toml`。每次建立新连接时重新解析引用。`md.load().test` 验证
+字面量往返。验证 S3 或 HTTP 访问需要直接对相应端点执行操作。参见
+[宿主凭据配置](/zh-cn/docs/latest/reference/configuration/#集成宿主凭据)。
 
 作用域使用主机和路径前缀，不能包含 URL 用户信息、查询字符串或片段。DuckDB 中，同一个数据库实例的连接共享 secret 目录。文件数据库或命名的内存数据库使用作用域凭据时，Marivo 要求独占其托管连接，直到连接关闭。需要使用不同凭据并发访问时，请使用不同的数据库。
 

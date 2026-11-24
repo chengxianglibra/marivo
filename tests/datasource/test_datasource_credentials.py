@@ -15,6 +15,7 @@ from contextlib import nullcontext
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import ModuleType
 
 import ibis
 import pytest
@@ -67,6 +68,216 @@ def register_project(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
             ],
         )
     )
+
+
+@pytest.fixture
+def process_resolver_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    module = ModuleType("fixture_process_credentials")
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    monkeypatch.setattr(credentials, "_DEFAULT_RESOLVER", credentials._ProcessResolver())
+    monkeypatch.setenv("MARIVO_CREDENTIAL_RESOLVER", f"{module.__name__}:resolver")
+    return module
+
+
+def test_process_resolver_is_lazy_and_shared_by_sessions_and_threads(
+    authoring_evidence_project: Path,
+    process_resolver_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = authoring_evidence_project
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(project))
+    bearer = md.http_bearer_secret(scope="http://127.0.0.1/", token=md.env("FIXTURE_TOKEN"))
+    md.register(md.duckdb(name="probe", path=":memory:", secrets=[bearer]))
+    md.register(
+        md.duckdb(
+            name="warehouse",
+            path=str(project / "warehouse.duckdb"),
+            wall_clock_timezone="UTC",
+            secrets=[bearer],
+        )
+    )
+    instances: list[HostResolver] = []
+
+    def factory() -> HostResolver:
+        resolver = HostResolver()
+        instances.append(resolver)
+        # Let competing first requests reach the loader during factory execution.
+        threading.Event().wait(0.1)
+        return resolver
+
+    monkeypatch.setattr(process_resolver_module, "resolver", factory, raising=False)
+    catalog = ms.load(workspace_dir=project)
+    session = mv.session.get_or_create("process-resolver", timezone="UTC")
+    datasources = md.load(workspace_dir=project)
+    assert datasources.test("default").ok
+    scoped = HostResolver("explicit-token")
+    with md.credential_scope(resolver=scoped):
+        assert datasources.test("probe").ok
+    assert len(scoped.requests) == 1
+    assert instances == []
+
+    barrier = threading.Barrier(2)
+
+    def connect() -> bool:
+        barrier.wait(timeout=5)
+        return datasources.test("probe").ok
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        first, second = workers.submit(connect), workers.submit(connect)
+        assert first.result(timeout=15) and second.result(timeout=15)
+        (resolver,) = instances
+        assert [request.datasource for request in resolver.requests] == ["probe", "probe"]
+
+        monkeypatch.delenv("MARIVO_CREDENTIAL_RESOLVER")
+        assert datasources.test("probe").ok
+        assert [request.datasource for request in resolver.requests] == ["probe"] * 3
+        with md.credential_scope(resolver=resolver):
+            entity = session.catalog.get("entity:sales.orders")
+        assert entity.kind == "entity"
+        query = session.observe({"orders": session.members(entity).count()})
+        frame = workers.submit(query.compute).result(timeout=15)
+        assert frame.to_pandas()["orders"].tolist() == [4]
+
+    preview = catalog.preview(
+        catalog.get("entity:sales.orders"),
+        scope=md.unpruned(max_rows=10, timeout_seconds=10),
+    )
+    assert {row["query_id"] for row in preview.rows} == {1, 2, 3, 4}
+    assert len(instances) == 1
+    assert {request.datasource for request in resolver.requests} == {"probe", "warehouse"}
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires fork")
+def test_forked_process_initializes_its_own_resolver() -> None:
+    script = """
+import os
+import signal
+from pathlib import Path
+
+import marivo.datasource as md
+from marivo.datasource import credentials
+
+calls = []
+
+class Resolver:
+    def __init__(self):
+        self.owner = os.getpid()
+
+    def resolve(self, request):
+        return md.SecretValue(str(self.owner))
+
+def factory():
+    calls.append(os.getpid())
+    return Resolver()
+
+binding = credentials.current_resolver()
+operation = credentials.CredentialOperation(Path.cwd())
+
+def owner():
+    return int(credentials.resolve_reference(
+        binding, operation, reference="TEST", datasource="warehouse", fields=("user",)
+    ).reveal())
+
+parent = os.getpid()
+assert owner() == parent
+child = os.fork()
+if child == 0:
+    signal.alarm(5)
+    pid = os.getpid()
+    os._exit(0 if owner() == owner() == pid and calls == [parent, pid] else 1)
+assert os.waitpid(child, 0)[1] == 0
+assert owner() == parent and calls == [parent]
+"""
+    subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "MARIVO_CREDENTIAL_RESOLVER": "__main__:factory"},
+        check=True,
+        timeout=20,
+    )
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "",
+        "fixture_process_credentials",
+        "missing_process_credentials:resolver",
+        "fixture_process_credentials:missing",
+        "fixture_process_credentials:noncallable",
+        "fixture_process_credentials:invalid",
+        "fixture_process_credentials:failing",
+    ],
+)
+def test_process_resolver_load_failure_is_sticky_and_bypasses_fallback(
+    spec: str,
+    tmp_path: Path,
+    process_resolver_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    register_project(tmp_path, monkeypatch)
+    monkeypatch.setenv("MARIVO_CREDENTIAL_RESOLVER", spec)
+    monkeypatch.setenv("FIXTURE_TOKEN", "env-fallback-canary")
+    monkeypatch.setattr(process_resolver_module, "noncallable", object(), raising=False)
+    monkeypatch.setattr(process_resolver_module, "invalid", object, raising=False)
+    monkeypatch.setattr(process_resolver_module, "resolver", HostResolver, raising=False)
+
+    def failing() -> HostResolver:
+        raise RuntimeError("factory-error-canary")
+
+    def forbidden_cache() -> secrets.LocalPlaintextCache:
+        pytest.fail("failed process resolver used the default cache")
+
+    monkeypatch.setattr(process_resolver_module, "failing", failing, raising=False)
+    monkeypatch.setattr(secrets.LocalPlaintextCache, "default", forbidden_cache)
+    datasource = load_datasource("warehouse", tmp_path)
+    with pytest.raises(md.DatasourceCredentialError) as captured:
+        open_backend(datasource, project_root=tmp_path)
+    failure = captured.value
+    assert failure.reason == "unavailable"
+    assert failure.reference == "FIXTURE_TOKEN"
+    assert failure.datasource == "warehouse"
+    assert failure.fields == ("http@http://127.0.0.1/.token",)
+    assert failure.repair is not None and "MARIVO_CREDENTIAL_RESOLVER" in failure.repair.action
+    assert "factory-error-canary" not in "".join(traceback.format_exception(failure))
+
+    monkeypatch.setenv("MARIVO_CREDENTIAL_RESOLVER", f"{process_resolver_module.__name__}:resolver")
+    result = md.load(workspace_dir=tmp_path).test("warehouse")
+    assert result.failure is not None and result.failure.code == "credential_unavailable"
+    with md.credential_scope(resolver=HostResolver()):
+        assert md.load(workspace_dir=tmp_path).test("warehouse").ok
+
+
+def test_doctor_cli_imports_process_resolver_only_for_connect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    register_project(tmp_path, monkeypatch)
+    monkeypatch.delenv("FIXTURE_TOKEN", raising=False)
+    monkeypatch.setenv("MARIVO_CREDENTIAL_RESOLVER", "fixture_cli_credentials:resolver")
+    events = tmp_path / "resolver-events.txt"
+    (tmp_path / "fixture_cli_credentials.py").write_text(
+        "from pathlib import Path\n"
+        "import marivo.datasource as md\n"
+        f"events = Path({str(events)!r})\n"
+        "events.write_text('imported\\n')\n"
+        "class Resolver:\n"
+        "    def resolve(self, request):\n"
+        "        with events.open('a') as handle:\n"
+        "            handle.write(request.reference + '\\n')\n"
+        "        return md.SecretValue('cli-fixture-token')\n"
+        "def resolver():\n"
+        "    with events.open('a') as handle:\n"
+        "        handle.write('created\\n')\n"
+        "    return Resolver()\n"
+    )
+    command = [sys.executable, "-m", "marivo", "doctor", "--datasource", "warehouse"]
+    static = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=20)
+    assert static.returncode == 0, static.stdout + static.stderr
+    assert not events.exists()
+    live = subprocess.run(
+        [*command, "--connect"], cwd=tmp_path, capture_output=True, text=True, timeout=20
+    )
+    assert live.returncode == 0, live.stdout + live.stderr
+    assert events.read_text().splitlines() == ["imported", "created", "FIXTURE_TOKEN"]
 
 
 def test_owned_backend_probes_and_no_default_cache(
@@ -228,6 +439,7 @@ def test_grouped_reference_and_runtime_binding(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     register_project(tmp_path, monkeypatch)
+    monkeypatch.setenv("MARIVO_CREDENTIAL_RESOLVER", "missing_process_credentials:resolver")
     md.register(
         md.trino(
             name="grouped",

@@ -73,7 +73,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "DatasourceCredential",
         "runtime",
         ("credential_scope", "CredentialResolver.resolve"),
-        "Explicit resolvers replace env/cache reads and never persist their values.",
+        "Host resolvers replace environment and cache reads and keep resolved values in memory.",
         "A request groups a reference's fields within one bound project and connection operation.",
         "Return a non-empty SecretValue promptly; manage host-service timeouts and report typed failures. Hosts own authorization and resolver client lifetime.",
     ),

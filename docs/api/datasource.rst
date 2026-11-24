@@ -75,9 +75,14 @@ references. DuckDB accepts ``secrets=[...]`` containing the scoped variants abov
 The former ``*_env`` and flat HTTP credential constructor parameters are removed.
 A file or named in-memory DuckDB database with scoped secrets requires
 exclusive managed access until its Marivo connection closes.
-References resolve through the environment and user-global cache, or through
-``credential_scope`` without persistence. DuckDB connection tests perform a literal
-round-trip; they do not validate S3 or HTTP endpoint access before caching values.
+An explicit ``credential_scope`` takes precedence over the process resolver
+configured by ``MARIVO_CREDENTIAL_RESOLVER=module:factory``. With neither
+configured, Marivo checks the environment and then the user-global cache.
+The process resolver's zero-argument factory runs on the first credential
+request and its instance is shared across threads. A factory load failure stops
+the lookup with ``DatasourceCredentialError(reason="unavailable")``. Marivo keeps
+host-resolved values in memory. DuckDB connection tests validate a literal
+round-trip. Endpoint access requires a separate S3 or HTTP operation.
 
 Inspection & snapshots
 ----------------------

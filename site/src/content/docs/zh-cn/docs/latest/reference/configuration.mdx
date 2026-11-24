@@ -3,8 +3,6 @@ title: 配置与部署
 description: 配置项目根、共享模型和本地持久状态。
 ---
 
-<span id="集成宿主凭据"></span>
-
 选择项目根或跨仓库共享定义时查询本页。
 
 ## 哪些文件应共享
@@ -43,8 +41,22 @@ Marivo 先加载本地模型，再按列出的顺序加载这些根目录。相�
 
 ### 准备运行环境
 
-准备项目和所需数据源驱动，并按数据源声明中的环境变量引用提供凭据。远程数据源还需要网络访问权限。若要重新打开已保存的结果，请将 `.marivo/` 保存在可写且持久的位置；一次性目录中的结果会随目录丢失，除非另行保留状态。
+准备项目、所需数据源驱动和凭据。远程数据源还需要网络访问权限。若要重新打开已保存的结果，请将 `.marivo/` 保存在可写且持久的位置；一次性目录中的结果会随目录丢失，除非另行保留状态。
 
 用确切项目根运行 Doctor，检查 Python 可执行文件以及 Marivo 软件包的版本和路径。只有在确实要测试某个数据源的实时连接时，才添加 `--datasource <name> --connect`。连接成功只能确认连通性；还需另行确认所需操作是否受支持。
 
-需要自定义凭据服务时，通过 `marivo.help("datasource.credential_scope")` 查询宿主集成接口。
+## 集成宿主凭据
+
+在启动 Python 脚本、`marivo` CLI 或 Marivo 服务的环境中设置 resolver 工厂。
+
+```bash
+export MARIVO_CREDENTIAL_RESOLVER="databot_credentials:resolver"
+```
+
+该 Python 环境需能导入指定模块。工厂无须参数，返回处理 `md.env("NAME")` 引用的
+`CredentialResolver`。Marivo 在首次请求凭据时导入模块并调用工厂。同一进程的所有线程
+共享工厂返回的 resolver 实例。显式的 `md.credential_scope(resolver=...)` 优先。
+
+工厂加载失败时，凭据查找终止并报 `DatasourceCredentialError(reason="unavailable")`。
+修复配置后重启进程。使用 `marivo doctor --datasource <name> --connect` 验证宿主凭据。
+resolver 接口见 `marivo.help("datasource.credential_scope")`。

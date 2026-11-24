@@ -30,6 +30,7 @@ from marivo.datasource.spi import (
     MySQLSpec,
     PostgresSpec,
     TrinoSpec,
+    current_resolver,
     datasource_ir_from_spec,
     default_datasource,
     env,
@@ -421,6 +422,19 @@ def _secret_cache_values(path: Path) -> tuple[dict[str, str], DoctorCheck | None
 
 
 def secrets_section(datasources: Sequence[DatasourceIR], *, project_root: Path) -> DoctorSection:
+    if current_resolver() is not None:
+        return DoctorSection(
+            id="secrets",
+            label="Secrets",
+            checks=(
+                DoctorCheck(
+                    id="secret.host_resolver",
+                    label="Host credential resolver",
+                    status="skipped",
+                    summary="Use --connect to check credentials supplied by the host resolver.",
+                ),
+            ),
+        )
     cache_path = Path.home() / ".marivo" / "secrets.toml"
     cache, cache_check = _secret_cache_values(cache_path)
     checks: list[DoctorCheck] = []

@@ -1,13 +1,15 @@
-"""Context-local, host-owned datasource credential resolution."""
+"""Host-owned datasource credential resolution with scoped and process defaults."""
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn, Protocol, SupportsIndex
+from threading import RLock
+from typing import NoReturn, Protocol, SupportsIndex, TypeAlias, TypeGuard
 
 from typing_extensions import override
 
@@ -21,6 +23,7 @@ from marivo.datasource.errors import (
     _backend_failure_summary,
     repair,
 )
+from marivo.introspection.live.reflect import import_registered_callable
 from marivo.telemetry import traced
 
 
@@ -140,15 +143,92 @@ class CredentialResolver(Protocol):
         ...
 
 
-_RESOLVER: ContextVar[CredentialResolver | None] = ContextVar("marivo_credentials", default=None)
+_PROCESS_RESOLVER_ENV = "MARIVO_CREDENTIAL_RESOLVER"
 
 
-def current_resolver() -> CredentialResolver | None:
-    return _RESOLVER.get()
+def _is_resolver(value: object) -> TypeGuard[CredentialResolver]:
+    return callable(getattr(value, "resolve", None))
+
+
+def _load_process_resolver() -> CredentialResolver | None:
+    spec = os.environ.get(_PROCESS_RESOLVER_ENV, "")
+    module_name, _, factory_name = spec.partition(":")
+    if not module_name or not factory_name.isidentifier():
+        return None
+    try:
+        factory = import_registered_callable(spec)
+        if callable(factory):
+            resolver: object = factory()
+            if _is_resolver(resolver):
+                return resolver
+    except Exception:
+        # Import and factory errors may contain secret material.
+        return None
+    return None
+
+
+class _ProcessResolver:
+    """Stable binding for the process resolver before and after initializing it."""
+
+    def __init__(self) -> None:
+        self._lock = RLock()
+        self._attempted = False
+        self._resolver: CredentialResolver | None = None
+
+    def reset_after_fork(self) -> None:
+        # Captured bindings still reference this object in the child.
+        self._lock = RLock()
+        self._attempted = False
+        self._resolver = None
+
+    def configured(self) -> bool:
+        return self._attempted or _PROCESS_RESOLVER_ENV in os.environ
+
+    def matches(self, resolver: CredentialResolver) -> bool:
+        return self._resolver is resolver
+
+    def load(self, request: CredentialRequest) -> CredentialResolver:
+        with self._lock:
+            if not self._attempted:
+                self._attempted = True
+                self._resolver = _load_process_resolver()
+            resolver = self._resolver
+        if resolver is None:
+            error = DatasourceCredentialError(
+                reason="unavailable",
+                reference=request.reference,
+                datasource=request.datasource,
+                fields=request.fields,
+            )
+            error.repair = repair(
+                kind="configure",
+                canonical_id="credential_scope",
+                action=(
+                    f"Set {_PROCESS_RESOLVER_ENV} to an importable module and a "
+                    "zero-argument resolver factory (module:factory), then restart the process."
+                ),
+            )
+            raise error
+        return resolver
+
+
+ResolverBinding: TypeAlias = CredentialResolver | _ProcessResolver
+_DEFAULT_RESOLVER = _ProcessResolver()
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_DEFAULT_RESOLVER.reset_after_fork)
+
+_RESOLVER: ContextVar[ResolverBinding | None] = ContextVar("marivo_credentials", default=None)
+
+
+def current_resolver() -> ResolverBinding | None:
+    scoped = _RESOLVER.get()
+    if scoped is not None:
+        return scoped
+    return _DEFAULT_RESOLVER if _DEFAULT_RESOLVER.configured() else None
 
 
 @contextmanager
-def bind_resolver(resolver: CredentialResolver | None) -> Iterator[None]:
+def bind_resolver(resolver: ResolverBinding | None) -> Iterator[None]:
     token = _RESOLVER.set(resolver)
     try:
         yield
@@ -171,18 +251,24 @@ def credential_scope(*, resolver: CredentialResolver) -> AbstractContextManager[
         ...     result = md.load().test("warehouse")
 
     Constraints:
-        No fallback or secret-cache writes. Exit restores selection only; use
-        normal connection/Session cleanup. Raw backend calls are not intercepted.
+        The scope takes precedence over MARIVO_CREDENTIAL_RESOLVER, an optional
+        process-wide module:factory loaded on the first credential request.
+        Host resolution bypasses the environment and secret cache. Exit restores
+        selection only. Use normal connection and Session cleanup.
     """
-    if not callable(getattr(resolver, "resolve", None)):
+    if not _is_resolver(resolver):
         raise TypeError("resolver must implement resolve(request) -> SecretValue")
     return bind_resolver(resolver)
 
 
-def check_binding(resolver: CredentialResolver | None) -> None:
-    active = current_resolver()
-    if active is not None and active is not resolver:
-        raise DatasourceCredentialScopeError()
+def check_binding(resolver: ResolverBinding | None) -> None:
+    active = _RESOLVER.get()
+    # Only an explicit selection can conflict with an existing binding.
+    if active is None or active is resolver or isinstance(active, _ProcessResolver):
+        return
+    if isinstance(resolver, _ProcessResolver) and resolver.matches(active):
+        return
+    raise DatasourceCredentialScopeError()
 
 
 @dataclass(repr=False)
@@ -220,7 +306,7 @@ def operation_root(project_root: Path | None) -> Path:
 
 
 def resolve_reference(
-    resolver: CredentialResolver,
+    resolver: ResolverBinding,
     operation: CredentialOperation,
     *,
     reference: str,
@@ -233,6 +319,8 @@ def resolve_reference(
         datasource=datasource,
         fields=fields,
     )
+    if isinstance(resolver, _ProcessResolver):
+        resolver = resolver.load(request)
     try:
         value = resolver.resolve(request)
     except DatasourceCredentialError as exc:

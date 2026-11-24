@@ -350,9 +350,10 @@ class DatasourceCredentialError(DatasourceError):
         datasource: The datasource requiring this reference.
         fields: The connection fields sharing the reference.
 
-    Repair is constructed from the reason. Hosts resolve configuration, access,
-    expiry, service availability or adapter failures and retry the operation.
-    No environment fallback is attempted. See marivo.help("datasource.credential_scope").
+    Repair covers configuration, access, expiry, service availability and adapter
+    failures. If the configured process resolver fails to load, correct
+    MARIVO_CREDENTIAL_RESOLVER and restart the process. Host resolution owns the
+    lookup. See marivo.help("datasource.credential_scope").
     """
 
     def __init__(

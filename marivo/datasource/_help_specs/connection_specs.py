@@ -148,11 +148,18 @@ SPECS: tuple[AuthoringCapability, ...] = (
         "credential_scope",
         "marivo.datasource.credentials.credential_scope",
         "Select a host resolver for new operations/runtimes; exit restores selection only. "
-        "DatasourceCatalog tests and SourceInspection source reads use the scope active at the call; "
+        "DatasourceCatalog tests and SourceInspection source reads select a resolver at the call; "
         "a sample cache hit does not resolve credentials. A SemanticCatalog or Session retains its captured resolver.",
         output="CredentialScope",
         inputs=_inputs(("dependency", "CredentialResolver")),
         constraints=("credential_resolution", "credential_runtime_binding"),
+        preconditions=(
+            "An explicit scope takes precedence over MARIVO_CREDENTIAL_RESOLVER=module:factory. "
+            "The process default calls the importable zero-argument factory at the first credential request "
+            "and shares its resolver instance across threads. "
+            "A factory load failure reports DatasourceCredentialError with reason='unavailable'. "
+            "Correct the configuration and restart the process.",
+        ),
         example=(
             "class HostResolver:\n"
             "    def resolve(self, request: md.CredentialRequest) -> md.SecretValue:\n"

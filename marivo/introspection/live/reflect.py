@@ -26,9 +26,11 @@ def callable_identity(value: object) -> str:
 
 
 def import_registered_callable(path: str) -> object:
-    """Import a registered path containing optional class segments."""
-    parts = path.split(".")
-    for index in range(len(parts), 0, -1):
+    """Import a dotted path or an exact module:attribute path."""
+    module, separator, attribute = path.partition(":")
+    parts = [module, attribute] if separator else path.split(".")
+    first_index = 1 if separator else len(parts)
+    for index in range(first_index, 0, -1):
         module_name = ".".join(parts[:index])
         try:
             value: object = import_module(module_name)

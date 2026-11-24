@@ -124,8 +124,9 @@ author edits them.
 
 ## Credentials and secret persistence
 
-Secrets never live in project state. Instead a spec records env-var names, and
-Marivo resolves them at connect time through a provider chain:
+Datasource specs store credential references from `md.env("NAME")`. Marivo
+resolves them when acquiring a connection. Without a host resolver, Marivo
+uses these providers in order.
 
 ```text
 EnvProvider (os.environ)  →  LocalPlaintextCache (~/.marivo/secrets.toml)
@@ -138,16 +139,14 @@ EnvProvider (os.environ)  →  LocalPlaintextCache (~/.marivo/secrets.toml)
   references. It does not scan ambient `MARIVO_<DATASOURCE>_<FIELD>` variables;
   when a connection field is omitted, the selected Ibis backend owns its default
   or required-field behavior.
-- **Post-validation caching.** After a *validated* round trip — `md.load().test(ref)` or
-  the first successful analysis execution in a session — Marivo attempts to cache
-  env-sourced secrets in plaintext at user-global `~/.marivo/secrets.toml` so later
-  sessions can connect without the env var re-exported. This is a deliberate,
-  documented convenience, gated by the guards below.
+- **Post-validation caching.** After a successful `md.load().test(ref)` round
+  trip, Marivo attempts to cache env-sourced secrets in plaintext at
+  `~/.marivo/secrets.toml` for later connections.
 - **Best-effort writes.** A cache write failure emits a sanitized warning but does
-  not invalidate a successful connection test or analysis execution. Automatic
+  not invalidate a successful connection test. Automatic
   caching does not fall back to project-local storage.
 - **Guards.** Persistence is disabled when `MARIVO_PERSIST_CREDENTIALS=0` or `CI` is
-  set. The cache file is written atomically at mode `0o600`, its parent at
+  non-empty. The cache file is written atomically at mode `0o600`, its parent at
   `0o700`, and Marivo refuses to write it anywhere inside a git repository.
   Insecure permissions on an existing cache raise
   `DatasourceSecretStorePermissionsError`.
@@ -197,11 +196,11 @@ connection fingerprints. HTTP DuckDB fingerprints change with this representatio
 Registration writes constructor calls and `md.env` references; static doctor
 recognizes these literal calls without executing declaration files.
 
-With `md.credential_scope(resolver=...)`, each reference becomes a
+With a host resolver, each reference becomes a
 `CredentialRequest.reference`, with the corresponding IR keys in `fields`.
 References shared by multiple fields resolve once per acquisition. Host values
-never enter the default cache. Every operation opens a connection and resolves
-again, so credential rotation applies to the next operation.
+stay in memory. A new connection acquisition resolves the references again,
+so credential rotation applies the next time Marivo opens a connection.
 
 Scopes are host and path prefixes. User info, query strings, and fragments are
 rejected. Native S3 credentials and HTTP proxy credentials cannot be passed
@@ -306,20 +305,29 @@ passed.
 
 ## Host credential ownership
 
-`md.credential_scope(resolver=host)` supplies a `CredentialResolver` for
-Marivo-owned acquisitions. Requests contain project root, datasource, exact
-reference and sorted field names. The host owns credential-service timeouts and returns
-`md.SecretValue`; displays and serialization do not reveal it. Explicit resolvers
-never fall back to environment variables or the plaintext default cache, and
-injected values are not cached. An explicit conflicting resolver is rejected
-on an owner captured by another scope. A Semantic Catalog and Session retain their
-captured resolver after ambient scope exit. A `DatasourceCatalog` from `md.load()`
-binds its workspace, not a resolver: each later `test()` uses the scope active at
-that call. Likewise, `md.inspect()` and a later `SourceInspection.sample()` are
-separate operations: when a source read is needed, each uses the scope active at
-that call. A sample cache hit neither reads the source nor resolves credentials.
-Callers that receive a raw backend through private test infrastructure own its
-direct driver calls.
+Set `MARIVO_CREDENTIAL_RESOLVER=databot_credentials:resolver` in the environment
+of a Python script, the `marivo` CLI, or a service running Marivo. The named
+module must be importable and the named callable must take no arguments and
+return a `CredentialResolver`. The first credential request imports the module
+and calls the factory once per process. All threads share the returned resolver.
+A forked child initializes its own default resolver on first use.
+A factory load failure reports `DatasourceCredentialError(reason="unavailable")`
+and stops credential acquisition. Restart the process after correcting the
+configuration or changing the factory.
+
+`md.credential_scope(resolver=host)` takes precedence over the process default.
+Either host resolver handles credential lookup exclusively. Requests contain
+the project root, datasource, exact reference and sorted field names. The host
+owns credential-service timeouts and returns `md.SecretValue`. Marivo keeps
+the returned values in memory.
+
+A Semantic Catalog and Session retain their captured binding after scope exit.
+Managed acquisition rejects a different explicit resolver. A
+`DatasourceCatalog` from `md.load()` binds its workspace and selects the resolver
+when `test()` runs. `md.inspect()` and `SourceInspection.sample()` also select the
+resolver at each call that needs a source read. A sample cache hit uses retained
+data. Callers that receive a raw backend through private test infrastructure own
+its direct driver calls.
 
 Every project has `default`, a reserved, fresh in-memory DuckDB datasource.
 Discovery does not create files or open connections. Its memory is connection
