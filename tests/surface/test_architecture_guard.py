@@ -7,8 +7,10 @@ import shutil
 import subprocess
 import sys
 from collections import Counter
+from collections.abc import Callable
 from configparser import ConfigParser
 from pathlib import Path
+from typing import cast
 
 import grimp
 import pytest
@@ -108,7 +110,8 @@ def test_arch001_includes_type_imports_and_uses_origin_names(tmp_path: Path) -> 
 def test_protected_contract_allows_spi_and_rejects_implementation_import(
     contract_name: str, consumer: str, implementation: str, spi: str
 ) -> None:
-    configure()  # type: ignore[no-untyped-call]  # import-linter's configuration entry point is untyped.
+    # Older supported import-linter releases leave this no-argument entry point untyped.
+    cast("Callable[[], object]", configure)()
     config = ConfigParser()
     assert config.read(PROJECT_ROOT / ".importlinter")
     section = config[f"importlinter:contract:{contract_name}"]

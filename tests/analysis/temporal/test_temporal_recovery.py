@@ -192,7 +192,6 @@ from unittest.mock import patch
 import duckdb, ibis
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.datasource import timezone as source_timezone
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot

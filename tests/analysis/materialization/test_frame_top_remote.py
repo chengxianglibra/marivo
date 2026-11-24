@@ -587,7 +587,8 @@ def test_terminal_keeps_temporal_conversion_of_full_input(
     assert isinstance(original, ObservedFailure)
     assert actual == original
     assert original.stage == "source_conversion"
-    assert "out of range" in (original.received or "")
+    assert original.cause is not None
+    assert original.cause[0] in ("ValueError", "OverflowError")
 
 
 @pytest.mark.parametrize("field", ("amount", "big"), ids=("floating-score", "integer-score"))

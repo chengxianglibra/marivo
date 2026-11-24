@@ -1,0 +1,28 @@
+---
+slug: docs/v0.6/release-notes/0.6.13
+title: Marivo 0.6.13
+description: Release notes for Marivo 0.6.13.
+---
+
+Released on November 24, 2026. Marivo 0.6.13 improves analysis execution and strengthens its correctness checks.
+
+## Highlights
+
+- Eligible analysis queries share source reads and conditional aggregates, reduce redundant grouping and membership work, and push qualifying key restrictions into native reads.
+- Eligible Frame filters, projections and terminal operations can be combined; qualifying civil-date windows can share native grouped state. These optimizations retain the original checks and result semantics.
+
+## Changed
+
+- Python pickles that refer to the former `marivo.refs` module require the previous package layout to deserialize. Load and convert such data with the earlier version before upgrading.
+
+## Fixed
+
+- Analysis now qualifies attribution branch domains against native scalar behavior and retains key checks where a provider cannot prove exact uniqueness.
+
+## Documentation
+
+- Expanded the analysis algebra and execution contracts to explain rewrite conditions, coverage and preserved checks.
+
+## Internal
+
+- Added formal and differential verification for analysis rewrites, publication recovery and cross-engine behavior, and strengthened architecture and static checks.

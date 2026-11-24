@@ -35,7 +35,7 @@ def evaluate_filter_chain(
             mask = mask_for(operation.predicate, operands, program).to_numpy(dtype=bool)
         else:
             assert isinstance(operation, FixFrameValues)
-            mask = np.asarray(fixed_mask(operation, program, operands), dtype=bool)
+            mask = np.ravel(np.asarray(fixed_mask(operation, program, operands), dtype=bool))
         positions = positions[mask]
     columns = tuple(column.slot_id for column in steps[-1].program.output_schema.columns)
     result = source.take(positions)
