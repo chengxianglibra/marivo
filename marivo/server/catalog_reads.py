@@ -100,8 +100,9 @@ class CatalogSnapshot:
         cursor: str | None,
         *,
         query: str | None,
+        min_similarity: float,
     ) -> JsonObject:
-        scope = (self.key, "objects", kind, domain, limit, query)
+        scope = (self.key, "objects", kind, domain, limit, query, min_similarity)
         offset = _page_offset(cursor, scope)
         selected = tuple(
             (row, document)
@@ -112,7 +113,9 @@ class CatalogSnapshot:
         if query is None:
             matches = [self.entries[document.id] for _, document in selected]
         else:
-            identities = self.vector_index.rank(query, selected, _CANDIDATE_WINDOW)
+            identities = self.vector_index.rank(
+                query, selected, _CANDIDATE_WINDOW, min_similarity=min_similarity
+            )
             matches = [self.entries[identity] for identity in identities]
         kinds = sorted({document.kind for document in self.documents})
         domains = sorted(

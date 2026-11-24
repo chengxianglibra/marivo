@@ -189,8 +189,10 @@ non-whitespace character. Leading and trailing spaces are trimmed. Browsing and
 search accept optional `kind` and `domain` filters. Search applies them to the whole
 current snapshot before vector ranking. Granite encodes captured IDs, paths,
 names, business definitions and authored aliases without reading datasources.
-Search returns up to 30 vector candidates at or above the cosine cutoff of 0.80, plus
-any exact canonical ID or path matches within the filters. Exact matches come first.
+Search returns up to 30 vector candidates at or above the cosine cutoff. The default
+is 0.80. With `query`, set `min_similarity` to a number from 0 through 1 to use a
+different cutoff. Exact canonical ID or path matches within the filters come first
+and can fall outside the vector candidate window.
 
 By default, `marivo serve` verifies the portable INT8 ONNX model and
 `tokenizer.json` against pinned SHA-256 checksums at each startup. It downloads
@@ -232,9 +234,9 @@ the service can defer native model initialization to the first text search.
 Restart the service when replacing model files.
 
 Browse and search return the same object summaries and pagination fields. Pass
-`next_cursor` as `cursor` with the same query, filters and limit. A cursor from a
-different selection or snapshot returns `409 invalid_cursor`. Start a new request
-without a cursor to use the current selection and snapshot.
+`next_cursor` as `cursor` with the same query, similarity cutoff, filters and limit.
+A cursor from a different selection or snapshot returns `409 invalid_cursor`.
+Start a new request without a cursor to use the current selection and snapshot.
 
 ```sh
 curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \

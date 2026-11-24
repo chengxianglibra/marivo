@@ -412,7 +412,10 @@ class Encoder:
                 result[row, 1] = 0.19 ** 0.5
             elif text == "money received" or text.startswith("id: dimension:sales.events.category_"):
                 result[row, 0] = 1
-            elif text in ("sales.total", "metric:sales.total") or text.startswith("id: metric:sales.all_amount\\n"):
+            elif text.startswith("id: metric:sales.all_amount\\n"):
+                result[row, 0] = 0.5
+                result[row, 3] = 0.75 ** 0.5
+            elif text in ("sales.total", "metric:sales.total"):
                 result[row, 3] = 1
             elif "private-source-token" in text:
                 result[row, 5] = 1
@@ -475,6 +478,20 @@ def test_granite_search_is_vector_only_and_paginates_one_snapshot(tmp_path: Path
         ]
 
         objects = "/v2/semantic/objects"
+        wider = _ok(request(objects + "?query=money+received&kind=metric&min_similarity=0.5"))
+        assert [item["id"] for item in wider["items"]] == [
+            "metric:sales.total",
+            "metric:sales.all_amount",
+        ]
+        for suffix in (
+            "?min_similarity=0.5",
+            "?query=amount&min_similarity=nan",
+            "?query=amount&min_similarity=-0.01",
+            "?query=amount&min_similarity=1.01",
+        ):
+            error = _error(request(objects + suffix), 400, "invalid_parameter")
+            assert error["location"] == "min_similarity"
+
         search = {"query": "sales.total", "kind": "metric", "domain": "sales", "limit": 1}
         search_url = objects + "?" + urlencode(search)
         ranked = _ok(request(search_url))
@@ -490,6 +507,7 @@ def test_granite_search_is_vector_only_and_paginates_one_snapshot(tmp_path: Path
         assert _ok(request(objects + "?" + urlencode(trimmed))) == next_ranked
         for changed in (
             {**continuation_params, "query": "sales total"},
+            {**continuation_params, "min_similarity": 0.5},
             {**continuation_params, "limit": 2},
             {key: value for key, value in continuation_params.items() if key != "kind"},
             {key: value for key, value in continuation_params.items() if key != "domain"},

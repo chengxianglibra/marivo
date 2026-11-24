@@ -25,7 +25,14 @@ from marivo.server import dataframes
 from marivo.server.catalog_reads import CatalogReads
 from marivo.server.dataframes import dataframe_id
 from marivo.server.frames import FrameReads
-from marivo.server.protocol import KINDS, MAX_SEARCH_QUERY_LENGTH, ROUTES, Route, openapi
+from marivo.server.protocol import (
+    DEFAULT_SEARCH_MIN_SIMILARITY,
+    KINDS,
+    MAX_SEARCH_QUERY_LENGTH,
+    ROUTES,
+    Route,
+    openapi,
+)
 from marivo.server.wire import (
     API_VERSION,
     HELP,
@@ -111,6 +118,23 @@ def _query(route: Route, raw: bytes) -> dict[str, str]:
             "Choose a smaller directory page size.",
         )
     return values
+
+
+def _search_min_similarity(query: dict[str, str]) -> float:
+    raw = query.get("min_similarity")
+    if raw is None:
+        return DEFAULT_SEARCH_MIN_SIMILARITY
+    try:
+        similarity = float(raw)
+    except ValueError:
+        similarity = -1.0
+    if "query" not in query or not 0 <= similarity <= 1:
+        raise bad_request(
+            "min_similarity",
+            "Minimum similarity requires query and must be a number from 0 through 1.",
+            "Provide a search query and a similarity in the supported range, or omit min_similarity.",
+        )
+    return similarity
 
 
 def _route(path: str, method: str) -> tuple[Route, dict[str, str]]:
@@ -461,6 +485,7 @@ class ReadApplication:
                 ),
             )
 
+        min_similarity = _search_min_similarity(query)
         snapshot = await self.catalog.get(reload=name == "reload")
         if name == "reload":
             return budget.encode(
@@ -470,7 +495,12 @@ class ReadApplication:
         def semantic_read() -> bytes:
             if name == "objects":
                 result = snapshot.objects(
-                    query.get("kind"), query.get("domain"), limit, cursor, query=query.get("query")
+                    query.get("kind"),
+                    query.get("domain"),
+                    limit,
+                    cursor,
+                    query=query.get("query"),
+                    min_similarity=min_similarity,
                 )
             elif name == "related":
                 relation: Literal["dependencies", "dependents"] = (

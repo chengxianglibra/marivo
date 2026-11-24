@@ -30,7 +30,6 @@ if TYPE_CHECKING:
 _DIMENSIONS = 384
 _BATCH_SIZE = 8
 _MAX_TOKENS = 256
-_MIN_SIMILARITY = 0.80
 _PAD = "<|endoftext|>"
 
 
@@ -244,7 +243,12 @@ class GraniteIndex:
         return cls(encoder, matrix, row_keys)
 
     def rank(
-        self, query: str, selected: tuple[tuple[int, SearchDocument], ...], window: int
+        self,
+        query: str,
+        selected: tuple[tuple[int, SearchDocument], ...],
+        window: int,
+        *,
+        min_similarity: float,
     ) -> tuple[str, ...]:
         if not selected:
             return ()
@@ -255,7 +259,7 @@ class GraniteIndex:
             raise _encode_error() from exc
         candidates = rank_similarity(
             ((document.id, float(scores[row])) for row, document in selected),
-            minimum=_MIN_SIMILARITY,
+            minimum=min_similarity,
         )
         ranked = [identity for identity, _ in candidates[:window]]
         exact = exact_identity_matches((document for _, document in selected), query)
