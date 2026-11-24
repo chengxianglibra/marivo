@@ -28,6 +28,7 @@ from marivo.analysis.materialization.attribute_native_execution import (
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
+    from marivo.analysis.compiler.lowered_query import AttributeGroupingBatch
     from marivo.analysis.materialization.attribute_native_execution import (
         NativeCache,
         PreparedNativeGame,
@@ -178,6 +179,7 @@ def _execute_dependent_query(
     prepared_by_stage: Mapping[str, PreparedSources] | None,
     native_prepared: Mapping[str, PreparedNativeGame] | None,
     native_cache: NativeCache,
+    attribute_batches: dict[AttributeGroupingBatch, pd.DataFrame],
     lowered: LoweredQuery,
     parameter_relations: dict[tuple[SourceSession, str], ir.Table],
     value_keys: Mapping[str, tuple[str, ...]],
@@ -221,6 +223,13 @@ def _execute_dependent_query(
         parameter_relations,
         lowered.plan.optimization_policy,
     )
+    if request.attribute_grouping is not None:
+        output, row_count = source_reads.read_grouped_attribute_stage(
+            selected, stage, request, attribute_batches
+        )
+        if row_count is not None and observe_read is not None:
+            observe_read(stage, request, replace(output, source_rows=row_count))
+        return output
     output = source_reads.read_stage(
         selected, stage, request, value_keys=value_keys.get(stage.stage_id, ())
     )
@@ -349,20 +358,19 @@ def execute_numeric_query(
             stage, inputs, lowered, report_domain, sample_domains, observe_local
         )
 
-    def dependent(stage: SourceReadStage, inputs: tuple[StageOutput, ...]) -> StageOutput:
-        return _execute_dependent_query(
-            stage,
-            inputs,
-            prepared,
-            prepared_by_stage,
-            native_prepared,
-            native_cache,
-            lowered,
-            parameter_relations,
-            value_keys,
-            observe_read,
-            observe_frame,
-        )
+    dependent = partial(
+        _execute_dependent_query,
+        prepared=prepared,
+        prepared_by_stage=prepared_by_stage,
+        native_prepared=native_prepared,
+        native_cache=native_cache,
+        attribute_batches={},
+        lowered=lowered,
+        parameter_relations=parameter_relations,
+        value_keys=value_keys,
+        observe_read=observe_read,
+        observe_frame=observe_frame,
+    )
 
     def fixed(stage: FrameInput) -> StageOutput:
         return _evaluate_fixed_query_input(stage, read_fixed)

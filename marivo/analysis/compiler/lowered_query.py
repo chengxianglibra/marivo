@@ -35,6 +35,13 @@ class OutputCoverage:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class AttributeGroupingBatch:
+    """Identity of the physical submission shared by two logical role completions."""
+
+    kind: str
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class LoweredRead:
     """An Ibis payload associated with the authoritative plan stage by ID."""
 
@@ -42,6 +49,7 @@ class LoweredRead:
     expression: ir.Table
     numeric_checks: tuple[tuple[str, NumericCheck], ...] = ()
     population_checks: tuple[PopulationCheck, ...] = ()
+    attribute_grouping: AttributeGroupingBatch | None = None
     output_coverage: OutputCoverage | None = None
 
     @property

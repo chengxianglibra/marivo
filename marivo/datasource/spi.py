@@ -39,7 +39,11 @@ from marivo.datasource.engines.calendar_relations import (
     calendar_data,
     calendar_range,
 )
-from marivo.datasource.engines.query import KeyRows
+from marivo.datasource.engines.grouping_relations import (
+    GroupingSetsAggregate,
+    grouping_sets_aggregate,
+)
+from marivo.datasource.engines.query import KeyRows, QueryDialectProfile
 from marivo.datasource.engines.temporal_lowering import (
     governed_temporal_operation,
     needs_temporal_lowering,
@@ -184,6 +188,7 @@ __all__ = [
     "DuckDBSpec",
     "EntitySourceIR",
     "EnvRef",
+    "GroupingSetsAggregate",
     "JsonBodyParam",
     "JsonQueryParamValue",
     "JsonResponseCache",
@@ -200,6 +205,7 @@ __all__ = [
     "PreviewSamplePolicy",
     "PreviewWarning",
     "QualifiedSource",
+    "QueryDialectProfile",
     "QueryParamScalar",
     "QueryParamScalarList",
     "SourceInspection",
@@ -228,6 +234,7 @@ __all__ = [
     "expression_backend_name",
     "governed_parse_operation",
     "governed_temporal_operation",
+    "grouping_sets_aggregate",
     "http_bearer_secret",
     "http_headers_secret",
     "ibis_table_type",

@@ -1080,3 +1080,24 @@ def test_internal_membership_exclusion_preserves_parent_coordinates(
     assert "2" in error.value.received
     rows = session.observe({"v": metric}, by=subset, where=customer == 1).compute().to_pandas()
     assert rows.iloc[:, 0].tolist() == [1]
+
+
+def test_implicit_per_collapse_keeps_overlapping_allocations(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    label = catalog_value(session.catalog, "sales.tags.label", kind="dimension")
+    path = (
+        catalog_value(session.catalog, "sales.order_links", kind="relationship"),
+        catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
+    )
+    samples = mv.membership(label, via=(mv.path(*path),), unmatched="null")
+    query = session.observe({"amount": amount.count().per((samples,)).sum()})
+    # Order 1 appears in A and B, order 2 in A, and order 3 in NULL.
+    assert query.compute().to_pandas()["amount"].tolist() == [4]
+    assert session.observe({"amount": amount.count()}).compute().to_pandas()["amount"].tolist() == [
+        3
+    ]

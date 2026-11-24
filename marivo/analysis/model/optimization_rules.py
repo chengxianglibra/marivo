@@ -32,6 +32,8 @@ OptimizationRuleId: TypeAlias = Literal[
     "L3_left_total_elimination",
     "classify_after_filter",
     "L7_key_pushdown",
+    "implicit_per_collapse",
+    "attribute_grouping_sets",
     # Current rules without plan decisions.
     "required_slots",
     "attribute_frequency_sharing",
@@ -41,10 +43,8 @@ OptimizationRuleId: TypeAlias = Literal[
     "injective_time_bucket",
     "shapley_summary_state",
     "frame_evaluation_cache",
-    # Reserved rules from O7–O9.
+    # Reserved rules from O7 and O9.
     "l6_window_prereduction",
-    "implicit_per_collapse",
-    "attribute_grouping_sets",
     "frame_top_float_decimal",
     "frame_terminal_fix",
     "frame_terminal_reduce",

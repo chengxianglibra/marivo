@@ -403,7 +403,7 @@ bare = ms.measure_column(name='bare', entity=facts, column='amount', unit=None, 
     return mv.session.get_or_create("contribution", timezone="UTC")
 
 
-def test_additive_exact_values_and_independent_role_reads(
+def test_additive_exact_values_and_one_read_per_endpoint(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 
@@ -456,7 +456,7 @@ def test_additive_exact_values_and_independent_role_reads(
     fixed = pending.compute()
     assert not any(name.startswith("effect.") for name in fixed.output_names)
     result = fixed.to_pandas()
-    assert len(reads) == 6
+    assert len(reads) == 4
     assert result["contribution.q"].tolist() == [60, -20]
     assert result["contribution_share.q"].tolist() == [1.5, -0.5]
     assert result["detail.absolute.q"].tolist() == [60, -20]
@@ -1103,7 +1103,7 @@ def test_new_attribute_uses_only_its_own_live_components(
     assert rows["contribution_share.q"].tolist() == pytest.approx(
         [20 / 15, -5 / 15] if shape == "scalar" else [1.0]
     )
-    assert len(attribute_sources) == (4 if shape == "fixed" else 8)
+    assert len(attribute_sources) == (2 if shape == "fixed" else 4)
     assert len(consumed) == (1 if shape == "fixed" else 4 if shape == "pending" else 2)
     assert bridges
     assert [production.input_id for production in captured] == expected_order
@@ -1282,7 +1282,7 @@ def test_captured_frame_attribute_level(session: Session, monkeypatch: pytest.Mo
 
     monkeypatch.setattr(SourceSession, "execute", execute)
     result = selected.attribute(by=(channel,)).compute().to_pandas()
-    assert len(reads) == 2
+    assert len(reads) == 1
     assert result["contribution.q"].tolist() == [160, 80]
     assert result["total.q"].tolist() == [240, 240]
     assert result["observed_total.q"].tolist() == [240, 240]
@@ -1487,28 +1487,24 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
         comparison.select({"q": comparison["base.absolute.q"]}) if mode == "absolute" else current
     ).compute()
     execute = SourceSession.execute
-    roles: list[str] = []
+    endpoints: list[str] = []
 
     def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         rows = execute(self, issued)
         if "__attribute_kind" not in rows:
             return rows
-        parent = "attribute-parent:" in issued.purpose
-        roles.append("parent" if parent else "fine")
-        if not parent:
-            endpoint = "current" if roles.count("parent") == 1 else "base"
-            fine = rows["__attribute_kind"] == 0
-            selected = fine & (rows["key.0"] == ("B" if endpoint == "current" else "A"))
-            for name in rows:
-                assert isinstance(name, str)
-                if name.endswith("/value") or name.endswith(".additive_value"):
-                    values = rows.loc[selected, name]
-                    assert isinstance(values, pd.Series)
-                    rows.loc[selected, name] = values + 10
-            for name in rows:
-                assert isinstance(name, str)
-                if name.startswith("__original_id."):
-                    rows[name] += 100
+        endpoint = "current" if not endpoints else "base"
+        endpoints.append(endpoint)
+        fine = rows["__attribute_kind"] == 0
+        selected = fine & (rows["key.0"] == ("B" if endpoint == "current" else "A"))
+        for name in rows:
+            assert isinstance(name, str)
+            if name.endswith("/value") or name.endswith(".additive_value"):
+                values = rows.loc[selected, name]
+                assert isinstance(values, pd.Series)
+                rows.loc[selected, name] = values + 10
+            if name.startswith("__original_id."):
+                rows.loc[fine, name] += 100
         return rows
 
     monkeypatch.setattr(SourceSession, "execute", read)
@@ -1521,11 +1517,11 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
         assert context.witness.total == 100
         assert context.witness.contribution_sum == 110
         assert context.witness.policy == "exact_integer"
-        assert roles == ["parent", "fine"]
+        assert endpoints == ["current"]
     else:
         report = selected.attribute(by=(channel,)).compute()
         rows = report.to_pandas()
-        assert roles == ["parent", "fine", "parent", "fine"]
+        assert endpoints == ["current", "base"]
         assert rows["contribution.q"].tolist() == [0, 10]
         assert rows["total.q"].tolist() == [10, 10]
         assert rows["observed_total.q"].tolist() == [10, 10]
@@ -1536,9 +1532,9 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
         completed = reopened.compute()
         assert _memory(completed).metadata.source_reads == metadata.source_reads
         assert _memory(completed).metadata.evaluation == metadata.evaluation
-        before = roles.copy()
+        before = endpoints.copy()
         assert completed.to_pandas().equals(rows)
-        assert roles == before
+        assert endpoints == before
 
 
 def test_integer_sum_decimal_carrier_rejects_one_unit_independent_drift(
@@ -1557,7 +1553,7 @@ def test_integer_sum_decimal_carrier_rejects_one_unit_independent_drift(
 
     def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         rows = execute(self, issued)
-        if "__attribute_kind" in rows and "attribute-parent:" not in issued.purpose:
+        if "__attribute_kind" in rows:
             selected = (rows["__attribute_kind"] == 0) & (rows["key.0"] == "B")
             for name in rows:
                 assert isinstance(name, str)

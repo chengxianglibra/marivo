@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 import ibis
+import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pandas as pd
 
@@ -34,6 +35,7 @@ from marivo.analysis.compiler.query_program import SourceParameter
 from marivo.analysis.compiler.query_stages import (
     LocalCompute,
     NativeRead,
+    ReductionRead,
     RuleDecision,
     SourceReadStage,
     read_components,
@@ -43,6 +45,7 @@ from marivo.analysis.compiler.query_stages import (
 from marivo.analysis.compiler.sample_reductions import (
     SampleLowerer,
     SampleReductionUnavailableError,
+    SampleRelation,
 )
 from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.analysis.materialization.native_query_checks import (
@@ -50,6 +53,10 @@ from marivo.analysis.materialization.native_query_checks import (
     _attach_relation_checks,
 )
 from marivo.analysis.materialization.native_query_relation import native_query_relation
+from marivo.analysis.materialization.ordinary_key_admission import (
+    stored_group_input,
+    stored_key_field,
+)
 from marivo.analysis.materialization.prepared_sources import PreparedSources
 from marivo.analysis.materialization.query_parameters import instantiate
 from marivo.analysis.methods.carriers.stages import StageOutput
@@ -145,6 +152,34 @@ class _SampleRelation:
                 for name, source in zip(names, binding.keys, strict=True)
             }
         )
+
+
+def _sample_projection_issue(
+    prepared: PreparedSources, stage: SourceReadStage, aggregate: ops.Aggregate
+) -> str | None:
+    owner = prepared.sources.get(stage.source_id, prepared.source)
+    bound = prepared.bound.get(stage.source_id)
+    if (
+        bound is None
+        or not owner.stored_projection.proves(bound)
+        or tuple(aggregate.parent.find(ops.DatabaseTable)) != (bound.relation.op(),)
+        or not stored_group_input(aggregate)
+        or any(
+            (stored := stored_key_field(value)) is None
+            or not owner.stored_projection.preserves_reduction_carrier(bound, stored)
+            for value in aggregate.groups.values()
+        )
+    ):
+        return "The original groups require directly stored fields on the same source."
+    for reduction in aggregate.find((ops.Count, ops.Min, ops.Max)):
+        operand = stored_key_field(reduction.arg)
+        if operand is None or operand.rel != bound.relation.op():
+            return "The original reducer does not consume a directly stored field."
+        if isinstance(reduction, (ops.Min, ops.Max)) and not (
+            owner.stored_projection.preserves_reduction_carrier(bound, operand)
+        ):
+            return "The original extrema require the physical carrier for every sample result."
+    return None
 
 
 @dataclass(slots=True)
@@ -324,6 +359,65 @@ class SampleCandidates:
             self.lowerers[owner] = lowerer
         return lowerer
 
+    def _implicit_per(
+        self,
+        lowerer: SampleLowerer,
+        node: PerReduce | PerWeightedMean,
+        path: tuple[int, ...],
+        keys: tuple[str, ...],
+        stages: tuple[SourceReadStage, ...],
+    ) -> SampleRelation | None:
+        if not (
+            self.lowered.plan.optimization_policy.allows("implicit_per_collapse")
+            and isinstance(node, PerReduce)
+            and len(stages) == 1
+            and self.program.output_population is None
+            and self.program.parent_scope is None
+        ):
+            return None
+        stage = stages[0]
+        if (
+            not isinstance(stage.program, ReductionRead)
+            or stage.program.reduction.node != node.operand
+        ):
+            return None
+        read = self.lowered.read(stage.stage_id)
+        if (
+            stage.preparation_checks
+            or stage.parameters
+            or read.numeric_checks
+            or read.population_checks
+        ):
+            return None
+        aggregate = read.expression.op()
+        if not isinstance(aggregate, ops.Aggregate):
+            return None
+        if not any(
+            schema.source_id == stage.source_id
+            and schema.occurrence == stage.occurrence
+            and schema.keys
+            and schema.original_identity == schema.keys
+            for schema in self.prepared.schemas
+        ):
+            return None
+        issue = _sample_projection_issue(self.prepared, stage, aggregate)
+        result = (
+            issue
+            if issue is not None
+            else lowerer.lower_implicit_per(node, path, keys, stage.source_id)
+        )
+        self.decisions.append(
+            RuleDecision(
+                "implicit_per_collapse",
+                "refused" if isinstance(result, str) else "adopted",
+                (stage.stage_id,),
+                result
+                if isinstance(result, str)
+                else "An implicit single-valued source partition preserves the native reduction at the parent grain.",
+            )
+        )
+        return None if isinstance(result, str) else result
+
     def _fold(
         self,
         node: PerReduce | PerWeightedMean,
@@ -355,7 +449,9 @@ class SampleCandidates:
             for column in sources[value.stage_id].columns
         }
         lowerer = self._lowerer(owner, columns, relations)
-        result = lowerer.lower(node, path, keys)
+        result = self._implicit_per(lowerer, node, path, keys, source_stages)
+        if result is None:
+            result = lowerer.lower(node, path, keys)
         identifier = "source:sample:" + original.stage_id + ":" + ".".join(map(str, path))
         slot = "sample:" + ".".join(map(str, path))
         expression = result.table.rename({slot: result.value})
@@ -376,14 +472,13 @@ class SampleCandidates:
             for stage in source_stages
             if stage.preparation_checks
         )
-        expression, preparation, checked = _attach_relation_checks(
+        expression, preparation, checks = _attach_relation_checks(
             expression,
             NativeQueryRelation(expression, frozenset(), preparation_sources),
             lowered.plan,
             numeric=checks,
             prepared=prepared,
         )
-        checks = checked
         output_columns = (
             *(columns[key] for key in keys),
             DataColumn(slot, slot, data_type(expression[slot].type()), True),

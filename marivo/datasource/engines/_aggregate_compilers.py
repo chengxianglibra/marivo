@@ -39,6 +39,10 @@ from marivo.datasource.engines.calendar_relations import (
     compile_calendar_data,
     compile_calendar_range,
 )
+from marivo.datasource.engines.grouping_relations import (
+    GroupingSetsAggregate,
+    compile_grouping_sets,
+)
 from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
 
 _OPERATIONS = {
@@ -86,9 +90,23 @@ def _reject(backend: str, node: ops.Node) -> NoReturn:
     raise OperationNotDefinedError(f"Compilation rule for {type(node).__name__!r} is not defined")
 
 
+class _GroupingSetsCompiler:
+    def visit_GroupingSetsAggregate(
+        self,
+        op: GroupingSetsAggregate,
+        *,
+        parent: sge.Expr,
+        groups: Mapping[str, sge.Expr],
+        metrics: Mapping[str, sge.Expr],
+        parent_keys: tuple[str, ...],
+        kind: str,
+    ) -> sge.Expr:
+        return compile_grouping_sets(op, parent, groups, metrics)
+
+
 # Ibis compiler classes are untyped. These subclasses retain its complete relational
 # compiler and override aggregate admission and private calendar operations on owned instances.
-class _PostgresCompiler(PostgresCompiler):
+class _PostgresCompiler(_GroupingSetsCompiler, PostgresCompiler):
     def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
         return compile_calendar_range(op, "postgres")
 
@@ -149,7 +167,7 @@ class _MySQLCompiler(MySQLCompiler):
         _reject("mysql", op)
 
 
-class _TrinoCompiler(TrinoCompiler):
+class _TrinoCompiler(_GroupingSetsCompiler, TrinoCompiler):
     @override
     def visit_IntervalFromInteger(
         self, op: ops.IntervalFromInteger, *, arg: sge.Expr, unit: object
@@ -198,7 +216,7 @@ def _native_name(backend: str, reducer: str) -> str:
     return name
 
 
-class _ClickHouseCompiler(ClickHouseCompiler):
+class _ClickHouseCompiler(_GroupingSetsCompiler, ClickHouseCompiler):
     @override
     def visit_JoinChain(
         self,
@@ -402,7 +420,7 @@ _RENDERED_DUCKDB_SQL_MAX = 2048
 _RENDERED_DUCKDB_LOCK = threading.Lock()
 
 
-class _DuckDBCompiler(DuckDBCompiler):
+class _DuckDBCompiler(_GroupingSetsCompiler, DuckDBCompiler):
     def visit_IsNull(self, op: ops.IsNull, *, arg: sge.Expr) -> sge.Expr:
         # DuckDB parses NOT x IS NULL as NOT (x IS NULL), not (NOT x) IS NULL.
         if isinstance(arg, sge.Not):

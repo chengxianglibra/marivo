@@ -51,7 +51,11 @@ from marivo.analysis.methods.carriers.stage_components import (
     select_attribute_root,
 )
 from marivo.analysis.methods.carriers.stages import StageOutput
-from marivo.analysis.model.attribute_failures import AttributePartitionWitness
+from marivo.analysis.model.attribute_failures import (
+    AttributeCheckWitness,
+    AttributeParentFiber,
+    AttributePartitionWitness,
+)
 from marivo.analysis.model.data_types import DecimalDataType, DurationDataType, ScalarDataType
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.frame_contracts import CheckedStageInputT
@@ -569,7 +573,8 @@ def test_additional_root_has_two_independent_roles_without_fact_fanout(
             by=(channel,),
         )
     )
-    assert len(calls) == 8
+    assert len(calls) == 6
+    assert sum("GROUPING SETS" in read.sql for read in calls) == 2
     assert len(prepared.attribute_inputs) == 8
     assert {root.layout.leaves[0].read.source_id for root in prepared.attribute_inputs} == {
         "sales.facts",
@@ -613,7 +618,7 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
         for name in rows:
             assert isinstance(name, str)
             if name.endswith("/value") or name.endswith(".additive_value"):
-                rows[name] = rows[name] * len(calls)
+                rows[name] = rows[name] * (2 * len(calls) - rows["__attribute_kind"])
         return rows
 
     monkeypatch.setattr(frame_evaluation, "plan_frame", plan)
@@ -625,7 +630,7 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
             by=(channel,),
         )
     )
-    assert len(calls) == 4
+    assert len(calls) == 2
     stages = captured[0].lowered.plan.stages
     roots = [
         stage
@@ -822,7 +827,8 @@ def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
             by=(channel,),
         )
     )
-    assert len(reads) == 4
+    assert len(reads) == 2
+    assert all("GROUPING SETS" in read.sql for read in reads)
     assert len(output.table) == 3
     for root in output.attribute_inputs:
         if root.layout.scope != "parent":
@@ -1155,6 +1161,79 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
     assert actual.value.received == ordinary.value.received
 
 
+def test_grouped_strict_count_reports_first_native_parent_witness(
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = tmp_path / "inputs.duckdb"
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("UPDATE facts SET value=20 WHERE id=2")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
+    declared = session.observe({"q": value.count(nulls="error")}, by=(region,)).compute()
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("UPDATE facts SET value=NULL WHERE id=2")
+
+    trace = capture_source(monkeypatch)
+    with pytest.raises(MaterializationError) as failure:
+        declared.attribute(by=(channel,)).compute()
+    assert failure.value.expected == "non-NA source values"
+    context = failure.value.attribute_context
+    assert context is not None and isinstance(context.fiber, AttributeParentFiber)
+    assert isinstance(context.witness, AttributeCheckWitness)
+    assert context.witness.coordinates == (((ScalarDataType("string"), "east"),),)
+    assert tuple(column.slot_id for column in context.witness.columns) == ("key.0",)
+    assert len(trace.native_sql) == 1
+    assert "GROUPING SETS" in trace.native_sql[0]
+
+
+def test_parent_strict_check_precedes_wide_fine_integer_transport_failure(
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
+    declared = session.observe(
+        {"mass": value.sum(), "valid": weight.count(nulls="error")}
+    ).compute()
+    maximum = 2**63 - 1
+    with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
+        connection.execute(
+            "UPDATE facts SET value=CASE WHEN id=2 THEN ? ELSE ? END, "
+            "weight=CASE WHEN id=2 THEN NULL ELSE weight END",
+            [-maximum, maximum],
+        )
+
+    trace = capture_source(monkeypatch)
+    with pytest.raises(MaterializationError) as failure:
+        declared.attribute(by=(channel,)).compute()
+    assert failure.value.expected == "non-NA source values"
+    context = failure.value.attribute_context
+    assert context is not None and isinstance(context.fiber, AttributeParentFiber)
+    assert tuple(use.metric for use in context.uses) == ("valid",)
+    assert len(trace.native_sql) == 1
+    assert "GROUPING SETS" not in trace.native_sql[0]
+
+
+def test_real_decimal_38_sum_retains_native_roles_and_carrier(
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
+        connection.execute("ALTER TABLE facts ALTER value TYPE DECIMAL(38,0)")
+        connection.execute("UPDATE facts SET value=100000000000000000000 WHERE id=1")
+        connection.execute("UPDATE facts SET value=20 WHERE id=2")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
+    declared = session.observe({"q": value.sum()}).compute()
+
+    trace = capture_source(monkeypatch)
+    output = declared.attribute(by=(channel,)).compute().to_pandas()["contribution.q"]
+    assert output.tolist() == [Decimal("100000000000000000030"), Decimal(20)]
+    assert pa.array(output).type == pa.decimal128(38, 0)
+    assert trace.returned_rows == [1, 2]
+    assert all("GROUPING SETS" not in sql for sql in trace.native_sql)
+
+
 def test_joint_compound_identity_counts_preserve_prepared_axis_groups(session: Session) -> None:
     facts = catalog_value(session.catalog, "sales.facts", kind="entity")
     tags = catalog_value(session.catalog, "sales.tags", kind="entity")
@@ -1312,7 +1391,7 @@ def test_attribute_transport_depends_on_groups_not_source_rows(
     trace = capture_source(monkeypatch)
     result = selected.attribute(by=(channel,)).compute().to_pandas()
     assert result["contribution.q"].tolist() == [source_rows // 2] * 2
-    assert trace.returned_rows == [1, 2]
+    assert trace.returned_rows == [3]
 
 
 @pytest.mark.parametrize("reverse", (False, True))

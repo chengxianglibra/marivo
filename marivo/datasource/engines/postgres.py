@@ -575,6 +575,8 @@ PROFILE = EngineProfile(
         supports_sql_window_frames=True,
         window_frame_nulls_safe=True,
         supports_grouping_sets=True,
+        grouping_sets_decimal_accumulator_precision=38,
+        grouping_sets_wide_integer_sum_bytes=frozenset({8}),
         float_order_keys=floating_order_keys,
     ),
     arrow_reads=True,

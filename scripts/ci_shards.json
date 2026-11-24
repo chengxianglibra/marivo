@@ -273,6 +273,7 @@
       "tests/analysis/graph/test_relationship_binding.py",
       "tests/analysis/materialization/test_analysis_state.py",
       "tests/analysis/materialization/test_artifact_receipts.py",
+      "tests/analysis/materialization/test_attribute_grouping_sets.py",
       "tests/analysis/materialization/test_attribute_inputs.py",
       "tests/analysis/materialization/test_attribute_multi_backend_runtime.py",
       "tests/analysis/materialization/test_clickhouse_decimal_alias_guards.py",

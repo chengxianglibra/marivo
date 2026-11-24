@@ -37,6 +37,7 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.materialization.actual_windows import prepare_actual_window_plan
+from marivo.analysis.materialization.attribute_grouping import group_attribute_sources
 from marivo.analysis.materialization.attribute_source_preparation import prepare_attribute_endpoint
 from marivo.analysis.materialization.frame_inputs import CapturedFrameInputs
 from marivo.analysis.materialization.interval_reports import (
@@ -487,6 +488,7 @@ class _FrameSourcePreparation:
         native_value_slots: list[str] = []
         lowered: LoweredQuery | None = None
         plan: QueryPlan | None = None
+        grouping_roots: frozenset[str] = frozenset()
         if sample_windows:
             assert prepared is not None and isinstance(binding, SourceFrameBinding)
             lowered, prepared = prepare_sample_window_plan(
@@ -512,7 +514,7 @@ class _FrameSourcePreparation:
         elif input_id in self.captured.requested:
             assert prepared is not None and isinstance(binding, SourceFrameBinding)
             side, rules, mapping = self.captured.requested[input_id]
-            prepared, plan = prepare_attribute_endpoint(
+            prepared, plan, grouping_roots = prepare_attribute_endpoint(
                 prepared, active_graph, binding.state, mapping, side, rules, memo=memo
             )
             self.prepared_by_input[input_id] = prepared
@@ -540,6 +542,8 @@ class _FrameSourcePreparation:
                 {} if prepared is None else prepared.relations,
                 None if prepared is None else prepared.population_checks,
             )
+        if prepared is not None and grouping_roots:
+            lowered = group_attribute_sources(prepared, lowered, grouping_roots)
         if (
             prepared is not None
             and input_id not in self.captured.requested

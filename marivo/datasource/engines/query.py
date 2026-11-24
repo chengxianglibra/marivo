@@ -183,4 +183,8 @@ class QueryDialectProfile:
     # SUM on nullable inputs returns NULL with no valid value in the frame.
     window_frame_nulls_safe: bool = False
     supports_grouping_sets: bool = False
+    # Exact integer SUM can use a sufficiently wide native accumulator even
+    # when the declared result remains int64.
+    grouping_sets_wide_integer_sum_bytes: frozenset[int] = frozenset()
+    grouping_sets_decimal_accumulator_precision: int = 0
     float_order_keys: Callable[[ir.Value, bool], tuple[ir.Value, ...]] | None = None

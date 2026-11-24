@@ -12,6 +12,7 @@ import marivo.analysis as mv
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.model.data_schema import CalendarDataAxis
+from marivo.analysis.model.optimization_policy import OptimizationPolicy
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
@@ -20,6 +21,7 @@ from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.environment import clickhouse_analysis, trino_analysis
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
 from tests.shared_fixtures import catalog_value
+from tests.support.optimization import compute_with_policy
 from tests.support.source_trace import capture_source
 
 CASES = [("duckdb", "table"), ("trino", "iceberg"), ("clickhouse", "mergetree")]
@@ -84,6 +86,7 @@ def _session(
                 + "customer=ms.dimension_column(name='customer',entity=facts,column='customer')\n"
                 + "channel=ms.dimension_column(name='channel',entity=facts,column='channel')\n"
                 + "day=ms.time_dimension_column(name='day',entity=facts,column='day')\n"
+                + "report_day=ms.dimension_column(name='report_day',entity=facts,column='day')\n"
                 + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n",
             }
         )
@@ -395,3 +398,39 @@ def test_remote_selected_sample_target_uses_current_contributions_without_rerank
         assert result["value"].tolist() == pytest.approx([(300 + 7) / 3])
         assert fixed.to_pandas().iloc[:, 0].tolist() == ["store"]
         assert trace.returned_rows
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([*CASES, ("postgres", "table"), ("mysql", "table")])
+)
+def test_native_implicit_per_collapse_keeps_exact_values_and_parent_grain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    with _session(
+        backend, profile, tmp_path, monkeypatch, semantic_project_factory, sample_formula=True
+    ) as (session, _):
+        facts = catalog_value(session.catalog, "sales.facts", kind="entity")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        sample = catalog_value(session.catalog, "sales.facts.customer", kind="dimension")
+        report = catalog_value(session.catalog, "sales.facts.report_day", kind="dimension")
+        for metric, expected in (
+            (amount.count().per(sample).sum(), 999),
+            (facts.count().per(sample).sum(), 1000),
+            (amount.min().per(sample).min(), 0),
+            (amount.max().per(sample).max(), 300),
+        ):
+            query = session.observe({"value": metric}, by=(report,))
+            for enabled, groups in ((False, 2), (True, 1)):
+                policy = OptimizationPolicy.default().with_rule(
+                    "implicit_per_collapse", enabled=enabled
+                )
+                with monkeypatch.context() as observed:
+                    trace = capture_source(observed)
+                    result = compute_with_policy(query, policy).to_pandas()
+                assert result["value"].tolist() == [expected]
+                (sql,) = trace.native_sql
+                assert sql.upper().count("GROUP BY") == groups

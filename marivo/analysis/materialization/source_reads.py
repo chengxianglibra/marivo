@@ -23,6 +23,7 @@ from marivo.analysis.compiler.query_stages import (
 )
 
 if TYPE_CHECKING:
+    from marivo.analysis.compiler.lowered_query import AttributeGroupingBatch
     from marivo.analysis.compiler.query_stages import AttributeRootLayout
 
 from marivo._definition.expressions import (
@@ -245,14 +246,11 @@ def _actual_attribute_layout(
     )
 
 
-def read_stage(
+def _submit_source_read(
     prepared: PreparedSources,
     stage: SourceReadStage,
     lowered: LoweredRead,
-    *,
-    value_keys: tuple[str, ...] = (),
-) -> StageOutput:
-    """Submit one lowered SourceReadStage and normalize its pandas result."""
+) -> tuple[SourceReadStage, LoweredRead, pd.DataFrame]:
     if read_attribute(stage) is not None and require_attribute(stage).parent_context is None:
         input_failure(
             "missing_component_proof",
@@ -298,6 +296,40 @@ def read_stage(
             stage="source_execution",
             help_target="analysis_frame.compute",
         ) from error
+    return stage, lowered, frame
+
+
+def read_grouped_attribute_stage(
+    prepared: PreparedSources,
+    stage: SourceReadStage,
+    lowered: LoweredRead,
+    batches: dict[AttributeGroupingBatch, pd.DataFrame],
+) -> tuple[StageOutput, int | None]:
+    """Submit the parent batch once, then complete each stage in its own scope."""
+    batch = lowered.attribute_grouping
+    assert batch is not None
+    frame = batches.pop(batch, None)
+    submitted_rows = None
+    layout = require_attribute(stage)
+    if frame is None:
+        stage, lowered, frame = _submit_source_read(prepared, stage, lowered)
+        submitted_rows = len(frame)
+        if layout.scope == "parent":
+            batches[batch] = frame
+    selected = frame.loc[frame[batch.kind] == (1 if layout.scope == "parent" else 0)].copy()
+    return _complete_attribute_read(stage, selected, lowered.numeric_checks), submitted_rows
+
+
+def read_stage(
+    prepared: PreparedSources,
+    stage: SourceReadStage,
+    lowered: LoweredRead,
+    *,
+    value_keys: tuple[str, ...] = (),
+) -> StageOutput:
+    """Submit one lowered SourceReadStage and normalize its pandas result."""
+    stage, lowered, frame = _submit_source_read(prepared, stage, lowered)
+    source = prepared.sources.get(stage.source_id, prepared.source)
     if isinstance(stage.program, AttributeFrequencyRead):
         return source_completion.capture_attribute_state(
             stage,

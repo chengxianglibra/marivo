@@ -12,10 +12,17 @@ if TYPE_CHECKING:
 
     import ibis.expr.datatypes as dt
     import ibis.expr.operations as ops
+    import ibis.expr.schema as sch
     import ibis.expr.types as ir
     import sqlglot as sg
     import sqlglot.expressions as sge
     from typing_extensions import Self
+
+    class RelationalOperation:
+        @property
+        def schema(self) -> sch.Schema: ...
+
+        def to_expr(self) -> ir.Table: ...
 
     class _Functions(Protocol):
         def __getattr__(self, name: str) -> Callable[..., sge.Expr]: ...
@@ -97,3 +104,6 @@ else:
     from ibis.backends.sql.compilers.mysql import MySQLCompiler as MySQLCompiler
     from ibis.backends.sql.compilers.postgres import PostgresCompiler as PostgresCompiler
     from ibis.backends.sql.compilers.trino import TrinoCompiler as TrinoCompiler
+    from ibis.expr import operations as _ops
+
+    RelationalOperation = _ops.Relation

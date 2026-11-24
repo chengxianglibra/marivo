@@ -29,7 +29,7 @@ from marivo.analysis.compiler import optimization
 from marivo.analysis.compiler.attribute_frequencies import frequency_read
 from marivo.analysis.compiler.compiled_frame import CompiledFramePlan
 from marivo.analysis.compiler.graph_lowering import lower_query
-from marivo.analysis.compiler.lowered_query import LoweredRead, PopulationCheck
+from marivo.analysis.compiler.lowered_query import LoweredQuery, LoweredRead, PopulationCheck
 from marivo.analysis.compiler.observation import _reduction_cse_key, lower_common_observations
 from marivo.analysis.compiler.optimization import (
     InvocationMemo,
@@ -131,6 +131,10 @@ detail = ms.dimension_column(name='detail', entity=orders, column='detail')
 exact = ms.measure_column(name='exact', entity=orders, column='exact', additivity=ms.additive_all(), unit='CNY')
 approximate = ms.measure_column(name='approximate', entity=orders, column='approximate', additivity=ms.additive_all(), unit='CNY')
 ordered_at = ms.time_dimension_column(name='ordered_at', entity=orders, column='ordered_at')
+report_day = ms.dimension_column(name='report_day', entity=orders, column='ordered_at')
+@ms.dimension(entity=orders)
+def small_id(rows):
+    return rows.id.cast('int8')
 other = ms.entity(name='other', datasource=ms.ref.datasource('second'), source=md.table('orders'), primary_key=['id'])
 other_amount = ms.measure_column(name='amount', entity=other, column='amount', additivity=ms.additive_all(), unit='CNY')
 """,
@@ -2183,3 +2187,226 @@ def test_joint_weighted_components_retain_both_raw_operands(
             ]
             assert pd.isna(table["__original_weight"].iloc[1])
         assert output.table.iloc[0, :2].tolist() == pytest.approx([50 / 3, 50 / 3])
+
+
+@pytest.mark.parametrize(
+    "reducer,expected",
+    (
+        ("count", [2, 1]),
+        ("entity.count", [2, 2]),
+        ("min", [Decimal("10.01"), Decimal("30.02")]),
+        ("max", [Decimal("20.03"), Decimal("30.02")]),
+    ),
+)
+def test_implicit_per_collapse_removes_only_the_sample_group(
+    optimization_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    reducer: str,
+    expected: list[Decimal | int],
+) -> None:
+    session = optimization_session
+    orders = catalog_value(session.catalog, "sales.orders", kind="entity")
+    amount = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
+    sample = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    report = catalog_value(session.catalog, "sales.orders.report_day", kind="dimension")
+    if reducer == "entity.count":
+        metric = orders.count().per(sample).sum()
+    elif reducer == "count":
+        metric = amount.count().per(sample).sum()
+    elif reducer == "min":
+        metric = amount.min().per(sample).min()
+    else:
+        metric = amount.max().per(sample).max()
+    query = session.observe({"value": metric}, by=(report,))
+    decisions: list[RuleDecision] = []
+    fusion = sample_fusion.fuse_sample_reductions
+
+    def capture_decisions(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
+        result = fusion(prepared, lowered)
+        decisions.extend(
+            item
+            for item in result.plan.optimization_decisions
+            if item.rule == "implicit_per_collapse"
+        )
+        return result
+
+    monkeypatch.setattr(sample_fusion, "fuse_sample_reductions", capture_decisions)
+    for enabled, groups in ((False, 2), (True, 1)):
+        policy = OptimizationPolicy.default().with_rule("implicit_per_collapse", enabled=enabled)
+        with monkeypatch.context() as observed:
+            trace = capture_source(observed)
+            result = compute_with_policy(query, policy).to_pandas()
+        assert result.sort_values(result.columns[0])["value"].tolist() == expected
+        (sql,) = trace.native_sql
+        assert (
+            len(list(sqlglot.parse_one(sql, read="duckdb").find_all(sqlglot.exp.Group))) == groups
+        )
+        assert [decision.status for decision in decisions] == (["adopted"] if enabled else [])
+
+
+@pytest.mark.parametrize("case", ("nonmatching-reducers", "explicit-population"))
+def test_implicit_per_collapse_preserves_counterexamples(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    if case == "explicit-population":
+        samples = mv.coordinates(by=(region,), keys=(("A",), ("missing",)))
+        metric, expected = amount.count().per(samples).sum(), 2
+    else:
+        metric, expected = amount.min().per(region).max(), 20
+    trace = capture_source(monkeypatch)
+    result = session.observe({"value": metric}).compute().to_pandas()
+    assert result["value"].tolist() == [expected]
+    (sql,) = trace.native_sql
+    assert sql.upper().count("GROUP BY") >= 1
+
+
+def test_implicit_per_collapse_preserves_native_decimal_sum_overflow(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = optimization_session
+    with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders (id, region, exact) VALUES "
+            "(1, 'A', 900000000000000000000000000000000000.00),"
+            "(2, 'B', -900000000000000000000000000000000000.00),"
+            "(3, 'A', 900000000000000000000000000000000000.00),"
+            "(4, 'B', -900000000000000000000000000000000000.00)"
+        )
+    amount = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    with monkeypatch.context() as observed:
+        trace = capture_source(observed)
+        with pytest.raises(MaterializationError):
+            session.observe({"value": amount.sum().per(region).sum()}).compute()
+    (sql,) = trace.native_sql
+    assert sql.upper().count("SUM(") == 2
+    direct = session.observe({"value": amount.sum()}).compute().to_pandas()
+    assert direct["value"].tolist() == [Decimal("0.00")]
+
+
+@pytest.mark.parametrize("empty", (False, True))
+def test_implicit_per_collapse_completes_scalar_empty_and_null_samples(
+    optimization_session: Session, empty: bool
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
+    orders = catalog_value(session.catalog, "sales.orders", kind="entity")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
+        connection.execute("DELETE FROM orders" if empty else "UPDATE orders SET exact = NULL")
+    for metric, expected in (
+        (amount.count().per(region).sum(), 0),
+        (orders.count().per(region).sum(), 0 if empty else 4),
+        (amount.min().per(region).min(), None),
+        (amount.max().per(region).max(), None),
+    ):
+        query = session.observe({"value": metric})
+        result = query.compute().to_pandas()
+        assert len(result) == 1
+        actual = result["value"].iloc[0]
+        if expected is None:
+            assert pd.isna(actual)
+        else:
+            assert actual == expected
+
+
+@pytest.mark.parametrize("strict_at", ("source", "sample"))
+def test_implicit_per_collapse_preserves_strict_null_checks(
+    optimization_session: Session, strict_at: str
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    metric = (
+        amount.min(nulls="error").per(region).min()
+        if strict_at == "source"
+        else amount.min().per(region).min(nulls="error")
+    )
+    with pytest.raises(AnalysisError) as invalid:
+        session.observe({"value": metric}).compute()
+    cause = invalid.value.__cause__
+    assert isinstance(cause, SemanticExpressionError)
+    expected = "non-NA source values" if strict_at == "source" else "non-NA internal samples"
+    assert cause.expected == expected
+
+
+def test_implicit_per_collapse_keeps_computed_sample_key_failures(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = optimization_session
+    with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
+        connection.execute("UPDATE orders SET id = 128 WHERE id = 4")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    sample = catalog_value(session.catalog, "sales.orders.small_id", kind="dimension")
+    trace = capture_source(monkeypatch)
+    with pytest.raises(MaterializationError):
+        session.observe({"value": amount.count().per(sample).sum()}).compute()
+    (sql,) = trace.native_sql
+    assert "GROUP BY" in sql.upper()
+
+
+@pytest.mark.parametrize("reducer,sign", (("min", 1), ("max", -1)))
+def test_implicit_per_collapse_keeps_physical_extremum_carrier_failure(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch, reducer: str, sign: int
+) -> None:
+    session = optimization_session
+    extreme = (2**127 - 1) * sign
+    with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
+        connection.execute("ALTER TABLE orders ALTER COLUMN amount TYPE HUGEINT")
+        connection.execute("UPDATE orders SET amount=? WHERE region='B'", [str(extreme)])
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    metric = amount.min().per(region).min() if reducer == "min" else amount.max().per(region).max()
+    query = session.observe({"value": metric})
+    trace = capture_source(monkeypatch)
+    with pytest.raises(MaterializationError) as failure:
+        query.compute()
+    assert failure.value.stage == "source_execution"
+    assert "DECIMAL(38,0)" in (failure.value.received or "")
+    (sql,) = trace.native_sql
+    assert sql.upper().count("GROUP BY") == 1
+
+
+def test_implicit_per_collapse_keeps_native_view_sample_failure(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = optimization_session
+    with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
+        connection.execute("ALTER TABLE orders RENAME TO raw_orders")
+        connection.execute(
+            "CREATE VIEW orders AS SELECT * REPLACE (CASE WHEN id=4 THEN "
+            "CAST(CAST('invalid'||id AS BIGINT) AS VARCHAR) ELSE region END AS region) "
+            "FROM raw_orders"
+        )
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    trace = capture_source(monkeypatch)
+    with pytest.raises(MaterializationError) as failure:
+        session.observe({"value": amount.count().per(region).sum()}).compute()
+    assert failure.value.stage == "source_execution"
+    assert "invalid4" in (failure.value.received or "")
+    (sql,) = trace.native_sql
+    assert sql.upper().count("GROUP BY") == 1
+
+
+def test_implicit_per_collapse_keeps_collated_parent_representatives(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = optimization_session
+    with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
+        connection.execute("ALTER TABLE orders ALTER COLUMN region TYPE VARCHAR COLLATE NOCASE")
+        connection.execute("UPDATE orders SET region = 'a' WHERE id = 2")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    sample = catalog_value(session.catalog, "sales.orders.detail", kind="dimension")
+    parent = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    query = session.observe({"value": amount.count().per(sample).sum()}, by=(parent,))
+    trace = capture_source(monkeypatch)
+    result = query.compute().to_pandas()
+    represented = result[result.iloc[:, 0].notna()]
+    assert dict(represented.itertuples(index=False, name=None)) == {"A": 1, "B": 1, "a": 1}
+    (sql,) = trace.native_sql
+    assert sql.upper().count("GROUP BY") == 2

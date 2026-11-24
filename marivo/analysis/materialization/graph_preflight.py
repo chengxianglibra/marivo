@@ -13,6 +13,7 @@ from marivo._kernel.numeric_types import exact_unsigned
 from marivo._kernel.refs import ref
 from marivo.datasource.spi import (
     BoundSource,
+    GroupingSetsAggregate,
     PhysicalRequirement,
     SourceSession,
 )
@@ -37,7 +38,7 @@ def relation_operations(relation: ir.Table) -> frozenset[PhysicalOperation]:
             operations.add("filter")
         elif isinstance(node, ops.Project):
             operations.add("project")
-        elif isinstance(node, ops.Aggregate):
+        elif isinstance(node, (ops.Aggregate, GroupingSetsAggregate)):
             operations.add("group")
         elif isinstance(node, (ops.JoinChain, ops.JoinLink)):
             operations.add("join")

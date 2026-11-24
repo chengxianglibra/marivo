@@ -30,6 +30,7 @@ from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._kernel.temporal import Grain
 from marivo.analysis.binding.programs import FormulaProgram
 from marivo.analysis.compiler.native_formula import normalized_returned_key
+from marivo.analysis.compiler.sample_collapse import collapse_implicit_sample
 from marivo.analysis.compiler.sample_values import coincident_sample_keys, reduce_sample_value
 from marivo.analysis.compiler.source_predicates import (
     aggregate_returned_keys,
@@ -269,6 +270,25 @@ class SampleLowerer:
         return UniqueKeys(
             tuple(table.columns),
             (keys,) if all(value.unique_keys.proves(keys) for value in values) else (),
+        )
+
+    def lower_implicit_per(
+        self, node: PerReduce, path: tuple[int, ...], keys: tuple[str, ...], source_id: str
+    ) -> SampleRelation | str:
+        """Preserve the native child reducer while bypassing its sample grain."""
+        bindings = self.bindings((*path, 0))
+        if len(bindings) != 1:
+            return "The sample does not have a single source input."
+        binding = bindings[0]
+        source = self.relations[binding.stage_id]
+        result = collapse_implicit_sample(node, source, keys, binding, source_id, self.provider)
+        if isinstance(result, str):
+            return result
+        return SampleRelation(
+            result,
+            binding.column.slot_id,
+            zero_when_absent=node.reducer == "sum",
+            unique_keys=UniqueKeys(tuple(result.columns), (keys,)),
         )
 
     def lower(

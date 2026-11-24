@@ -6,20 +6,25 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, NoReturn
 
 import ibis
+import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import (
     EntityCount,
+    RowField,
     SourceAggregate,
     SourceWeightedMean,
 )
 from marivo.analysis.compiler.observation import lower_observation
+from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.compiler.query_stages import (
     AttributeCheckLayout,
     AttributeLeafInput,
     AttributeRootLayout,
+    SourceReadStage,
     read_reduction,
+    require_attribute,
     require_reduction,
 )
 from marivo.analysis.core.attribute import (
@@ -27,6 +32,8 @@ from marivo.analysis.core.attribute import (
     AttributeInputReason,
 )
 from marivo.analysis.core.value_types import ibis_type
+from marivo.analysis.model.summary_traits import summary_trait
+from marivo.datasource.spi import QueryDialectProfile, grouping_sets_aggregate
 from marivo.semantic.spi import (
     NumericCheck,
     NumericValue,
@@ -319,6 +326,152 @@ class _FiberAggregation:
         return result.mutate(**{self.layout.kind: ibis.literal(kind)})
 
 
+def _grouping_reduction_supported(
+    leaf: AttributeLeafInput,
+    fields: dict[str, ir.Value],
+    dialect: QueryDialectProfile,
+    *,
+    parent_has_checks: bool,
+) -> bool:
+    reduction = require_reduction(leaf.read)
+    if reduction.duration is not None or reduction.preserve_sample_presence:
+        return False
+    node = reduction.node
+    if isinstance(node, EntityCount):
+        return True
+    if not isinstance(node, SourceAggregate) or not isinstance(node.operand, RowField):
+        return False
+    summary = summary_trait(node.reducer, nulls_policy=node.nulls)
+    if summary.l6_class == "additive_count":
+        return True
+    if summary.l6_class != "three_state_sum":
+        return False
+    dtype = lower_row(node.operand, fields).value.type()
+    if isinstance(dtype, dt.Decimal):
+        # An admitted signed-64-bit support count times this scaled input
+        # magnitude still fits the signed native 38-digit accumulator.
+        return (
+            dtype.precision is not None
+            and dtype.precision + 19 < dialect.grouping_sets_decimal_accumulator_precision
+        )
+    # A widened native SUM can still fail narrowing during Arrow transport.
+    # An overflowing fine cell must not preempt an earlier parent diagnostic.
+    return (
+        not parent_has_checks
+        and bool(dtype.is_signed_integer())
+        and dtype.nbytes in dialect.grouping_sets_wide_integer_sum_bytes
+    )
+
+
+def lower_attribute_grouping(
+    fine: SourceReadStage,
+    parent: AttributeRootLayout,
+    source: ir.Table,
+    dialect: QueryDialectProfile,
+    *,
+    parent_has_checks: bool,
+) -> ir.Table | None:
+    """Lower compatible Attribute roles over their proven shared contribution stream."""
+    layout = require_attribute(fine)
+    if (
+        layout.partition
+        or layout.population is not None
+        or layout.native_formulas
+        or not set(layout.parent_keys) < set(layout.keys)
+        or len(layout.keys) > 31
+        or any(leaf.distinct is not None for leaf in layout.leaves)
+    ):
+        return None
+
+    columns = dict(fine.field_columns)
+    predicates = tuple(
+        lower_condition(node, {path: source[name] for path, name in columns.items()}).value
+        for node in fine.predicates
+    )
+    if predicates:
+        source = source.filter(*predicates)
+    source = source.filter(source[layout.fiber] == layout.leaves[0].fiber)
+    fields = {path: source[name] for path, name in columns.items()}
+    if not all(
+        _grouping_reduction_supported(leaf, fields, dialect, parent_has_checks=parent_has_checks)
+        for leaf in layout.leaves
+    ):
+        return None
+
+    keys = {slot: fields[path] for slot, path in require_reduction(fine).axes}
+    parent_keys = {slot: source[name] for slot, name in parent.scoped_columns}
+    if (
+        set(keys) != set(layout.keys)
+        or set(parent_keys) != set(layout.parent_keys)
+        or any(keys[slot].op() != key.op() for slot, key in parent_keys.items())
+    ):
+        return None
+
+    active = _parent_active(layout, source)
+    metrics = {
+        **_grouping_role_metrics(layout, source, columns, keys, 0),
+        **_grouping_role_metrics(parent, source, columns, parent_keys, 1),
+    }
+    combined = grouping_sets_aggregate(source, keys, metrics, layout.parent_keys, layout.kind)
+    if not layout.parent_keys:
+        combined = combined.filter((combined[layout.kind] == 0) | active)
+    return _union_attribute_relations(
+        (combined.mutate(**{layout.fiber: ibis.literal(layout.leaves[0].fiber)}),)
+    )
+
+
+def _grouping_role_metrics(
+    layout: AttributeRootLayout,
+    source: ir.Table,
+    columns: dict[str, str],
+    keys: dict[str, ir.Value],
+    kind: int,
+) -> dict[str, ir.Value]:
+    aggregation = _FiberAggregation(layout, columns, ibis.literal(True))
+    metrics: dict[str, ir.Value] = {}
+    for leaf in layout.leaves:
+        reduction = require_reduction(leaf.read)
+        original, _ = lower_observation(
+            replace(
+                reduction, axes=tuple((slot, path) for slot, path in reduction.axes if slot in keys)
+            ),
+            source,
+            columns,
+            (),
+        )
+        aggregate = original.op()
+        assert isinstance(aggregate, ops.Aggregate)
+        metrics.update(
+            (
+                name
+                if name == reduction.value_slot
+                else original_input_slot(kind, leaf.read.occurrence, name),
+                value.to_expr(),
+            )
+            for name, value in aggregate.metrics.items()
+        )
+        metrics.update(aggregation.leaf_values(leaf, source, keys, kind))
+    return metrics
+
+
+def _parent_active(layout: AttributeRootLayout, table: ir.Table) -> ir.BooleanValue:
+    if layout.parent_keys:
+        return ibis.literal(True)
+    selected_parent = next(
+        (
+            leaf
+            for leaf in table.op().find(ops.UnboundTable)
+            if leaf.name == layout.parent_parameter.placeholder
+        ),
+        None,
+    )
+    if selected_parent is None:
+        input_failure(
+            "missing_component_proof", "the captured complete parent parameter is missing"
+        )
+    return selected_parent.to_expr().count() > 0
+
+
 def _lower_attribute_fiber(
     layout: AttributeRootLayout, table: ir.Table, field_columns: dict[str, str]
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...], tuple[AttributeCheckLayout, ...]]:
@@ -337,22 +490,7 @@ def _lower_attribute_fiber(
         if slot in {slot for slot, _ in require_reduction(representative).calendars}
     )
     parent_axes = {slot: table[column] for slot, column in layout.scoped_columns}
-    parent_active: ir.BooleanValue = ibis.literal(True)
-    if not layout.parent_keys:
-        selected_parent = next(
-            (
-                leaf
-                for leaf in table.op().find(ops.UnboundTable)
-                if leaf.name == layout.parent_parameter.placeholder
-            ),
-            None,
-        )
-        if selected_parent is None:
-            input_failure(
-                "missing_component_proof", "the captured complete parent parameter is missing"
-            )
-        parent_active = selected_parent.to_expr().count() > 0
-    aggregation = _FiberAggregation(layout, field_columns, parent_active)
+    aggregation = _FiberAggregation(layout, field_columns, _parent_active(layout, table))
 
     if layout.scope == "parent":
         relations: tuple[ir.Table, ...] = (aggregation.aggregate(table, parent_axes, 1),)

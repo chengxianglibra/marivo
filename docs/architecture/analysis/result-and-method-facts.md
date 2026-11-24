@@ -107,16 +107,18 @@ child `method`; result columns retain the final unit. The original typed divisor
 is preserved rather than replaced by a reciprocal multiplication coefficient.
 Additive expressions containing division retain their ordered linear wrappers
 and nested division facts through publication and independent recovery.
-Parent support describes the independent parent read; fine support and presence
-describe the fine read. They do not certify matching source versions or identities.
+Parent support and fine support describe their respective logical roles. Fine
+presence describes the same completed fine role. When eligible, the two roles
+share one native grouping sets statement. These facts do not certify matching
+source versions or identities.
 Paired rate/mix facts retain `symmetric_rate_mix/v1`, `attribute_components/v1`
 and `zero_mass_entry_exit/v1`. Output mappings include within, mix and entry_exit;
 mixed additive/rate formulas additionally retain additive effects. Level and pure
 additive targets have no artificial rate/mix columns. Each linear child retains its
 own denominator. Filtering and reduction preserve the original complete explanation,
 rather than changing the effect boundaries or recomputing a coarser decomposition.
-Actual independent reads are retained separately. The method retains its local final-target closure
-policy: `attribute_rate_mix/v1` uses numeric rounding only for paired rate/mix;
+Source read identities describe the statements actually submitted. The method
+retains its local final-target closure policy: `attribute_rate_mix/v1` uses numeric rounding only for paired rate/mix;
 unchanged additive/level paths retain `attribute_closure/v2` with the Float64 1%
 final-target allowance and a numeric rounding floor. Component consistency and
 positive-support original N/D checks precede the new effect closure. These checks

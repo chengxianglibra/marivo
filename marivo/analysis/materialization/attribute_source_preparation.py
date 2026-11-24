@@ -111,10 +111,10 @@ def prepare_attribute_endpoint(
     rules: tuple[tuple[str, AttributeRule], ...],
     *,
     memo: InvocationMemo,
-) -> tuple[PreparedSources, QueryPlan]:
+) -> tuple[PreparedSources, QueryPlan, frozenset[str]]:
     """Prepare and qualify this captured endpoint's original contribution inputs."""
     positions = mapping.left_parents if side == 0 else mapping.right_parents
-    prepared, scope_columns, parent_checks = prepare_attribute_sources(
+    prepared, scope_columns, parent_checks, grouping_roots = prepare_attribute_sources(
         prepared, graph, state, len(positions)
     )
     original = plan_query(graph, prepared.schemas, memo=memo, require_original=True)
@@ -144,7 +144,7 @@ def prepare_attribute_endpoint(
         "left" if side == 0 else "right",
         parent_checks,
     )
-    return prepared, plan
+    return prepared, plan, grouping_roots
 
 
 def _attribute_scope_groups(
@@ -192,6 +192,7 @@ class _AttributeFiberScope:
     parent_slots: tuple[tuple[str, str], ...]
     parent_reads: tuple[FieldRead | EntityIdentityRead, ...]
     has_memberships: bool
+    shares_observed_rows: bool
 
 
 def _prepare_fiber_scope(
@@ -288,7 +289,46 @@ def _prepare_fiber_scope(
     parent_slots = tuple(sorted(parent_slots, key=lambda item: int(item[0].split(".")[1])))
 
     return _AttributeFiberScope(
-        scoped, classified, parent_slots, parent_reads, bool(new_memberships)
+        scoped,
+        classified,
+        parent_slots,
+        parent_reads,
+        bool(new_memberships),
+        _shares_observed_rows(first, classified, parent_reads),
+    )
+
+
+def _shares_observed_rows(
+    first: ContributionBinding,
+    classified: PreparedFields,
+    parent_reads: tuple[FieldRead | EntityIdentityRead, ...],
+) -> bool:
+    # A newly projected direct root field or root identity cannot change the
+    # admitted rows. Both scopes otherwise prepare the same reads, conditions,
+    # owner, contribution clock and selection. Path/version/membership additions
+    # cannot use this projection proof.
+    classifications = first.coordinates[len(parent_reads) :]
+    columns = dict(classified.columns)
+    original_columns = dict(classified.originals)
+    return (
+        bool(classifications)
+        and not first.memberships
+        and all(read in parent_reads for _, read in first.population_reads)
+        and not first.calendars
+        and all(
+            read.entity == first.root
+            and not read.path
+            and read.at is None
+            and read.source_at is None
+            and not read.step_ats
+            and (not isinstance(read, FieldRead) or not read.versioned)
+            and all(
+                (value := original_columns.get(columns[path])) is not None
+                and isinstance(value.op(), ops.Field)
+                for path in coordinate_read_keys(read)
+            )
+            for read in classifications
+        )
     )
 
 
@@ -562,6 +602,7 @@ def prepare_attribute_sources(
     PreparedSources,
     dict[str, tuple[tuple[str, str], ...]],
     dict[str, tuple[tuple[str, str, str], ...]],
+    frozenset[str],
 ]:
     """Prepare independent unclassified parent and classified fine root streams."""
 
@@ -580,6 +621,7 @@ def prepare_attribute_sources(
     schemas = list(prepared.schemas)
     scoped_columns: dict[str, tuple[tuple[str, str], ...]] = {}
     parent_checks: dict[str, tuple[tuple[str, str, str], ...]] = {}
+    grouping_roots: set[str] = set()
     for root, leaves in contributions.items():
         fibers = []
         for index, group in enumerate(_attribute_scope_groups(root, leaves)):
@@ -591,6 +633,8 @@ def prepare_attribute_sources(
             fibers.append(fiber)
         scoped_columns[root] = fibers[-1].scope.parent_slots
         parent_checks[root] = fibers[-1].scope.scoped.checks
+        if len(fibers) == 1 and fibers[0].scope.shares_observed_rows:
+            grouping_roots.add(root)
         raw = _union_fibers(tuple(fiber.values for fiber in fibers))
         parent = _union_fibers(tuple(fiber.parent for fiber in fibers))
         checks = _union_fibers(tuple(fiber.checks for fiber in fibers))
@@ -607,4 +651,5 @@ def prepare_attribute_sources(
         replace(prepared, schemas=tuple(schemas), relations=relations),
         scoped_columns,
         parent_checks,
+        frozenset(grouping_roots),
     )

@@ -233,13 +233,16 @@ ClickHouse uses a private native one-based window rank for endpoint selection,
 avoiding arithmetic on the window expression that 22.3 cannot execute. This
 does not change the selected child's value type or NULL policy.
 
-Qualified numeric internal samples execute as nested native relations on DuckDB,
+Qualified numeric internal samples execute as native relations on DuckDB,
 PostgreSQL, MySQL, Trino and ClickHouse. Each layer completes its child Metric at
 its full external/internal key grain, including Metric arithmetic, before applying
 the outer reducer. SUM followed by sample AVG or quantile therefore retains the
 SUM sample boundary. Compatible summaries share one actual aggregate; multiple
 exact quantiles can share one native multi-quantile state. Only completed output
 values and required checks cross the source boundary.
+Eligible direct implicit single-value field samples may combine count with sum or pair
+matching extrema in one native grouping level. The plan still preserves the sample's
+logical keys, null policy, and completion rules.
 
 Implicit field/TimeField samples retain their observed joint keys. Explicit
 Population domains complete child values with their existing absence rules at

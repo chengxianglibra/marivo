@@ -12,6 +12,7 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.compiler.query_stages import SourceReadStage, require_attribute
 from marivo.analysis.core.attribute import AttributeInputError
 from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_level_facts import (
@@ -22,7 +23,9 @@ from marivo.analysis.core.frame_level_facts import (
     FrameLevelSupport,
 )
 from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod, FrameMethodSupport
+from marivo.analysis.materialization import source_reads
 from marivo.analysis.methods.attribute_numeric import _numeric_binary, _Value
+from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.analysis.methods.frame_attribute_report import _closure, _report_value
 from marivo.analysis.model.attribute_failures import AttributeClosureWitness, AttributeParentFiber
 from marivo.analysis.model.data_types import (
@@ -36,12 +39,15 @@ from marivo.analysis.model.errors import CoreRuleError
 from marivo.analysis.model.execution_errors import MaterializationError
 from marivo.analysis.model.method_targets import FrameMethodOutput, FrameMethodTarget
 from marivo.analysis.model.method_values import FrameMethodValue
+from marivo.analysis.model.optimization_policy import OptimizationPolicy
 from marivo.analysis.session.core import Session
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.datasource.runtime.read_types import CompiledRead
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
+from marivo.semantic.spi import NumericCheck
 from tests.shared_fixtures import catalog_value
+from tests.support.optimization import compute_with_policy
 
 _INT = ScalarDataType("int64")
 _FLOAT = ScalarDataType("float64")
@@ -698,8 +704,9 @@ def test_report_preserves_historical_values_with_finer_parent_carrier_and_reorde
         assert pa.array(rows[name]).type == pa.decimal128(38, 4)
 
 
+@pytest.mark.parametrize("grouping_sets", (False, True))
 def test_report_rejects_float_carrier_for_exact_large_historical_value(
-    numeric_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    numeric_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, grouping_sets: bool
 ) -> None:
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
         connection.execute(
@@ -711,12 +718,16 @@ def test_report_rejects_float_carrier_for_exact_large_historical_value(
     assert selected.to_pandas()["q"].tolist() == [Decimal("9007199254740993")]
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=1")
-    execute = SourceSession.execute
+    complete = source_reads._complete_attribute_read
 
-    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
-        rows = execute(self, issued)
-        if "__attribute_kind" not in rows or "attribute-parent:" in issued.purpose:
-            return rows
+    def complete_fine_with_float(
+        stage: SourceReadStage,
+        frame: pd.DataFrame,
+        checks: tuple[tuple[str, NumericCheck], ...],
+    ) -> StageOutput:
+        if require_attribute(stage).scope != "fine":
+            return complete(stage, frame, checks)
+        rows = frame.copy()
         for name in rows:
             assert isinstance(name, str)
             if (
@@ -725,11 +736,15 @@ def test_report_rejects_float_carrier_for_exact_large_historical_value(
                 or name.startswith("attribute.native.")
             ):
                 rows[name] = rows[name].astype("float64[pyarrow]")
-        return rows
+        return complete(stage, rows, checks)
 
-    monkeypatch.setattr(SourceSession, "execute", read)
+    monkeypatch.setattr(source_reads, "_complete_attribute_read", complete_fine_with_float)
+    report = selected.attribute(by=(channel,))
+    policy = OptimizationPolicy.default().with_rule(
+        "attribute_grouping_sets", enabled=grouping_sets
+    )
     with pytest.raises(MaterializationError) as error:
-        selected.attribute(by=(channel,)).compute()
+        compute_with_policy(report, policy)
     assert error.value.expected == "a lossless common Attribute report carrier"
 
 

@@ -131,11 +131,17 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
         ]
         parent_reads = [purpose for purpose in purposes if "attribute-parent:" in purpose]
         assert parent_reads
-        assert all(
-            purpose.replace("attribute-parent:", "", 1) in purposes for purpose in parent_reads
-        )
         # Nullable physical keys do not introduce an identity preflight read.
-        assert len(trace.native_sql) == 2 and trace.returned_rows == [1, 4]
+        if backend == "postgres":
+            assert purposes == parent_reads
+            assert trace.returned_rows == [5]
+            assert "GROUPING SETS" in trace.native_sql[0].upper()
+        else:
+            assert all(
+                purpose.replace("attribute-parent:", "", 1) in purposes for purpose in parent_reads
+            )
+            assert len(trace.native_sql) == 2
+            assert trace.returned_rows == [1, 4]
         submissions = tuple(trace.native_sql)
         saved = report.persist()
         assert saved.source_reads[: len(inherited)] == inherited

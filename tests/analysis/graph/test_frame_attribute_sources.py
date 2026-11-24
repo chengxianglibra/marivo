@@ -5,14 +5,13 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.compiler.lowered_query import LoweredRead
 from marivo.analysis.compiler.query_stages import SourceReadStage, read_attribute
 from marivo.analysis.dsl.frame_attribute_sources import collect_source_groups
 from marivo.analysis.materialization import source_reads
-from marivo.analysis.materialization.prepared_sources import PreparedSources
 from marivo.analysis.methods.carriers.stages import StageOutput
 from marivo.datasource.runtime.adapters import SourceSession
 from marivo.datasource.runtime.read_types import CompiledRead
+from marivo.semantic.spi import NumericCheck
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
@@ -21,16 +20,14 @@ def _capture_role_inventory(
 ) -> list[tuple[str, str, tuple[str, ...]]]:
 
     roles: list[tuple[str, str, tuple[str, ...]]] = []
-    original = source_reads.read_stage
+    original = source_reads._complete_attribute_read
 
     def read(
-        prepared: PreparedSources,
         stage: SourceReadStage,
-        lowered: LoweredRead,
-        *,
-        value_keys: tuple[str, ...] = (),
+        frame: pd.DataFrame,
+        checks: tuple[tuple[str, NumericCheck], ...],
     ) -> StageOutput:
-        output = original(prepared, stage, lowered, value_keys=value_keys)
+        output = original(stage, frame, checks)
         layout = read_attribute(stage)
         if layout is not None:
             roles.append(
@@ -38,7 +35,7 @@ def _capture_role_inventory(
             )
         return output
 
-    monkeypatch.setattr(source_reads, "read_stage", read)
+    monkeypatch.setattr(source_reads, "_complete_attribute_read", read)
     return roles
 
 
@@ -111,7 +108,7 @@ def test_distinct_metric_formulas_share_each_role_read_and_exclude_unused_rules(
     monkeypatch.setattr(SourceSession, "execute", read)
     report = selected.attribute(by=(channel,)).compute()
     rows = report.to_pandas()
-    assert len(reads) == 2
+    assert len(reads) == 1
     assert roles == [
         ("left", "parent", ("sum", "count")),
         ("left", "fine", ("sum", "count")),
@@ -156,7 +153,7 @@ def test_reordered_comparison_metrics_and_level_target_share_endpoint_reads(
 
     monkeypatch.setattr(SourceSession, "execute", read)
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
-    assert len(reads) == 4
+    assert len(reads) == 2
     assert roles == [
         ("left", "parent", ("sum", "count")),
         ("left", "fine", ("sum", "count")),
