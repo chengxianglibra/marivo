@@ -156,7 +156,8 @@ marivo serve --project-root /srv/sales-project --host 0.0.0.0 --port 8765 \
 省略 `query` 时按规范 ID 的顺序浏览。搜索时传入经 URL 编码的 UTF-8 `query`，
 解码后最多 512 个可打印字符，须含至少一个非空白字符。服务会去掉首尾空格。浏览和
 搜索都支持可选的 `kind` 和 `domain` 筛选。搜索先应用筛选，再按快照中的 ID、路径、
-名称、业务定义和别名进行向量排名。搜索返回最多 30 个余弦相似度达到 0.80 的向量候选。
+名称、业务定义和别名进行向量排名。默认返回最多 30 个余弦相似度达到 0.6 的向量候选。
+传入 `query` 时可用 `min_similarity` 指定 0 到 1 之间的门槛。
 符合筛选条件的精确 ID 或路径匹配排在最前，并可超出候选窗口。搜索使用内存中的快照，
 无需读取业务数据源。
 
@@ -176,14 +177,14 @@ marivo serve --project-root /srv/sales-project --host 0.0.0.0 --port 8765 \
 所有当前向量都可复用时，编码器在首次文本搜索时加载。
 
 浏览和搜索返回相同的对象摘要和分页字段。将 `next_cursor` 作为 `cursor` 传入，
-保持相同查询词、筛选条件和 `limit`。游标与查询条件或快照不匹配时返回
+保持相同查询词、相似度门槛、筛选条件和 `limit`。游标与查询条件或快照不匹配时返回
 `409 invalid_cursor`。此时省略游标，用当前查询条件和快照重新开始。
 
 ```sh
 curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
   'http://127.0.0.1:8765/v2/semantic/objects?kind=metric&domain=sales&limit=20'
 curl -G -H "Authorization: Bearer $MARIVO_API_TOKEN" \
-  --data-urlencode 'query=净收入' --data 'kind=metric' \
+  --data-urlencode 'query=净收入' --data 'kind=metric' --data 'min_similarity=0.75' \
   'http://127.0.0.1:8765/v2/semantic/objects'
 curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
   'http://127.0.0.1:8765/v2/semantic/objects/metric%3Asales.revenue'

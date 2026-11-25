@@ -1,0 +1,15 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.6.14
+title: Marivo 0.6.14
+description: Marivo 0.6.14 版本说明。
+---
+
+发布于 2026 年 11 月 25 日。Marivo 0.6.14 支持配置 Catalog 搜索的相似度门槛。
+
+## 亮点
+
+- 在 `/v2/semantic/objects` 中，传入 `query` 时可通过 `min_similarity` 指定 0 到 1 之间的余弦相似度门槛。精确 ID 和路径匹配仍排在最前，即使它们不在向量候选窗口内。详见[项目读取服务](/zh-cn/docs/latest/reference/read-service/)。
+
+## 变更
+
+- 默认余弦相似度门槛由 0.80 降至 0.6。继续分页时须保持查询词、门槛、筛选条件和 `limit` 不变；改变门槛会使分页游标失效。

@@ -1,0 +1,15 @@
+---
+slug: docs/v0.6/release-notes/0.6.14
+title: Marivo 0.6.14
+description: Release notes for Marivo 0.6.14.
+---
+
+Released on November 25, 2026. Marivo 0.6.14 makes Catalog search thresholds configurable.
+
+## Highlights
+
+- Set `min_similarity` from 0 through 1 alongside `query` on `/v2/semantic/objects` to choose a cosine similarity cutoff for each search. Exact ID and path matches still appear first, including outside the vector candidate window. See the [project read service](/docs/v0.6/reference/read-service/).
+
+## Changed
+
+- The default cosine similarity cutoff is now 0.6, down from 0.80. Continue a search with the same query, cutoff, filters and limit; changing the cutoff invalidates its pagination cursor.

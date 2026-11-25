@@ -189,7 +189,9 @@ Omit `query` to browse in canonical ID order. To search, send a URL-encoded UTF-
 non-whitespace character. Leading and trailing spaces are trimmed. Browsing and
 search accept optional `kind` and `domain` filters. Search applies them to the current
 snapshot before vector ranking its IDs, paths, names, business definitions and aliases.
-Search returns up to 30 vector candidates with cosine similarity at or above 0.80.
+Search returns up to 30 vector candidates with cosine similarity at or above 0.6
+by default. With `query`, set `min_similarity` to a number from 0 through 1 to use
+a different cutoff.
 Exact ID or path matches within the filters come first, including outside that
 window. Search uses captured metadata in memory without datasource reads.
 
@@ -213,15 +215,15 @@ rows, encodes new or changed text, and drops removed rows. If every current row 
 reusable, the first text search initializes the encoder.
 
 Browse and search return the same object summaries and pagination fields. Pass
-`next_cursor` as `cursor` with the same query, filters and limit. A cursor from a
-different selection or snapshot returns `409 invalid_cursor`. Start a new request
-without a cursor to use the current selection and snapshot.
+`next_cursor` as `cursor` with the same query, similarity cutoff, filters and limit.
+A cursor from a different selection or snapshot returns `409 invalid_cursor`.
+Start a new request without a cursor to use the current selection and snapshot.
 
 ```sh
 curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
   'http://127.0.0.1:8765/v2/semantic/objects?kind=metric&domain=sales&limit=20'
 curl -G -H "Authorization: Bearer $MARIVO_API_TOKEN" \
-  --data-urlencode 'query=net revenue' --data 'kind=metric' \
+  --data-urlencode 'query=net revenue' --data 'kind=metric' --data 'min_similarity=0.75' \
   'http://127.0.0.1:8765/v2/semantic/objects'
 curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
   'http://127.0.0.1:8765/v2/semantic/objects/metric%3Asales.revenue'
