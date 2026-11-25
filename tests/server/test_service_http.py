@@ -412,6 +412,10 @@ class Encoder:
                 result[row, 1] = 0.19 ** 0.5
             elif text == "money received" or text.startswith("id: dimension:sales.events.category_"):
                 result[row, 0] = 1
+            elif text == "trip distance":
+                # Cosine scores are 0.864 for total and about 0.722 for all_amount.
+                result[row, 0] = 0.96
+                result[row, 3] = 0.28
             elif text.startswith("id: metric:sales.all_amount\\n"):
                 result[row, 0] = 0.5
                 result[row, 3] = 0.75 ** 0.5
@@ -478,6 +482,14 @@ def test_granite_search_is_vector_only_and_paginates_one_snapshot(tmp_path: Path
         ]
 
         objects = "/v2/semantic/objects"
+        trip_query = objects + "?kind=metric&query=trip%20distance"
+        default = _ok(request(trip_query))
+        stricter = _ok(request(trip_query + "&min_similarity=0.75"))
+        assert [item["id"] for item in default["items"]] == [
+            "metric:sales.total",
+            "metric:sales.all_amount",
+        ]
+        assert [item["id"] for item in stricter["items"]] == ["metric:sales.total"]
         wider = _ok(request(objects + "?query=money+received&kind=metric&min_similarity=0.5"))
         assert [item["id"] for item in wider["items"]] == [
             "metric:sales.total",
@@ -495,7 +507,14 @@ def test_granite_search_is_vector_only_and_paginates_one_snapshot(tmp_path: Path
         search = {"query": "sales.total", "kind": "metric", "domain": "sales", "limit": 1}
         search_url = objects + "?" + urlencode(search)
         ranked = _ok(request(search_url))
-        _schema(_ok(request("/v2/openapi.json")), "ObjectDirectory", ranked)
+        spec = _ok(request("/v2/openapi.json"))
+        _schema(spec, "ObjectDirectory", ranked)
+        threshold = next(
+            parameter
+            for parameter in spec["paths"][objects]["get"]["parameters"]
+            if parameter["name"] == "min_similarity"
+        )
+        assert threshold["schema"]["default"] == 0.6
         # The exact path outranks an object with a strictly higher vector score.
         assert [item["id"] for item in ranked["items"]] == ["metric:sales.total"]
         assert ranked["has_more"] is True

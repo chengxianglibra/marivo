@@ -190,7 +190,7 @@ search accept optional `kind` and `domain` filters. Search applies them to the w
 current snapshot before vector ranking. Granite encodes captured IDs, paths,
 names, business definitions and authored aliases without reading datasources.
 Search returns up to 30 vector candidates at or above the cosine cutoff. The default
-is 0.80. With `query`, set `min_similarity` to a number from 0 through 1 to use a
+is 0.6. With `query`, set `min_similarity` to a number from 0 through 1 to use a
 different cutoff. Exact canonical ID or path matches within the filters come first
 and can fall outside the vector candidate window.
 
@@ -242,7 +242,7 @@ Start a new request without a cursor to use the current selection and snapshot.
 curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
   'http://127.0.0.1:8765/v2/semantic/objects?kind=metric&domain=sales&limit=20'
 curl -G -H "Authorization: Bearer $MARIVO_API_TOKEN" \
-  --data-urlencode 'query=net revenue' --data 'kind=metric' \
+  --data-urlencode 'query=net revenue' --data 'kind=metric' --data 'min_similarity=0.75' \
   'http://127.0.0.1:8765/v2/semantic/objects'
 curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
   'http://127.0.0.1:8765/v2/semantic/objects/metric%3Asales.revenue'

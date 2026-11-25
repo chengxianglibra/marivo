@@ -59,7 +59,7 @@ from marivo.server.wire import API_VERSION, STATUS, JsonObject, JsonValue
 
 KINDS = tuple(kind.value for kind in SemanticKind)
 MAX_SEARCH_QUERY_LENGTH = 512
-DEFAULT_SEARCH_MIN_SIMILARITY = 0.80
+DEFAULT_SEARCH_MIN_SIMILARITY = 0.6
 
 
 @dataclass(frozen=True)
@@ -91,8 +91,9 @@ ROUTES = (
         description=(
             "Omit query to browse in canonical ID order. Text search uses Granite vectors. "
             "Apply kind and domain filters before ranking up to 30 vector candidates at or above "
-            "min_similarity (default 0.80). Exact ID or path matches within the filters come first, "
-            "including outside the candidate window. "
+            f"min_similarity (default {DEFAULT_SEARCH_MIN_SIMILARITY}). "
+            "Exact ID or path matches within the filters come first, including outside the "
+            "candidate window. "
             "Continue with the same query, similarity threshold, filters and limit until "
             "next_cursor is null."
         ),

@@ -43,7 +43,7 @@ URL-encoded UTF-8 ``query`` for vector search over IDs, paths, names, business
 definitions and authored aliases. Use at most 512 decoded printable characters with
 at least one non-whitespace character. The optional ``kind`` and ``domain`` filters
 apply before ranking. Search pages cover up to 30 vector candidates with cosine
-similarity at or above 0.80 by default. With ``query``, set ``min_similarity`` from
+similarity at or above 0.6 by default. With ``query``, set ``min_similarity`` from
 0 through 1 to use a different cutoff. Exact ID or path matches come first and
 can fall outside that window. Browse and search use the same summary response.
 Pass ``next_cursor`` as ``cursor`` with the same query, similarity cutoff, filters and ``limit``
